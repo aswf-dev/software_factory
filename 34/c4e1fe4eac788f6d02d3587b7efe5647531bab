@@ -1,0 +1,24 @@
+.gitignore
+  h_1b119f25eaf333 1-36
+README.md
+  h_1b119f25eaf333 1-36
+docs/00-source-summary.md
+  h_1b119f25eaf333 1-210
+docs/01-value-stream-map.md
+  h_1b119f25eaf333 1-290
+docs/02-architecture.md
+  h_1b119f25eaf333 1-309
+docs/How_to_Maximize_the__843405_ndx.pdf
+  h_1b119f25eaf333 1-11289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "34c4e1fe4eac788f6d02d3587b7efe5647531bab",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
