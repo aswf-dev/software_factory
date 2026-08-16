@@ -1,0 +1,52 @@
+.github/factory/risk-paths.yml
+  h_1b119f25eaf333 1-53
+.github/workflows/test.yml
+  h_1b119f25eaf333 1-43
+.gitignore
+  h_1b119f25eaf333 19-23
+CODEOWNERS
+  h_1b119f25eaf333 1-29
+README.md
+  h_1b119f25eaf333 31,44-56
+catalog-info.yaml
+  h_1b119f25eaf333 1-31
+docs/01-value-stream-map.md
+  h_1b119f25eaf333 286
+docs/02-architecture.md
+  h_1b119f25eaf333 359
+docs/03-idp-backstage.md
+  h_1b119f25eaf333 202
+docs/09-roadmap.md
+  h_1b119f25eaf333 230-231
+docs/10-open-questions.md
+  h_1b119f25eaf333 6-7,9-11,17,26,30,115,120-135,143-150
+docs/11-test-strategy.md
+  h_1b119f25eaf333 1-365
+package-lock.json
+  h_1b119f25eaf333 1-1919
+package.json
+  h_1b119f25eaf333 1-29
+src/scoring/score.test.ts
+  h_1b119f25eaf333 1-267
+src/scoring/score.ts
+  h_1b119f25eaf333 1-176
+src/scoring/types.ts
+  h_1b119f25eaf333 1-83
+test/adversarial/guardrails.test.ts
+  h_1b119f25eaf333 1-136
+tsconfig.json
+  h_1b119f25eaf333 1-22
+vitest.config.ts
+  h_1b119f25eaf333 1-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "0ec29febb2c8aa7121295708a79000ba7dc612a4",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
