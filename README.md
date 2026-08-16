@@ -46,10 +46,13 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 本 repo 同時是工廠的**試點對象**（dogfooding，見 `docs/11-test-strategy.md` §1）。
 
 ```bash
-npm ci              # 安裝（版本已精確鎖定）
-npm run typecheck   # TypeScript strict 檢查
-npm test            # 56 則測試（單元 + 對抗性）
-npm run coverage    # 覆蓋率門檻：scoring 需 100% 分支
+npm ci                    # 安裝（版本已精確鎖定）
+npm run typecheck         # TypeScript strict 檢查
+npm test                  # 122 則測試
+npm run test:unit         #   74 則：計分邏輯、停手規則
+npm run test:integration  #   27 則：DSH 契約、gh CLI 解析
+npm run test:adversarial  #   21 則：guardrail 是否真的擋得住
+npm run coverage          # 門檻：scoring/stop-rules 需 100% 分支
 ```
 
 > **注意**：工廠對本 repo **永不自動合併**（`catalog-info.yaml` 的 `factory.io/agent-automerge: "false"`）。理由：agent 驗證自己的產出是 `docs/06` §4.3 明文禁止的模式。
