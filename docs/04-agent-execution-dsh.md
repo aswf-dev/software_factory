@@ -119,32 +119,77 @@ $DSH_HOME/profiles/factory/
 dsh --profile factory "<任務描述>"
 ```
 
-> ⚠️ **待實作驗證（重要）**：`$DSH_HOME/profiles` 目前**只有 `web` profile**（已實測），`headless` profile 尚未佈建。`dsh --profile headless` 是否會自動佈建、或需先手動建立 profile 目錄，**必須在實作第一步驗證**。這是 Q02-1。
+> ✅ **Q02-1/Q04-1 已實測解決（2026-08-16）**：**profile 目錄會自動佈建**，無須手動建立。首次執行 `dsh --profile headless "<task>"` 後，`$DSH_HOME/profiles/headless/` 隨即出現，內含 `package.json`（bundles: `dsh-base` + `dsh-headless`）與空的 `cordis.patch.yml`（內容為 `[]`，即預留給使用者的覆寫層）。
+>
+> **因此工廠不需要另建 `factory` profile**——直接沿用自動佈建的 `headless` profile，再以 `--patch` 施加 guardrail 即可（見 §2.3）。這比自建 profile 更簡單且更少維護面。
 
-### 2.3 guardrail 覆寫層的內容
+### 2.3 guardrail 覆寫層的內容（✅ 已實測驗證）
+
+**實測取得的列 id 與結構**（以 `dsh --profile headless --dump-default-config` 檢視）：
+
+| 列 id | 套件 | 預設值 |
+|---|---|---|
+| `sandbox-policy` | `dsh-sandbox-policy` | `mode: process.env.DSH_PERMISSION_MODE ?? 'workspace-write'`、`workspaceRoot: process.cwd()` |
+| `approval` | `dsh-user-approval` | `policy`：僅當 `DSH_PERMISSION_MODE === 'danger-full-access'` 時為 `never`，**否則為 `ask`** |
+| `permission` | `dsh-permission-presets` | 內建三組 preset：`read-only`、`workspace-write`（皆 `approval: ask`）、`danger-full-access`（`approval: never`） |
+
+> **關鍵發現**：內建 preset 中**沒有 `workspace-write` + `never` 的組合**——而這正是工廠需要的（要能寫 workspace，但 CI 中不可等待人工核准）。這解答了 Q04-6：**必須自訂 preset**。
 
 ```yaml
-# $DSH_HOME/profiles/factory/cordis.patch.yml
-# ⚠️ 各列的 id 與 config 結構待實作驗證；此處展示意圖與分層方式
+# 工廠的 guardrail 覆寫層（實測可用）
+# 用法：dsh --profile headless --patch <此檔路徑> "<任務>"
 
-# 沙箱：CI 中限定 workspace-write，永不使用 danger-full-access
+# 沙箱：限定 workspace-write，永不使用 danger-full-access
 - id: sandbox-policy
   config:
     mode: workspace-write
-    # workspaceRoot 由 session 的 cwd 決定（已查證：session cwd 優先於 fallback）
+    workspaceRoot: !!js process.cwd()
 
-# 核准政策：CI 無人可回應，必須為 never（拒絕而非等待）
+# 核准政策：CI 無人可回應，必須為 never（拒絕而非等待至逾時）
 - id: approval
   config:
     policy: never
+
+# 組合出的 workspace-write + never 不符任何內建 preset，
+# 若不明確宣告，dsh-permission-presets 會在載入期直接失敗。
+- id: permission
+  config:
+    defaultPreset: factory-ci
+    presets:
+      factory-ci:
+        sandbox: workspace-write
+        approval: never
+      read-only:
+        sandbox: read-only
+        approval: ask
 ```
+
+> **第三段是實測撞出來的**：只寫前兩段會得到載入期錯誤——
+> `permission: composed sandbox and approval defaults match no preset; configure defaultPreset explicitly`
+>
+> 這個錯誤**不會**在 `--dump-config` 中顯現（該指令只印出組成後的設定樹，不執行外掛）。**只有實跑才會發現**。這正是本專案堅持「實測而非推論」的具體理由。
 
 **設計理由**：
 
 1. **`mode: workspace-write` 而非 `danger-full-access`**：agent 只需改動該次 run 的 workspace。已查證 `dsh-sandbox-policy` 的預設是 `read-only`（fail-safe），三種模式為 `read-only` / `workspace-write` / `danger-full-access`。
 2. **`approval/policy: never`**：CI 中無人可回應核准提示。設為 `never` 使需要核准的操作**直接被拒絕**，而不是無限等待到 job timeout。這是「快速失敗優於靜默卡死」的落實。
 
-> **已查證**：`dsh-permission-presets` 將 `sandbox/mode` 與 `approval/policy` 綁為具名預設，內建 `workspace-write`（workspace-write + ask）與 `danger-full-access`（danger-full-access + never）。工廠需要的是 **workspace-write + never** 這個組合，內建預設中沒有，故需自訂或直接設定兩個 knob。⚠️ 確切設定方式待驗證。
+### 2.4 實測驗證結果（2026-08-16，macOS 本機）
+
+以上設定已用真實任務逐項驗證，非推論：
+
+| # | 測試 | 指令要點 | 結果 |
+|---|---|---|---|
+| 1 | **正常任務** | 讀取檔案並回覆內容 | ✅ **exit 0**、stdout 為檔案內容、**stderr 空白** |
+| 2 | **空任務拒絕** | 任務字串為 `"   "` | ✅ **exit 1**、stderr：`error: a task is required...` |
+| 3 | **profile 自動佈建** | 首次執行後檢視 `$DSH_HOME/profiles/` | ✅ `headless/` 自動出現，含空 patch 層 |
+| 4 | **guardrail 生效** | 套用 §2.3 patch 後寫入 workspace 內檔案 | ✅ exit 0、檔案正確建立 |
+| 5 | **preset 缺失會失敗** | 只設 sandbox+approval 不設 preset | ✅ **載入期即失敗**（快速失敗，非靜默降級） |
+| 6 | **沙箱確實阻擋** | 要求寫入 `$HOME/ESCAPE-TEST.txt` | ✅ **被拒絕**，回覆 `BLOCKED`，**檔案未被建立** |
+
+> **測試 6 的一則重要修正**：最初的逃逸測試以 `/tmp/` 為目標，結果**寫入成功**。但這**不是**沙箱失效——`workspace-write` 模式明文允許平台暫存區，`/tmp` 正在允許清單內。真正的邊界測試必須落在 workspace 與暫存區**之外**（如 `$HOME`），改測後才確認阻擋有效。
+>
+> 記錄此事的理由：**一個設計得不好的安全測試會給出虛假的安心感**。若當初止於 `/tmp` 的結果，就會誤判沙箱無效（假陰性）；反過來若把允許清單內的成功寫入當作「沙箱破了」，則是假陽性。安全測試必須測在正確的邊界上。
 
 ---
 
@@ -372,11 +417,11 @@ concurrency:
 
 | 編號 | 事項 | 影響 | 處置 |
 |---|---|---|---|
-| Q04-1 | `headless`/`factory` profile 的實際佈建方式（`$DSH_HOME/profiles` 目前只有 `web`） | §2.2 無法執行 | **實作第一步驗證**（= Q02-1） |
-| Q04-2 | `cordis.patch.yml` 中 sandbox 與 approval 的**確切列 id 與 config 結構** | §2.3 的 guardrail 覆寫 | 以 `dsh --dump-config` 檢視實際組成後修正 |
-| Q04-3 | DSH 在 Linux runner 的沙箱行為（landlock） | CI 的實際隔離強度 | 實作時在 CI 中驗證（= Q02-2） |
+| ~~Q04-1~~ | ~~profile 佈建方式~~ | **已實測解決** | ✅ **自動佈建**；工廠沿用 `headless` profile + `--patch`，不需自建（§2.2） |
+| ~~Q04-2~~ | ~~sandbox/approval 的列 id 與結構~~ | **已實測解決** | ✅ 列 id 為 `sandbox-policy`／`approval`／`permission`（§2.3） |
+| ~~Q04-6~~ | ~~是否需自訂 permission preset~~ | **已實測解決** | ✅ **需要**——內建無 `workspace-write`+`never` 組合，不宣告則載入期失敗（§2.3） |
+| Q04-3 | DSH 在 Linux runner 的沙箱行為（landlock） | CI 的實際隔離強度 | 本機 macOS 已驗證阻擋有效（§2.4 測試 6）；**Linux 仍待驗證**（= Q02-2） |
 | Q04-4 | DSH 版本鎖定策略與 CI 安裝方式 | 執行可重現性 | **必須鎖版**；方式待定 |
 | Q04-5 | token 中止門檻值 | §5 第 2 層 | 先量測數週再定（= Q02-5） |
-| Q04-6 | `workspace-write` + `approval: never` 的組合是否需自訂 permission preset | §2.3 | 實作時驗證 |
 
 > 本文件的未決事項已收攏至 `docs/10-open-questions.md`。
