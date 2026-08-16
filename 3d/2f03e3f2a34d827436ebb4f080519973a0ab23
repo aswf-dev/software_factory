@@ -1,0 +1,38 @@
+.github/workflows/test.yml
+  h_1b119f25eaf333 37-46
+docs/01-value-stream-map.md
+  h_1b119f25eaf333 223
+docs/08-metrics-kpi.md
+  h_1b119f25eaf333 128
+docs/11-test-strategy.md
+  h_1b119f25eaf333 295-300,313,318-327,336,341-345,360,362-374
+package.json
+  h_1b119f25eaf333 14-15
+src/integration/dsh-result.ts
+  h_1b119f25eaf333 1-79
+src/integration/gh-parse.ts
+  h_1b119f25eaf333 1-71
+src/stop-rules/stop-rules.test.ts
+  h_1b119f25eaf333 1-201
+src/stop-rules/stop-rules.ts
+  h_1b119f25eaf333 1-142
+src/stop-rules/types.ts
+  h_1b119f25eaf333 1-59
+test/integration/dsh-contract.test.ts
+  h_1b119f25eaf333 1-87
+test/integration/gh-parse.test.ts
+  h_1b119f25eaf333 1-133
+vitest.config.ts
+  h_1b119f25eaf333 27-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3d2f03e3f2a34d827436ebb4f080519973a0ab23",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
