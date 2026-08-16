@@ -1,0 +1,20 @@
+README.md
+  h_1b119f25eaf333 32,52,56-57,62-63
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 191-215
+docs/10-open-questions.md
+  h_1b119f25eaf333 6,9,11,36,112,124,128,135-138,154
+docs/12-repo-settings-guide.md
+  h_1b119f25eaf333 10,16,30-35,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "83ab6f7daf6def3c17ae70f7a9f49d2bfce4a52a",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
