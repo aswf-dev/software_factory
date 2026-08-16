@@ -1,0 +1,32 @@
+.github/workflows/dsh-sandbox-probe.yml
+  h_1b119f25eaf333 1-135
+.github/workflows/test.yml
+  h_1b119f25eaf333 48-53
+config/dsh/factory-guardrail.patch.yml
+  h_1b119f25eaf333 1-42
+config/github/main-ruleset.json
+  h_1b119f25eaf333 1-53
+docs/12-repo-settings-guide.md
+  h_1b119f25eaf333 1-192
+package.json
+  h_1b119f25eaf333 17
+src/pipeline/run-work-item.ts
+  h_1b119f25eaf333 1-168
+test/e2e/stub-agent.ts
+  h_1b119f25eaf333 1-89
+test/e2e/work-item-flow.test.ts
+  h_1b119f25eaf333 1-244
+vitest.config.ts
+  h_1b119f25eaf333 33-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "fcc28cf7c014e5451e1ee7a138864eee5238fe5e",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
