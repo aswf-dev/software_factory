@@ -1,0 +1,32 @@
+docs/09-roadmap.md
+  h_1b119f25eaf333 1-234
+docs/10-open-questions.md
+  h_1b119f25eaf333 1-146
+docs/ADR/001-github-as-source-of-truth.md
+  h_1b119f25eaf333 1-49
+docs/ADR/002-dsh-headless-execution.md
+  h_1b119f25eaf333 1-61
+docs/ADR/003-stacked-pr.md
+  h_1b119f25eaf333 1-65
+docs/ADR/004-dual-layer-guardrails.md
+  h_1b119f25eaf333 1-72
+docs/ADR/005-autonomy-ceiling.md
+  h_1b119f25eaf333 1-72
+docs/ADR/006-github-app-identity.md
+  h_1b119f25eaf333 1-76
+docs/ADR/007-github-actions-ci.md
+  h_1b119f25eaf333 1-59
+docs/ADR/README.md
+  h_1b119f25eaf333 1-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "165603bd5e5f01a13e747abea533e2b10b3127f9",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
