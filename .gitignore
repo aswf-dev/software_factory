@@ -1,0 +1,36 @@
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Editors ---
+.vscode/
+.idea/
+*.swp
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+dist/
+build/
+.next/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Secrets: never commit credentials (see docs/05-guardrails-governance.md) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.yaml
+app-config.local.yaml
+
+# --- Factory runtime artifacts ---
+.factory/runs/
+*.run.log
