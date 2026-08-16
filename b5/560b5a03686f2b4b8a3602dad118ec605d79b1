@@ -1,0 +1,20 @@
+docs/02-architecture.md
+  h_1b119f25eaf333 111-158,354,356
+docs/03-idp-backstage.md
+  h_1b119f25eaf333 1-288
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 1-380
+docs/05-guardrails-governance.md
+  h_1b119f25eaf333 1-272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b5560b5a03686f2b4b8a3602dad118ec605d79b1",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
