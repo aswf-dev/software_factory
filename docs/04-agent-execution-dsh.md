@@ -264,17 +264,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30        # 硬性上限，對應 02 §6 的逾時降級
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # D6：以 GitHub App 身分取得短效 token
       - name: Mint app token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.FACTORY_APP_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -305,8 +305,10 @@ jobs:
 
 > ⚠️ **待實作驗證**：
 > - `npx -y @deepseek-ai/dsh` 在 CI 中的安裝方式與版本鎖定策略（**必須鎖版**，浮動版本會使執行不可重現）。
-> - `actions/create-github-app-token` 的版本與輸出欄位名稱。
+> - `actions/create-github-app-token@v3` 的**輸出欄位名稱**（版本號已查證為當前最新，欄位名未驗證）。
 > - DSH 在 Linux runner 的沙箱行為（landlock 為 Linux 機制，本機 macOS 無法驗證）——這是 Q02-2。
+>
+> ✅ **已查證**：`actions/checkout@v7`、`actions/setup-node@v7` 為當前最新主版本。**v4 已被 GitHub 棄用**（其 Node 20 執行環境已被強制改跑 Node 24），本專案不使用。
 
 ### 4.2 exit code 的處置對照
 
