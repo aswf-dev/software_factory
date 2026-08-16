@@ -199,6 +199,7 @@ nav:
   - 指標與 KPI: 08-metrics-kpi.md
   - 路線圖: 09-roadmap.md
   - 未決事項: 10-open-questions.md
+  - 詞彙表: GLOSSARY.md
 plugins:
   - techdocs-core
 ```

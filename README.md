@@ -28,7 +28,17 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/08-metrics-kpi.md`](docs/08-metrics-kpi.md) | 輸出型與成果型雙軌 KPI |
 | [`docs/09-roadmap.md`](docs/09-roadmap.md) | 分期路線圖與 Definition of Done |
 | [`docs/10-open-questions.md`](docs/10-open-questions.md) | 待驗證假設與待裁決事項 |
-| [`docs/ADR/`](docs/ADR/) | 架構決策記錄 |
+| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
+| [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
+
+## 從哪裡開始讀
+
+| 你的角色 | 建議順序 |
+|---|---|
+| **決策者／主管** | `README` → `09` 路線圖 → `10` 未決事項（§1.1 需你裁決的 6 項） |
+| **實作工程師** | `02` 架構 → `04` DSH 執行 → `05` 治理 → `07` stacked PR |
+| **審查者** | `06` 監督政策 → `07` §6 審查者指引 |
+| **想理解為什麼** | `00` 來源精要 → `01` 價值流 → `ADR/` |
 
 ## 語言慣例
 
