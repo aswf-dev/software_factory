@@ -1,0 +1,24 @@
+docs/02-architecture.md
+  h_1b119f25eaf333 52-54,104-105,309,324-325
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 209
+docs/06-human-oversight-policy.md
+  h_1b119f25eaf333 111-117
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 66,191,214,217,220,223,226
+docs/09-roadmap.md
+  h_1b119f25eaf333 23,64,115,151
+docs/10-open-questions.md
+  h_1b119f25eaf333 74-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ee65fb352b0315c1f28cd75aeea13416c0cbc126",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
