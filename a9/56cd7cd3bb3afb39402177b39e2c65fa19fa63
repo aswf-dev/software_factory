@@ -1,0 +1,18 @@
+docs/06-human-oversight-policy.md
+  h_1b119f25eaf333 1-252
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 1-272
+docs/08-metrics-kpi.md
+  h_1b119f25eaf333 1-212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a956cd7cd3bb3afb39402177b39e2c65fa19fa63",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
