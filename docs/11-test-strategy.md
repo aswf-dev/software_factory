@@ -292,12 +292,12 @@ jobs:
 
 | 階段 | 工作 | 出場條件 |
 |---|---|---|
-| **T1** | 建立專案骨架、tsconfig、vitest 設定、CI workflow | `npm test` 可跑、CI 綠燈 |
-| **T2** | 計分邏輯 + 100% 分支測試 | 覆蓋率門檻通過 |
-| **T3** | 停手規則 + 100% 分支測試 | 同上 |
-| **T4** | 整合測試（DSH 契約、gh CLI 解析） | 全綠 |
-| **T5** | 對抗性測試 + 設定檢查 | 全綠且設為 required |
-| **T6** | E2E（假 agent） | 一條完整流程可跑通 |
+| ✅ **T1** | 建立專案骨架、tsconfig、vitest 設定、CI workflow | **已完成**：CI 實跑綠燈 |
+| ✅ **T2** | 計分邏輯 + 100% 分支測試 | **已完成**：35 則測試，100% 分支 |
+| ✅ **T3** | 停手規則 + 100% 分支測試 | **已完成**：39 則測試，100% 分支 |
+| ✅ **T4** | 整合測試（DSH 契約、gh CLI 解析） | **已完成**：27 則測試，100% 分支 |
+| ✅ **T5** | 對抗性測試 + 設定檢查 | **已完成**：21 則測試，已設為獨立 CI 步驟 |
+| ⬜ **T6** | E2E（假 agent） | 待辦：一條完整流程可跑通 |
 
 > **T1 必須最先完成且獨立驗證**。若骨架本身跑不起來，後面所有測試都是空談。這也是為何本次交付**同時附上可執行的骨架**（見 §9）。
 
@@ -310,11 +310,21 @@ jobs:
 ```
 package.json                          # 精確鎖版（無 ^ ~）
 tsconfig.json                         # strict + noUncheckedIndexedAccess
-vitest.config.ts                      # 覆蓋率門檻（scoring 100% 分支）
+vitest.config.ts                      # 覆蓋率門檻（scoring/stop-rules 100% 分支）
 src/scoring/
   ├── types.ts                        # 三軸型別、監督層級、H1–H7
   ├── score.ts                        # 計分邏輯（fail-safe + 二次判定）
   └── score.test.ts                   # 35 則單元測試
+src/stop-rules/                       # T3
+  ├── types.ts                        # SR1–SR8 規則型別
+  ├── stop-rules.ts                   # 停手判定（無 override 機制）
+  └── stop-rules.test.ts              # 39 則單元測試
+src/integration/                      # T4
+  ├── dsh-result.ts                   # exit code 判讀（taskVerified 恆為 false）
+  └── gh-parse.ts                     # gh JSON 解析、lead time、閒置比
+test/integration/
+  ├── dsh-contract.test.ts            # 11 則（fixture 取自真實實測輸出）
+  └── gh-parse.test.ts                # 16 則
 test/adversarial/
   └── guardrails.test.ts              # 21 則對抗性測試
 .github/workflows/test.yml            # CI（= 第 0 期出場條件的實體）
@@ -323,13 +333,16 @@ catalog-info.yaml                     # 三軸標註 + automerge 否決
 CODEOWNERS                            # GitHub 層 guardrail
 ```
 
-### 9.1 實跑結果
+### 9.1 實跑結果（T1–T5 完成後）
 
 | 項目 | 結果 |
 |---|---|
 | `npm run typecheck` | ✅ 通過（strict 模式無錯誤） |
-| `npm test` | ✅ **56 則全數通過**（35 單元 + 21 對抗性），耗時 < 1.1 秒 |
-| `npm run coverage` | ✅ `src/scoring/` 達 **100% 分支/行/函式/敘述** |
+| `npm run test:unit` | ✅ **74 則**（計分 35 + 停手規則 39） |
+| `npm run test:integration` | ✅ **27 則**（DSH 契約 11 + gh 解析 16） |
+| `npm run test:adversarial` | ✅ **21 則** |
+| **合計** | ✅ **122 則全數通過**，約 2 秒 |
+| `npm run coverage` | ✅ `scoring`、`stop-rules`、`integration` **全部 100% 分支/行/函式/敘述** |
 
 ### 9.2 兩項「閘門是否真的有效」的驗證
 
@@ -344,11 +357,21 @@ CODEOWNERS                            # GitHub 層 guardrail
 
 ### 9.3 尚未涵蓋
 
-此骨架涵蓋 T1–T2 與部分 T5，**不是完整實作**。仍待展開：
+**T1–T5 已完成**，仍待展開：
 
-- T3 停手規則模組（目前僅有規則文件，無程式碼）
-- T4 整合測試（DSH exit code 判讀、`gh` CLI 解析）
-- T6 E2E（假 agent 的完整流程）
+- **T6 E2E**（假 agent 的完整流程）——待 Q11-1 決定假 agent 的實作方式
+- **CI required checks 設定**——需在 GitHub repo 設定中將四項標為必要（§7.1），此為**人工操作**
+- **Backstage 相關**（`03`）——第 1 期後段
+
+### 9.4 T3/T4 的兩項設計要點
+
+**T3 停手規則：刻意不提供 override 參數**
+
+`evaluateStopRules()` 只回答「是否必須停手」，**沒有任何可關閉規則的參數**。理由：若存在繞過機制，卡住的 agent 就有動機去使用它——而那正是最不該放行的時刻。測試中有一則專門斷言回傳物件的鍵只有四個，確保未來不會悄悄加入 override。
+
+**T4 DSH 契約：`taskVerified` 恆為 `false`**
+
+`interpretDshResult()` 的回傳型別把 `taskVerified` 宣告為字面值 `false`。這不是佔位，而是把 `04` §4.2 的警告**寫進型別系統**：exit 0 只代表「回合正常結束」，不代表任務正確。呼叫端若想拿它當品質保證，型別檢查就會擋下來。
 
 ---
 

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:unit": "vitest run src/**/*.test.ts",
+    "test:unit": "vitest run src",
+    "test:integration": "vitest run test/integration",
     "test:adversarial": "vitest run test/adversarial",
     "coverage": "vitest run --coverage"
   },

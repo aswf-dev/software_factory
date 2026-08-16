@@ -125,7 +125,7 @@ gh pr list --state merged --limit 30 \
   --json number,createdAt,mergedAt,additions,deletions,reviews
 ```
 
-> ⚠️ 上述 JSON 欄位以 `gh` v2.93.0 為準；實際執行前以 `gh pr list --json` 不帶值的輸出確認可用欄位（`01` §4.1 同一提醒）。
+> ✅ **已實測查證**（gh v2.93.0，2026-08-16）：欄位名稱均存在且已實作解析（`src/integration/gh-parse.ts`，16 則測試涵蓋 lead time 與閒置比計算）。
 
 ### 4.2 基線記錄表
 

@@ -220,7 +220,7 @@ gh pr list --state merged --limit 30 \
   --json number,createdAt,mergedAt,reviews,additions,deletions
 ```
 
-> ⚠️ 上述指令的 JSON 欄位名稱以 `gh` v2.93.0 為準，實際執行時請以 `gh pr list --json` 不帶值的輸出確認可用欄位。
+> ✅ **已實測查證**（gh v2.93.0，2026-08-16）：上述欄位名稱均存在。issue 具備 `number/title/createdAt/closedAt/labels/state`；PR 具備 `number/createdAt/mergedAt/additions/deletions/reviews/statusCheckRollup`。解析邏輯與測試見 `src/integration/gh-parse.ts`。
 
 ### 4.2 繪製（60 分鐘，全角色參與）
 

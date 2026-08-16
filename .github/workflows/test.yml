@@ -34,7 +34,16 @@ jobs:
         run: npm run typecheck
 
       - name: Unit tests
-        run: npm test
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      # Verifies the guardrails actually BLOCK, not merely that features work.
+      # docs/11 §7.1 requires this to be a required check: if it can be skipped,
+      # the dual-layer defence in D4 silently becomes optional.
+      - name: Adversarial tests
+        run: npm run test:adversarial
 
       # Coverage thresholds are a gate, not a report: scoring and stop-rule code
       # must hold 100% branch coverage because an untested branch there is an
