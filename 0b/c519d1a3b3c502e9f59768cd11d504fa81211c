@@ -1,0 +1,16 @@
+docs/06-human-oversight-policy.md
+  h_1b119f25eaf333 99-102
+docs/GLOSSARY.md
+  h_1b119f25eaf333 35-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "0bc519d1a3b3c502e9f59768cd11d504fa81211c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
