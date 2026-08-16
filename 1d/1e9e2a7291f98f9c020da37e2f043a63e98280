@@ -1,0 +1,14 @@
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 122-126,128-136,139-140,142,146,148,152-164,167-171,177-192,420-423
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "1d1e9e2a7291f98f9c020da37e2f043a63e98280",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
