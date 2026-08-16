@@ -108,6 +108,54 @@
 
 ---
 
+### D6：agent 以 GitHub App 身分行動（已裁決）
+
+**決策**：工廠 agent 使用專屬的 **GitHub App**（安裝於目標 repo）作為身分，**不使用個人 PAT**，也不共用人類帳號。
+
+**理由**：
+- **稽核可辨識**：Issue 留言、commit、PR 都能明確區分「人做的」與「agent 做的」。若用個人 PAT，`philipz` 的操作與 agent 的操作在歷程中無法分辨，`00` §5「agents are new insiders」的追責前提即失效。
+- **權限可收斂**：App 的權限以安裝範圍授予，可精確到 repo 與 API 類別，且與任何個人的權限脫鉤。
+- **憑證可輪替**：App 以短效 installation token 運作，不需長期存放高權限密鑰。
+- **離職/換人不影響**：身分屬於系統而非個人。
+
+**權限設定（最小化，且刻意排除自我修改能力）**：
+
+| 權限 | 等級 | 理由 |
+|---|---|---|
+| Contents | Read & write | 建立分支、推送 commit |
+| Pull requests | Read & write | 建立與更新 PR |
+| Issues | Read & write | 讀取工作項、回報進度與 `needs-human` |
+| Actions | Read | 讀取自身 run 狀態 |
+| Metadata | Read | 必要基礎權限 |
+| **Administration** | **不授予** | 否則 agent 可改 branch protection |
+| **Workflows** | **不授予** | 否則 agent 可改 CI 定義 |
+
+> **與 D4 的關聯**：後兩項的排除是 §7「agent 不得擁有修改 guardrail 本身的權限」這條不變量的**具體執行方式**。若授予 Administration 或 Workflows 權限，雙層防護將退化為零層。
+
+**後果**：
+- CI 中需以 App 的 private key 換取 installation token（標準做法為 `actions/create-github-app-token`）。
+- App 的 private key 是本系統最敏感的密鑰，須存於 GitHub Secrets，且**永不進入 agent 的 context**（見 `05`）。
+- GitHub App 由人類建立與安裝，此步驟不可自動化（見 `09` 第 1 期）。
+
+---
+
+### D7：CI 平台採用 GitHub Actions（已裁決）
+
+**決策**：以 **GitHub Actions** 作為唯一的 CI/CD 執行平台與工廠的 Control Plane 執行引擎。
+
+**理由**：
+- 與 D1（GitHub 為唯一事實來源）自然一致，不引入第三方系統與額外的身分整合。
+- workflow_dispatch 提供 Backstage Template 的觸發端點。
+- run 歷程即稽核紀錄，無須另建。
+
+**與 `00` §3 Phase 1 前提條件的關係**：來源研究明示 CI、單元測試自動化、靜態分析、自動化部署是**引入 AI 之前的基本前提**。採用 GitHub Actions 即是滿足此前提的載體——但**平台就緒不等於前提就緒**：仍須確認目標 repo 實際具備測試與靜態分析的 workflow。此驗證列為 `09` 第 0 期的出場條件。
+
+**後果**：
+- runner 為 Linux（`ubuntu-latest`），與本機 macOS 開發環境不同；DSH 沙箱的跨平台行為需驗證（Q02-2 仍成立）。
+- 受 GitHub Actions 的並行數與時間上限約束，影響 `00` §3 Phase 2 的「非同步平行化」可達程度。
+
+---
+
 ### D5：自主性上限設定為「on-the-loop 且限定低風險類別」
 
 **決策**：本專案**不追求**完全自主交付。agent 自動合併僅限於 `06-human-oversight-policy.md` 計分為低風險的類別。
@@ -303,7 +351,8 @@ Backstage ──依賴──► GitHub ◄──依賴── DSH
 | Q02-1 | `$DSH_HOME/profiles` 目前**只有 `web` profile**，headless profile 尚未佈建 | 實作首步必須確認 headless profile 的佈建方式 | 實作時驗證 |
 | Q02-2 | DSH 在 CI（Linux runner）中的執行方式尚未驗證；landlock 為 Linux 機制，本機為 macOS | 沙箱行為可能跨平台不一致 | 實作時驗證 |
 | Q02-3 | Backstage 版本與插件相容性未經連網查證 | 見 `09` 第 1 期 | 實作時鎖版 |
-| Q02-4 | agent 使用哪一個 GitHub 身分（PAT / GitHub App / Actions token） | 影響權限最小化與稽核可辨識性 | 使用者決定，建議 GitHub App |
+| ~~Q02-4~~ | ~~agent 使用哪一個 GitHub 身分~~ | **已裁決 → D6：GitHub App** | ✅ 使用者已決定 |
 | Q02-5 | 單一工作項的 token 成本上限值 | 影響 §6 的中止門檻 | 需先取得基線數據（`08`） |
+| Q02-6 | 目標 repo 是否已具備測試與靜態分析的 Actions workflow | D7 只確立平台，未確立前提就緒 | `09` 第 0 期驗證 |
 
 > 本文件的未決事項已收攏至 `docs/10-open-questions.md`。
