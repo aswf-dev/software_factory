@@ -1,0 +1,29 @@
+{
+  "name": "software-factory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Automated software factory: Backstage IDP + DeepSeek Harness + GitHub stacked PRs",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run src/**/*.test.ts",
+    "test:adversarial": "vitest run test/adversarial",
+    "coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "@vitest/coverage-v8": "4.1.10",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  },
+  "dependencies": {
+    "js-yaml": "5.3.0",
+    "minimatch": "10.2.6",
+    "zod": "4.4.3"
+  }
+}

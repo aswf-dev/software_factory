@@ -16,6 +16,11 @@ dist/
 build/
 .next/
 
+# --- Test artifacts (generated; thresholds are enforced in CI, not committed) ---
+coverage/
+*.lcov
+.vitest/
+
 # --- Python ---
 __pycache__/
 *.py[cod]

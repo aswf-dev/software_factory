@@ -1,0 +1,31 @@
+# Backstage catalog entry (docs/03-idp-backstage.md §2.2).
+#
+# The three factory.io axis annotations are INPUTS to oversight scoring
+# (docs/06 §3). They are declared by humans and protected by CODEOWNERS:
+# if the agent could lower its own risk rating, the whole oversight model
+# would be void.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: software-factory
+  description: 自動化軟體工廠 — Backstage IDP + DeepSeek Harness + GitHub stacked PR
+  annotations:
+    github.com/project-slug: philipz/software_factory
+    backstage.io/techdocs-ref: dir:.
+
+    # --- Factory oversight axes (docs/06 §3) ---
+    # Internal tooling, not customer-facing.
+    factory.io/business-criticality: tactical
+    # This repo defines the guardrails themselves, so changes here are
+    # inherently high risk regardless of how small they look.
+    factory.io/risk-profile: high
+    factory.io/complexity: medium
+
+    # Dogfooding safeguard (docs/11-test-strategy.md §1.2):
+    # the factory must never auto-merge its own changes, because that would be
+    # the agent validating its own output — explicitly forbidden by docs/06 §4.3.
+    factory.io/agent-automerge: "false"
+spec:
+  type: service
+  lifecycle: experimental
+  owner: user:philipz

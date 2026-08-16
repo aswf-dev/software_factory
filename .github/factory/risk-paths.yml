@@ -1,0 +1,53 @@
+# Risk hard rules (docs/06-human-oversight-policy.md §3.2, §5.2).
+#
+# Touching any pattern below forces risk = 2 with no discretion.
+# H1-H4 derive from Gartner G00843405 (docs/00-source-summary.md §6);
+# H5-H7 are this project's additions covering guardrail self-protection
+# and irreversible operations.
+#
+# This file lives under .github/ and is therefore protected by CODEOWNERS:
+# the agent must never be able to edit the rules that constrain it
+# (docs/05-guardrails-governance.md §1.1).
+
+hard_rules:
+  # H1 — authentication and authorization logic
+  H1:
+    - "src/auth/**"
+    - "**/authorization*"
+    - "**/*permission*"
+
+  # H2 — financial calculation
+  H2:
+    - "src/payment/**"
+    - "src/billing/**"
+    - "**/*invoice*"
+
+  # H3 — sensitive data handling
+  H3:
+    - "**/*pii*"
+    - "**/crypto/**"
+    - "**/*secret*"
+
+  # H4 — systems of record and shared modules
+  H4:
+    - "src/shared/**"
+    - "src/core/**"
+
+  # H5 — the guardrails themselves. Editing these would let the agent
+  # weaken its own constraints, collapsing the dual-layer defence (D4).
+  H5:
+    - ".github/**"
+    - "CODEOWNERS"
+    - "catalog-info.yaml"
+    - ".dsh/skills/**"
+
+  # H6 — irreversible schema migrations
+  H6:
+    - "migrations/**"
+    - "**/*schema*"
+
+  # H7 — breaking changes to public APIs
+  H7:
+    - "api/**"
+    - "**/*.proto"
+    - "openapi.yaml"

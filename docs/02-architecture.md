@@ -356,6 +356,6 @@ Backstage ──依賴──► GitHub ◄──依賴── DSH
 | Q02-3 | Backstage 版本與插件相容性未經連網查證 | 見 `09` 第 1 期 | 實作時鎖版 |
 | ~~Q02-4~~ | ~~agent 使用哪一個 GitHub 身分~~ | **已裁決 → D6：GitHub App** | ✅ 使用者已決定 |
 | Q02-5 | 單一工作項的 token 成本上限值 | 影響 §6 的中止門檻 | 需先取得基線數據（`08`） |
-| Q02-6 | 目標 repo 是否已具備測試與靜態分析的 Actions workflow | D7 只確立平台，未確立前提就緒 | `09` 第 0 期驗證 |
+| ~~Q02-6~~ | ~~目標 repo 是否已具備測試與靜態分析 workflow~~ | **已確認尚未具備** | ✅ 已建立 `.github/workflows/test.yml` 與測試框架（`11`）；56 則測試實跑通過 |
 
 > 本文件的未決事項已收攏至 `docs/10-open-questions.md`。

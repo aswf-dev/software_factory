@@ -1,0 +1,29 @@
+# CODEOWNERS — the GitHub layer of the dual-layer guardrail (docs/02 D4, docs/05 §2.2).
+#
+# This is the mechanism layer. The agent's stop rules (docs/04 §3.3) are the
+# prompt layer, and prompts can be ignored — this file cannot.
+#
+# NOTE: entries below reference @philipz because this is currently a
+# single-owner repo. When a team exists, replace with team handles so that
+# review does not depend on one person's availability.
+
+# Default owner
+*                           @philipz
+
+# --- The guardrails themselves ---
+# The agent must never be able to modify the rules that constrain it.
+# This is the core invariant of docs/05 §1.1; violating it collapses both
+# defence layers at once, because the agent could dismantle one and then the other.
+/.github/                   @philipz
+/.github/workflows/         @philipz
+/.github/factory/           @philipz
+/CODEOWNERS                 @philipz
+/catalog-info.yaml          @philipz
+/.dsh/skills/               @philipz
+
+# --- Oversight scoring logic ---
+# Code that decides what the agent is allowed to do (docs/06).
+/src/scoring/               @philipz
+
+# --- The design documents that define the whole policy ---
+/docs/                      @philipz

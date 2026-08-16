@@ -28,6 +28,7 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/08-metrics-kpi.md`](docs/08-metrics-kpi.md) | 輸出型與成果型雙軌 KPI |
 | [`docs/09-roadmap.md`](docs/09-roadmap.md) | 分期路線圖與 Definition of Done |
 | [`docs/10-open-questions.md`](docs/10-open-questions.md) | 待驗證假設與待裁決事項 |
+| [`docs/11-test-strategy.md`](docs/11-test-strategy.md) | 測試框架與測試計畫（第 0 期核心交付） |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
 | [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
 
@@ -39,6 +40,19 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | **實作工程師** | `02` 架構 → `04` DSH 執行 → `05` 治理 → `07` stacked PR |
 | **審查者** | `06` 監督政策 → `07` §6 審查者指引 |
 | **想理解為什麼** | `00` 來源精要 → `01` 價值流 → `ADR/` |
+
+## 開發
+
+本 repo 同時是工廠的**試點對象**（dogfooding，見 `docs/11-test-strategy.md` §1）。
+
+```bash
+npm ci              # 安裝（版本已精確鎖定）
+npm run typecheck   # TypeScript strict 檢查
+npm test            # 56 則測試（單元 + 對抗性）
+npm run coverage    # 覆蓋率門檻：scoring 需 100% 分支
+```
+
+> **注意**：工廠對本 repo **永不自動合併**（`catalog-info.yaml` 的 `factory.io/agent-automerge: "false"`）。理由：agent 驗證自己的產出是 `docs/06` §4.3 明文禁止的模式。
 
 ## 語言慣例
 
