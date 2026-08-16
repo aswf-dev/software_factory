@@ -1,0 +1,16 @@
+README.md
+  h_1b119f25eaf333 49-55
+docs/10-open-questions.md
+  h_1b119f25eaf333 6,9,11,30,36,112,121-123,145-147,149-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5ca668a34a96055b115e6168b18e36da26764c91",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
