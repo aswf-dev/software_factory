@@ -32,6 +32,16 @@ Plan → Create → Verify → Release → Configure → Operate
 | **human on the loop** | agent 自主執行，人類監督，僅在例外、異常或告警時介入 | `on-the-loop`、`oversight/on-loop` | 行文簡稱／GitHub 標籤 |
 | **human in the loop** | agent 執行決策**前**需要明確、持續的人工核准 | `in-the-loop`、`oversight/in-loop` | 行文簡稱／GitHub 標籤 |
 
+### 三個 GitHub 標籤（對應 `06` §4 的三個計分區間）
+
+| 標籤 | 計分 | 意義 |
+|---|---|---|
+| `oversight/on-loop` | 0–1 | agent 可建立 PR 並自動合併（須另符合 `06` §4.1 全部條件） |
+| `oversight/review` | 2–4 | agent 可建立 PR，**不得合併**；需人類逐一審查核准 |
+| `oversight/in-loop` | 5–6 | agent **不得實作**，僅可產出分析與方案 |
+
+> **注意**：中間區間（2–4）的標籤名為 `oversight/review`，它**不是** `00` §6 原文的兩分法用語，而是本專案為「需人類審查但仍可由 agent 產出」這個中間狀態新增的第三檔。原文只區分 in/on the loop 兩級；本專案細分為三級，是刻意的設計補充。
+
 > **定義出處**：`00` §6（原文定義）。**兩者僅一字之差但意義相反**，撰寫時務必確認。
 >
 > **GitHub 標籤採用不帶 `the` 的短形式**（`oversight/on-loop`、`oversight/in-loop`），因標籤需簡短；文件內敘述則用完整形式。
