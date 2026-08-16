@@ -206,7 +206,7 @@ description: 工廠 agent 必須停手並交還人類的情況。任何一條觸
 
 以下任一情況發生時，**立即停止**，在 Issue 留言說明原因，貼上 `needs-human` 標籤，然後結束：
 
-1. 同一顆 PR 連續兩次 `gh stack rebase` 失敗。
+1. 同一顆 PR 連續兩次 `gh stack sync` 失敗。（**CI 中一律用 `sync` 不用 `rebase`**：`sync` 為非互動且衝突時會還原所有分支；`rebase` 需互動介入，在 CI 中會卡住至逾時。詳見 `07` §3.3）
 2. 任務涉及授權邏輯、金流計算、敏感資料處理。
 3. 需要修改 CI 設定、branch protection、CODEOWNERS 或 `catalog-info.yaml`。
 4. 驗收條件不明確，無法判斷完成與否。

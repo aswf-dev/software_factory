@@ -49,7 +49,9 @@
 
 ## 2. 核心架構決策
 
-各決策的完整脈絡與替代方案見 `docs/ADR/`。
+各決策的完整脈絡與替代方案見 `docs/ADR/`（ADR-001~007 依 D1~D7 正序編號）。
+
+> **關於本節的排列順序**：D1–D4 為初始設計決策；**D6、D7 為後續由使用者裁決後補入**，置於 D4 之後、D5 之前，因其（身分與 CI 平台）是 D5 自主性上限的前提。**D5 置於最後**，因它總結前六項的風險立場。編號一經指定即不再變動，以維持與 ADR 及其他文件引用的一致。
 
 ### D1：GitHub 是唯一事實來源，Backstage 是入口而非狀態機
 
@@ -99,8 +101,8 @@
 
 | 層 | 機制 | 防護對象 |
 |---|---|---|
-| **DSH 層** | sandbox mode、permission preset、工具白名單 | agent 在執行期能做什麼 |
-| **GitHub 層** | branch protection、required checks、CODEOWNERS | agent 的產出能否進入主線 |
+| **DSH 層** | sandbox mode、approval policy、skills 規則 | agent 在執行期能做什麼 |
+| **GitHub 層** | branch protection、required checks、CODEOWNERS、App 權限 | agent 的產出能否進入主線 |
 
 **理由**：`00` §5 的結論語「**Agents are new insiders**」。內部人風險的特性是——單層防護一旦被繞過就完全失守。DSH 層若失效，GitHub 層仍能阻止未經審查的變更落地；反之亦然。
 
@@ -304,7 +306,7 @@ Backstage ──依賴──► GitHub ◄──依賴── DSH
 | DSH 呼叫失敗 | exit code = 1 | 標記 `needs-human`，附 stderr 內容；**不自動重試**（見下方註） |
 | DSH 逾時 | CI job timeout | 同上，並記錄已消耗的 token |
 | 成本超出單一工作項上限 | token-meter 讀數 | 中止執行、標記 `needs-human`、告警 |
-| `gh stack rebase` 連續兩次失敗 | 指令 exit code | 停手、標記 `needs-human`（規則見 `07`） |
+| `gh stack sync` 連續兩次失敗 | 指令 exit code | 停手、標記 `needs-human`（規則見 `07` §3.3、§4.1） |
 | GitHub API 限流 | HTTP 429 | 指數退避重試；仍失敗則標記並停手 |
 | 風險計分落入 in-loop | 計分規則 | 不啟動 agent 實作，只產出分析供人類參考 |
 
@@ -319,7 +321,8 @@ Backstage ──依賴──► GitHub ◄──依賴── DSH
 依 D4，兩層各自的最小要求：
 
 ### DSH 層
-- sandbox 預設 `read-only`，僅在明確需要時提升至 `workspace-write`；**CI 中不使用 `danger-full-access`**。
+- **CI 中固定使用 `workspace-write`**，於 session 建立時即釘選；**永不使用 `danger-full-access`**。
+  > DSH 的部署預設為 `read-only`（fail-safe），但工廠的 factory profile 在 patch 層明確設為 `workspace-write`（`04` §2.3）。**agent 無法在執行中自我提權**——已查證 sandbox 模式於 session 建立時釘選，之後的設定變更不影響既有 session（`05` §2.1）。
 - 憑證以參照方式設定，**GitHub token 等密鑰不進入 agent 的 context**。
 - agent 的工作目錄限定於該次 run 的 workspace。
 
