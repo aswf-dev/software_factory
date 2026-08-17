@@ -1,0 +1,18 @@
+config/github/main-ruleset.json
+  h_1b119f25eaf333 10-18,39-40
+docs/10-open-questions.md
+  h_1b119f25eaf333 6,9,11,128,138-139
+docs/12-repo-settings-guide.md
+  h_1b119f25eaf333 16,129-171,222-227,239-240
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "acdc71dd991775e6a3e9b770e5d0acfee73b4be4",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
