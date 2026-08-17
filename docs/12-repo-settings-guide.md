@@ -169,26 +169,43 @@ gh api --method PUT repos/philipz/software_factory/rulesets/20911877 \
 
 ---
 
-## 2.2 squash 合併後 `main` 未被 CI 驗證（實測發現）
+## 2.2 一次 `main` 未被 CI 驗證的事件（原因未明）
 
-**觀察**：PR #1 以 squash 合併後，合併 commit `548cdb21` 的 check-runs 數量為 **0**：
+**觀察**：PR #1 於 `02:22:33Z` squash 合併後，合併 commit `548cdb21` 的 check-runs 數量為 **0**：
 
 ```bash
 gh api repos/philipz/software_factory/commits/548cdb21/check-runs --jq '.total_count'
 # → 0
 ```
 
-**為何會這樣**：squash 合併會**產生一個全新的 commit**，其內容與 PR 分支上被驗證過的 commit 不同（歷史被壓平）。而 `push` 事件在此情境下未觸發 workflow，因此**進入 `main` 的那份程式碼，從未被 CI 直接驗證過**。
+**後續反證**：PR #2 以**完全相同的方式**（squash + delete branch）合併後，`a1d54427` **正常觸發了 push 事件的 Test workflow**。
 
-**風險大小**：本次為低——`strict_required_status_checks_policy: true` 要求分支必須與 `main` 同步後才能合併，且合併前後內容一致（已以本機 `npm test` 複驗 138 則全過）。但這仍是一個**紀律缺口**：
+因此**「squash 合併不會觸發 push」這個推論是錯的**——我最初這樣記錄，但被下一次合併直接推翻。
 
-> `docs/09` 第 0 期的放棄條件寫著「工廠的安全性完全建立在『CI 綠燈代表沒有明顯破壞』這個假設上」。若 `main` 上的 commit 沒有對應的 CI 紀錄，這個假設在 `main` 這一層就是空的。
+| 事件 | commit | push run |
+|---|---|---|
+| PR #1 合併（02:22:33Z） | `548cdb21` | ❌ **未產生** |
+| PR #2 合併 | `a1d54427` | ✅ 正常產生 `test` |
 
-**目前的處置**：合併後**手動觸發驗證**並確認綠燈。
+**目前的結論**：這是**一次性的異常**，原因未明。可能與當時正在修改 ruleset 有關（合併前數分鐘曾以 `PUT` 更新 ruleset），但**無證據支持**，不宜當作定論。
 
-**建議的長期修法**（待實作，Q12-5）：
+**為什麼仍要記錄**：
 
-在 `test.yml` 增加 `merge_group` 觸發，或改用 merge queue；亦可在合併後以 `workflow_dispatch` 自動補跑。最簡單的方式是確認 `push: branches: [main]` 確實在 squash 情境下觸發——本次未觸發的原因尚未查明。
+> `docs/09` 第 0 期的放棄條件寫著「工廠的安全性完全建立在『CI 綠燈代表沒有明顯破壞』這個假設上」。若 `main` 上的 commit 可能沒有 CI 紀錄，這個假設在 `main` 這一層就可能是空的——即使只發生一次，也值得知道它會發生。
+
+**已採行的緩解**：
+
+1. `test.yml` 已加入 `workflow_dispatch`，可在合併後手動補驗證紀錄。
+2. **合併後應檢查 `main` 是否有 check-run**：
+
+```bash
+gh api repos/philipz/software_factory/commits/$(git rev-parse origin/main)/check-runs \
+  --jq '.total_count'
+# 若為 0，手動補跑：
+gh workflow run test.yml --ref main
+```
+
+> **這是緩解而非根治**。真正的解法是 merge queue，但對單人 repo 過重。列為 Q12-5 追蹤。
 
 ---
 
@@ -261,6 +278,6 @@ gh api repos/philipz/software_factory/commits/main/check-runs --jq '.check_runs[
 | **Q12-2** | 個人帳號私有 repo 對 classic branch protection 的方案限制未實測 | 方法 B 是否可用 | 已提供方法 A 作為主要路徑，不阻塞 |
 | ~~Q12-3~~ | ~~是否將 Repository admin 加入 bypass list~~ | ✅ **已裁決：不加入**——改為移除無法滿足的核准要求，保留自動化閘門（§2.1） |
 | **Q12-4** | **單人 repo 無第二雙眼睛審查** | 這是目前防護的實質缺口 | 有第二位協作者時**立即**恢復核准與 CODEOWNERS 要求（§2.1） |
-| **Q12-5** | **squash 合併後 `main` 無 CI 紀錄** | `main` 上的程式碼缺少 CI 驗證憑據 | 目前手動補跑；待查明 `push` 未觸發原因（§2.2） |
+| **Q12-5** | **曾有一次合併後 `main` 無 CI 紀錄**（PR #2 未重現） | `main` 可能存在無 CI 憑據的 commit | 合併後檢查 check-run 數；為 0 則手動補跑（§2.2）。根因未明 |
 
 > 本文件的未決事項已收攏至 `docs/10-open-questions.md`。
