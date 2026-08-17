@@ -1,0 +1,18 @@
+src/cli/factory-score.test.ts
+  h_1b119f25eaf333 1-85
+src/cli/factory-score.ts
+  h_1b119f25eaf333 1-63
+vitest.config.ts
+  h_1b119f25eaf333 33-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "20bf7c7d344b62c15adf783174613d4e80bf4d3c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
