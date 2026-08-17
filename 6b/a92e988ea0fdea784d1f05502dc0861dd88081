@@ -1,0 +1,14 @@
+docs/superpowers/plans/2026-08-17-software-factory-phase1.md
+  h_1b119f25eaf333 1856,1866-1873,1875-1876,1879,1882,1885-1891,1894-1907,1910,1912-1913,1915-1916,1918-1919,1923,1930,1932,1955,1965,1974-1979,1981-1982,1985-1992,1995-2009,2013-2015,2017-2019,2021-2022,2026,2030-2032,2036,2042
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6ba92e988ea0fdea784d1f05502dc0861dd88081",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
