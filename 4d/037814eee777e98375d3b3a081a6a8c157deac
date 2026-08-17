@@ -1,0 +1,14 @@
+docs/12-repo-settings-guide.md
+  h_1b119f25eaf333 172,174,181,183,185-194,196,198-206,208,281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "4d037814eee777e98375d3b3a081a6a8c157deac",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
