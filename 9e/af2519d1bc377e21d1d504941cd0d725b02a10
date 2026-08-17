@@ -1,0 +1,16 @@
+package.json
+  h_1b119f25eaf333 11
+tsconfig.build.json
+  h_1b119f25eaf333 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "9eaf2519d1bc377e21d1d504941cd0d725b02a10",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
