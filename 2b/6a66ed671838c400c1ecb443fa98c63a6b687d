@@ -1,0 +1,54 @@
+.dsh/skills/quint-lang/SKILL.md
+  h_1b119f25eaf333 1-560
+.dsh/skills/quint-lang/guidelines/choreo.md
+  h_1b119f25eaf333 1-267
+.dsh/skills/quint-lang/guidelines/cli.md
+  h_1b119f25eaf333 1-248
+.dsh/skills/quint-lang/guidelines/constraints.md
+  h_1b119f25eaf333 1-172
+.dsh/skills/quint-lang/guidelines/operators.md
+  h_1b119f25eaf333 1-164
+.dsh/skills/quint-lang/guidelines/patterns.md
+  h_1b119f25eaf333 1-408
+.dsh/skills/quint-lang/guidelines/simulations.md
+  h_1b119f25eaf333 1-308
+.dsh/skills/quint-lang/guidelines/tests.md
+  h_1b119f25eaf333 1-308
+.dsh/skills/quint-modeling/SKILL.md
+  h_1b119f25eaf333 1-462
+.dsh/skills/quint-modeling/examples/README.md
+  h_1b119f25eaf333 1-60
+.dsh/skills/quint-modeling/examples/ewd426.qnt
+  h_1b119f25eaf333 1-110
+.dsh/skills/quint-modeling/examples/tendermint/choreo.qnt
+  h_1b119f25eaf333 1-295
+.dsh/skills/quint-modeling/examples/tendermint/spells/basicSpells.qnt
+  h_1b119f25eaf333 1-388
+.dsh/skills/quint-modeling/examples/tendermint/tendermint.qnt
+  h_1b119f25eaf333 1-800
+.dsh/skills/quint-modeling/examples/tendermint/tendermintTest.qnt
+  h_1b119f25eaf333 1-98
+.dsh/skills/quint-modeling/guidelines/from-code.md
+  h_1b119f25eaf333 1-182
+.dsh/skills/quint-modeling/guidelines/from-nothing.md
+  h_1b119f25eaf333 1-64
+.dsh/skills/quint-modeling/guidelines/from-requirements.md
+  h_1b119f25eaf333 1-85
+.dsh/skills/quint-modeling/guidelines/from-tlaplus.md
+  h_1b119f25eaf333 1-295
+.dsh/skills/quint-modeling/guidelines/review.md
+  h_1b119f25eaf333 1-102
+docs/ADR/008-quint-formal-verification.md
+  h_1b119f25eaf333 1-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "2b6a66ed671838c400c1ecb443fa98c63a6b687d",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
