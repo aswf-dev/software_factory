@@ -1,0 +1,14 @@
+.gitignore
+  h_1b119f25eaf333 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "e2db7b8479fc8065a6b7aa2471fd465e5700855b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
