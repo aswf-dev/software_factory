@@ -10,6 +10,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Squash merges create a NEW commit on main whose content differs from the
+  # verified PR head, and that commit can end up with no check-runs at all.
+  # Manual dispatch lets us attach a verification record to main after a merge
+  # (docs/12 §2.2). Without it, main carries code CI never signed off on.
+  workflow_dispatch:
 
 # Least privilege: this job only reads code.
 permissions:
