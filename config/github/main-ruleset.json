@@ -1,0 +1,61 @@
+{
+  "_comment": [
+    "Expected state of the main branch ruleset (docs/12-repo-settings-guide.md).",
+    "GitHub does NOT apply this file automatically; it is a version-controlled",
+    "record so the settings are reviewable and rebuildable. Apply with:",
+    "  gh api --method POST repos/philipz/software_factory/rulesets \\",
+    "    --input config/github/main-ruleset.json",
+    "The required check is named 'test' — the JOB id in test.yml, not the",
+    "workflow name 'Test'. Using the workflow name would make GitHub wait",
+    "forever for a check that never reports.",
+    "",
+    "required_approving_review_count is 0 and require_code_owner_review is",
+    "false ON PURPOSE while this repo has a single collaborator: GitHub",
+    "refuses to let an author approve their own PR, so any non-zero value is",
+    "unsatisfiable and would block every merge permanently. The automated",
+    "gate (required check 'test') still applies, and it is the part that",
+    "actually catches regressions. Restore both to 1/true the moment a second",
+    "reviewer exists — see docs/12 §2.1."
+  ],
+  "name": "main-protection",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "require_code_owner_review": false,
+        "dismiss_stale_reviews_on_push": true,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": ["squash", "merge", "rebase"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "test"
+          }
+        ]
+      }
+    }
+  ],
+  "bypass_actors": []
+}

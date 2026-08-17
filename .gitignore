@@ -36,6 +36,15 @@ venv/
 secrets.yaml
 app-config.local.yaml
 
+# Local key material handed over out-of-band. These belong in GitHub Secrets,
+# never in the repo: docs/05 §3.3 forbids credentials from reaching the agent's
+# context, and anything committed here would ride along in every clone.
+docs/claude-key
+**/claude-key
+*-key
+*_key
+!config/github/*.json
+
 # --- Factory runtime artifacts ---
 .factory/runs/
 *.run.log

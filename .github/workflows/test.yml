@@ -45,6 +45,12 @@ jobs:
       - name: Adversarial tests
         run: npm run test:adversarial
 
+      # Full work-item flow with a stub agent (docs/11 §4.3). A stub keeps this
+      # deterministic, so a failure means the wiring broke — not that a model
+      # had an off day.
+      - name: E2E tests
+        run: npm run test:e2e
+
       # Coverage thresholds are a gate, not a report: scoring and stop-rule code
       # must hold 100% branch coverage because an untested branch there is an
       # unverified permission path (docs/11 §6).

@@ -29,6 +29,7 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/09-roadmap.md`](docs/09-roadmap.md) | 分期路線圖與 Definition of Done |
 | [`docs/10-open-questions.md`](docs/10-open-questions.md) | 待驗證假設與待裁決事項 |
 | [`docs/11-test-strategy.md`](docs/11-test-strategy.md) | 測試框架與測試計畫（第 0 期核心交付） |
+| [`docs/12-repo-settings-guide.md`](docs/12-repo-settings-guide.md) | GitHub repo 設定指引（分支保護、required checks） |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
 | [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
 
@@ -48,14 +49,17 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 ```bash
 npm ci                    # 安裝（版本已精確鎖定）
 npm run typecheck         # TypeScript strict 檢查
-npm test                  # 122 則測試
+npm test                  # 138 則測試
 npm run test:unit         #   74 則：計分邏輯、停手規則
 npm run test:integration  #   27 則：DSH 契約、gh CLI 解析
 npm run test:adversarial  #   21 則：guardrail 是否真的擋得住
-npm run coverage          # 門檻：scoring/stop-rules 需 100% 分支
+npm run test:e2e          #   16 則：完整工作項流程（stub agent）
+npm run coverage          # 門檻：scoring/stop-rules/pipeline 需 100% 分支
 ```
 
 > **注意**：工廠對本 repo **永不自動合併**（`catalog-info.yaml` 的 `factory.io/agent-automerge: "false"`）。理由：agent 驗證自己的產出是 `docs/06` §4.3 明文禁止的模式。
+
+**`main` 分支已受保護**（ruleset `main-protection`）：所有變更——包含人類的——都必須經 PR 與審查。設定方式見 `docs/12-repo-settings-guide.md`。
 
 ## 語言慣例
 

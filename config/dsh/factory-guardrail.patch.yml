@@ -1,0 +1,42 @@
+# Factory guardrail overlay for DSH (docs/04-agent-execution-dsh.md §2.3).
+#
+# Usage:
+#   dsh --profile headless --patch config/dsh/factory-guardrail.patch.yml "<task>"
+#
+# Verified on macOS 2026-08-16 and probed on Linux by
+# .github/workflows/dsh-sandbox-probe.yml.
+#
+# This file is under CODEOWNERS protection and matches hard rule H5: the agent
+# must never be able to loosen the constraints it runs under (docs/05 §1.1).
+
+# Sandbox: workspace-write only. danger-full-access is never used in CI, since
+# it would let the agent reach the whole filesystem (docs/05 §2.1).
+- id: sandbox-policy
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.cwd()
+
+# Approval: CI has nobody to answer a prompt. `never` makes an operation that
+# needs approval fail immediately instead of hanging until the job timeout —
+# fast failure beats silent stalling.
+- id: approval
+  config:
+    policy: never
+
+# The composed workspace-write + never pair matches NO built-in preset.
+# Without this block dsh-permission-presets aborts at load with:
+#   "composed sandbox and approval defaults match no preset;
+#    configure defaultPreset explicitly"
+#
+# That abort is desirable: a silent fallback would run the agent under a
+# permission pairing nobody chose. The probe workflow asserts it stays loud.
+- id: permission
+  config:
+    defaultPreset: factory-ci
+    presets:
+      factory-ci:
+        sandbox: workspace-write
+        approval: never
+      read-only:
+        sandbox: read-only
+        approval: ask

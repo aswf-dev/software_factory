@@ -30,6 +30,14 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // The pipeline decides which terminal state a work item reaches, so an
+        // untested branch here is an unverified path through the gates.
+        'src/pipeline/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
       },
     },
   },
