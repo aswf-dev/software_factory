@@ -1,0 +1,26 @@
+.github/factory/quint-paths.yml
+  h_1b119f25eaf333 1-14
+.github/workflows/quint-verify.yml
+  h_1b119f25eaf333 1-62
+catalog-info.yaml
+  h_1b119f25eaf333 28-32
+config/github/main-ruleset.json
+  h_1b119f25eaf333 55-57
+src/cli/factory-score.test.ts
+  h_1b119f25eaf333 93-113
+src/cli/factory-score.ts
+  h_1b119f25eaf333 69-70,74-80,136,155-159,168,173-174
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 102-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "9a36169924c3f52eaf47e60ea9a517d130470fb4",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
