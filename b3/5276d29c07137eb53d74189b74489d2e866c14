@@ -1,0 +1,22 @@
+src/cli/factory-score.test.ts
+  h_1b119f25eaf333 1,4-51,54-63,66-86,92-111,113-123,126-128,131-235
+src/cli/factory-score.ts
+  h_1b119f25eaf333 6-9,11,13,16,18-64,71-85,89-97,102-119,123-137,139-150,152,161-184
+src/cli/run-cli.test.ts
+  h_1b119f25eaf333 1-96
+src/cli/run-cli.ts
+  h_1b119f25eaf333 1-52
+test/integration/factory-score-cli.test.ts
+  h_1b119f25eaf333 1-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b35276d29c07137eb53d74189b74489d2e866c14",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
