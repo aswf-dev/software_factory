@@ -1,0 +1,16 @@
+docs/08-metrics-kpi.md
+  h_1b119f25eaf333 132-164,166-221,223,288,290-292
+docs/10-open-questions.md
+  h_1b119f25eaf333 6,9,11,61,71,76,88-89,153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "58325ffab7292e63bd51ddd7177692520ddc407f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
