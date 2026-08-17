@@ -1,0 +1,24 @@
+.dsh/skills/factory-pr-stacking/SKILL.md
+  h_1b119f25eaf333 1-42
+.dsh/skills/factory-self-review/SKILL.md
+  h_1b119f25eaf333 1-29
+.dsh/skills/factory-stop-rules/SKILL.md
+  h_1b119f25eaf333 1-20
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 1-39
+.github/factory/task-template.txt
+  h_1b119f25eaf333 1-8
+.gitignore
+  h_1b119f25eaf333 51-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c6af3305825813ca1ef7a3651351fa3eeece387f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
