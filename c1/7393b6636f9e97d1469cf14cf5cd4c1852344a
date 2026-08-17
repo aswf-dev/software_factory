@@ -1,0 +1,38 @@
+src/cli/apply-judge-labels.test.ts
+  h_1b119f25eaf333 1-93
+src/cli/apply-judge-labels.ts
+  h_1b119f25eaf333 1-84
+src/cli/apply-score-labels.test.ts
+  h_1b119f25eaf333 1-75
+src/cli/apply-score-labels.ts
+  h_1b119f25eaf333 1-80
+src/cli/dry-run-agent.test.ts
+  h_1b119f25eaf333 1-69
+src/cli/dry-run-agent.ts
+  h_1b119f25eaf333 1-90
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 1,5-6,233,237-241,245-251
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 17,21,146,149
+src/cli/factory-score.test.ts
+  h_1b119f25eaf333 1,5-6,200,206-210,214-220
+src/cli/factory-score.ts
+  h_1b119f25eaf333 11,16,164
+src/cli/is-main-module.ts
+  h_1b119f25eaf333 1-27
+src/cli/write-report.test.ts
+  h_1b119f25eaf333 1-121
+src/cli/write-report.ts
+  h_1b119f25eaf333 1-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c17393b6636f9e97d1469cf14cf5cd4c1852344a",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
