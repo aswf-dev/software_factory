@@ -94,6 +94,14 @@ jobs:
           git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           echo "origin now authenticates with app token"
 
+      # git 身分：checkout 預設不設定 user.name/email，git commit 會失敗。
+      # 以 App 的 bot 身分提交（稽核可辨識，docs/02 D6）。
+      - name: Configure agent git identity
+        run: |
+          git config --local user.name "software-factory-worker[bot]"
+          git config --local user.email "software-factory-worker[bot]@users.noreply.github.com"
+          echo "git identity: software-factory-worker[bot]"
+
       # 寫入權限探針：在花費 LLM 成本之前確認 App token 真的能 push。
       # 失敗即在此紅燈（fast fail），不進入 agent 步驟。
       - name: Verify app token write access
