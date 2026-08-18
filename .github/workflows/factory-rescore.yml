@@ -1,12 +1,34 @@
 # 二次判定（docs/06 §5.3, Q06-5）：PR 更新時獨立重計分，攔截「說低做高」。
 #
-# 僅對 factory/* 分支觸發；非 factory 分支（人類 PR）跳過。
-# 判定以 factory-rescore CLI 執行（重用既有 src/scoring）。
+# 觸發：
+#   - pull_request（本 repo 的 factory/* 分支 PR 自動觸發）
+#   - workflow_dispatch（對其他 repo 的 factory/* PR 手動重計分——機制留在此 repo，
+#     Q-P2-1 config-only 移植：目標 repo 不需複製任何邏輯）
+#
+# 判定以 factory-rescore CLI 執行（重用既有 src/scoring）；目標 repo 的
+# catalog/risk-paths 從 target/（base_branch checkout）讀取；gh 以 GH_REPO
+# 指向目標 repo。此 workflow 不 push 任何分支，不觸碰任何 repo 的 main。
 name: Factory Rescore
 
 on:
   pull_request:
     types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: 目標 repo（owner/name）；預設本 repo
+        required: false
+        type: string
+        default: philipz/software_factory
+      base_branch:
+        description: 目標 repo 的工廠 trunk 分支（僅供 checkout；此 workflow 不 push）
+        required: false
+        type: string
+        default: main
+      pr_number:
+        description: 要重計分的 PR 編號（workflow_dispatch 必填）
+        required: true
+        type: number
 
 permissions:
   contents: read
@@ -17,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # 機制 repo（本 workflow 所在 = software_factory：CLI/dist 在此）
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
@@ -29,23 +52,38 @@ jobs:
           npm ci
           npm run build
 
-      # D6：以 App 身分留言/貼標籤（比照 factory-run 的 token 橋接）
+      # D6：以 App 身分留言/貼標籤（比照 factory-run 的 token 橋接）。
+      # repositories 限定目標 repo（最小權限）；App 需已安裝於目標 repo。
       - name: Mint app token
         id: app-token
         uses: actions/create-github-app-token@v3.2.0
         with:
           app-id: ${{ secrets.FACTORY_APP_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event_name == 'workflow_dispatch' && inputs.repo || github.repository }}
 
-      # 二次判定（僅 factory/* 分支；非 factory PR 無監督升級風險需攔截）
+      # 目標 repo checkout（工廠 trunk = base_branch）：catalog/risk-paths 由此讀取。
+      # pull_request 觸發時目標即本 repo（無害的第二份 checkout）。
+      - name: Checkout target repo
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event_name == 'workflow_dispatch' && inputs.repo || github.repository }}
+          ref: ${{ inputs.base_branch }}
+          path: target
+          token: ${{ steps.app-token.outputs.token }}
+
+      # 二次判定。pull_request 觸發：僅 factory/* 分支（非 factory PR 無監督
+      # 升級風險需攔截）；workflow_dispatch 觸發：一律執行（手動指定 PR）。
       - name: Rescore factory PR
-        if: startsWith(github.event.pull_request.head.ref, 'factory/')
+        if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.pull_request.head.ref, 'factory/') }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.event_name == 'workflow_dispatch' && inputs.repo || github.repository }}
         run: |
+          PR_NUMBER="${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}"
           node dist/cli/factory-rescore.js \
-            "${{ github.event.pull_request.number }}" \
-            catalog-info.yaml .github/factory/risk-paths.yml \
+            "$PR_NUMBER" \
+            target/catalog-info.yaml target/.github/factory/risk-paths.yml \
             > .factory/rescore.json
           cat .factory/rescore.json
           node -e '
@@ -70,5 +108,5 @@ jobs:
           '
 
       - name: Skip non-factory PR
-        if: "!startsWith(github.event.pull_request.head.ref, 'factory/')"
+        if: ${{ github.event_name == 'pull_request' && !startsWith(github.event.pull_request.head.ref, 'factory/') }}
         run: echo "非 factory 分支，跳過二次判定"

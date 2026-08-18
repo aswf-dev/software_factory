@@ -266,6 +266,14 @@ describe('Phase 2 資產釘選（Phase 2 T7）', () => {
     const w = read('.github/workflows/factory-rescore.yml')
     expect(w).toContain("startsWith(github.event.pull_request.head.ref, 'factory/')")
   })
+  it('factory-rescore.yml 支援多 repo（workflow_dispatch + target checkout + GH_REPO）', () => {
+    const w = read('.github/workflows/factory-rescore.yml')
+    expect(w).toContain('workflow_dispatch')
+    expect(w).toContain('inputs.repo')
+    expect(w).toContain('pr_number')
+    expect(w).toContain('path: target')
+    expect(w).toContain('GH_REPO:')
+  })
 })
 
 describe('T8 試點草稿（trial/fubon-tradingbot/，Q-P2-1）', () => {
