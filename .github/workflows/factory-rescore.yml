@@ -58,7 +58,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3.2.0
         with:
-          app-id: ${{ secrets.FACTORY_APP_ID }}
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
           repositories: ${{ github.event_name == 'workflow_dispatch' && inputs.repo || github.repository }}
 
