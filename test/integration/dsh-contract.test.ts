@@ -85,3 +85,27 @@ describe('輸出處理', () => {
     expect(interpretDshResult({ exitCode: 0 }).output).toBe('')
   })
 })
+
+describe('逾時與 exit code 優先權的邊界（mutation 驗證）', () => {
+  it('逾時且無 stderr 時 errorDetail 用預設訊息，並保留 stdout', () => {
+    const r = interpretDshResult({ timedOut: true, stdout: 'partial work' })
+    expect(r.outcome).toBe('timeout')
+    expect(r.output).toBe('partial work')
+    expect(r.shouldContinue).toBe(false)
+    expect(r.errorDetail).toBe('執行超過時間上限，已中止')
+  })
+
+  it('逾時優先於非零 exit code（被殺的程序可能帶誤導碼）', () => {
+    const r = interpretDshResult({ exitCode: 127, timedOut: true })
+    expect(r.outcome).toBe('timeout')
+    expect(r.shouldContinue).toBe(false)
+    expect(r.taskVerified).toBe(false)
+  })
+
+  it('exit 0 即使帶 stderr 仍為 completed（成功時忽略 stderr）', () => {
+    const r = interpretDshResult({ exitCode: 0, stdout: 'done', stderr: 'noise' })
+    expect(r.outcome).toBe('completed')
+    expect(r.errorDetail).toBe('')
+    expect(r.shouldContinue).toBe(true)
+  })
+})
