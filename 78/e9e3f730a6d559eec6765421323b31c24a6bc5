@@ -1,0 +1,20 @@
+backstage/versions.md
+  h_1b119f25eaf333 10-12
+docs/09-roadmap.md
+  h_1b119f25eaf333 91
+docs/13-phase1-acceptance.md
+  h_1b119f25eaf333 98,107
+docs/14-observation-period.md
+  h_1b119f25eaf333 74-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "78e9e3f730a6d559eec6765421323b31c24a6bc5",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
