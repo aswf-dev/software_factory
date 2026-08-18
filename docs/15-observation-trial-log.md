@@ -153,3 +153,17 @@
 **小瑕疵**：Issue 標籤 `needs-human`（第一次停手 run 貼的）在第三次 run 後未被移除（apply-judge-labels 為 add-only）——標籤殘留不影響判定，記錄待後續改進。
 
 **待辦（人類）**：審查並依 stack 順序合併 PR #572 → #573 → #574（stacked PR 需逐層；合併被擋時先 `gh stack checkout <PR>` + `gh stack unstack`）。
+
+### 2.5 試點 #3 補記 — CI 缺口與 TDD×stacked PR 張力（2026-08-18）
+
+**發現 3（CI 缺口）**：用戶指出 fubon-tradingbot 的 Actions 頁面「沒有 CI」。調查發現 repo **有** `test.yml` 但其觸發條件 `branches: [main, develop]` 排除 software-factory——試點 #2/#3 的 factory/* PR **只有 agent 自報測試、無獨立 CI 驗證**（違背「GitHub Actions runs tests」）。且串聯 stacked PR 的中間層 base 是前一層分支（如 `base=factory/571-01-test`），僅加 software-factory 仍只觸發最底層。修正（commit 32e766f2）：
+- `push: [main, develop, software-factory]`
+- `pull_request: [main, develop, software-factory, 'factory/**']`
+
+**發現 4（TDD「先紅」× stacked PR「每層獨立綠燈」張力）**：CI 啟用後 PR #572（01-test 層）**test FAILURE**——agent 的跨午夜「先紅」測試（普通 `it()`）在 01-test 單獨層（不含 02-impl 修復）必然紅。agent 沒做錯，是流程規格缺口。修正（PR #116）：
+- 紅燈驗證在 agent 沙箱內完成（寫測試→跑紅→實作→跑綠）
+- 01-test 層以 `it.skip` 提交（斷言保留、CI 綠）
+- 02-impl 層 un-skip（`it`）並含修復，CI 以已修復的測試驗證
+- 已寫入 docs/07 §2.2 + factory-workflow skill + fubon 分支同步（64c8125f）
+
+**驗證**：修正後三層 PR #572/#573/#574 **全部獨立綠燈**（test SUCCESS）——CI 獨立驗證（對比 agent 自報）完整生效。**教訓**：agent 自報「測試全綠」≠ CI 綠燈；目標 repo 的 CI 觸發條件必須涵蓋 factory 分支與串聯 base。
