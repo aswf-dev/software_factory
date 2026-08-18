@@ -163,6 +163,32 @@ gh stack merge <pr-number>
 | 人類審查（2–4 分） | **agent 不得合併**；人類核准後由人類或自動化合併 |
 | in-loop（5–6 分） | agent 根本不進入實作階段 |
 
+### 3.5 疊層 PR 的合併流程（2026-08-18 觀察期實測標準化）
+
+> **背景**：gh-stack 建立的疊層 PR 在 GitHub 端受「stacked PR」追蹤——`gh pr merge`（GraphQL）會拒絕：「part of a stack, use the asynchronous merge REST API」；而本 repo **未啟用 async merge API**（`merge-async` 端點 404）。因此合併需先解除疊層關聯。這是平台限制，非流程缺陷。
+
+**人類合併一疊 PR 的標準流程**（每疊由底而頂）：
+
+```bash
+# 1. 對最底層 PR：先確認其分支「獨立綠燈」（docs/07 §2.2——測試層不得依賴未合併的 API）
+# 2. 若 merge 被「part of a stack」擋住，解除疊層關聯：
+gh stack checkout <底層PR編號>     # 匯入該疊
+gh stack unstack                    # 刪除 GitHub 端的疊層關聯（分支與 PR 保留）
+git checkout main
+# 3. 更新分支至最新 main（strict checks 要求同步）：
+gh pr update-branch <底層PR編號>
+# 4. 合併（squash）：
+gh pr merge <底層PR編號> --squash --delete-branch
+# 5. 上層 PR 的 base 分支會隨之刪除 → 重建為 main-based（僅該層內容）並開新 PR：
+#    git checkout -b <branch> origin/main && <套用該層變更> && push && gh pr create --base main
+```
+
+**關鍵注意**：
+- **每層必須能獨立綠燈**（2026-08-18 #61 教訓）：測試層不得引用未 export 的 API；若測試需要某個 export，把 export 併入測試層（export 是測試基礎設施），02-impl 只放真實行為變更。
+- **上層 base 分支被刪除時**：PR 會關閉——該層內容需重建為 main-based 的新 PR（保留 commit 內容，重開 PR）。
+- **strict required checks**：main 每有合併，其餘 PR 變 BEHIND——合併前 `gh pr update-branch`。
+- 此流程對人類審查者是**程序性摩擦**，已列入觀察期指標（審查等待時間）；若摩擦持續偏高，考量合併策略調整（如降低疊層層數）。
+
 ---
 
 ## 4. 衝突處理與停手規則
