@@ -172,6 +172,12 @@ describe('DSH exit code 判讀', () => {
 
 > **關鍵測試**：必須有一則測試明確斷言「**exit 0 不等於任務正確完成**」的下游行為——即 exit 0 後**仍須**經過 required checks 與審查閘門，不可直接放行（`04` §4.2 的重要提醒）。
 
+**`gh` json 解析的 mutation-verified 邊界測試**（`gh-parse.test.ts`）：除了 §4.2 的契約表格，metrics（`08` §2.1）的兩條管子——`leadTimeHours` 與 `idleRatio`——另以 3 則「變異後紅燈、還原後綠燈」的測試釘住既有測試沒蓋到的行為：
+
+- `mergedAt` 欄位整個**缺席（undefined）**時 `leadTimeHours` 仍須回傳 `null`（與 `null` 同義，守住對 undefined 的判斷）；
+- `leadTimeHours` 對**非整數小時**須原樣回傳、不四捨五入（守住精度）；
+- process time 為**負**（資料異常）時 `idleRatio` 原始比值逾 1，須由上界 clamp 夾回 `1`（守住上界）。
+
 ### 4.3 E2E 測試
 
 **一條完整流程，用假的 agent**：
@@ -324,7 +330,7 @@ src/integration/                      # T4
   └── gh-parse.ts                     # gh JSON 解析、lead time、閒置比
 test/integration/
   ├── dsh-contract.test.ts            # 11 則（fixture 取自真實實測輸出）
-  └── gh-parse.test.ts                # 16 則
+  └── gh-parse.test.ts                # 19 則（含 3 則 mutation-verified 邊界）
 test/adversarial/
   └── guardrails.test.ts              # 21 則對抗性測試
 .github/workflows/test.yml            # CI（= 第 0 期出場條件的實體）
@@ -339,9 +345,9 @@ CODEOWNERS                            # GitHub 層 guardrail
 |---|---|
 | `npm run typecheck` | ✅ 通過（strict 模式無錯誤） |
 | `npm run test:unit` | ✅ **74 則**（計分 35 + 停手規則 39） |
-| `npm run test:integration` | ✅ **27 則**（DSH 契約 11 + gh 解析 16） |
+| `npm run test:integration` | ✅ **30 則**（DSH 契約 11 + gh 解析 19） |
 | `npm run test:adversarial` | ✅ **21 則** |
-| **合計** | ✅ **122 則全數通過**，約 2 秒 |
+| **合計** | ✅ **125 則全數通過**，約 2 秒 |
 | `npm run coverage` | ✅ `scoring`、`stop-rules`、`integration` **全部 100% 分支/行/函式/敘述** |
 
 ### 9.2 兩項「閘門是否真的有效」的驗證

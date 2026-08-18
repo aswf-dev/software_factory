@@ -125,7 +125,7 @@ gh pr list --state merged --limit 30 \
   --json number,createdAt,mergedAt,additions,deletions,reviews
 ```
 
-> ✅ **已實測查證**（gh v2.93.0，2026-08-16）：欄位名稱均存在且已實作解析（`src/integration/gh-parse.ts`，16 則測試涵蓋 lead time 與閒置比計算）。
+> ✅ **已實測查證**（gh v2.93.0，2026-08-16）：欄位名稱均存在且已實作解析（`src/integration/gh-parse.ts`，19 則測試涵蓋 lead time 與閒置比計算）。
 
 ### 4.2 基線記錄表
 
