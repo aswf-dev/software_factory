@@ -332,7 +332,7 @@ src/scoring/
 src/stop-rules/                       # T3
   ├── types.ts                        # SR1–SR8 規則型別
   ├── stop-rules.ts                   # 停手判定（無 override 機制）
-  └── stop-rules.test.ts              # 39 則單元測試
+  └── stop-rules.test.ts              # 45 則單元測試（含 mutation 驗證用例）
 src/integration/                      # T4
   ├── dsh-result.ts                   # exit code 判讀（taskVerified 恆為 false）
   └── gh-parse.ts                     # gh JSON 解析、lead time、閒置比
@@ -352,10 +352,10 @@ CODEOWNERS                            # GitHub 層 guardrail
 | 項目 | 結果 |
 |---|---|
 | `npm run typecheck` | ✅ 通過（strict 模式無錯誤） |
-| `npm run test:unit` | ✅ **74 則**（計分 35 + 停手規則 39） |
-| `npm run test:integration` | ✅ **30 則**（DSH 契約 11 + gh 解析 19） |
-| `npm run test:adversarial` | ✅ **21 則** |
-| **合計** | ✅ **125 則全數通過**，約 2 秒 |
+| `npm run test:unit` | ✅ **195 則**（計分 45 + 停手規則 45 + CLI 105） |
+| `npm run test:integration` | ✅ **36 則**（DSH 契約 11 + gh 解析 19 + CLI 實機 6） |
+| `npm run test:adversarial` | ✅ **50 則**（guardrails 31 + factory-assets 19） |
+| **合計** | ✅ **302 則全數通過**（含 e2e 17 + quint 神諭 4） |
 | `npm run coverage` | ✅ `scoring`、`stop-rules`、`integration` **全部 100% 分支/行/函式/敘述** |
 
 ### 9.2 兩項「閘門是否真的有效」的驗證
@@ -418,6 +418,10 @@ Linux 沙箱探測**首次執行即失敗**，但那是測試本身的缺陷，�
 **T3 停手規則：刻意不提供 override 參數**
 
 `evaluateStopRules()` 只回答「是否必須停手」，**沒有任何可關閉規則的參數**。理由：若存在繞過機制，卡住的 agent 就有動機去使用它——而那正是最不該放行的時刻。測試中有一則專門斷言回傳物件的鍵只有四個，確保未來不會悄悄加入 override。
+
+**T3 停手規則：以 mutation 驗證測試是否有檢出力**
+
+除了分支/行覆蓋率，`stop-rules.test.ts` 也用「mutation 驗證」來確認測試真的守得住行為：逐一對來源實作引入會改變語義的變異（例如把斷言閾值從 `< 0` 收緊成 `< -1`、把 guardrail 從精確 glob 匹配改成子字串比對、在 SR2 理由裡洩漏被排除的 H5），**變異後對應測試必須變紅，還原後必須變綠**。這補足了覆蓋率數字看不出來、但恰好是停手規則最怕的那種「測試存在卻偵測不到錯誤」的盲點。此類驗證用例會隨實作一起審查。
 
 **T4 DSH 契約：`taskVerified` 恆為 `false`**
 
