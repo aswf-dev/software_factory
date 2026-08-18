@@ -131,10 +131,12 @@ jobs:
           echo "=== remote url (masked) ==="
           git config --get remote.origin.url | sed 's/:[^@]*@/:***@/'
           echo "=== probe push (extraheader forced empty via -c) ==="
-          git switch -c _factory-auth-probe
+          # 平行 run 共用同名探針分支會互相衝突（fetch first），故以 run id 唯一化
+          PROBE="_factory-auth-probe-${{ github.run_id }}"
+          git switch -c "$PROBE"
           git commit --allow-empty -m "auth probe"
-          git -c http.https://github.com/.extraheader= push origin _factory-auth-probe
-          git -c http.https://github.com/.extraheader= push origin --delete _factory-auth-probe
+          git -c http.https://github.com/.extraheader= push origin "$PROBE"
+          git -c http.https://github.com/.extraheader= push origin --delete "$PROBE"
           git switch - 2>/dev/null || true
           echo "app token write access verified"
 
