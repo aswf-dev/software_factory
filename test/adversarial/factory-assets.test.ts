@@ -170,6 +170,25 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
   })
 })
 
+describe('factory-metrics 資產（docs/08 §2/§7，Phase 2 T5）', () => {
+  it('factory-metrics CLI 存在且以 gh JSON 為資料源（不硬編碼）', () => {
+    const content = read('src/cli/factory-metrics.ts')
+    expect(content).toContain('gh')
+    expect(content).toContain('pr')
+    expect(content).toContain('computeMetrics')
+  })
+  it('factory-metrics 測試存在（純函式 + gh 注入）', () => {
+    const content = read('src/cli/factory-metrics.test.ts')
+    expect(content).toContain('computeMetrics')
+    expect(content).toContain('renderMarkdown')
+  })
+  it('weekly-metrics.sh 存在、可執行、查缺陷標籤與指標', () => {
+    const content = read('scripts/weekly-metrics.sh')
+    expect(content).toContain('defect/escape')
+    expect(content).toContain('factory-metrics')
+  })
+})
+
 describe('Quint Phase A 資產（Task 16–20）', () => {
   it('vendor 的 quint skills 存在（官方僅提供 quint-lang/quint-modeling，見 ADR-008）', () => {
     for (const name of ['quint-lang', 'quint-modeling']) {
