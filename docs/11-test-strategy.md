@@ -252,6 +252,16 @@ describe('GitHub App 權限最小化（D6）', () => {
 > **覆蓋率的正確用法**：它是**尋找未測程式碼的工具**，不是品質分數。100% 覆蓋率不代表沒有 bug；但計分邏輯有未覆蓋分支，就一定有未驗證的權限路徑。
 
 > **Mutation-strength 測試**：100% 覆蓋率只證明「每一行都跑過」，不能證明「改壞會被抓到」。對 `formatCliError`（`src/cli/run-cli.ts`，CI gate 的錯誤輸出）以變異測試驗證套件有牙齒：誤改 ENOENT 判定、path fallback、最終 `String()` 分支，或放寬 `isErrnoException` 的 `instanceof Error` 守衛，都會使測試轉紅。詳細變異清單與 GREEN/RED 記錄見 `src/cli/run-cli-mutation.test.ts` 標頭（比照 `src/scoring/rescore-mutation.test.ts` 的做法）。
+### 6.1 mutation-strength 測試（覆蓋率的互補）
+
+覆蓋率只說「這行被跑過」，不能證明「這行寫錯時測試會變紅」。對**容易在重構中悄悄引入權限偏誤**的關鍵函式，另以「mutation-strength」測試補強：把一個具體的變異套進被測函式，斷言它必須讓測試變紅。既有慣例：
+
+| 檔案 | 被測函式 | 覆蓋的變異 |
+|---|---|---|
+| `src/scoring/rescore-mutation.test.ts` | `rescore` | 持平放寬降級、blocker 聯集被截、automerge 阻擋失效、單向不降級守衛 |
+| `src/cli/parse-args-mutation.test.ts` | `parseArgs` | 重複旗標「後出現者勝」、旗標判定 `--` 被放寬成 `-`、處理旗標誤重設另一欄 |
+
+每個變異都經「手改原始碼 → 測試變紅 → 還原 → 變綠」驗證，並在檔頭記錄 mutation log。這是對 §6 覆蓋率門檻的質性補強，不是取代。
 
 ---
 
