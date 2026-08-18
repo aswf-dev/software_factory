@@ -1,0 +1,14 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 35-43,51-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "79963e0f823f2ea4ffd7de8b92d4bbeaea941b39",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
