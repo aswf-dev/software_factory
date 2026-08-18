@@ -1,0 +1,14 @@
+.github/workflows/factory-rescore.yml
+  h_1b119f25eaf333 83-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a76e88209329fc10ded957711a6fa165138094dd",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
