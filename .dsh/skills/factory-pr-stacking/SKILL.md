@@ -34,6 +34,8 @@ gh stack submit --auto
 - **`gh stack submit` 使用 `--auto`**：不互動提示；**不要加 `--draft`**（draft PR 無法合併，會擋住人類審查流程）。
 - **同步一律用 `gh stack sync`，不用 `gh stack rebase`**：`sync` 非互動、衝突時自動還原所有分支（交易性）；`rebase` 衝突時需互動介入。
 - `gh stack sync` 連續兩次失敗 → 依 factory-stop-rules 停手。
+- **每層必須獨立綠燈（docs/07 §2.2）**：測試層不得引用尚未存在的 API（如未 export 的函式）——那會讓該層單獨無法編譯。若測試需要一個不存在的 export，**把該 export 併入測試層本身**（export 是測試基礎設施）；02-impl 只放真實的行為變更，不放純 export/改名。
+- **合併時機**：gh-stack 建立的疊層 PR 在 GitHub 端受「stacked PR 合併限制」——合併需逐層處理，若 merge 被擋（`part of a stack` 且無 async merge API），先 `gh stack checkout <PR>` + `gh stack unstack` 解除關聯再合併。
 - **拆分上限 200–300 行**（撰寫指引，非閘門）；超過則再拆。
 - **不可跨風險層級**：高風險變更單獨成 PR，不與低風險混在一起。
 - 每顆 PR 描述含：做什麼（一句話）、為什麼這樣做、在疊中的位置、審查重點、`Closes #<編號>`。
