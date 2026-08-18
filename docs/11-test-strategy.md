@@ -251,6 +251,8 @@ describe('GitHub App 權限最小化（D6）', () => {
 
 > **覆蓋率的正確用法**：它是**尋找未測程式碼的工具**，不是品質分數。100% 覆蓋率不代表沒有 bug；但計分邏輯有未覆蓋分支，就一定有未驗證的權限路徑。
 
+> **Mutation-strength 測試**：100% 覆蓋率只證明「每一行都跑過」，不能證明「改壞會被抓到」。對 `formatCliError`（`src/cli/run-cli.ts`，CI gate 的錯誤輸出）以變異測試驗證套件有牙齒：誤改 ENOENT 判定、path fallback、最終 `String()` 分支，或放寬 `isErrnoException` 的 `instanceof Error` 守衛，都會使測試轉紅。詳細變異清單與 GREEN/RED 記錄見 `src/cli/run-cli-mutation.test.ts` 標頭（比照 `src/scoring/rescore-mutation.test.ts` 的做法）。
+
 ---
 
 ## 7. CI 整合（D7）
