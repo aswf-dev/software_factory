@@ -1,0 +1,14 @@
+test/quint/scoring-oracle.test.ts
+  h_1b119f25eaf333 55-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "007e53f9c8ea6c53fc9173fa0def85e51eb3d9d2",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
