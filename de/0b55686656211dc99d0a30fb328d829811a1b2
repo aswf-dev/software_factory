@@ -1,0 +1,20 @@
+docs/08-metrics-kpi.md
+  h_1b119f25eaf333 292-293
+docs/09-roadmap.md
+  h_1b119f25eaf333 121,123-142
+docs/10-open-questions.md
+  h_1b119f25eaf333 56,59,69,92,137,148-149
+docs/superpowers/plans/2026-08-18-phase2-expansion.md
+  h_1b119f25eaf333 13-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "de0b55686656211dc99d0a30fb328d829811a1b2",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
