@@ -71,6 +71,26 @@ describe('gh issue list --json 解析（欄位已對 gh v2.93.0 查證）', () =
   it('缺少必要欄位 → 拋錯', () => {
     expect(() => parseIssues(JSON.stringify([{ title: 'no number' }]))).toThrow()
   })
+
+  it('number/title/createdAt 三者皆嚴格必填，缺任一即拋錯（防 default/optional 突變）', () => {
+    // Mutation guard: silently defaulting a missing core field would let bad
+    // data through and corrupt lead-time / idle-ratio metrics downstream.
+    const base = { number: 1, title: 'x', createdAt: '2026-08-01T00:00:00Z' }
+    for (const missing of ['number', 'title', 'createdAt']) {
+      const partial = { ...base } as Record<string, unknown>
+      delete partial[missing]
+      expect(() => parseIssues(JSON.stringify([partial]))).toThrow(missing)
+    }
+  })
+
+  it('labels 的元素必須是 { name: string }，缺 name 被拒絕（防 passthrough 突變）', () => {
+    // Mutation guard: a label object carrying no `name` must not silently parse,
+    // or hasLabel would compare against undefined forever.
+    const bad = JSON.stringify([
+      { number: 7, title: 'x', createdAt: '2026-08-01T00:00:00Z', labels: [{ nope: true }] },
+    ])
+    expect(() => parseIssues(bad)).toThrow()
+  })
 })
 
 describe('oversight 標籤判定（docs/06 §5.1）', () => {
@@ -83,6 +103,41 @@ describe('oversight 標籤判定（docs/06 §5.1）', () => {
 
   it('不存在的標籤回傳 false', () => {
     expect(hasLabel(parseIssues(ISSUES_JSON)[0]!, 'needs-human')).toBe(false)
+  })
+
+  it('標籤為「精確全等」比對：子字串或大小寫差異不全等（防 includes/insensitive 突變）', () => {
+    // Mutation guard: switching to substring (includes) or case-insensitive
+    // matching would make an oversight label spuriously match, silently raising
+    // the oversight tier of the wrong work items.
+    const issue = parseIssues(
+      JSON.stringify([
+        {
+          number: 5,
+          title: 'x',
+          createdAt: '2026-08-01T00:00:00Z',
+          labels: [{ name: 'oversight/in-loop' }],
+        },
+      ]),
+    )[0]!
+    expect(hasLabel(issue, 'oversight')).toBe(false) // 子字串前綴不全等
+    expect(hasLabel(issue, 'OVERsight/in-loop')).toBe(false) // 大小寫差異不全等
+    expect(hasLabel(issue, 'oversight/in-loop')).toBe(true)
+  })
+
+  it('任一標籤命中即回傳 true，不限第一個（防 firstLabelOnly 突變）', () => {
+    // Mutation guard: reducing the check to only the first label would miss a
+    // match when the relevant label follows an unrelated one (common ordering).
+    const issue = parseIssues(
+      JSON.stringify([
+        {
+          number: 6,
+          title: 'x',
+          createdAt: '2026-08-01T00:00:00Z',
+          labels: [{ name: 'ready' }, { name: 'oversight/on-loop' }],
+        },
+      ]),
+    )[0]!
+    expect(hasLabel(issue, 'oversight/on-loop')).toBe(true)
   })
 })
 
