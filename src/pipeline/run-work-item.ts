@@ -46,6 +46,14 @@ export interface AgentRun {
   assertionDelta?: number | undefined
   addedDependencies?: readonly string[] | undefined
   syncFailures?: number | undefined
+  /**
+   * Whether the work item had testable acceptance criteria (SR4).
+   *
+   * Three-valued on purpose: only an explicit `false` stops the run. A runner
+   * that does not report the field leaves it undefined, and SR4 stays silent —
+   * "not reported" must not be punished as "absent".
+   */
+  hasAcceptanceCriteria?: boolean | undefined
 }
 
 export interface PipelineResult {
@@ -126,6 +134,7 @@ export function runWorkItem(input: PipelineInput): PipelineResult {
     triggeredHardRules: finalScore.triggeredHardRules,
     addedDependencies: run.addedDependencies ?? undefined,
     assertionDelta: run.assertionDelta ?? undefined,
+    hasAcceptanceCriteria: run.hasAcceptanceCriteria ?? undefined,
   })
 
   if (stopDecision.mustStop) {

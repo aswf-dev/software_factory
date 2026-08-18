@@ -25,6 +25,11 @@ export interface StubAgentScript {
   addedDependencies?: readonly string[]
   /** Consecutive `gh stack sync` failures the agent hit. */
   syncFailures?: number
+  /**
+   * Whether the work item carried testable acceptance criteria (SR4).
+   * Left undefined by default: "not reported" must not be read as "absent".
+   */
+  hasAcceptanceCriteria?: boolean | undefined
   /** Force a non-zero exit to exercise the failure path. */
   fail?: { exitCode: number; stderr: string }
   /** Simulate exceeding the wall-clock limit. */
@@ -40,6 +45,7 @@ export interface StubAgentRun {
   assertionDelta: number
   addedDependencies: readonly string[]
   syncFailures: number
+  hasAcceptanceCriteria?: boolean | undefined
 }
 
 /**
@@ -56,6 +62,7 @@ export function runStubAgent(script: StubAgentScript = {}): StubAgentRun {
     assertionDelta: script.assertionDelta ?? 0,
     addedDependencies: script.addedDependencies ?? [],
     syncFailures: script.syncFailures ?? 0,
+    hasAcceptanceCriteria: script.hasAcceptanceCriteria,
   }
 
   if (script.timeout === true) {

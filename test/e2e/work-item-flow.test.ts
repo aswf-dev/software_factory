@@ -160,6 +160,17 @@ describe('E2E：停手規則在流程中確實生效', () => {
     expect(r.outcome).toBe('needs-human')
     expect(r.stopDecision?.violations.some((v) => v.rule === 'SR1-sync-failed')).toBe(true)
   })
+
+  it('缺少可驗證的驗收條件 → needs-human (SR4)', () => {
+    const r = runWorkItem({
+      issueNumber: 115,
+      initial: LOW_RISK,
+      runAgent: () =>
+        runStubAgent({ changedPaths: ['src/a.ts'], hasAcceptanceCriteria: false }),
+    })
+    expect(r.outcome).toBe('needs-human')
+    expect(r.stopDecision?.violations.some((v) => v.rule === 'SR4-unclear-acceptance')).toBe(true)
+  })
 })
 
 describe('E2E：DSH 執行失敗的處置', () => {

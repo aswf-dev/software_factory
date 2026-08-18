@@ -48,3 +48,7 @@ docs/claude-key
 # --- Factory runtime artifacts ---
 .factory/runs/
 *.run.log
+
+# Factory runtime artifacts (agent report, run state)
+.factory/
+_apalache-out/

@@ -1,0 +1,50 @@
+# agent-add-tests Template（Phase 1）
+#
+# 已驗證（Q03-2，2026-08-17）：
+# - `github:actions:dispatch` 為 @backstage/plugin-scaffolder-backend-module-github
+#   的內建 action，inputs：token/repoUrl/workflowId/workflowInputs/branchOrTagName；
+#   該 action **沒有輸出 schema**，因此拿不到 workflowRunUrl —— 輸出改為指引使用者
+#   前往 Actions 頁面查看（docs/03 §3.2 的 fallback 精神：不依賴未驗證的輸出）。
+# - 使用方式：使用者**先建立 Issue（含明確驗收條件，SR4 要求）**，再由此 Template
+#   填入 Issue 編號觸發 factory-run.yml；這比「Template 建 Issue 再 dispatch」更簡單
+#   且不依賴 issue 編號在 step 間的傳遞。
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: agent-add-tests
+  title: 請 agent 補測試
+  description: 將「補測試」工作項交由工廠 agent 處理（低風險類別，docs/00 §6 明列）
+spec:
+  owner: user:philipz
+  type: service
+  parameters:
+    - title: 工作項資訊
+      required: [repoUrl, issueNumber]
+      properties:
+        repoUrl:
+          title: 目標 repo
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedOwners: [philipz]
+        issueNumber:
+          title: Issue 編號
+          type: number
+          description: 該 Issue 必須已具備明確的驗收條件（SR4：缺驗收條件 agent 會停手）
+  steps:
+    - id: dispatch
+      name: 觸發工廠工作流
+      action: github:actions:dispatch
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        workflowId: factory-run.yml
+        branchOrTagName: main
+        workflowInputs:
+          issue_number: ${{ parameters.issueNumber }}
+  output:
+    text:
+      - title: 觸發完成
+        content: |
+          已觸發 `factory-run.yml`（Issue #${{ parameters.issueNumber }}）。
+          執行狀態請見 GitHub Actions 頁面：
+          https://github.com/philipz/software_factory/actions

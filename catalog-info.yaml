@@ -25,6 +25,11 @@ metadata:
     # the factory must never auto-merge its own changes, because that would be
     # the agent validating its own output — explicitly forbidden by docs/06 §4.3.
     factory.io/agent-automerge: "false"
+
+    # --- 技術棧規範（供 CI 決定驗證組合；人類登錄，agent 不得修改）---
+    factory.io/stack: typescript
+    factory.io/test-framework: vitest
+    factory.io/quint-spec: specs/scoring
 spec:
   type: service
   lifecycle: experimental

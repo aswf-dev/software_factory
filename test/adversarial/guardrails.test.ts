@@ -32,8 +32,13 @@ const GUARDRAIL_PATHS = [
   '.github/workflows/factory-run.yml',
   '.github/workflows/test.yml',
   '.github/factory/risk-paths.yml',
+  '.github/factory/task-template.txt',
+  '.github/factory/quint-paths.yml',
   'CODEOWNERS',
   'catalog-info.yaml',
+  '.dsh/skills/factory-workflow/SKILL.md',
+  '.dsh/skills/factory-pr-stacking/SKILL.md',
+  '.dsh/skills/factory-self-review/SKILL.md',
   '.dsh/skills/factory-stop-rules/SKILL.md',
 ]
 

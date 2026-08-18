@@ -1,0 +1,62 @@
+# Quint 正式驗證（docs/superpowers/plans Phase 1 Task 19, ADR-008）。
+# 僅當 PR 觸及 quint-paths.yml 宣告的路徑時作為 required check 生效。
+name: Quint Verify
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quint-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # 需要 origin/main 以計算變更路徑
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # 觸發判定：變更是否觸及 quint-paths.yml 宣告的路徑
+      - name: Determine if Quint gate applies
+        id: gate
+        run: |
+          changed=$(git diff --name-only origin/main...HEAD)
+          applies=$(node --input-type=module -e '
+            import { readFileSync } from "node:fs"
+            import { load } from "js-yaml"
+            import { minimatch } from "minimatch"
+            const paths = load(readFileSync(".github/factory/quint-paths.yml", "utf8")).quint_paths
+            const changed = process.argv[1].split("\n").filter(Boolean)
+            const hit = changed.some((p) => paths.some((g) => minimatch(p, g, { dot: true })))
+            process.stdout.write(hit ? "yes" : "no")
+          ' "$changed")
+          echo "applies=$applies" >> "$GITHUB_OUTPUT"
+
+      - name: Typecheck spec
+        if: steps.gate.outputs.applies == 'yes'
+        run: npx quint typecheck specs/scoring/score.qnt
+
+      # 正式驗證：Apalache model checker（狀態空間小，秒級完成）
+      - name: Verify invariants
+        if: steps.gate.outputs.applies == 'yes'
+        run: |
+          npx quint verify specs/scoring/score.qnt \
+            --invariants failSafe failSafeNotOnLoop totalInRange hardRuleBlocks onLoopAllows lineCeiling
+
+      # 神諭 harness：模型 vs TS 實作一致性
+      - name: Oracle harness
+        if: steps.gate.outputs.applies == 'yes'
+        run: npx vitest run test/quint/scoring-oracle.test.ts
+
+      - name: Skip note
+        if: steps.gate.outputs.applies != 'yes'
+        run: echo "Quint gate not applicable to this PR"

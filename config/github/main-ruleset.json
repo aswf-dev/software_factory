@@ -52,6 +52,9 @@
         "required_status_checks": [
           {
             "context": "test"
+          },
+          {
+            "context": "quint-verify"
           }
         ]
       }
