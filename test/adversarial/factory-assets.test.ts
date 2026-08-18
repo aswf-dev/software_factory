@@ -224,3 +224,21 @@ describe('Quint Phase A 資產（Task 16–20）', () => {
     expect(read('test/quint/scoring-oracle.test.ts')).toContain('--out-itf')
   })
 })
+
+describe('Phase 2 資產釘選（Phase 2 T7）', () => {
+  it('factory-run.yml 含 task_type 路由與 repo input', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('task_type')
+    expect(c).toContain('task-template-${TASK_TYPE}')
+    expect(c).toContain('inputs.repo')
+  })
+  it('factory-workflow skill 含任務型別分支與 --draft 禁令', () => {
+    const s = read('.dsh/skills/factory-workflow/SKILL.md')
+    expect(s).toContain('任務型別')
+    expect(s).toContain('--draft')
+  })
+  it('factory-rescore.yml 存在且僅 factory/* 分支觸發', () => {
+    const w = read('.github/workflows/factory-rescore.yml')
+    expect(w).toContain("startsWith(github.event.pull_request.head.ref, 'factory/')")
+  })
+})
