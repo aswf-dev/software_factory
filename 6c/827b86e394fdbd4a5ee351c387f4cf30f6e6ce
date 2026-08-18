@@ -1,0 +1,16 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 41-42
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 87-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6c827b86e394fdbd4a5ee351c387f4cf30f6e6ce",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
