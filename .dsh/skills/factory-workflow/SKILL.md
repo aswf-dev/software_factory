@@ -47,6 +47,11 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
   `export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)`（短效 installation token，
   由 CI 寫入 workspace；讀取失敗則依 factory-stop-rules 停手）。**永不把 token 寫入任何
   會進 git 的檔案**（如 commit message、文件、測試）。
+- **目標 repo 與 trunk 分支也以檔案傳遞**（DSH 會剝離 process env；工作目錄可能是
+  其他 repo 的 checkout）：`export GH_REPO=$(cat .factory/run/repo 2>/dev/null)`、
+  `export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)`。`GH_REPO` 讓 gh 的
+  issue/PR 操作指向目標 repo；`BASE_BRANCH` 是 PR 合併目標（stack 的 base）——
+  **絕不 push 到 main**（Q-P2-1）。
 - `git push` 的認證已由 CI 設定（remote URL 內嵌 App token，優先於任何 credential helper）——**直接 push 即可**，不要自行改 remote URL、不要寫入 token 到任何檔案。
 
 

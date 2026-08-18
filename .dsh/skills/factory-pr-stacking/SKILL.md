@@ -7,8 +7,11 @@ description: 如何把一個工作項的變更拆分為一疊可獨立審查的 
 
 ## 標準三層（由底而頂）
 
+base = `$BASE_BRANCH`（工廠 trunk；由 CI 寫入 `.factory/run/base-branch`，先
+`export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)`）——**絕不 push 到 main**（Q-P2-1）。
+
 ```
-trunk (main)
+trunk ($BASE_BRANCH)
   └── 01-test    測試/契約先行
         └── 02-impl    實作
               └── 03-docs    文件與註解
@@ -17,7 +20,10 @@ trunk (main)
 ## 指令序列（CI 環境，全部非互動）
 
 ```bash
-gh stack init --base main --prefix "factory/<issue編號>" --numbered
+export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)
+export GH_REPO=$(cat .factory/run/repo 2>/dev/null)
+export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)
+gh stack init --base "$BASE_BRANCH" --prefix "factory/<issue編號>" --numbered
 git add tests/
 gh stack add -m "test: add failing tests for issue #<編號>" -A
 # ...實作...
@@ -30,6 +36,7 @@ gh stack submit --auto
 ## 必須遵守
 
 - **分支一律經 `gh stack init --prefix "factory/<issue編號>"` 建立**——分支名必須以 `factory/` 前綴開頭並含 Issue 編號（2026-08-18 試跑發現：部分 run 未遵循此慣例，造成分支無法與 Issue 對應）。**不允許**自行命名分支（如 `08-18-docs_...`）或直接 `git branch` 建分支。
+- **base 一律用 `$BASE_BRANCH`**（`.factory/run/base-branch`），不得寫死 `main`——對非試點 repo，main 是受保護的真實 trunk，絕不觸碰（Q-P2-1）。
 - **`gh stack add` 永遠提供 `-m`**：省略時會開啟編輯器，在 CI 中卡住直到逾時。
 - **`gh stack submit` 使用 `--auto`**：不互動提示；**不要加 `--draft`**（draft PR 無法合併，會擋住人類審查流程）。
 - **同步一律用 `gh stack sync`，不用 `gh stack rebase`**：`sync` 非互動、衝突時自動還原所有分支（交易性）；`rebase` 衝突時需互動介入。

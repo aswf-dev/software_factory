@@ -100,6 +100,76 @@ describe('factory-run.yml 具備必要結構', () => {
   })
 })
 
+describe('factory-run.yml 多 repo 支援（Q-P2-1，Phase 2 T4）', () => {
+  const content = read('.github/workflows/factory-run.yml')
+  it('含 repo 與 base_branch 輸入（repo 預設本 repo）', () => {
+    expect(content).toContain('repo:')
+    expect(content).toContain('default: philipz/software_factory')
+    expect(content).toContain('base_branch:')
+    expect(content).toContain('default: main')
+  })
+  it('Guard step：非試點 repo 的 base_branch 不得為 main', () => {
+    expect(content).toMatch(/Guard base_branch safety/)
+    expect(content).toContain('inputs.repo')
+    expect(content).toContain('inputs.base_branch')
+    expect(content).toContain('!= "philipz/software_factory"')
+    expect(content).toContain('== "main"')
+  })
+  it('App token 依目標 repo 換發（最小權限）', () => {
+    expect(content).toContain('repositories: ${{ inputs.repo }}')
+  })
+  it('目標 repo 以 base_branch checkout 至 target/（main 絕不觸碰）', () => {
+    expect(content).toContain('repository: ${{ inputs.repo }}')
+    expect(content).toContain('ref: ${{ inputs.base_branch }}')
+    expect(content).toContain('path: target')
+  })
+  it('agent 的 repo/base 以 run-env 檔傳遞（DSH 剝離 env）', () => {
+    expect(content).toContain('.factory/run/base-branch')
+    expect(content).toContain('.factory/run/repo')
+    expect(content).toContain('.factory/run/gh-token')
+  })
+  it('gh 步驟以 GH_REPO 指向目標 repo', () => {
+    expect(content).toContain('GH_REPO: ${{ inputs.repo }}')
+  })
+  it('token 安全：.git/info/exclude 排除 .factory/（目標 repo 未必有 gitignore 條目）', () => {
+    expect(content).toContain('.git/info/exclude')
+    expect(content).toContain('.factory/')
+  })
+  it('計分與判定讀目標 repo 的 catalog/risk-paths', () => {
+    expect(content).toContain('--catalog target/catalog-info.yaml')
+    expect(content).toContain('target/.github/factory/risk-paths.yml')
+  })
+})
+
+describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => {
+  it('factory-pr-stacking 以 $BASE_BRANCH 為 stack base', () => {
+    const content = read('.dsh/skills/factory-pr-stacking/SKILL.md')
+    expect(content).toContain('gh stack init --base "$BASE_BRANCH"')
+    expect(content).not.toContain('--base main')
+    expect(content).toContain('.factory/run/base-branch')
+  })
+  it('factory-workflow 指示讀取 GH_REPO/BASE_BRANCH 且不 push main', () => {
+    const content = read('.dsh/skills/factory-workflow/SKILL.md')
+    expect(content).toContain('.factory/run/repo')
+    expect(content).toContain('.factory/run/base-branch')
+    expect(content).toContain('絕不 push 到 main')
+  })
+  it('所有 task-template 帶 <REPO>/<BASE_BRANCH> 佔位與 run-env 匯出', () => {
+    for (const t of [
+      'task-template.txt',
+      'task-template-fix-bug.txt',
+      'task-template-update-deps.txt',
+      'task-template-write-docs.txt',
+    ]) {
+      const c = read(`.github/factory/${t}`)
+      expect(c).toContain('<REPO>')
+      expect(c).toContain('<BASE_BRANCH>')
+      expect(c).toContain('export GH_REPO=$(cat .factory/run/repo')
+      expect(c).toContain('export BASE_BRANCH=$(cat .factory/run/base-branch')
+    }
+  })
+})
+
 describe('Quint Phase A 資產（Task 16–20）', () => {
   it('vendor 的 quint skills 存在（官方僅提供 quint-lang/quint-modeling，見 ADR-008）', () => {
     for (const name of ['quint-lang', 'quint-modeling']) {

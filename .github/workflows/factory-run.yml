@@ -18,6 +18,16 @@ on:
         type: choice
         options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs]
         default: agent-add-tests
+      repo:
+        description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
+        required: false
+        type: string
+        default: philipz/software_factory
+      base_branch:
+        description: 工廠 trunk 分支（PR 合併目標）。⚠️ 非試點 repo 不得為 main（安全約束，Q-P2-1）
+        required: false
+        type: string
+        default: main
       dry_run:
         description: 以 stub agent 取代真實 DSH（驗證流程用）
         required: false
@@ -37,7 +47,7 @@ on:
         default: deepseek
 
 concurrency:
-  group: factory-${{ inputs.issue_number }}
+  group: factory-${{ inputs.repo }}-${{ inputs.issue_number }}
   cancel-in-progress: false   # 不取消進行中的執行，避免產生半成品（docs/04 §4.3）
 
 permissions:
@@ -49,7 +59,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
+      # 機制 repo（本 repo：workflow/CLI/skill 所在）在根目錄；
+      # 目標 repo（inputs.repo）另行 checkout 至 target/，agent 在 target/ 內工作。
       - uses: actions/checkout@v7
+
+      # 安全約束（Q-P2-1）：非試點 repo 的工廠 trunk 不得為 main——
+      # 試點 fubon-tradingbot 的 main 絕不觸碰，trunk 是 software-factory 分支。
+      # Guard 在花費任何成本（token/LLM）之前就擋下。
+      - name: Guard base_branch safety (Q-P2-1)
+        run: |
+          if [ "${{ inputs.repo }}" != "philipz/software_factory" ] && [ "${{ inputs.base_branch }}" == "main" ]; then
+            echo "::error::非試點 repo 的 base_branch 不得為 main（Q-P2-1 安全約束：main 絕不觸碰）"
+            exit 1
+          fi
+          echo "guard ok: repo=${{ inputs.repo }} base_branch=${{ inputs.base_branch }}"
 
       - uses: actions/setup-node@v7
         with:
@@ -59,12 +82,25 @@ jobs:
       # D6：以 GitHub App 身分換發短效 installation token。
       # App 權限最小化（Contents/PRs/Issues RW、Actions/Metadata R），
       # 無 Administration/Workflows —— agent 無法修改 guardrail 自身。
+      # repositories 限定目標 repo（最小權限；App 需已安裝於目標 repo）。
       - name: Mint app token
         id: app-token
         uses: actions/create-github-app-token@v3.2.0
         with:
           app-id: ${{ secrets.FACTORY_APP_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          repositories: ${{ inputs.repo }}
+
+      # 目標 repo checkout（工廠 trunk = base_branch）：agent 在此工作，
+      # catalog/risk-paths/templates/skills 均從此讀取（Q-P2-1：main 絕不觸碰）。
+      # 用 App token 認證——GITHUB_TOKEN 只限本 repo，無法讀取目標 repo。
+      - name: Checkout target repo
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.base_branch }}
+          path: target
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Install and build
         run: |
@@ -73,63 +109,89 @@ jobs:
 
       # 標籤必須預先存在（gh issue edit --add-label 不會自動建立）。
       # 冪等：--force 在已存在時更新顏色而不報錯。
+      # GH_REPO 讓 gh 指向目標 repo（預設是本 repo 的 origin）。
       - name: Ensure factory labels exist
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
         run: |
           gh label create "oversight/on-loop"  --color "1d76db" --force
           gh label create "oversight/review"   --color "d4c5f9" --force
           gh label create "oversight/in-loop"  --color "d73a4a" --force
           gh label create "needs-human"        --color "b60205" --force
           gh label create "ready"              --color "0e8a16" --force
-          echo "factory labels ensured"
+          echo "factory labels ensured ($GH_REPO)"
 
       # DSH 的 sandbox 不會把 GH_TOKEN 傳進 agent 的 process 環境（實測：
       # step 層的 gh 可用 App token，但 agent 內的 gh 看不到任何 token）。
-      # 故把短效 installation token 寫入 workspace（gitignored、runner 暫存、
-      # 1 小時有效），由 factory-workflow skill 指示 agent 讀取。
-      - name: Write agent GH token to workspace
+      # 故把短效 installation token 寫入目標 repo 的 workspace（gitignored、
+      # runner 暫存、1 小時有效），由 factory-workflow skill 指示 agent 讀取。
+      # 同檔也寫 base_branch 與 repo：agent 的 env 被 DSH 剝離，工作目錄
+      # 又是目標 repo——這兩個值以檔案傳遞（skill 指示讀取）。
+      - name: Write agent run env (token / base / repo)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          mkdir -p .factory/run
-          printf '%s' "$GH_TOKEN" > .factory/run/gh-token
-          echo "gh-token written ($(wc -c < .factory/run/gh-token) bytes)"
+          mkdir -p target/.factory/run
+          printf '%s' "$GH_TOKEN" > target/.factory/run/gh-token
+          printf '%s' "${{ inputs.base_branch }}" > target/.factory/run/base-branch
+          printf '%s' "${{ inputs.repo }}" > target/.factory/run/repo
+          echo "run env written: token=$(wc -c < target/.factory/run/gh-token)B base=$(cat target/.factory/run/base-branch) repo=$(cat target/.factory/run/repo)"
 
-      # git push 的認證：checkout action 把 `http.https://github.com/.extraheader`
-      # （AUTHORIZATION: basic GITHUB_TOKEN）寫在**獨立 credentials 檔**，經
-      # `includeIf.gitdir:<workspace>/.git.path` 引入——git config --unset-all 只清
-      # 直接項目、清不掉 includeIf 引入的檔。故必須移除 includeIf 項目，
-      # 再以 URL 內嵌 App token 認證（本機實測：App token 可 push）。
-      # （token 只存在於 runner 暫存的 .git/config，gitignored；agent 已持有該 token）
-      - name: Configure agent git auth
+      # token 安全：目標 repo 未必有 .factory/ 的 gitignore 條目——若 agent 的
+      # git add -A 把 .factory/run/gh-token 提交上去會外洩憑證。以 repo 本地的
+      # .git/info/exclude 排除（不改動目標 repo 的檔案內容，無需 commit）。
+      - name: Exclude .factory from target repo (token safety)
         run: |
-          # 移除 checkout 的 credentials includeIf（其 extraheader 以唯讀 token 覆蓋認證）
+          cd target
+          grep -qxF '.factory/' .git/info/exclude || printf '\n.factory/\n' >> .git/info/exclude
+          echo "target .git/info/exclude ignores .factory/"
+
+      # git push 的認證（在 target/ 目標 repo checkout 內）：checkout action 把
+      # `http.https://github.com/.extraheader`（AUTHORIZATION: basic GITHUB_TOKEN）
+      # 寫在**獨立 credentials 檔**，經 `includeIf.gitdir:<path>/.git.path` 引入——
+      # git config --unset-all 只清直接項目、清不掉 includeIf 引入的檔。故必須移除
+      # includeIf 項目，再以 URL 內嵌 App token 認證（本機實測：App token 可 push）。
+      - name: Configure agent git auth (target repo)
+        run: |
+          cd target
           git config --local --get-regexp '^includeIf\.gitdir:' 2>/dev/null | while read -r key _; do
             git config --local --unset-all "$key"
           done || true
           git config --global --unset-all http.https://github.com/.extraheader 2>/dev/null || true
           TOKEN=$(cat .factory/run/gh-token)
-          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          echo "checkout credentials include removed; origin authenticates with app token"
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ inputs.repo }}.git"
+          echo "target checkout credentials include removed; origin authenticates with app token"
 
       # git 身分：checkout 預設不設定 user.name/email，git commit 會失敗。
       # 以 App 的 bot 身分提交（稽核可辨識，docs/02 D6）。
-      - name: Configure agent git identity
+      - name: Configure agent git identity (target repo)
         run: |
+          cd target
           git config --local user.name "software-factory-worker[bot]"
           git config --local user.email "software-factory-worker[bot]@users.noreply.github.com"
           echo "git identity: software-factory-worker[bot]"
+
+      # gh-stack 需要本地 base 分支（gh stack init --base $BASE_BRANCH）。
+      # checkout action 對 branch ref 會建同名本地分支，但這裡明確確保：
+      # 分支存在且在 HEAD；輸入錯誤的 base_branch 在此 fast fail。
+      - name: Ensure base branch checked out in target
+        run: |
+          cd target
+          git checkout -B "${{ inputs.base_branch }}" "origin/${{ inputs.base_branch }}" 2>/dev/null || \
+            git checkout "${{ inputs.base_branch }}"
+          echo "HEAD on: $(git rev-parse --abbrev-ref HEAD) ($(git rev-parse --short HEAD))"
 
       # 寫入權限探針：在花費 LLM 成本之前確認 App token 真的能 push。
       # 失敗即在此紅燈（fast fail），不進入 agent 步驟。
       # 診斷：checkout 的 extraheader 可能位於 env 層（GIT_CONFIG_* env vars，
       # 優先級高於 file config，git config --unset-all 清不掉）——故探針以
       # command-line config（-c，優先級最高）強制清空 extraheader 再 push。
-      - name: Verify app token write access
+      - name: Verify app token write access (target repo)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          cd target
           echo "=== git env config ==="
           env | grep -i "^GIT_CONFIG" || echo "(no GIT_CONFIG env vars)"
           echo "=== extraheader origins ==="
@@ -144,20 +206,25 @@ jobs:
           git -c http.https://github.com/.extraheader= push origin "$PROBE"
           git -c http.https://github.com/.extraheader= push origin --delete "$PROBE"
           git switch - 2>/dev/null || true
-          echo "app token write access verified"
+          echo "app token write access verified (${{ inputs.repo }})"
 
-      # Step 2 — 初始計分（agent 啟動前，docs/06 §5.1）
+      # Step 2 — 初始計分（agent 啟動前，docs/06 §5.1）。
+      # catalog/risk-paths 讀目標 repo（target/），不再是本 repo 根。
       - name: Initial score
         id: score
         run: |
           mkdir -p .factory/run
-          node dist/cli/factory-score.js > .factory/score.json
+          node dist/cli/factory-score.js \
+            --catalog target/catalog-info.yaml \
+            --risk-paths target/.github/factory/risk-paths.yml \
+            > .factory/score.json
           cat .factory/score.json
 
       # in-loop → 貼標籤 + 留言，並以 exit 1 阻斷後續 agent 步驟
       - name: Apply score labels
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
         run: |
           node dist/cli/apply-score-labels.js \
             "${{ inputs.issue_number }}" .factory/score.json
@@ -168,13 +235,16 @@ jobs:
         run: |
           echo "blocked-in-loop; agent 未啟動（docs/06 §4.3）"
 
-      # Step 3 — 執行 agent（DSH headless，受限沙箱；或 dry-run stub）
+      # Step 3 — 執行 agent（DSH headless，受限沙箱；或 dry-run stub）。
+      # agent 的工作目錄 = target/（目標 repo）；機制（node_modules/dist/config）
+      # 在根目錄以絕對路徑引用。
       - name: Install gh stack extension
         if: inputs.dry_run != true
         env:
           # 認證安裝：未認證的 gh extension install 會打爆 GitHub API rate limit
           #（2026-08-18 實測：4 個平行 run 觸發 403）。冪等：已安裝則跳過。
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
         run: |
           if gh extension list | grep -q "github/gh-stack"; then
             echo "gh-stack already installed"
@@ -198,12 +268,17 @@ jobs:
         run: |
           set +e
           if [ "${{ inputs.dry_run }}" == "true" ]; then
-            node dist/cli/dry-run-agent.js \
+            # agent 一律在目標 repo checkout 內工作（sandbox workspaceRoot = cwd）
+            cd target
+            node "$GITHUB_WORKSPACE/dist/cli/dry-run-agent.js" \
               "${{ inputs.dry_run_scenario }}" "${{ inputs.issue_number }}" \
               > .factory/run/dry.txt 2>&1
             code=0
           else
+            # 先裝 DSH（機制 repo 根目錄，cwd=根；--no-save 不改 package.json）
             npm install --no-save @deepseek-ai/dsh@0.1.0-rc.6
+            # 再進入目標 repo 工作目錄（其餘路徑以 $GITHUB_WORKSPACE 絕對引用）
+            cd target
             mkdir -p "$HOME/.dsh"
             # 模型 failover 鏈（Q04-8）：預設 deepseek → qwen → anthropic。
             # 先放使用者選的 provider，再依固定優先序補其餘（去重）。
@@ -217,17 +292,20 @@ jobs:
                 qwen)     MODEL="qwen3.7-flash" ;;
                 *)        MODEL="claude-sonnet-4-5" ;;
               esac
-              cp config/dsh/settings.providers.yaml "$HOME/.dsh/settings.yaml"
+              cp "$GITHUB_WORKSPACE/config/dsh/settings.providers.yaml" "$HOME/.dsh/settings.yaml"
               printf 'agent-default-model:\n  provider: %s\n  model: %s\n' \
                 "$P" "$MODEL" >> "$HOME/.dsh/settings.yaml"
               echo "trying model routing: $P/$MODEL"
-              # 依 task_type 選模板（fallback 到預設 agent-add-tests 模板）
+              # 依 task_type 選模板（優先目標 repo 的模板，fallback 到機制 repo）
               TEMPLATE=".github/factory/task-template-${TASK_TYPE}.txt"
-              [ -f "$TEMPLATE" ] || TEMPLATE=".github/factory/task-template.txt"
+              [ -f "$TEMPLATE" ] || TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template-${TASK_TYPE}.txt"
+              [ -f "$TEMPLATE" ] || TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template.txt"
               echo "task template: $TEMPLATE"
-              npx dsh --profile headless \
-                --patch config/dsh/factory-guardrail.patch.yml \
-                "$(sed "s/<ISSUE>/${{ inputs.issue_number }}/" "$TEMPLATE")" \
+              "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
+                --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
+                "$(sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
+                        -e "s|<REPO>|${{ inputs.repo }}|" \
+                        -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" "$TEMPLATE")" \
                 > .factory/run/stdout.txt 2> .factory/run/stderr.txt
               code=$?
               echo "provider=$P exit=$code"
@@ -241,18 +319,21 @@ jobs:
           fi
           set -e
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          # fallback：agent 未寫 report 時依 exit code 補最小 report
-          node dist/cli/write-report.js \
+          # fallback：agent 未寫 report 時依 exit code 補最小 report（cwd=target）
+          node "$GITHUB_WORKSPACE/dist/cli/write-report.js" \
             "${{ inputs.issue_number }}" "$code" \
             .factory/run/stdout.txt .factory/run/stderr.txt
 
-      # Step 4–5 — 執行後判定：重計分 + 停手規則（重用 runWorkItem 管線）
+      # Step 4–5 — 執行後判定：重計分 + 停手規則（重用 runWorkItem 管線）。
+      # report.json 在 target/.factory/run/（agent cwd=target）；catalog/risk-paths 讀目標 repo。
       - name: Judge terminal state
         id: judge
         if: steps.agent.outcome == 'success'
         run: |
           node dist/cli/factory-judge.js \
-            .factory/run/report.json catalog-info.yaml .github/factory/risk-paths.yml \
+            target/.factory/run/report.json \
+            target/catalog-info.yaml \
+            target/.github/factory/risk-paths.yml \
             > .factory/judge.json
           cat .factory/judge.json
 
@@ -260,6 +341,7 @@ jobs:
         if: steps.agent.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
         run: |
           node dist/cli/apply-judge-labels.js \
             "${{ inputs.issue_number }}" .factory/judge.json
@@ -268,5 +350,5 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "run=${{ github.run_id }} issue=${{ inputs.issue_number }} dry_run=${{ inputs.dry_run }}"
+          echo "run=${{ github.run_id }} repo=${{ inputs.repo }} base=${{ inputs.base_branch }} issue=${{ inputs.issue_number }} dry_run=${{ inputs.dry_run }}"
           echo "工廠執行完成。第 1 期：所有變更等待人類審查後合併。"
