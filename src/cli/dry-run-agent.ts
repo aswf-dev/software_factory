@@ -28,12 +28,14 @@ export interface DryRunReport {
   changedLines?: number
   assertionDelta?: number
   hasAcceptanceCriteria?: boolean
+  tokensUsed?: number
 }
 
 export function dryRunReport(input: DryRunInput): DryRunReport {
   const base: DryRunReport = {
     issueNumber: input.issueNumber,
     invocation: { exitCode: 0, stdout: 'DONE (dry-run stub)', stderr: '' },
+    tokensUsed: 15_000, // 固定值，供 SR7 接線測試（Q02-5）
   }
   if (input.scenario === 'success') {
     return {

@@ -170,6 +170,31 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
   })
 })
 
+describe('token 門檻接線（Q02-5 SR7，Phase 2 T6）', () => {
+  it('factory-run.yml 含 token_budget input（0 = 不設限）', () => {
+    const content = read('.github/workflows/factory-run.yml')
+    expect(content).toContain('token_budget:')
+    expect(content).toContain('default: 0')
+  })
+  it('judge 步驟以 TOKEN_BUDGET env 傳入（judge 讀 env）', () => {
+    const content = read('.github/workflows/factory-run.yml')
+    expect(content).toContain('TOKEN_BUDGET: ${{ inputs.token_budget }}')
+  })
+  it('SR7 已在 pipeline 接線（runWorkItem Gate 4 傳 tokensUsed/tokenBudget）', () => {
+    const content = read('src/pipeline/run-work-item.ts')
+    expect(content).toContain('tokensUsed')
+    expect(content).toContain('tokenBudget')
+  })
+  it('factory-judge 的 ReportSchema 接受 tokensUsed', () => {
+    const content = read('src/cli/factory-judge.ts')
+    expect(content).toContain('tokensUsed: z.number().optional()')
+  })
+  it('stop-rules skill 明寫 token 上限規則', () => {
+    const content = read('.dsh/skills/factory-stop-rules/SKILL.md')
+    expect(content).toContain('token_budget')
+  })
+})
+
 describe('factory-metrics 資產（docs/08 §2/§7，Phase 2 T5）', () => {
   it('factory-metrics CLI 存在且以 gh JSON 為資料源（不硬編碼）', () => {
     const content = read('src/cli/factory-metrics.ts')

@@ -46,6 +46,7 @@ describe('dryRunReport', () => {
     expect(r.changedPaths).toContain('src/util/format.test.ts')
     expect(r.assertionDelta).toBeGreaterThan(0)
     expect(r.hasAcceptanceCriteria).toBe(true)
+    expect(r.tokensUsed).toBeGreaterThan(0) // SR7 接線（Q02-5）
   })
 
   it('guardrail 情境：宣稱改到 .github → SR3 應觸發', () => {

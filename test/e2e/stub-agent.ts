@@ -34,6 +34,8 @@ export interface StubAgentScript {
   fail?: { exitCode: number; stderr: string }
   /** Simulate exceeding the wall-clock limit. */
   timeout?: boolean
+  /** Tokens the agent consumed (Q02-5, SR7). */
+  tokensUsed?: number
   /** Text the agent prints on success. */
   output?: string
 }
@@ -46,6 +48,7 @@ export interface StubAgentRun {
   addedDependencies: readonly string[]
   syncFailures: number
   hasAcceptanceCriteria?: boolean | undefined
+  tokensUsed?: number | undefined
 }
 
 /**
@@ -63,6 +66,7 @@ export function runStubAgent(script: StubAgentScript = {}): StubAgentRun {
     addedDependencies: script.addedDependencies ?? [],
     syncFailures: script.syncFailures ?? 0,
     hasAcceptanceCriteria: script.hasAcceptanceCriteria,
+    tokensUsed: script.tokensUsed,
   }
 
   if (script.timeout === true) {

@@ -37,6 +37,8 @@ export interface PipelineInput {
   initial: ScoreInput
   /** Runs the agent; omitted when the item is blocked before execution. */
   runAgent?: (() => AgentRun) | undefined
+  /** Token ceiling for this work item (Q02-5, SR7); undefined = 不設限. */
+  tokenBudget?: number | undefined
 }
 
 export interface AgentRun {
@@ -54,6 +56,8 @@ export interface AgentRun {
    * "not reported" must not be punished as "absent".
    */
   hasAcceptanceCriteria?: boolean | undefined
+  /** Tokens the run consumed (agent self-report, Q02-5). */
+  tokensUsed?: number | undefined
 }
 
 export interface PipelineResult {
@@ -135,6 +139,8 @@ export function runWorkItem(input: PipelineInput): PipelineResult {
     addedDependencies: run.addedDependencies ?? undefined,
     assertionDelta: run.assertionDelta ?? undefined,
     hasAcceptanceCriteria: run.hasAcceptanceCriteria ?? undefined,
+    tokensUsed: run.tokensUsed ?? undefined,
+    tokenBudget: input.tokenBudget ?? undefined,
   })
 
   if (stopDecision.mustStop) {

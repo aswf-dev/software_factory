@@ -45,6 +45,11 @@ on:
         type: choice
         options: [deepseek, qwen, anthropic]
         default: deepseek
+      token_budget:
+        description: 單一工作項 token 上限（0 = 不設限，Q02-5 待基線校準後設定實際值）
+        required: false
+        type: number
+        default: 0
 
 concurrency:
   group: factory-${{ inputs.repo }}-${{ inputs.issue_number }}
@@ -326,9 +331,12 @@ jobs:
 
       # Step 4–5 — 執行後判定：重計分 + 停手規則（重用 runWorkItem 管線）。
       # report.json 在 target/.factory/run/（agent cwd=target）；catalog/risk-paths 讀目標 repo。
+      # TOKEN_BUDGET 由 input 帶入（0 = 不設限），judge 讀 env（Q02-5 SR7 接線）。
       - name: Judge terminal state
         id: judge
         if: steps.agent.outcome == 'success'
+        env:
+          TOKEN_BUDGET: ${{ inputs.token_budget }}
         run: |
           node dist/cli/factory-judge.js \
             target/.factory/run/report.json \

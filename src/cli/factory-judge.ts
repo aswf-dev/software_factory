@@ -48,6 +48,7 @@ const ReportSchema = z.object({
   addedDependencies: z.array(z.string()).optional(),
   syncFailures: z.number().optional(),
   hasAcceptanceCriteria: z.boolean().optional(),
+  tokensUsed: z.number().optional(),
 })
 
 export type FactoryReport = z.infer<typeof ReportSchema>
@@ -126,10 +127,11 @@ function toAgentRun(report: FactoryReport): AgentRun {
     addedDependencies: report.addedDependencies,
     syncFailures: report.syncFailures,
     hasAcceptanceCriteria: report.hasAcceptanceCriteria,
+    tokensUsed: report.tokensUsed,
   }
 }
 
-export function main(argv: string[]): JudgeCliOutput {
+export function main(argv: string[], tokenBudget?: number): JudgeCliOutput {
   const { reportPath, catalogPath, riskPathsPath } = parseArgs(argv)
   const report = loadReport(reportPath)
   const { annotations, hardRulePatterns } = loadScoreInput(catalogPath, riskPathsPath)
@@ -138,6 +140,7 @@ export function main(argv: string[]): JudgeCliOutput {
     issueNumber: report.issueNumber,
     initial: { annotations, hardRulePatterns },
     runAgent: () => toAgentRun(report),
+    tokenBudget,
   })
   return { report, result }
 }
@@ -147,6 +150,9 @@ export function main(argv: string[]): JudgeCliOutput {
  */
 /* v8 ignore start -- 副作用區塊：僅在子行程直接執行時進入 */
 if (isMainModule(process.argv[1], import.meta.filename)) {
-  process.exitCode = runCli(() => main(process.argv.slice(2)))
+  // TOKEN_BUDGET 由 workflow 以 env 傳入；0 或未設 = 不設限（Q02-5 待基線校準）。
+  const raw = process.env.TOKEN_BUDGET
+  const tokenBudget = raw !== undefined && raw !== '' && Number(raw) > 0 ? Number(raw) : undefined
+  process.exitCode = runCli(() => main(process.argv.slice(2), tokenBudget))
 }
 /* v8 ignore stop */

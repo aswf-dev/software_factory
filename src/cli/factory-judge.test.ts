@@ -203,6 +203,35 @@ describe('main', () => {
     expect(result.stopDecision?.mustStop).toBe(false)
   })
 
+  it('tokensUsed 超過 tokenBudget → needs-human + SR7（Q02-5 接線）', () => {
+    const { result } = main(
+      [
+        report('sr7.json', {
+          issueNumber: 208,
+          invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+          changedPaths: ['src/a.ts'],
+          tokensUsed: 12_000,
+        }),
+        catalog,
+        riskPaths,
+      ],
+      10_000,
+    )
+    expect(result.outcome).toBe('needs-human')
+    expect(result.stopDecision?.violations.some((v) => v.rule === 'SR7-cost-exceeded')).toBe(true)
+  })
+
+  it('tokensUsed 但未設 budget → SR7 不觸發（待基線校準）', () => {
+    const { result } = judge('sr7-no-budget.json', {
+      issueNumber: 209,
+      invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+      changedPaths: ['src/a.ts'],
+      tokensUsed: 99_999,
+    })
+    expect(result.outcome).toBe('ready-to-automerge')
+    expect(result.stopDecision?.violations.some((v) => v.rule === 'SR7-cost-exceeded')).toBe(false)
+  })
+
   it('逾時的 invocation → needs-human', () => {
     const { result } = judge('timeout.json', {
       issueNumber: 206,

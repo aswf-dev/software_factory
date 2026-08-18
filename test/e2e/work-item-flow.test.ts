@@ -171,6 +171,30 @@ describe('E2E：停手規則在流程中確實生效', () => {
     expect(r.outcome).toBe('needs-human')
     expect(r.stopDecision?.violations.some((v) => v.rule === 'SR4-unclear-acceptance')).toBe(true)
   })
+
+  it('tokensUsed 超過 tokenBudget → needs-human (SR7)', () => {
+    const r = runWorkItem({
+      issueNumber: 116,
+      initial: LOW_RISK,
+      tokenBudget: 10_000,
+      runAgent: () =>
+        runStubAgent({ changedPaths: ['src/a.ts'], tokensUsed: 12_000 }),
+    })
+    expect(r.outcome).toBe('needs-human')
+    expect(r.stopDecision?.violations.some((v) => v.rule === 'SR7-cost-exceeded')).toBe(true)
+    expect(r.summary).toContain('token')
+  })
+
+  it('未設 tokenBudget → SR7 不觸發（Q02-5 待基線校準）', () => {
+    const r = runWorkItem({
+      issueNumber: 117,
+      initial: LOW_RISK,
+      runAgent: () =>
+        runStubAgent({ changedPaths: ['src/a.ts'], tokensUsed: 99_999 }),
+    })
+    expect(r.outcome).toBe('ready-to-automerge')
+    expect(r.stopDecision?.violations.some((v) => v.rule === 'SR7-cost-exceeded')).toBe(false)
+  })
 })
 
 describe('E2E：DSH 執行失敗的處置', () => {
