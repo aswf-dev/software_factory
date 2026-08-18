@@ -12,6 +12,9 @@
 |---|---|---|---|---|
 | 45 | `factory-judge loadReport` mutation 掃描 | mutation-strength tests（型別契約） | 見 Issue #59 留言 | 4 個存活變異（M1–M4）補釘 |
 | 48 | `apply-judge-labels` 純函式 mutation 掃描 | mutation-strength tests（純函式契約） | 見 Issue #72 留言 | 3 個存活變異（M1–M3）補釘 |
+| 52 | `runCli` 成功輸出格式 mutation 掃描 | mutation-strength tests（輸出格式契約） | 見 Issue #83 留言 | 3 個存活變異（M1–M3）補釘 |
+| 49 | `buildHandoverReport` 格式 mutation 掃描 | mutation-strength tests（手動報告格式契約） | 見 Issue #80 留言 | 4 個存活變異（M1–M4）補釘 |
+| 82 | `factory-score` zod 強制轉型 mutation 掃描 | mutation-strength tests（zod 強制轉型契約） | 見 Issue #82 留言 | 3 組存活變異（M1/M2/M3+4）補釘 |
 
 ### 1.1 #45 — factory-judge loadReport（觀察點）
 
@@ -33,5 +36,36 @@
   - M3 留言標頭 `## 工廠執行結果：` 被改寫 → 判讀標頭格式不被抓
 - **實作**：新增 `src/cli/apply-judge-labels-mutation.test.ts`（5 則），三變異皆實測「變異→紅、還原→綠」，且既有套件下皆存活（Before GREEN / After RED）。
 - **價值**：標籤貼附是**監督決策的輸出載體**（`needs-human`/`oversight/*` 決定誰審、審不審）。過去誤刪去重守衛、把純函式改成有副作用、或抽換留言標頭，都不會讓既有測試變紅；補釘後這三類回歸在 CI gate（`src/cli/**` 100% branch）就會被攔下。
+
+### 1.3 #52 — runCli 成功輸出格式（觀察點）
+
+- **目標**：mutation 驗證統一外殼 `runCli` 的**成功輸出格式**契約（`docs/02`、`docs/06 §5.1`；phase1 plan §Task2 定明輸出為 `JSON.stringify(main(...), null, 2) + '\n'`）——它是 Task 2–7 所有 factory CLI 共享的 stdout 進入點，證明套件對「成功輸出必須是 2-space 漂亮列印 + 行尾換行」這條介面契約有「牙齒」。
+- **發現**：既有 `run-cli.test.ts`（10 則）對成功輸出一律用 `JSON.parse(io.out.join(''))` 驗證，而 `JSON.parse` 會**容忍縮排與行尾換行差異** —— 因此三種輸出格式變異在既有套件下全部存活（全綠）：
+  - M1 移除 `null, 2` 縮排 → 輸出被壓成單行，`JSON.parse` 仍可解析
+  - M2 省略成功輸出的行尾 `\n` → 仍可解析
+  - M3 縮排 `2` → `4`（或改為 tab）→ 仍可解析
+- **實作**：新增 `src/cli/run-cli-output-mutation.test.ts`（6 則），三變異皆實測「變異→紅、還原→綠」，且既有套件下皆存活（Before GREEN / After RED）。
+- **價值**：輸出格式是 CI 與下游工具讀取 CLI 結果的**行式介面契約**（shell 命令替換、尾隨工具、逐行解析皆依賴）。過去抽換縮排或行尾換行不會讓任何既有測試變紅；補釘後這類輸出格式回歸在 CI gate（`src/cli/**` 100% branch）就會被攔下。
+
+### 1.4 #49 — buildHandoverReport 格式（觀察點）
+
+- **目標**：mutation 驗證 `buildHandoverReport`（`docs/07 §4.2`）——證明這份停手交還報告的**格式結構**有「牙齒」。
+- **發現**：既有 `stop-rules.test.ts`（45 則）對報告的所有斷言都只用 `toContain(..)`，只驗證子字串存在，對「格式」完全沒有牙齒。下列四個格式結構變異在既有套件下都存活（全綠）：
+  - M1 去除每條違規的圓點前綴 `- `（Markdown list → 純文字段落）
+  - M2 去除 rule 識別碼的加粗 `**`（`**SRn-*` → `SRn-*`）
+  - M3 全形冒號分隔 `：` 改 ASCII `:`（`**rule**：` → `**rule**: `）
+  - M4 一行一條被破壞（`join('\n')` 改空白，全部黏成一行）
+- **實作**：新增 `src/stop-rules/stop-rules-mutation.test.ts`（10 則，每變異配反例 + 錨定，另附整份格式快照），四變異皆實測「變異→紅、還原→綠」。
+- **價值**：這份交還是人類接手停手工作項的人手入口，靠開頭標頭、逐條圓點清單、加粗識別碼、一行一條來辨識與瀏覽。這四類格式退化過去不會讓任何既有測試變紅；補釘後在 CI gate（`src/stop-rules/**` 100% branch）就會被攔下。
+
+### 1.5 #82 — factory-score zod 強制轉型（觀察點）
+
+- **目標**：mutation 驗證 `factory-score` 的 zod 強制轉型（`docs/02`、`docs/06 §5.1`）——證明 `loadScoreInput` 對 catalog 的 `factory.io/*` annotation 從「string/number/boolean 純量」強制轉成字串的契約有「牙齒」。
+- **發現**：既有 `factory-score.test.ts`（28 則）只測到 `agent-automerge: false`（boolean → 'false'，否決）與 `risk-profile: 3`（integer → '3'，fail-safe 2），從未傳過「非否決值的 boolean」、非整數的 number、或 number/boolean 的技術棧欄位。下列變異在既有套件下全部存活（全綠）：
+  - M1 把 boolean 一律轉成 `'false'`（丟失 true 的極性）→ `agent-automerge: true` 這個「明確允許」的宣告會被誤判成否決
+  - M2 把 number 一律 `Math.trunc` 取整（丟失小數）→ `complexity: 1.5` 會被悄悄截成 `'1'`
+  - M3/M4 技術棧欄位（stack/test-framework）繞過轉型直接取原始值 → `test-framework: true` / `stack: 2024` 退回 undefined，技術棧宣告悄悄失效
+- **實作**：新增 `src/cli/factory-score-mutation.test.ts`（6 則），M1、M2、M3/M4 三組變異皆實測「變異→紅、還原→綠」，且既有套件下皆存活（Before GREEN / After RED）。
+- **價值**：`factory-score` 是 agent 之前的初始計分 gate（`docs/06 §5.1`），強制轉型的目的是讓 score() 的 `agentAutomerge?.trim()` 與 resolveAxis 永遠看到字串，不會因未加引號的 YAML 純量而當掉或悄悄改變分數。過去若有人把 boolean/number 轉型做成失真、或讓技術棧欄位繞過轉型，都不會讓任何既有測試變紅；補釘後這三類回歸在 CI gate（`src/cli/**` 100% branch）就會被攔下。
 
 每次試跑結果在對應 Issue 留言回報 PR 編號；缺陷標記依 `14` §1 紀律。
