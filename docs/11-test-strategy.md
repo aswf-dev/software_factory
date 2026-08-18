@@ -171,6 +171,12 @@ describe('DSH exit code 判讀', () => {
 ```
 
 > **關鍵測試**：必須有一則測試明確斷言「**exit 0 不等於任務正確完成**」的下游行為——即 exit 0 後**仍須**經過 required checks 與審查閘門，不可直接放行（`04` §4.2 的重要提醒）。
+> **逾時與 exit code 優先權的邊界（mutation-verified）**：`dsh-contract.test.ts` 另以 3 則故意變異驗證的邊界案例，釘住 `interpretDshResult()` 的決策順序與字面契約：
+> - 逾時無 stderr 時 `errorDetail` 使用預設訊息「執行超過時間上限，已中止」；
+> - 逾時對非零 exit code 優先（被殺的程序可能帶誤導碼）；
+> - exit 0 即使帶 stderr 仍為 `completed`（成功時忽略 stderr）。
+> 三者皆在相應原始碼被 mutate 時轉紅、還原後轉綠（見該測試檔）。
+
 
 **`gh` json 解析的 mutation-verified 邊界測試**（`gh-parse.test.ts`）：除了 §4.2 的契約表格，metrics（`08` §2.1）的兩條管子——`leadTimeHours` 與 `idleRatio`——另以 3 則「變異後紅燈、還原後綠燈」的測試釘住既有測試沒蓋到的行為：
 
