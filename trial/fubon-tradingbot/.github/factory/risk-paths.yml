@@ -1,0 +1,57 @@
+# fubon-tradingbot risk hard rules（T8 試點草稿；依該 repo 實際結構，2026-08-18）。
+#
+# 觸及下列任一 pattern → risk = 2，無裁量空間（docs/06 §3.2, §5.2）。
+# H1–H4 源自 Gartner G00843405；H5–H7 為本專案擴充（guardrail 自我保護與
+# 不可逆操作）。此檔位於 .github/ 下，受 CODEOWNERS 保護——agent 不得修改
+# 約束自己的規則（docs/05 §1.1）。
+#
+# 盤點依據（2026-08-18 `gh api repos/philipz/fubon-tradingbot/contents`）：
+#   src/AuthManager.ts（登入/憑證）、src/OrderRouter.ts（下單）、
+#   src/RiskGuardian.ts（風控）、src/options/** 與 src/futures/**（策略）、
+#   src/fetchers/** 與 src/core/**（共用基礎設施）、ecosystem.*.config.js（部署）
+hard_rules:
+  # H1 — 授權/認證邏輯
+  H1:
+    - "src/AuthManager.ts"
+    - "src/**/auth*"
+    - "**/*credential*"
+
+  # H2 — 財務計算（下單、策略、風控、結算——真實金流相關）
+  H2:
+    - "src/OrderRouter.ts"
+    - "src/RiskGuardian.ts"
+    - "src/options/**"
+    - "src/futures/**"
+    - "**/*settlement*"
+    - "src/scan-credit-spreads.ts"
+
+  # H3 — 敏感資料處理（憑證/環境變數/金鑰）
+  H3:
+    - "src/config.ts"
+    - ".env.example"
+    - "**/*secret*"
+    - "**/*token*"
+
+  # H4 — systems of record 與共用模組
+  H4:
+    - "src/core/**"
+    - "src/fetchers/**"
+    - "libs/**"
+
+  # H5 — guardrail 自身（agent 不得修改）
+  H5:
+    - ".github/**"
+    - "CODEOWNERS"
+    - "catalog-info.yaml"
+    - ".dsh/skills/**"
+
+  # H6 — 不可逆 schema 遷移（此 repo 暫無 DB；保留 pattern 以防新增）
+  H6:
+    - "migrations/**"
+    - "**/*schema*"
+
+  # H7 — 對外 API 破壞性變更（此 repo 無公開 API；保留以防新增）
+  H7:
+    - "api/**"
+    - "**/*.proto"
+    - "openapi.yaml"

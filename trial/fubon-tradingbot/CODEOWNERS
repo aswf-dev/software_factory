@@ -1,0 +1,25 @@
+# fubon-tradingbot CODEOWNERS（T8 試點草稿）。
+#
+# 高風險路徑指定人類審查者（docs/05 §2.2）：任何觸及 H1–H3 的變更
+# 必須由 @philipz 親自審查——這是「高風險 repo 計分」之外的實體防線。
+# 依實際團隊成員調整 owner 清單。
+
+# 認證 / 憑證（H1、H3）
+src/AuthManager.ts                @philipz
+src/config.ts                     @philipz
+.env.example                      @philipz
+
+# 下單 / 風控 / 結算（H2）
+src/OrderRouter.ts                @philipz
+src/RiskGuardian.ts               @philipz
+src/options/                      @philipz
+src/futures/                      @philipz
+
+# 部署設定
+ecosystem.*.config.js             @philipz
+
+# guardrail 自身（H5）——agent 不得修改；改動須人類審查
+.github/                          @philipz
+CODEOWNERS                        @philipz
+catalog-info.yaml                 @philipz
+.dsh/skills/                      @philipz

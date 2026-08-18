@@ -267,3 +267,24 @@ describe('Phase 2 資產釘選（Phase 2 T7）', () => {
     expect(w).toContain("startsWith(github.event.pull_request.head.ref, 'factory/')")
   })
 })
+
+describe('T8 試點草稿（trial/fubon-tradingbot/，Q-P2-1）', () => {
+  it('README 存在且明寫 main 絕不觸碰', () => {
+    const content = read('trial/fubon-tradingbot/README.md')
+    expect(content).toContain('software-factory')
+    expect(content).toContain('main 絕不觸碰')
+  })
+  it('草稿 risk-paths 涵蓋 H1–H7（依 fubon-tradingbot 結構）', () => {
+    const content = read('trial/fubon-tradingbot/.github/factory/risk-paths.yml')
+    for (const h of ['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'H7']) {
+      expect(content).toContain(`${h}:`)
+    }
+    expect(content).toContain('src/AuthManager.ts')
+    expect(content).toContain('src/OrderRouter.ts')
+  })
+  it('草稿 catalog 採最高風險輪廓（試點目的：驗證高風險計分）', () => {
+    const content = read('trial/fubon-tradingbot/catalog-info.yaml')
+    expect(content).toContain('factory.io/risk-profile: high')
+    expect(content).toContain('factory.io/business-criticality: strategic')
+  })
+})

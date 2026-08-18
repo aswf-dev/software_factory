@@ -1,0 +1,21 @@
+# fubon-tradingbot catalog（T8 試點草稿；依該 repo 結構登錄，2026-08-18）。
+#
+# 三軸（docs/03 §2.2、docs/06 §3）：
+#   business-criticality / risk-profile / complexity
+# 此 repo 是真實交易 bot（實盤或模擬未定）——保守採最高風險輪廓：
+# 絕大多數工作項會落在 in-loop（人類主導），符合「高風險 repo 驗證計分行為」
+# （docs/09 §3 2.3）的試點目的。
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: fubon-tradingbot
+  description: 富邦期權自動交易 bot（TypeScript；真實金流相關邏輯）
+  annotations:
+    # 三軸評分（0–2 每軸；總分 6 為最高風險，直接 in-loop）
+    factory.io/business-criticality: strategic
+    factory.io/risk-profile: high
+    factory.io/complexity: high
+    # 技術棧 annotation（docs/09 2.1；quint-spec 指向該 repo 自己的規格根）
+    factory.io/stack: typescript
+    factory.io/test-framework: jest
+    factory.io/quint-spec: specs/
