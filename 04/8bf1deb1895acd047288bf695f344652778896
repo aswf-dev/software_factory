@@ -1,0 +1,20 @@
+docs/08-metrics-kpi.md
+  h_1b119f25eaf333 128
+docs/10-open-questions.md
+  h_1b119f25eaf333 171
+docs/11-test-strategy.md
+  h_1b119f25eaf333 180-184,338,353,355
+test/integration/gh-parse.test.ts
+  h_1b119f25eaf333 108-122,148-153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "048bf1deb1895acd047288bf695f344652778896",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
