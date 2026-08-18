@@ -1,0 +1,22 @@
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 270-290
+trial/fubon-tradingbot/.github/factory/risk-paths.yml
+  h_1b119f25eaf333 1-57
+trial/fubon-tradingbot/CODEOWNERS
+  h_1b119f25eaf333 1-25
+trial/fubon-tradingbot/README.md
+  h_1b119f25eaf333 1-15
+trial/fubon-tradingbot/catalog-info.yaml
+  h_1b119f25eaf333 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ae4fb2fa36d526aa37a514356ba411b685a0a314",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
