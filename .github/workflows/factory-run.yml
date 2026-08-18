@@ -29,10 +29,8 @@ concurrency:
   cancel-in-progress: false   # 不取消進行中的執行，避免產生半成品（docs/04 §4.3）
 
 permissions:
-  # contents: write 供 agent 推送 stacked PR 分支（Task 11 換成 App token 後可收緊）
-  contents: write
-  issues: write
-  pull-requests: write
+  # 全部 gh 操作改用 GitHub App token（D6）；GITHUB_TOKEN 僅保留最小讀取。
+  contents: read
 
 jobs:
   run:
@@ -46,6 +44,16 @@ jobs:
           node-version: '22.21.1'
           cache: npm
 
+      # D6：以 GitHub App 身分換發短效 installation token。
+      # App 權限最小化（Contents/PRs/Issues RW、Actions/Metadata R），
+      # 無 Administration/Workflows —— agent 無法修改 guardrail 自身。
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          app-id: ${{ secrets.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+
       - name: Install and build
         run: |
           npm ci
@@ -55,7 +63,7 @@ jobs:
       # 冪等：--force 在已存在時更新顏色而不報錯。
       - name: Ensure factory labels exist
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           gh label create "oversight/on-loop"  --color "1d76db" --force
           gh label create "oversight/review"   --color "d4c5f9" --force
@@ -75,7 +83,7 @@ jobs:
       # in-loop → 貼標籤 + 留言，並以 exit 1 阻斷後續 agent 步驟
       - name: Apply score labels
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           node dist/cli/apply-score-labels.js \
             "${{ inputs.issue_number }}" .factory/score.json
@@ -98,7 +106,7 @@ jobs:
         if: success()
         timeout-minutes: 25      # step 級逾時：逾時仍可被捕獲走 needs-human
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set +e
@@ -137,7 +145,7 @@ jobs:
       - name: Apply judge labels and comment
         if: steps.agent.outcome == 'success'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           node dist/cli/apply-judge-labels.js \
             "${{ inputs.issue_number }}" .factory/judge.json
