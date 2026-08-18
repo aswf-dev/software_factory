@@ -132,3 +132,24 @@
 **發現 2（隱藏 bug）**：手動 rescore PR #570 首次失敗——`.factory/` 被 gitignore、fresh checkout 不存在，`> .factory/rescore.json` redirect 失敗。**舊 workflow 的 Rescore 步驟從未被 factory/* PR 真實執行過**（先前 PR 皆非 factory 分支 → 步驟 skipped → 顯示 SUCCESS）。已修（PR #111：`mkdir -p .factory`）並重新驗證：rescore 對 PR #570 正確執行（total=4、before=after=review、不升級、無誤留言）。
 
 **待辦（人類）**：審查 PR #570（`test/jest/TimeUtils.test.ts`）後合併至 software-factory 分支（單一 PR，直接 `gh pr merge --squash --delete-branch`）。
+
+### 2.4 試點 #3 — 跨 repo 多層 stacked PR + 命名修正驗證（2026-08-18，run 32163540668）
+
+**工作項**：#571（agent-fix-bug：`TimeUtils.isWithinTimeRange` 不支援跨午夜範圍——數學可證的缺陷，與同 repo `SessionHelpers` 的跨午夜語義不一致）。
+
+| 驗證點 | 結果 |
+|---|---|
+| **命名修正（Q07-2）** | ✅ 分支為 `factory/571-01-test` / `-02-impl` / `-03-docs`（**slash 分隔**）——新 skill 的 positional init 指令生效（PR #113 修正驗證）|
+| **三層 stacked PR** | ✅ PR #572（test +20 行）/ #573（impl +4 行）/ #574（docs +3 行），base 全為 software-factory，每層獨立綠燈 |
+| agent 驗證 | ✅ `npm run test:jest:unit` 全綠；測試先紅後綠 |
+| judge 終態 | ✅ ready-for-review（計分 4 分）|
+| **main 未被觸碰** | ✅ SHA 前後一致（`d01aed8d...`）|
+
+**價值案例（兩次誠實停手，SR4 真實運作）**：
+1. 第一次執行：agent 抓到我寫的驗收條件筆誤（`22:30 → true` 數學上不可能——22:30 在 23:00 之前、屬範圍外；正確案例應是 `23:30 → true`）。agent **未猜測、未硬寫必紅測試、未動程式**，依 SR4 停手等裁決。
+2. 人類修正 Issue 時第一次 sed 替換**沒生效**（markdown 反引號使模式未匹配），agent 第二次執行讀到仍是矛盾的 body → **再次正確停手**。第三次（body 真正修正後）才執行。
+3. 教訓：人類側的「已修正」須驗證生效（grep 確認），不能假設 edit 成功。
+
+**小瑕疵**：Issue 標籤 `needs-human`（第一次停手 run 貼的）在第三次 run 後未被移除（apply-judge-labels 為 add-only）——標籤殘留不影響判定，記錄待後續改進。
+
+**待辦（人類）**：審查並依 stack 順序合併 PR #572 → #573 → #574（stacked PR 需逐層；合併被擋時先 `gh stack checkout <PR>` + `gh stack unstack`）。
