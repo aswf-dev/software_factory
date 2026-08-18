@@ -80,6 +80,10 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.event_name == 'workflow_dispatch' && inputs.repo || github.repository }}
         run: |
+          # .factory/ 被 gitignore（fresh checkout 不存在）——redirect 前必須建目錄，
+          # 否則 `> .factory/rescore.json` 直接失敗（試點 #2 實測抓到：舊 workflow 的
+          # Rescore 步驟從未被 factory/* PR 真實執行過，非 factory PR 都是 skipped）。
+          mkdir -p .factory
           PR_NUMBER="${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}"
           node dist/cli/factory-rescore.js \
             "$PR_NUMBER" \
