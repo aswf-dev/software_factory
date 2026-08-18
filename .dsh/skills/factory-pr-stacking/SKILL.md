@@ -29,8 +29,9 @@ gh stack submit --auto
 
 ## 必須遵守
 
+- **分支一律經 `gh stack init --prefix "factory/<issue編號>"` 建立**——分支名必須以 `factory/` 前綴開頭並含 Issue 編號（2026-08-18 試跑發現：部分 run 未遵循此慣例，造成分支無法與 Issue 對應）。**不允許**自行命名分支（如 `08-18-docs_...`）或直接 `git branch` 建分支。
 - **`gh stack add` 永遠提供 `-m`**：省略時會開啟編輯器，在 CI 中卡住直到逾時。
-- **`gh stack submit` 使用 `--auto`**：不互動提示。
+- **`gh stack submit` 使用 `--auto`**：不互動提示；**不要加 `--draft`**（draft PR 無法合併，會擋住人類審查流程）。
 - **同步一律用 `gh stack sync`，不用 `gh stack rebase`**：`sync` 非互動、衝突時自動還原所有分支（交易性）；`rebase` 衝突時需互動介入。
 - `gh stack sync` 連續兩次失敗 → 依 factory-stop-rules 停手。
 - **拆分上限 200–300 行**（撰寫指引，非閘門）；超過則再拆。

@@ -362,10 +362,10 @@ CODEOWNERS                            # GitHub 層 guardrail
 | 項目 | 結果 |
 |---|---|
 | `npm run typecheck` | ✅ 通過（strict 模式無錯誤） |
-| `npm run test:unit` | ✅ **195 則**（計分 45 + 停手規則 45 + CLI 105） |
-| `npm run test:integration` | ✅ **36 則**（DSH 契約 11 + gh 解析 19 + CLI 實機 6） |
+| `npm run test:unit` | ✅ **216 則**（計分 53 + 停手規則 45 + CLI 118） |
+| `npm run test:integration` | ✅ **48 則**（DSH 契約 14 + gh 解析 23 + CLI 實機 6 + mutation 5） |
 | `npm run test:adversarial` | ✅ **50 則**（guardrails 31 + factory-assets 19） |
-| **合計** | ✅ **302 則全數通過**（含 e2e 17 + quint 神諭 4） |
+| **合計** | ✅ **335 則全數通過**（含 e2e 17 + quint 神諭 4） |
 | `npm run coverage` | ✅ `scoring`、`stop-rules`、`integration` **全部 100% 分支/行/函式/敘述** |
 
 ### 9.2 兩項「閘門是否真的有效」的驗證

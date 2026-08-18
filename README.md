@@ -50,7 +50,7 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 npm ci                    # 安裝（版本已精確鎖定）
 npm run typecheck         # TypeScript strict 檢查
 npm run build             # emit dist/（CI entry points 使用）
-npm test                  # 283 則測試
+npm test                  # 335 則測試
 npm run test:unit         #   計分邏輯、停手規則、factory CLI
 npm run test:integration  #   DSH 契約、gh CLI 解析、CLI 實機
 npm run test:adversarial  #   guardrail 是否真的擋得住
