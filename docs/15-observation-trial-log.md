@@ -127,7 +127,7 @@
 | Issue 留言 | ✅ agent 完成回報 + factory 判定留言 |
 | **main 未被觸碰** | ✅ SHA 前後一致（`d01aed8d...`）|
 
-**發現 1（紀律偏差，Q04-9 驗證點）**：分支命名為 `factory-569-01-test`（dash）而非 skill 規定的 `factory/569-01-test`（slash）。功能無礙（PR body 含 `Closes #569`，rescore 仍能找到 Issue），但違反命名規範——根因待查（agent 可能未照 skill 的 `--prefix "factory/<issue編號>"`）。列入 Q04-9 驗證結果：**紀律在真實試跑中未完全維持**，需決定強化（skill 更明確示例）或接受 dash。
+**發現 1（紀律偏差，Q04-9 驗證點）→ 根因已查明並修正（PR #113）**：分支命名為 `factory-569-01-test`（dash）而非規範的 `factory/569-01-test`（slash）。功能無礙（PR body 含 `Closes #569`，rescore 仍能找到 Issue），但**根因不是 agent 不守紀律**——CI 鎖定的 gh-stack **v0.1.0 不接受 skill 教的 `--numbered`/`--prefix`**（先前 docs/07 Q07-2 的「實測」在本機舊版 0.0.2 上做、誤標 v0.1.0），agent 被迫自創分支名。修正：skill/docs 改用 v0.1.0 的 positional 用法（`gh stack init --base $BASE_BRANCH factory/<issue>-01-test ...`，本機交叉驗證 slash 保留）；對抗性測試釘住不含舊旗標；fubon-tradingbot 分支的 skills 已同步（951137ff）。
 
 **發現 2（隱藏 bug）**：手動 rescore PR #570 首次失敗——`.factory/` 被 gitignore、fresh checkout 不存在，`> .factory/rescore.json` redirect 失敗。**舊 workflow 的 Rescore 步驟從未被 factory/* PR 真實執行過**（先前 PR 皆非 factory 分支 → 步驟 skipped → 顯示 SUCCESS）。已修（PR #111：`mkdir -p .factory`）並重新驗證：rescore 對 PR #570 正確執行（total=4、before=after=review、不升級、無誤留言）。
 
