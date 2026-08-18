@@ -39,6 +39,14 @@ describe('SR2 — 高風險領域（docs/00 §6）', () => {
   it('無觸發 → 不停手', () => {
     expect(evaluateStopRules({ triggeredHardRules: [] }).mustStop).toBe(false)
   })
+
+  it('H5 與其他硬規則並存 → 仍停手，且理由排除 H5（由 SR3 專責）', () => {
+    const d = evaluateStopRules({ triggeredHardRules: ['H5', 'H3'] })
+    expect(d.mustStop).toBe(true)
+    const sr2 = d.violations.find((v) => v.rule === 'SR2-high-risk-domain')
+    expect(sr2?.reason).toContain('H3')
+    expect(sr2?.reason).not.toContain('H5')
+  })
 })
 
 describe('SR3 — 不得修改 guardrail 自身（docs/05 §1.1）', () => {
@@ -57,6 +65,19 @@ describe('SR3 — 不得修改 guardrail 自身（docs/05 §1.1）', () => {
   it('一般程式碼路徑 → 不停手', () => {
     const d = evaluateStopRules({ changedPaths: ['src/app.ts', 'README.md'] })
     expect(d.mustStop).toBe(false)
+  })
+
+  // Negative controls: a path that merely *contains* a guardrail filename must
+  // NOT be treated as a guardrail hit. Matching is glob-exact, not substring —
+  // guards against regressing to naive `includes()` matching (false positives).
+  it.each([
+    'docs/catalog-info.yaml.md',
+    'src/CODEOWNERS.js',
+    'README-catalog-info.yaml.txt',
+    'src/.github-formatter.ts',
+  ])('僅包含 guardrail 檔名/目錄的變體 %s → 不停手（精確 glob 匹配）', (path) => {
+    const d = evaluateStopRules({ changedPaths: [path] })
+    expect(d.violations.some((v) => v.rule === 'SR3-guardrail-change')).toBe(false)
   })
 
   it('報告列出全部被觸及的 guardrail 檔案', () => {
@@ -100,6 +121,15 @@ describe('SR6 — 弱化測試斷言（最危險的失敗模式）', () => {
     expect(d.mustStop).toBe(true)
     expect(d.violations[0]?.rule).toBe('SR6-weakened-tests')
     expect(d.violations[0]?.reason).toContain('3')
+  })
+
+  // Boundary: any negative delta, down to -1, is a stop. Guards against a
+  // mutation that tightens the threshold (e.g. `assertionDelta < -1`) which
+  // would let a single weakened assertion slip through undetected.
+  it('斷言恰好 -1 → 停手（負數即停，邊界含 -1）', () => {
+    const d = evaluateStopRules({ assertionDelta: -1 })
+    expect(d.mustStop).toBe(true)
+    expect(d.violations[0]?.rule).toBe('SR6-weakened-tests')
   })
 
   it('斷言增加 → 不停手', () => {
