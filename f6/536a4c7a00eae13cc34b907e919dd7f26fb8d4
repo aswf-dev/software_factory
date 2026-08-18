@@ -1,0 +1,16 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 40
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 65-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "f6536a4c7a00eae13cc34b907e919dd7f26fb8d4",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
