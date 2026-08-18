@@ -1,0 +1,14 @@
+docs/15-observation-trial-log.md
+  h_1b119f25eaf333 135-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "36b973f30d09aef6d36e50c8b7bc374ca1df4555",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
