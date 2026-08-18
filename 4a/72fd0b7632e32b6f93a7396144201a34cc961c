@@ -1,0 +1,16 @@
+src/cli/factory-rescore.test.ts
+  h_1b119f25eaf333 112-120,141-150
+src/cli/factory-rescore.ts
+  h_1b119f25eaf333 31,37,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "4a72fd0b7632e32b6f93a7396144201a34cc961c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
