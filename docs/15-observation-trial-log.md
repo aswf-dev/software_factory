@@ -167,3 +167,15 @@
 - 已寫入 docs/07 §2.2 + factory-workflow skill + fubon 分支同步（64c8125f）
 
 **驗證**：修正後三層 PR #572/#573/#574 **全部獨立綠燈**（test SUCCESS）——CI 獨立驗證（對比 agent 自報）完整生效。**教訓**：agent 自報「測試全綠」≠ CI 綠燈；目標 repo 的 CI 觸發條件必須涵蓋 factory 分支與串聯 base。
+
+### 2.6 試點 #3 合併流程實錄（2026-08-18，stack 合併教訓）
+
+試點 #3 的三層 PR（#572/#573/#574）合併過程的實際操作與教訓：
+
+1. **stack 限制**：`gh pr merge` 被擋「part of a stack, use the asynchronous merge REST API」→ 依 docs/07 §3.5 `gh stack checkout <PR>` + `gh stack unstack`（**一次解除整疊**——一個 stack 物件涵蓋全部三層，unstack 後各 PR 變普通 PR）。
+2. **底層合併刪除 base → 上層自動關閉**：#572（base=software-factory）合併後刪除 `factory/571-01-test` → #573（base=該分支）**自動 CLOSED**；`gh pr reopen` 失敗（「Could not open the pull request」，base 分支已刪）。
+3. **重建為 trunk-based 新 PR**（docs/07 §3.5 精神）：head 分支（`factory/571-02-impl`、`factory/571-03-docs`）仍在 → `gh pr create --base software-factory --head <同一分支>` → 新 PR #576/#577。diff 自動只剩該層變更（下層內容已在 trunk）。
+4. **squash 合併的 SHA 分歧 → DIRTY**：#576 重建後 CONFLICTING（02-impl 分支含原始 commit，trunk 是 squash commit → 同檔兩版）→ GitHub `update-branch` 無法自動解（`Cannot update PR branch due to conflicts`）→ **本地解決**：`git merge origin/software-factory` → 衝突在 `TimeUtils.test.ts`（skip vs un-skip 版）→ `git checkout --ours` 保留 impl 層的 un-skip 版 → push。
+5. **結果**：#572 → #576（impl）→ #577（docs）全合併；`factory/*` 分支全清理；**main 未觸碰**。
+
+**教訓**：gh-stack 串聯 PR 的合併摩擦（base 分支連鎖刪除 + squash SHA 分歧）是**程序性成本**——docs/07 §3.5 已記錄、觀察期指標追蹤（審查等待時間）。本次實作驗證了重建流程可行（head 分支保留 + trunk-based 新 PR + 本地解衝突）。
