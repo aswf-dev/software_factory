@@ -111,18 +111,18 @@ gh stack submit --auto
 採用 `gh stack init --prefix` 搭配 `--numbered`：
 
 ```
-factory/123/01-test
-factory/123/02-impl
-factory/123/03-docs
+factory/12-01-test
+factory/12-02-impl
+factory/12-03-docs
 ```
 
 | 段 | 意義 |
 |---|---|
 | `factory/` | 標示為工廠產出，便於篩選與設定分支規則 |
-| `123` | 對應的 Issue 編號，可追溯 |
+| `12` | 對應的 Issue 編號，可追溯 |
 | `01`, `02` | 疊序，明示合併順序 |
 
-> ⚠️ `--numbered` 產生的實際命名格式須實測確認是否符合上述期望（Q07-2）。
+> ✅ **Q07-2 已實測（2026-08-18，gh-stack v0.1.0）**：`--prefix "factory/12" --numbered` 實際產生 **`factory/12-01-test`**（**連字號**分隔，非原先預期的斜線）。疊內各層的語意標籤（`test`/`impl`/`docs`）由 `gh stack add -m` 的訊息推導。
 
 ### 3.3 同步與 rebase（✅ 已實測差異）
 

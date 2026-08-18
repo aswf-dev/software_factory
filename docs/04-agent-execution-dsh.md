@@ -363,14 +363,18 @@ jobs:
       - name: Run factory agent
         id: agent
         env:
-          # 憑證以環境變數參照傳遞，不寫入設定檔（見 05）
+          # ⚠️ 實測（2026-08-18）：DSH sandbox 會剝離 process 環境變數——
+          # GH_TOKEN **不會**傳進 agent 的 env（step 層 gh 可用，agent 內 gh 看不到）。
+          # 因此 token 改以 workspace 檔傳遞（`.factory/run/gh-token`，gitignored、
+          # 1 小時有效），由 factory-workflow skill 指示 agent 讀取（Q04-7）。
+          # ANTHROPIC_API_KEY 仍以 env 傳遞（DSH 本身在 sandbox 外讀取）。
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -o pipefail
-          npx -y @deepseek-ai/dsh --profile factory \
-            "$(cat .github/factory/task-template.txt | \
-               sed 's/<ISSUE>/${{ inputs.issue_number }}/')" \
+          npx -y @deepseek-ai/dsh@0.1.0-rc.6 --profile headless \
+            --patch config/dsh/factory-guardrail.patch.yml \
+            "$(sed "s/<ISSUE>/${{ inputs.issue_number }}/" .github/factory/task-template.txt)" \
             | tee agent-output.txt
 
       # exit code 判讀由上一步的非零退出自動處理；

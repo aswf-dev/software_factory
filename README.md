@@ -49,12 +49,14 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 ```bash
 npm ci                    # 安裝（版本已精確鎖定）
 npm run typecheck         # TypeScript strict 檢查
-npm test                  # 138 則測試
-npm run test:unit         #   74 則：計分邏輯、停手規則
-npm run test:integration  #   27 則：DSH 契約、gh CLI 解析
-npm run test:adversarial  #   21 則：guardrail 是否真的擋得住
-npm run test:e2e          #   16 則：完整工作項流程（stub agent）
-npm run coverage          # 門檻：scoring/stop-rules/pipeline 需 100% 分支
+npm run build             # emit dist/（CI entry points 使用）
+npm test                  # 283 則測試
+npm run test:unit         #   計分邏輯、停手規則、factory CLI
+npm run test:integration  #   DSH 契約、gh CLI 解析、CLI 實機
+npm run test:adversarial  #   guardrail 是否真的擋得住
+npm run test:e2e          #   完整工作項流程（stub agent）
+npm run test:quint        #   Quint 神諭 harness（模型 vs TS 實作）
+npm run coverage          # 門檻：scoring/stop-rules/pipeline/cli 需 100% 分支
 ```
 
 > **注意**：工廠對本 repo **永不自動合併**（`catalog-info.yaml` 的 `factory.io/agent-automerge: "false"`）。理由：agent 驗證自己的產出是 `docs/06` §4.3 明文禁止的模式。

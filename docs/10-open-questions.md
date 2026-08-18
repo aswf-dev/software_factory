@@ -3,8 +3,10 @@
 > **用途**：收攏全部文件的未決事項，作為實作啟動前的檢查清單與待裁決清單。
 > **維護規則**：各文件的未決事項為**來源**，本表為**索引**。修改時先改來源文件，再同步本表。
 >
-> **統計**（更新於 2026-08-17，基線量測後）：共 **62 項**——**13 項已裁決／已驗證**、1 項為文件範圍說明、**48 項待處理**。
+> **統計**（更新於 2026-08-18，Phase 1 真實試跑後）：共 **68 項**——**25 項已裁決／已驗證**、1 項為文件範圍說明、**42 項待處理**。
 > 其中 **4 項需要使用者裁決**（見 §1.1）。
+>
+> **本次變動**：Q04-4/Q07-2/Q07-3/Q03-1/2/3/4/Q06-5 驗證完成；新增 Q04-7（DSH 剝離 env）、Q05-7（GITHUB_TOKEN 不能建 PR）、Q05-8（checkout includeIf）、Q04-8（Anthropic 429）、Q12-5（ruleset 漂移實例）。
 >
 > 各節項數：4 + 14 + 9 + 11 + 2 + 1 + 13 + 8 = 62。部分事項在多份文件中重複出現（如 token 門檻同時見於 `02`/`04`/`05`），本表以合併列呈現並標示全部來源編號，故「列數」少於「項數」。
 >
@@ -124,6 +126,24 @@
 | ~~Q04-6~~ | 是否需自訂 permission preset | ✅ **需要**——內建無 `workspace-write`+`never`，不宣告則**載入期失敗**（`04` §2.3） |
 | ~~Q11-1~~ | E2E 假 agent 的實作方式 | ✅ **採 stub 腳本**（使用者裁決）；已實作 `test/e2e/stub-agent.ts`，16 則 E2E 測試 |
 | ~~Q02-2 / Q04-3 / Q05-2~~ | Linux runner 的沙箱阻擋 | ✅ **完全解決**：kernel 6.17 含 landlock；真實 agent 逃逸嘗試**被阻擋**（`04` §2.5）。首次為假通過，已修正並複驗 |
+| ~~Q04-4~~ | DSH 版本鎖定策略與 CI 安裝方式 | ✅ **已驗證**：`npm install --no-save @deepseek-ai/dsh@0.1.0-rc.6`（`factory-run.yml`） |
+| ~~Q07-2~~ | `gh stack init --numbered --prefix` 的實際命名格式 | ✅ **已實測**（gh-stack v0.1.0）：`--prefix "factory/12" --numbered` → **`factory/12-01-test`**（**連字號**分隔，非 `07` §3.2 預期的斜線）；更新見 `07` §3.2 |
+| ~~Q07-3~~ | gh-stack 版本鎖定 | ✅ **已鎖 v0.1.0**（`gh extension install github/gh-stack --pin v0.1.0`，`factory-run.yml`） |
+| ~~Q03-1~~ | Backstage 版本與 create-app 指令 | ✅ **已驗證**：`@backstage/create-app@0.9.0`（`--path` 旗標）；見 `backstage/versions.md` |
+| ~~Q03-2~~ | `github:actions:dispatch` scaffolder action | ✅ **存在**（`@backstage/plugin-scaffolder-backend-module-github`），inputs：`token/repoUrl/workflowId/workflowInputs/branchOrTagName`；**無輸出 schema** |
+| ~~Q03-3~~ | Node v22 支援範圍 | ✅ **22.21.1 為 Active LTS**（Backstage 官方要求 Active LTS） |
+| ~~Q03-4~~ | `factory.io/` annotation 命名空間衝突 | ✅ **無衝突**（Catalog 載入正常） |
+| ~~Q06-5~~ | 二次判定的實作方式 | ✅ **run 內 git diff 重計分**（`factory-judge` CLI 重用 `runWorkItem` 的 Gate 3）；PR 事件觸發留待第 2 期 |
+
+**新增（2026-08-18，真實試跑發現）**：
+
+| 編號 | 事項 | 來源 | 處置 |
+|---|---|---|---|
+| **Q04-7** | **DSH sandbox 會剝離 process 環境變數**——GH_TOKEN 不會傳進 agent 的 env（step 層 gh 可用，agent 內 gh 看不到 token） | `04` §4.1 假設**被推翻** | ✅ **已解決**：token 寫入 workspace 檔（`.factory/run/gh-token`），skill 指示 agent 讀取 |
+| **Q05-7** | **GITHUB_TOKEN 不能用 GraphQL 建立 PR**（`createPullRequest` 403）——即使 workflow 宣告 `pull-requests: write` | `02` D6 | ✅ **已解決**：改用 App token（實證 D6 必要性） |
+| **Q05-8** | **actions/checkout 的 credentials includeIf**（`http.https://github.com/.extraheader` 寫在獨立檔、經 `includeIf.gitdir` 引入）會**覆蓋 URL 內嵌 App token**；`git config --unset-all` 清不掉 | 試跑 | ✅ **已解決**：移除 includeIf 項目 + URL 內嵌 App token |
+| **Q04-8** | Anthropic API **429 rate limit**（平行試跑觸發帳號限額） | 試跑 | ⚠️ **外部限制**：需循序執行或換較輕模型；見 `09` §2 |
+| **Q12-5** | 線上 ruleset 的 required check 只有 `test`，**缺 `quint-verify`**（repo 內 JSON 有，未套用） | `12` Q12-1 實例 | ⚠️ 待以 `gh api` 套用 |
 
 ---
 
