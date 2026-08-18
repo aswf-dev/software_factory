@@ -23,6 +23,12 @@ on:
         type: choice
         options: [success, blocked, guardrail]
         default: success
+      model_provider:
+        description: 模型 provider（Q04-8：可切換以避開個別 provider 的 rate limit）
+        required: false
+        type: choice
+        options: [anthropic, deepseek, qwen]
+        default: anthropic
 
 concurrency:
   group: factory-${{ inputs.issue_number }}
@@ -167,7 +173,11 @@ jobs:
         timeout-minutes: 25      # step 級逾時：逾時仍可被捕獲走 needs-human
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # 多 provider 金鑰：全部以 env 傳入（DSH 在 sandbox 外讀取），
+          # 由 model_provider 選擇使用哪一個；未設定的會 MISSING_CREDENTIAL。
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
         run: |
           set +e
           if [ "${{ inputs.dry_run }}" == "true" ]; then
@@ -178,7 +188,15 @@ jobs:
           else
             npm install --no-save @deepseek-ai/dsh@0.1.0-rc.6
             mkdir -p "$HOME/.dsh"
-            cp config/dsh/settings.ci.yaml "$HOME/.dsh/settings.yaml"
+            cp config/dsh/settings.providers.yaml "$HOME/.dsh/settings.yaml"
+            case "${{ inputs.model_provider }}" in
+              deepseek) MODEL="deepseek-chat" ;;
+              qwen)     MODEL="qwen3-coder-plus" ;;
+              *)        MODEL="claude-sonnet-4-5" ;;
+            esac
+            printf 'agent-default-model:\n  provider: %s\n  model: %s\n' \
+              "${{ inputs.model_provider }}" "$MODEL" >> "$HOME/.dsh/settings.yaml"
+            echo "model routing: ${{ inputs.model_provider }}/$MODEL"
             npx dsh --profile headless \
               --patch config/dsh/factory-guardrail.patch.yml \
               "$(sed "s/<ISSUE>/${{ inputs.issue_number }}/" .github/factory/task-template.txt)" \

@@ -1,0 +1,25 @@
+# DSH 多 provider 設定（Q04-8：可切換 provider 避開個別 rate limit）。
+#
+# 由 factory-run.yml 拷貝至 $HOME/.dsh/settings.yaml，並依 model_provider input
+# 附加 agent-default-model。credential 只放 env 參照（apiKeyEnv），金鑰永不入檔
+# （docs/05 §3.1）。未設定對應 secret 的 provider 若被選用，會以
+# MISSING_CREDENTIAL 明確失敗而非靜默使用其他金鑰。
+#
+# - anthropic：pi-ai 內建目錄路由（現役，成本最高）
+# - deepseek：pi-ai 內建目錄路由（DSH 預設 provider；成本低）
+# - qwen：手動宣告的 OpenAI-compatible 路由（DashScope 相容端點）
+llm-pi-ai:
+  providers:
+    anthropic:
+      apiKeyEnv: ANTHROPIC_API_KEY
+    deepseek:
+      apiKeyEnv: DEEPSEEK_API_KEY
+    qwen:
+      displayName: Qwen (DashScope)
+      apiKeyEnv: QWEN_API_KEY
+      api: openai-completions
+      baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      models:
+        - id: qwen3-coder-plus
+          name: Qwen3 Coder Plus
+          contextWindow: 131072
