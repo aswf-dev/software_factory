@@ -24,11 +24,11 @@ on:
         options: [success, blocked, guardrail]
         default: success
       model_provider:
-        description: 模型 provider（Q04-8：可切換以避開個別 provider 的 rate limit）
+        description: 模型 provider（預設 deepseek；失敗自動依 qwen→anthropic fallback，Q04-8）
         required: false
         type: choice
-        options: [anthropic, deepseek, qwen]
-        default: anthropic
+        options: [deepseek, qwen, anthropic]
+        default: deepseek
 
 concurrency:
   group: factory-${{ inputs.issue_number }}
@@ -188,20 +188,35 @@ jobs:
           else
             npm install --no-save @deepseek-ai/dsh@0.1.0-rc.6
             mkdir -p "$HOME/.dsh"
-            cp config/dsh/settings.providers.yaml "$HOME/.dsh/settings.yaml"
-            case "${{ inputs.model_provider }}" in
-              deepseek) MODEL="deepseek-chat" ;;
-              qwen)     MODEL="qwen3-coder-plus" ;;
-              *)        MODEL="claude-sonnet-4-5" ;;
-            esac
-            printf 'agent-default-model:\n  provider: %s\n  model: %s\n' \
-              "${{ inputs.model_provider }}" "$MODEL" >> "$HOME/.dsh/settings.yaml"
-            echo "model routing: ${{ inputs.model_provider }}/$MODEL"
-            npx dsh --profile headless \
-              --patch config/dsh/factory-guardrail.patch.yml \
-              "$(sed "s/<ISSUE>/${{ inputs.issue_number }}/" .github/factory/task-template.txt)" \
-              > .factory/run/stdout.txt 2> .factory/run/stderr.txt
-            code=$?
+            # 模型 failover 鏈（Q04-8）：預設 deepseek → qwen → anthropic。
+            # 先放使用者選的 provider，再依固定優先序補其餘（去重）。
+            CHAIN="${{ inputs.model_provider }}"
+            for P in deepseek qwen anthropic; do
+              case " $CHAIN " in *" $P "*) ;; *) CHAIN="$CHAIN $P" ;; esac
+            done
+            for P in $CHAIN; do
+              case "$P" in
+                deepseek) MODEL="deepseek-v4-flash" ;;
+                qwen)     MODEL="qwen3.7-flash" ;;
+                *)        MODEL="claude-sonnet-4-5" ;;
+              esac
+              cp config/dsh/settings.providers.yaml "$HOME/.dsh/settings.yaml"
+              printf 'agent-default-model:\n  provider: %s\n  model: %s\n' \
+                "$P" "$MODEL" >> "$HOME/.dsh/settings.yaml"
+              echo "trying model routing: $P/$MODEL"
+              npx dsh --profile headless \
+                --patch config/dsh/factory-guardrail.patch.yml \
+                "$(sed "s/<ISSUE>/${{ inputs.issue_number }}/" .github/factory/task-template.txt)" \
+                > .factory/run/stdout.txt 2> .factory/run/stderr.txt
+              code=$?
+              echo "provider=$P exit=$code"
+              if [ "$code" -eq 0 ]; then break; fi
+              # 僅 provider 層失敗才 fallback（429/credential/model）；
+              # 任務層失敗（非上述錯誤）不重試（docs/02 §6）。
+              if ! grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL" .factory/run/stderr.txt; then
+                break
+              fi
+            done
           fi
           set -e
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"

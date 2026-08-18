@@ -20,6 +20,6 @@ llm-pi-ai:
       api: openai-completions
       baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
       models:
-        - id: qwen3-coder-plus
-          name: Qwen3 Coder Plus
+        - id: qwen3.7-flash
+          name: Qwen3.7 Flash
           contextWindow: 131072
