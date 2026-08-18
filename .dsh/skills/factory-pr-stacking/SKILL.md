@@ -19,11 +19,17 @@ trunk ($BASE_BRANCH)
 
 ## 指令序列（CI 環境，全部非互動）
 
+> **版本相容（重要）**：CI 鎖定 gh-stack **v0.1.0**——它的 `gh stack init` **不接受** `--numbered`/`--prefix`（2026-08-18 試點 #2 實測：那兩個 flag 在 v0.1.0 不存在；部分早期文件與本機舊版 0.0.2 有，但 CI 用 v0.1.0）。v0.1.0 的正確用法是**直接列出各層分支名**（init 會依序建立，slash 保留）。**分支名格式：`factory/<issue編號>-<nn>-<layer>`**（如 `factory/12-01-test`）。
+
 ```bash
 export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)
 export GH_REPO=$(cat .factory/run/repo 2>/dev/null)
 export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)
-gh stack init --base "$BASE_BRANCH" --prefix "factory/<issue編號>" --numbered
+# 三層：01-test → 02-impl → 03-docs（init 依序建立；單層任務只列一層）
+gh stack init --base "$BASE_BRANCH" \
+  "factory/<issue編號>-01-test" \
+  "factory/<issue編號>-02-impl" \
+  "factory/<issue編號>-03-docs"
 git add tests/
 gh stack add -m "test: add failing tests for issue #<編號>" -A
 # ...實作...
@@ -35,7 +41,7 @@ gh stack submit --auto
 
 ## 必須遵守
 
-- **分支一律經 `gh stack init --prefix "factory/<issue編號>"` 建立**——分支名必須以 `factory/` 前綴開頭並含 Issue 編號（2026-08-18 試跑發現：部分 run 未遵循此慣例，造成分支無法與 Issue 對應）。**不允許**自行命名分支（如 `08-18-docs_...`）或直接 `git branch` 建分支。
+- **分支一律經 `gh stack init --base "$BASE_BRANCH" factory/<issue編號>-<nn>-<layer>` 建立**——分支名必須以 `factory/` 前綴開頭並含 Issue 編號（2026-08-18 試跑發現：部分 run 未遵循此慣例，造成分支無法與 Issue 對應；試點 #2 亦見 `factory-569-01-test` 用 dash 取代 slash 的偏差——**slashes 保留，勿用 dash 代替**）。**不允許**自行命名分支（如 `08-18-docs_...`）、用 `--numbered`/`--prefix`（v0.1.0 不支援）或直接 `git branch` 建分支。
 - **base 一律用 `$BASE_BRANCH`**（`.factory/run/base-branch`），不得寫死 `main`——對非試點 repo，main 是受保護的真實 trunk，絕不觸碰（Q-P2-1）。
 - **`gh stack add` 永遠提供 `-m`**：省略時會開啟編輯器，在 CI 中卡住直到逾時。
 - **`gh stack submit` 使用 `--auto`**：不互動提示；**不要加 `--draft`**（draft PR 無法合併，會擋住人類審查流程）。

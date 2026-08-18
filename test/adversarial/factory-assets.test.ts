@@ -148,6 +148,18 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
     expect(content).not.toContain('--base main')
     expect(content).toContain('.factory/run/base-branch')
   })
+  it('skill 指令與 gh-stack v0.1.0 相容（positional 分支名，無 --numbered/--prefix）', () => {
+    // 試點 #2 根因（Q07-2 更正）：v0.1.0 不接受 --numbered/--prefix；舊 skill 指令在
+    // CI 上無效 → agent 被迫自創分支名 → 命名紀律失守。此斷言防止舊指令回潮。
+    // 只檢查 ```bash 指令碼區塊（skill 的「禁止事項」說明文字允許提及旗標名）。
+    for (const s of ['factory-pr-stacking', 'factory-workflow']) {
+      const content = read(`.dsh/skills/${s}/SKILL.md`)
+      const bashBlock = content.match(/```bash\n([\s\S]*?)```/)?.[1] ?? ''
+      expect(bashBlock).not.toContain('--numbered')
+      expect(bashBlock).not.toContain('--prefix')
+      expect(content).toContain('factory/<issue編號>-<nn>-<layer>')
+    }
+  })
   it('factory-workflow 指示讀取 GH_REPO/BASE_BRANCH 且不 push main', () => {
     const content = read('.dsh/skills/factory-workflow/SKILL.md')
     expect(content).toContain('.factory/run/repo')

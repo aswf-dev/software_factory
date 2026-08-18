@@ -55,7 +55,7 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 - `git push` 的認證已由 CI 設定（remote URL 內嵌 App token，優先於任何 credential helper）——**直接 push 即可**，不要自行改 remote URL、不要寫入 token 到任何檔案。
 
 
-- **分支命名**：`gh stack init --prefix "factory/<issue編號>" --numbered` 產生的格式（`factory/<issue>-<nn>-<layer>`）為唯一允許；不得自行命名（如 `08-18-docs_...`）。
+- **分支命名**：格式 `factory/<issue編號>-<nn>-<layer>`（如 `factory/12-01-test`）為唯一允許；gh-stack **v0.1.0** 用 `gh stack init --base "$BASE_BRANCH" factory/<issue>-01-test ...` 直接列分支名建立（**不接受** `--numbered`/`--prefix`）；不得自行命名（如 `08-18-docs_...`）或以 dash 取代 slash。
 - **PR 一律非 draft**：`gh stack submit --auto` 或 `gh pr create` 皆不可加 `--draft`（draft 無法合併，擋住審查流程）。
 
 - 任務描述本身不重複本 skill 內容——需要細節時回到本檔案。

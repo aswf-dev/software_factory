@@ -83,10 +83,14 @@ trunk (main)
 
 ### 3.1 建立一疊 PR
 
+> ⚠️ **版本相容（2026-08-18 試點 #2 更正）**：CI 鎖定 gh-stack **v0.1.0**——`gh stack init` **不接受 `--numbered`/`--prefix`**（先前 §3.2 的「實測」實為本機舊版 0.0.2，誤標 v0.1.0）。v0.1.0 的正確用法：**init 直接列出各層分支名**（依序建立、slash 保留）。
+
 ```bash
-# 1. 初始化 stack（✅ 實測旗標）
-#    --prefix 搭配 --numbered 產生自動遞增的分支名
-gh stack init --base main --prefix "factory/123" --numbered
+# 1. 初始化 stack（v0.1.0：直接列各層分支名，依序建立）
+gh stack init --base "$BASE_BRANCH" \
+  "factory/123-01-test" \
+  "factory/123-02-impl" \
+  "factory/123-03-docs"
 
 # 2. 逐層加入（✅ 實測旗標）
 #    -A 暫存所有變更（含未追蹤檔案），-m 提供 commit message
@@ -108,7 +112,7 @@ gh stack submit --auto
 
 ### 3.2 分支命名
 
-採用 `gh stack init --prefix` 搭配 `--numbered`：
+採用 `gh stack init --base <trunk> factory/<issue>-<nn>-<layer> ...`（直接列出分支名）：
 
 ```
 factory/12-01-test
@@ -122,7 +126,7 @@ factory/12-03-docs
 | `12` | 對應的 Issue 編號，可追溯 |
 | `01`, `02` | 疊序，明示合併順序 |
 
-> ✅ **Q07-2 已實測（2026-08-18，gh-stack v0.1.0）**：`--prefix "factory/12" --numbered` 實際產生 **`factory/12-01-test`**（**連字號**分隔，非原先預期的斜線）。疊內各層的語意標籤（`test`/`impl`/`docs`）由 `gh stack add -m` 的訊息推導。
+> ✅ **Q07-2 已更正（2026-08-18，試點 #2 根因調查）**：gh-stack **v0.1.0 不接受 `--numbered`/`--prefix`**——先前「`--prefix "factory/12" --numbered` → `factory/12-01-test`」的實測是在本機舊版 0.0.2 上做的，誤標為 v0.1.0。v0.1.0 用 positional 分支名建立（本機 0.0.2 交叉驗證：`gh stack init -b main "factory/12-01-test" "factory/12-02-impl"` → 依序建立、slash 保留）。疊內各層的語意標籤（`test`/`impl`/`docs`）由 `gh stack add -m` 的訊息推導。
 
 ### 3.3 同步與 rebase（✅ 已實測差異）
 
@@ -290,8 +294,8 @@ Closes #123
 | 編號 | 事項 | 影響 | 處置 |
 |---|---|---|---|
 | Q07-1 | PR 行數上限（暫定 200–300）未校準 | §2.2 | 依實際審查耗時與 PR 大小分布調整（`08`） |
-| Q07-2 | `gh stack init --numbered --prefix` 的實際命名格式未實測 | §3.2 | 實作時驗證 |
-| Q07-3 | gh-stack v0.0.2 為早期版本，行為可能變動 | 整份流程 | **鎖定版本**；升級前先驗證 |
+| ~~Q07-2~~ | `gh stack init --numbered --prefix` 的實際命名格式未實測 | §3.2 | ✅ **已更正**：v0.1.0 不接受 `--numbered`/`--prefix`，用 positional 分支名（§3.2 註記） |
+| Q07-3 | gh-stack v0.1.0 為早期版本，行為可能變動 | 整份流程 | **鎖定版本**；升級前先驗證 |
 | Q07-4 | agent 自動合併時是否需等待所有上層 PR 審查完畢 | §3.4 | 建議：僅合併已核准的最底連續段 |
 | Q07-5 | 三層拆分是否適用所有工作項類型 | §2.1 | 第 1 期後檢視實際拆分樣態 |
 
