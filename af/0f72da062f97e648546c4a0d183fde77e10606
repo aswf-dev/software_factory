@@ -1,0 +1,14 @@
+src/cli/run-cli-output-mutation.test.ts
+  h_1b119f25eaf333 74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "af0f72da062f97e648546c4a0d183fde77e10606",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
