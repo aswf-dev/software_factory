@@ -165,8 +165,16 @@ jobs:
       # Step 3 — 執行 agent（DSH headless，受限沙箱；或 dry-run stub）
       - name: Install gh stack extension
         if: inputs.dry_run != true
+        env:
+          # 認證安裝：未認證的 gh extension install 會打爆 GitHub API rate limit
+          #（2026-08-18 實測：4 個平行 run 觸發 403）。冪等：已安裝則跳過。
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh extension install github/gh-stack --pin v0.1.0
+          if gh extension list | grep -q "github/gh-stack"; then
+            echo "gh-stack already installed"
+          else
+            gh extension install github/gh-stack --pin v0.1.0
+          fi
           gh stack --version
 
       - name: Run factory agent
