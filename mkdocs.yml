@@ -15,6 +15,7 @@ nav:
   - 未決事項: 10-open-questions.md
   - 測試策略: 11-test-strategy.md
   - Phase 1 驗收報告: 13-phase1-acceptance.md
+  - 缺陷追蹤與觀察期: 14-observation-period.md
   - 詞彙表: GLOSSARY.md
 plugins:
   - techdocs-core
