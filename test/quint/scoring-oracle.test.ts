@@ -52,22 +52,26 @@ const MODEL_TIERS = ['on-loop', 'review', 'in-loop'] as const
 let traceDir: string
 let states: ItfState[]
 
-beforeAll(() => {
-  traceDir = mkdtempSync(join(tmpdir(), 'quint-oracle-'))
-  // 固定 seed + 單一長 trace：step 每步以 nondet s ∈ 0..26 選輸入 → 400 步覆蓋多種組合
-  execFileSync(
-    'npx',
-    [
-      'quint', 'run', '--seed', '0', '--max-samples', '1', '--max-steps', '400',
-      '--out-itf', join(traceDir, 'trace.itf.json'),
-      SPEC,
-    ],
-    { cwd: ROOT, stdio: 'pipe' },
-  )
-  const trace = JSON.parse(readFileSync(join(traceDir, 'trace.itf.json'), 'utf8')) as ItfFile
-  // 跳過 init state（bc=rp=cx=0, total=0）
-  states = trace.states.slice(1)
-})
+beforeAll(
+  () => {
+    traceDir = mkdtempSync(join(tmpdir(), 'quint-oracle-'))
+    // 固定 seed + 單一長 trace：step 每步以 nondet s ∈ 0..26 選輸入 → 400 步覆蓋多種組合。
+    // rust backend 首次執行需編譯，CI 冷啟動可能 >10s，故 hook 上限設 120s。
+    execFileSync(
+      'npx',
+      [
+        'quint', 'run', '--seed', '0', '--max-samples', '1', '--max-steps', '400',
+        '--out-itf', join(traceDir, 'trace.itf.json'),
+        SPEC,
+      ],
+      { cwd: ROOT, stdio: 'pipe' },
+    )
+    const trace = JSON.parse(readFileSync(join(traceDir, 'trace.itf.json'), 'utf8')) as ItfFile
+    // 跳過 init state（bc=rp=cx=0, total=0）
+    states = trace.states.slice(1)
+  },
+  120_000,
+)
 
 afterAll(() => {
   rmSync(traceDir, { recursive: true, force: true })
