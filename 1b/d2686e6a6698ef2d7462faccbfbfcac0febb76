@@ -1,0 +1,32 @@
+.dsh/skills/factory-stop-rules/SKILL.md
+  h_1b119f25eaf333 16
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 48-52,334,338-339
+src/cli/dry-run-agent.test.ts
+  h_1b119f25eaf333 49
+src/cli/dry-run-agent.ts
+  h_1b119f25eaf333 31,38
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 206-234
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 51,130,134,143,153-156
+src/pipeline/run-work-item.ts
+  h_1b119f25eaf333 40-41,59-60,142-143
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 173-197
+test/e2e/stub-agent.ts
+  h_1b119f25eaf333 37-38,51,69
+test/e2e/work-item-flow.test.ts
+  h_1b119f25eaf333 174-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "1bd2686e6a6698ef2d7462faccbfbfcac0febb76",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
