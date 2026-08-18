@@ -105,6 +105,21 @@ describe('gh pr list --json 解析與衍生指標', () => {
     const json = JSON.stringify([{ number: 1, createdAt: '2026-08-01T00:00:00Z' }])
     expect(changedLines(parsePullRequests(json)[0]!)).toBe(0)
   })
+
+  it('lead time：mergedAt 欄位缺席（undefined）時為 null，與 null 同義', () => {
+    // Schema 把 mergedAt 宣告為 nullable + optional：欄位整個缺席時是 undefined。
+    // 兩者都代表「未合併」，對 undefined 的判斷是合約的一部分（docs/08 §2.1）。
+    const json = JSON.stringify([{ number: 12, createdAt: '2026-08-02T00:00:00Z' }])
+    expect(leadTimeHours(parsePullRequests(json)[0]!)).toBeNull()
+  })
+
+  it('lead time：非整數小時原樣回傳，不做四捨五入', () => {
+    // 計算必須保留原始精度；round/floor 的變異會讓這個斷言變紅。
+    const json = JSON.stringify([
+      { number: 13, createdAt: '2026-08-01T00:00:00Z', mergedAt: '2026-08-01T01:30:00Z' },
+    ])
+    expect(leadTimeHours(parsePullRequests(json)[0]!)).toBe(1.5)
+  })
 })
 
 describe('閒置比（docs/08 §2.1 的核心指標）', () => {
@@ -129,5 +144,11 @@ describe('閒置比（docs/08 §2.1 的核心指標）', () => {
 
   it('process 為 0 → 全部為閒置（比值 1）', () => {
     expect(idleRatio(10, 0)).toBe(1)
+  })
+
+  it('process 為負（資料異常）→ 原始比值逾 1，夾回 1', () => {
+    // process < 0 時 (lead − process)/lead > 1，上界 clamp 把「逾 100% 閒置」的
+    // 不合理比值夾回 1，與「完全無處理時間 → 1」一致，並守住對應實作變異。
+    expect(idleRatio(10, -5)).toBe(1)
   })
 })
