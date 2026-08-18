@@ -84,18 +84,22 @@ jobs:
           printf '%s' "$GH_TOKEN" > .factory/run/gh-token
           echo "gh-token written ($(wc -c < .factory/run/gh-token) bytes)"
 
-      # git push 的認證：checkout action 會設定 `http.https://github.com/.extraheader`
-      # 為 `AUTHORIZATION: basic <GITHUB_TOKEN>`——這個 Authorization header 會**覆蓋**
-      # URL 內嵌的 App token（本機實測：App token 可 push；workflow 內失敗正是此因）。
-      # 故移除 extraheader + URL 內嵌 App token，保證 push 用 App token。
-      # （token 只存在於 runner 暫存的 .git/config，gitignored；agent 本身已持有該 token）
+      # git push 的認證：checkout action 把 `http.https://github.com/.extraheader`
+      # （AUTHORIZATION: basic GITHUB_TOKEN）寫在**獨立 credentials 檔**，經
+      # `includeIf.gitdir:<workspace>/.git.path` 引入——git config --unset-all 只清
+      # 直接項目、清不掉 includeIf 引入的檔。故必須移除 includeIf 項目，
+      # 再以 URL 內嵌 App token 認證（本機實測：App token 可 push）。
+      # （token 只存在於 runner 暫存的 .git/config，gitignored；agent 已持有該 token）
       - name: Configure agent git auth
         run: |
+          # 移除 checkout 的 credentials includeIf（其 extraheader 以唯讀 token 覆蓋認證）
+          git config --local --get-regexp '^includeIf\.gitdir:' 2>/dev/null | while read -r key _; do
+            git config --local --unset-all "$key"
+          done || true
           git config --global --unset-all http.https://github.com/.extraheader 2>/dev/null || true
-          git config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
           TOKEN=$(cat .factory/run/gh-token)
           git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          echo "extraheader removed; origin authenticates with app token"
+          echo "checkout credentials include removed; origin authenticates with app token"
 
       # git 身分：checkout 預設不設定 user.name/email，git commit 會失敗。
       # 以 App 的 bot 身分提交（稽核可辨識，docs/02 D6）。
@@ -107,19 +111,24 @@ jobs:
 
       # 寫入權限探針：在花費 LLM 成本之前確認 App token 真的能 push。
       # 失敗即在此紅燈（fast fail），不進入 agent 步驟。
-      # 先印出安裝層級的實際授予權限（決定性診斷：/installation/repositories
-      # 以 App token 查詢，回傳每個 repo 的 permissions）。
+      # 診斷：checkout 的 extraheader 可能位於 env 層（GIT_CONFIG_* env vars，
+      # 優先級高於 file config，git config --unset-all 清不掉）——故探針以
+      # command-line config（-c，優先級最高）強制清空 extraheader 再 push。
       - name: Verify app token write access
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          echo "=== installation granted permissions ==="
-          gh api /installation/repositories --jq '.repositories[] | {name, permissions}'
-          echo "=== probe push ==="
+          echo "=== git env config ==="
+          env | grep -i "^GIT_CONFIG" || echo "(no GIT_CONFIG env vars)"
+          echo "=== extraheader origins ==="
+          git config --show-origin --get-all http.https://github.com/.extraheader || echo "(none in file config)"
+          echo "=== remote url (masked) ==="
+          git config --get remote.origin.url | sed 's/:[^@]*@/:***@/'
+          echo "=== probe push (extraheader forced empty via -c) ==="
           git switch -c _factory-auth-probe
           git commit --allow-empty -m "auth probe"
-          git push origin _factory-auth-probe
-          git push origin --delete _factory-auth-probe
+          git -c http.https://github.com/.extraheader= push origin _factory-auth-probe
+          git -c http.https://github.com/.extraheader= push origin --delete _factory-auth-probe
           git switch - 2>/dev/null || true
           echo "app token write access verified"
 
