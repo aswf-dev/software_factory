@@ -1,0 +1,22 @@
+.dsh/skills/factory-pr-stacking/SKILL.md
+  h_1b119f25eaf333 32,34
+README.md
+  h_1b119f25eaf333 53
+docs/09-roadmap.md
+  h_1b119f25eaf333 92,94,96-99
+docs/10-open-questions.md
+  h_1b119f25eaf333 6,9
+docs/11-test-strategy.md
+  h_1b119f25eaf333 365-366,368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "cb474c46d1fad3dff54c1240a7c6b9e1521f98f0",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
