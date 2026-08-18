@@ -51,6 +51,19 @@ jobs:
           npm ci
           npm run build
 
+      # 標籤必須預先存在（gh issue edit --add-label 不會自動建立）。
+      # 冪等：--force 在已存在時更新顏色而不報錯。
+      - name: Ensure factory labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "oversight/on-loop"  --color "1d76db" --force
+          gh label create "oversight/review"   --color "d4c5f9" --force
+          gh label create "oversight/in-loop"  --color "d73a4a" --force
+          gh label create "needs-human"        --color "b60205" --force
+          gh label create "ready"              --color "0e8a16" --force
+          echo "factory labels ensured"
+
       # Step 2 — 初始計分（agent 啟動前，docs/06 §5.1）
       - name: Initial score
         id: score
@@ -74,6 +87,12 @@ jobs:
           echo "blocked-in-loop; agent 未啟動（docs/06 §4.3）"
 
       # Step 3 — 執行 agent（DSH headless，受限沙箱；或 dry-run stub）
+      - name: Install gh stack extension
+        if: inputs.dry_run != true
+        run: |
+          gh extension install github/gh-stack --pin v0.1.0
+          gh stack --version
+
       - name: Run factory agent
         id: agent
         if: success()
