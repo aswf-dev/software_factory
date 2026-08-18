@@ -14,6 +14,7 @@ nav:
   - 路線圖: 09-roadmap.md
   - 未決事項: 10-open-questions.md
   - 測試策略: 11-test-strategy.md
+  - Phase 1 驗收報告: 13-phase1-acceptance.md
   - 詞彙表: GLOSSARY.md
 plugins:
   - techdocs-core
