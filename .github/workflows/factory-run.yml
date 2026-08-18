@@ -72,6 +72,18 @@ jobs:
           gh label create "ready"              --color "0e8a16" --force
           echo "factory labels ensured"
 
+      # DSH 的 sandbox 不會把 GH_TOKEN 傳進 agent 的 process 環境（實測：
+      # step 層的 gh 可用 App token，但 agent 內的 gh 看不到任何 token）。
+      # 故把短效 installation token 寫入 workspace（gitignored、runner 暫存、
+      # 1 小時有效），由 factory-workflow skill 指示 agent 讀取。
+      - name: Write agent GH token to workspace
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          mkdir -p .factory/run
+          printf '%s' "$GH_TOKEN" > .factory/run/gh-token
+          echo "gh-token written ($(wc -c < .factory/run/gh-token) bytes)"
+
       # Step 2 — 初始計分（agent 啟動前，docs/06 §5.1）
       - name: Initial score
         id: score

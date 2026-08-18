@@ -34,6 +34,9 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 
 ## 原則
 
-- 所有 git/gh 操作使用環境中的 `GH_TOKEN`（GitHub App 身分）。
+- 所有 git/gh 操作使用 GitHub App 身分：**若環境變數 `GH_TOKEN` 不存在，先執行**
+  `export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)`（短效 installation token，
+  由 CI 寫入 workspace；讀取失敗則依 factory-stop-rules 停手）。**永不把 token 寫入任何
+  會進 git 的檔案**（如 commit message、文件、測試）。
 - 任務描述本身不重複本 skill 內容——需要細節時回到本檔案。
 - 任何不確定的情況，依 factory-stop-rules 停手，**不要猜測並繼續**。
