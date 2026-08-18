@@ -112,3 +112,23 @@
 **結論**：高風險 repo 的計分/標籤/阻斷鏈路移植成功——catalog 三軸（strategic/high/high = 6 分）在目標 repo 正確映射為 in-loop 阻斷，且全程未觸碰 main。docs/09 §3 2.2/2.3 的移植驗證完成。
 
 **後續**：若要讓 agent 在 fubon-tradingbot 實際執行動作型工作項，需另行裁決是否調降 catalog 某軸（目前全高風險 → 一律 in-loop）——那屬於「低風險工作項」試點範疇，與本次「高風險計分驗證」目的不同。
+
+### 2.3 試點 #2 — 跨 repo agent 動作（2026-08-18，run 32158763565）
+
+**前置**：裁決 #568 通過（complexity high→low，total 6→4 → review tier）；catalog 已更新至 software-factory 分支（commit e33a128a；期間誤刪 options-seller.qnt 已於 cc2ddeff 恢復）。
+
+| 驗證點 | 結果 |
+|---|---|
+| 初始計分（complexity: low 生效）| ✅ total=4 → **review**（不再 in-loop 阻斷）|
+| Issue #569 標籤 | ✅ `oversight/review` |
+| **agent 跨 repo 執行**（讀碼→npm ci→寫測試→跑測試→建 PR）| ✅ **成功**：產出 PR #570（+33 行，`test/jest/TimeUtils.test.ts`，base=**software-factory**）|
+| agent 驗證 | ✅ `npm run test:jest:unit`：190 suites / 4820 tests 全綠；未改 src 行為、未碰 H1–H3 |
+| judge 終態 | ✅ ready-for-review（計分 4 分需人類審查）|
+| Issue 留言 | ✅ agent 完成回報 + factory 判定留言 |
+| **main 未被觸碰** | ✅ SHA 前後一致（`d01aed8d...`）|
+
+**發現 1（紀律偏差，Q04-9 驗證點）**：分支命名為 `factory-569-01-test`（dash）而非 skill 規定的 `factory/569-01-test`（slash）。功能無礙（PR body 含 `Closes #569`，rescore 仍能找到 Issue），但違反命名規範——根因待查（agent 可能未照 skill 的 `--prefix "factory/<issue編號>"`）。列入 Q04-9 驗證結果：**紀律在真實試跑中未完全維持**，需決定強化（skill 更明確示例）或接受 dash。
+
+**發現 2（隱藏 bug）**：手動 rescore PR #570 首次失敗——`.factory/` 被 gitignore、fresh checkout 不存在，`> .factory/rescore.json` redirect 失敗。**舊 workflow 的 Rescore 步驟從未被 factory/* PR 真實執行過**（先前 PR 皆非 factory 分支 → 步驟 skipped → 顯示 SUCCESS）。已修（PR #111：`mkdir -p .factory`）並重新驗證：rescore 對 PR #570 正確執行（total=4、before=after=review、不升級、無誤留言）。
+
+**待辦（人類）**：審查 PR #570（`test/jest/TimeUtils.test.ts`）後合併至 software-factory 分支（單一 PR，直接 `gh pr merge --squash --delete-branch`）。
