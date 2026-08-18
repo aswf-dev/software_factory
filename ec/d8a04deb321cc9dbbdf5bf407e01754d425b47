@@ -1,0 +1,20 @@
+scripts/weekly-metrics.sh
+  h_1b119f25eaf333 1-17
+src/cli/factory-metrics.test.ts
+  h_1b119f25eaf333 1-116
+src/cli/factory-metrics.ts
+  h_1b119f25eaf333 1-104
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 173-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ecd8a04deb321cc9dbbdf5bf407e01754d425b47",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
