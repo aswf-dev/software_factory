@@ -80,3 +80,35 @@
 - **價值**：情境報告是 `factory-run.yml` 流程接線的終點契約（`hasAcceptanceCriteria` 觸發 SR4、changedPaths/changedLines 影響計分）。過去誤改 success 行數主張、放寬 guardrail 驗收判讀、或讓 blocked 宣稱改檔，都不會讓既有測試變紅；補釘後這三類回歸在 CI gate（`src/cli/**` 100% branch）就會被攔下。
 
 每次試跑結果在對應 Issue 留言回報 PR 編號；缺陷標記依 `14` §1 紀律。
+
+---
+
+## 2. fubon-tradingbot 試點紀錄（Phase 2 T8）
+
+> **依據**：`docs/superpowers/plans/2026-08-18-phase2-expansion.md` Task 8、docs/09 §3 2.2/2.3。
+> **目的**：驗證工廠移植到第二 repo（真實交易 bot）時，計分閘門、App 認證、Guard 與「main 絕不觸碰」約束在目標 repo 上正確運作。
+
+### 2.1 前置（人類 + 草稿）
+
+- `software-factory` 分支已於 fubon-tradingbot 建立（**main 未觸碰**，SHA 前後一致 `d01aed8d`）。
+- App `software-factory-worker` 已安裝至 fubon-tradingbot（權限同 D6）。
+- 設定已登錄至 `software-factory` 分支（commit `98d4e3d`）：catalog（strategic/high/high）、risk-paths（H1–H7 依實際結構）、5 個 task-template、4 個 factory skill、CODEOWNERS、`options-seller.qnt`（人類撰寫的 Quint 模型）。
+- 草稿來源：`trial/fubon-tradingbot/`（PR #107）。
+
+### 2.2 試點 #1 — 高風險計分閘門（2026-08-18，run 32155833121）
+
+| 驗證點 | 結果 |
+|---|---|
+| Guard：`repo=fubon-tradingbot` + `base_branch=software-factory`（非 main）| ✅ 通過 |
+| App token mint（`repositories: philipz/fubon-tradingbot` 最小權限）| ✅ 成功（App 已安裝）|
+| 目標 repo checkout（App token 認證）| ✅ fubon-tradingbot@software-factory |
+| 標籤在目標 repo 建立（GH_REPO）| ✅ oversight/*、needs-human、ready |
+| App token 寫入權限探針（push 到 fubon-tradingbot）| ✅ 成功，探針分支已刪除 |
+| 計分讀目標 repo 的 catalog/risk-paths | ✅ **total=6 → tier=in-loop → label=oversight/in-loop** |
+| 阻斷鏈路 | ✅ Apply score labels exit 1 → Stop when in-loop → **agent 從未啟動** |
+| Issue 標籤/留言（App 身分）| ✅ #567 貼 `oversight/in-loop` + 留言「工廠執行未啟動：初始計分 6 分屬 human-in-the-loop（docs/06 §4.3）。設計與實作須由人類主導。」 |
+| **main 未被觸碰** | ✅ SHA 前後一致（`d01aed8d...`）|
+
+**結論**：高風險 repo 的計分/標籤/阻斷鏈路移植成功——catalog 三軸（strategic/high/high = 6 分）在目標 repo 正確映射為 in-loop 阻斷，且全程未觸碰 main。docs/09 §3 2.2/2.3 的移植驗證完成。
+
+**後續**：若要讓 agent 在 fubon-tradingbot 實際執行動作型工作項，需另行裁決是否調降 catalog 某軸（目前全高風險 → 一律 in-loop）——那屬於「低風險工作項」試點範疇，與本次「高風險計分驗證」目的不同。
