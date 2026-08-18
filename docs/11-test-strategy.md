@@ -259,6 +259,7 @@ describe('GitHub App 權限最小化（D6）', () => {
 | 檔案 | 被測函式 | 覆蓋的變異 |
 |---|---|---|
 | `src/scoring/rescore-mutation.test.ts` | `rescore` | 持平放寬降級、blocker 聯集被截、automerge 阻擋失效、單向不降級守衛 |
+| `src/scoring/resolve-axis-mutation.test.ts` | `resolveAxis` | 缺值/空白不再 fail-safe、錯字不再 fail-safe、大小寫折疊被移除、非法值洩漏合法分數 |
 | `src/cli/parse-args-mutation.test.ts` | `parseArgs` | 重複旗標「後出現者勝」、旗標判定 `--` 被放寬成 `-`、處理旗標誤重設另一欄 |
 
 每個變異都經「手改原始碼 → 測試變紅 → 還原 → 變綠」驗證，並在檔頭記錄 mutation log。這是對 §6 覆蓋率門檻的質性補強，不是取代。
@@ -338,7 +339,10 @@ vitest.config.ts                      # 覆蓋率門檻（scoring/stop-rules 100
 src/scoring/
   ├── types.ts                        # 三軸型別、監督層級、H1–H7
   ├── score.ts                        # 計分邏輯（fail-safe + 二次判定）
-  └── score.test.ts                   # 35 則單元測試
+  ├── score.test.ts                   # 35 則單元測試
+  ├── rescore-mutation.test.ts        # mutation 驗證（二次判定只升不降）
+  ├── match-hard-rules-mutation.test.ts # mutation 驗證（H1–H7 命中）
+  └── resolve-axis-mutation.test.ts   # 6 則 mutation 驗證（resolveAxis fail-safe）
 src/stop-rules/                       # T3
   ├── types.ts                        # SR1–SR8 規則型別
   ├── stop-rules.ts                   # 停手判定（無 override 機制）
@@ -362,10 +366,10 @@ CODEOWNERS                            # GitHub 層 guardrail
 | 項目 | 結果 |
 |---|---|
 | `npm run typecheck` | ✅ 通過（strict 模式無錯誤） |
-| `npm run test:unit` | ✅ **216 則**（計分 53 + 停手規則 45 + CLI 118） |
+| `npm run test:unit` | ✅ **222 則**（計分 59 + 停手規則 45 + CLI 118） |
 | `npm run test:integration` | ✅ **48 則**（DSH 契約 14 + gh 解析 23 + CLI 實機 6 + mutation 5） |
 | `npm run test:adversarial` | ✅ **50 則**（guardrails 31 + factory-assets 19） |
-| **合計** | ✅ **335 則全數通過**（含 e2e 17 + quint 神諭 4） |
+| **合計** | ✅ **341 則全數通過**（含 e2e 17 + quint 神諭 4） |
 | `npm run coverage` | ✅ `scoring`、`stop-rules`、`integration` **全部 100% 分支/行/函式/敘述** |
 
 ### 9.2 兩項「閘門是否真的有效」的驗證
