@@ -7,3 +7,6 @@
 - **Q03-2 已驗證（2026-08-17）**：`github:actions:dispatch` 為 `@backstage/plugin-scaffolder-backend-module-github` 的內建 action，inputs：`token`/`repoUrl`/`workflowId`/`workflowInputs`/`branchOrTagName`；**無輸出 schema**（故 Template 不依賴 workflowRunUrl，改指引 Actions 頁面）
 - **Q03-4 驗證**：`factory.io/*` annotation 命名空間未與 Backstage 內建 annotation 衝突（Catalog 載入無警告）
 - 驗證日期：2026-08-17
+
+# Backstage 狀態：凍結（2026-08-18 裁決，見 docs/14 §1.7）
+# Phase 1-2 採純 GitHub Issue 觸發；工件保留供日後多人需求升級。

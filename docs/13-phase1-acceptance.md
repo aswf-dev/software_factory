@@ -95,7 +95,7 @@ Issue → CI 計分 → DSH agent（受限沙箱 + skills）→ stacked PR → �
 **Phase 1 核心目標達成**：最窄路徑端到端真實運作（90% 成功率）、停手機制驗證、Quint 正式方法落地、多 provider 彈性。
 
 **放行 Phase 2 的兩個前置**（建議完成後再規劃 Phase 2）：
-1. **Backstage Template 端到端實測**（或依 Q03-6 裁決降級）
+1. ~~Backstage Template 端到端實測~~ —— **已裁決降級**（Q03-6/Q13-1，見 `14` §1.7）；出場條件 1 的 caveat 以「純 GitHub 觸發已實證」閉合
 2. **補一輪觀察期數據**（缺陷追蹤 + 少量真實工作項），讓 §6 五問有實質答案
 
 ---
@@ -104,5 +104,5 @@ Issue → CI 計分 → DSH agent（受限沙箱 + skills）→ stacked PR → �
 
 | 編號 | 事項 | 處置 |
 |---|---|---|
-| Q13-1 | Backstage Template 端到端實測或降級裁決 | Phase 2 前由使用者裁決 |
+| ~~Q13-1~~ | Backstage 端到端 or 降級裁決 | ✅ **已裁決：降級**（純 GitHub 觸發，工件凍結保留；日後多人可升級，見 `14` §1.7）|
 | Q13-2 | 驗收報告與 `10` 未決事項的同步（Q08-7 等仍待） | 已收攏至 `10` |

@@ -88,7 +88,7 @@
 | 1.4 | 撰寫 `factory-run.yml` workflow | `04` §4.1 | ✅ 含 App token／token 檔橋接／寫入探針（Q04-7/05-7/05-8 修正） |
 | 1.5 | 撰寫 `06` 計分邏輯與 `risk-paths.yml` | `06` §5 | ✅ `src/scoring` + `factory-score/factory-judge` CLI + **Quint 正式驗證** |
 | 1.6 | 試點 repo 的 `catalog-info.yaml`（含三軸） | `03` §2.2 | ✅ 含技術棧 annotation（`factory.io/stack` 等） |
-| 1.7 | Backstage 本機部署 + 1 個 Template | `03` §3, §6 | ✅ create-app 0.9.0 本機可跑 + `agent-add-tests` Template |
+| 1.7 | Backstage 本機部署 + 1 個 Template | `03` §3, §6 | ⚠️ **已裁決降級**（Q03-6/Q13-1）：工件凍結保留、不部署；純 GitHub 觸發（`14` §1.7）|
 | 1.8 | 端到端試跑 ≥ 10 個工作項 | — | ✅ **10/10 完成**（9 個產出 PR 合併 + 1 誠實停手；成功率 90%）；2026-08-18 真實試跑 |
 
 ### 出場條件（2026-08-18 最終狀態）
