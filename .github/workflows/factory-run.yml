@@ -12,6 +12,12 @@ on:
         description: 目標 Issue 編號
         required: true
         type: number
+      task_type:
+        description: 任務類型（決定 task-template 與 skill 分支）
+        required: false
+        type: choice
+        options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs]
+        default: agent-add-tests
       dry_run:
         description: 以 stub agent 取代真實 DSH（驗證流程用）
         required: false
@@ -188,6 +194,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+          TASK_TYPE: ${{ inputs.task_type }}
         run: |
           set +e
           if [ "${{ inputs.dry_run }}" == "true" ]; then
@@ -214,9 +221,13 @@ jobs:
               printf 'agent-default-model:\n  provider: %s\n  model: %s\n' \
                 "$P" "$MODEL" >> "$HOME/.dsh/settings.yaml"
               echo "trying model routing: $P/$MODEL"
+              # 依 task_type 選模板（fallback 到預設 agent-add-tests 模板）
+              TEMPLATE=".github/factory/task-template-${TASK_TYPE}.txt"
+              [ -f "$TEMPLATE" ] || TEMPLATE=".github/factory/task-template.txt"
+              echo "task template: $TEMPLATE"
               npx dsh --profile headless \
                 --patch config/dsh/factory-guardrail.patch.yml \
-                "$(sed "s/<ISSUE>/${{ inputs.issue_number }}/" .github/factory/task-template.txt)" \
+                "$(sed "s/<ISSUE>/${{ inputs.issue_number }}/" "$TEMPLATE")" \
                 > .factory/run/stdout.txt 2> .factory/run/stderr.txt
               code=$?
               echo "provider=$P exit=$code"

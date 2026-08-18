@@ -1,0 +1,74 @@
+# 二次判定（docs/06 §5.3, Q06-5）：PR 更新時獨立重計分，攔截「說低做高」。
+#
+# 僅對 factory/* 分支觸發；非 factory 分支（人類 PR）跳過。
+# 判定以 factory-rescore CLI 執行（重用既有 src/scoring）。
+name: Factory Rescore
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  rescore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      # D6：以 App 身分留言/貼標籤（比照 factory-run 的 token 橋接）
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          app-id: ${{ secrets.FACTORY_APP_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+
+      # 二次判定（僅 factory/* 分支；非 factory PR 無監督升級風險需攔截）
+      - name: Rescore factory PR
+        if: startsWith(github.event.pull_request.head.ref, 'factory/')
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          node dist/cli/factory-rescore.js \
+            "${{ github.event.pull_request.number }}" \
+            catalog-info.yaml .github/factory/risk-paths.yml \
+            > .factory/rescore.json
+          cat .factory/rescore.json
+          node -e '
+            const fs = require("fs")
+            const r = JSON.parse(fs.readFileSync(".factory/rescore.json", "utf8"))
+            if (r.escalated && r.issueNumber) {
+              const { execFileSync } = require("child_process")
+              const body = [
+                "## 二次判定：監督層級升級（docs/06 §5.3 單向棘輪）",
+                "",
+                "PR #" + r.prNumber + " 的實際變更觸發了更高的監督層級：",
+                "- 計分：" + r.total + " 分",
+                "- 觸發硬性規則：" + (r.triggeredHardRules.join("、") || "（無，計分上升）"),
+                "",
+                "**自動合併權限已撤銷**；請人類審查此 PR 的風險。",
+              ].join("\n")
+              execFileSync("gh", ["issue", "comment", String(r.issueNumber), "--body", body])
+              console.log("escalation comment posted to issue #" + r.issueNumber)
+            } else {
+              console.log("no escalation; oversight tier unchanged")
+            }
+          '
+
+      - name: Skip non-factory PR
+        if: "!startsWith(github.event.pull_request.head.ref, 'factory/')"
+        run: echo "非 factory 分支，跳過二次判定"
