@@ -1,0 +1,18 @@
+docs/10-open-questions.md
+  h_1b119f25eaf333 6,9
+docs/14-observation-period.md
+  h_1b119f25eaf333 1-73
+mkdocs.yml
+  h_1b119f25eaf333 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b0b9b64bcb65ea573425b771717e41588fbfd6ed",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
