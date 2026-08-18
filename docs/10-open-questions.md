@@ -53,10 +53,10 @@
 | **Q07-2** | `gh stack init --numbered --prefix` 的實際命名格式 | `07` | 實作時驗證 |
 | **Q07-3** | gh-stack v0.0.2 為早期版本，行為可能變動 | `07` | **鎖定版本** |
 | **Q06-4 / Q05-6** | `risk-paths.yml` 與 CODEOWNERS 路徑模式須依實際 repo 結構撰寫 | `06`,`05` | 實作時確定 |
-| **Q06-5** | 二次判定的實作方式（PR 事件觸發計分） | `06` | 實作時設計 |
+| **Q06-5** | 二次判定的實作方式（PR 事件觸發計分） | `06` | ✅ **PR 事件觸發重計分**（T3，`factory-rescore` CLI + `factory-rescore.yml`）；初始值讀 Issue 的 `oversight/*` 標籤、單向升級（docs/06 §5.3）；「成功攔截升級」實證待試跑 |
 | **Q03-5** | Scoreboard 採自訂插件或既有插件 | `03` | 第一階段可用手動報表替代，**不阻塞上線** |
 | **Q08-2** | 缺陷標記紀律是否具備 | `08` | 必要時先建立標記慣例 |
-| **Q08-4** | OTel 指標後端未選定 | `08` | 第一階段可手動彙整 |
+| **Q08-4** | OTel 指標後端未選定 | `08` | 延後（保持開放）；第一階段以 `gh` JSON 手動彙整（`factory-metrics` CLI + `scripts/weekly-metrics.sh`，T5） |
 
 ---
 
@@ -66,7 +66,7 @@
 
 | 編號 | 事項 | 來源 | 校準時機 |
 |---|---|---|---|
-| **Q02-5 / Q04-5 / Q05-4** | **token 中止門檻值** | `02`,`04`,`05` | 第一階段只量測不中止；數週後設定 |
+| **Q02-5 / Q04-5 / Q05-4** | **token 中止門檻值** | `02`,`04`,`05` | ✅ **接線完成**（T6）：`token_budget` input → SR7 判定（`tokensUsed > budget` → needs-human）；**實際數值待基線數據後設定**（預設 0 = 不設限） |
 | **Q06-1** | `06` 計分門檻（0–1 / 2–4 / 5–6） | `06` | 第 1 期後以實際缺陷率檢視 |
 | **Q06-3** | **自動合併准入門檻**（暫定 ≤ 200 行）——超過即退回人類審查 | `06` | 依自動合併缺陷率調整 |
 | **Q07-1** | **拆分建議上限**（暫定 200–300 行）——撰寫指引，非閘門 | `07` | 依實際審查耗時與大小分布調整 |
@@ -89,6 +89,7 @@
 | **Q08-5** | 開發者滿意度問卷的題目與頻率 | `08` | 搭配同理心地圖工作坊 |
 | **Q08-6** | 基線來源已含 agent 影響 | `08` | 解讀時須註明，避免誤判工廠貢獻 |
 | **Q08-7** | **閒置比無法自動計算**（缺 Process Time） | `08` | 核心指標；需推估或人工回報 |
+| **Q03-6** | **Backstage 的維運負擔是否值得** | `03` | ✅ **已裁決：降級**（Q03-6/Q13-1，2026-08-18）——純 GitHub 觸發，Backstage 工件凍結；Scoreboard 以 GitHub Insights + `factory-metrics` 月報替代（`09` §3 2.7）；日後公司採用增使用者時可逆轉 |
 | **Q05-5** | 多 agent 協作的複合風險治理細則 | `05` | 引入多 agent 前必須先補 |
 
 ---
@@ -133,7 +134,7 @@
 | ~~Q03-2~~ | `github:actions:dispatch` scaffolder action | ✅ **存在**（`@backstage/plugin-scaffolder-backend-module-github`），inputs：`token/repoUrl/workflowId/workflowInputs/branchOrTagName`；**無輸出 schema** |
 | ~~Q03-3~~ | Node v22 支援範圍 | ✅ **22.21.1 為 Active LTS**（Backstage 官方要求 Active LTS） |
 | ~~Q03-4~~ | `factory.io/` annotation 命名空間衝突 | ✅ **無衝突**（Catalog 載入正常） |
-| ~~Q06-5~~ | 二次判定的實作方式 | ✅ **run 內 git diff 重計分**（`factory-judge` CLI 重用 `runWorkItem` 的 Gate 3）；PR 事件觸發留待第 2 期 |
+| ~~Q06-5~~ | 二次判定的實作方式 | ✅ **run 內 git diff 重計分**（`factory-judge` CLI 重用 `runWorkItem` 的 Gate 3）+ **PR 事件觸發重計分**（T3：`factory-rescore` CLI + `factory-rescore.yml`，讀 Issue 初始 `oversight/*` 標籤、單向升級） |
 
 **新增（2026-08-18，真實試跑發現）**：
 
@@ -144,6 +145,8 @@
 | **Q05-8** | **actions/checkout 的 credentials includeIf**（`http.https://github.com/.extraheader` 寫在獨立檔、經 `includeIf.gitdir` 引入）會**覆蓋 URL 內嵌 App token**；`git config --unset-all` 清不掉 | 試跑 | ✅ **已解決**：移除 includeIf 項目 + URL 內嵌 App token |
 | **Q04-8** | Anthropic API **429 rate limit**（平行試跑觸發帳號限額） | 試跑 | ⚠️ **外部限制**：需循序執行或換較輕模型；見 `09` §2 |
 | **Q12-5** | 線上 ruleset 的 required check 只有 `test`，**缺 `quint-verify`**（repo 內 JSON 有，未套用） | `12` Q12-1 實例 | ⚠️ 待以 `gh api` 套用 |
+| **Q-P2-1** | **第二試點 repo 選擇與安全約束**（2026-08-18 裁決） | `09` §2.2 | ✅ **已裁決**：`philipz/fubon-tradingbot`（實碼庫、基線來源）；**絕不觸碰其 main**——工廠 trunk 用另開的 `software-factory` 分支；workflow 以 `base_branch` input 明確指定（T4）；非試點 repo 的 `base_branch` 不得為 main（Guard step + 對抗性測試強制） |
+| **Q04-9** | 分支命名與 `--draft` 紀律能否在真實試跑維持 | 試跑 | ✅ **已內建防護**（T1–T2）：task-type 模板 + skill 明寫命名規範與 `--draft` 禁令；對抗性測試釘選（T7）；試跑驗證結果見 T8 |
 
 ---
 

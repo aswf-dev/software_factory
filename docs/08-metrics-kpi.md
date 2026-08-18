@@ -289,8 +289,8 @@ gh pr list --state merged --limit 30 \
 | Q08-2 | 缺陷逃逸率需要缺陷標記紀律，團隊目前是否具備未知 | 品質指標可行性 | 實作前確認；必要時先建立標記慣例 |
 | Q08-3 | 「創新工作 vs 維護工作」的分類標準未定 | §3.1 核心指標 | ⚠️ **更迫切**：基線中 44% 的 Issue 未分類，使 48% 的創新佔比不可靠（§4.2 C） |
 | **Q08-6** | 基線來源 repo 已含 agent 影響，非純人類基線 | 改善幅度會被低估 | 解讀對照時必須註明（§4.3 限制 1） |
-| **Q08-7** | 閒置比需要 Process Time，GitHub 不提供 | **核心指標無法自動計算** | 需以 Actions run 時長推估，或由團隊回報 |
-| Q08-4 | OTel 指標後端未選定 | Agent 效能指標自動化 | 第一階段可用 Actions run log 手動彙整 |
+| **Q08-7** | 閒置比需要 Process Time，GitHub 不提供 | **核心指標無法自動計算** | 需以 Actions run 時長推估，或由團隊回報（2026-08-18 註記：`factory-run.yml` 的 agent step 有 `timeout-minutes: 25`，run 時長可從 Actions API 取得作 Process Time 下界推估；實作待後續） |
+| Q08-4 | OTel 指標後端未選定 | Agent 效能指標自動化 | 延後（保持開放）；第一階段已以 `factory-metrics` CLI（`gh` JSON）手動彙整（T5） |
 | Q08-5 | 開發者滿意度問卷的題目與頻率未定 | 成果型指標 | 建議搭配 `01` §4.3 同理心地圖工作坊 |
 
 > 本文件的未決事項已收攏至 `docs/10-open-questions.md`。

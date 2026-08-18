@@ -10,6 +10,22 @@
 
 ---
 
+## 執行狀態（2026-08-18 更新）
+
+| Task | 狀態 | 合併 |
+|---|---|---|
+| T1 task_type 路由 + 三模板 | ✅ | PR #101（與 T2/T3 同 PR） |
+| T2 skill 任務型別/命名/--draft 紀律 | ✅ | PR #101 |
+| T3 factory-rescore 二次判定 | ✅ | PR #101 |
+| T4 多 repo 支援 + base_branch Guard | ✅ | PR #102 |
+| T5 factory-metrics CLI + 週檢腳本 | ✅ | PR #103 |
+| T6 token 門檻 SR7 接線 | ✅ | PR #104 |
+| T7 對抗性測試擴充 | ✅ | PR #105 |
+| T8 fubon-tradingbot 試跑 | ⏳ **待人類步驟**（① 開 `software-factory` 分支 ② App 安裝 ③ catalog/risk-paths/skills） | — |
+| T9 文件同步 | ✅ | 本 PR |
+
+---
+
 ## 0. 範圍、前提與設計決策
 
 ### 0.1 範圍（docs/09 §3 工作項 2.1–2.8）
