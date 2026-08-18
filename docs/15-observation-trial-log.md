@@ -15,6 +15,7 @@
 | 52 | `runCli` 成功輸出格式 mutation 掃描 | mutation-strength tests（輸出格式契約） | 見 Issue #83 留言 | 3 個存活變異（M1–M3）補釘 |
 | 49 | `buildHandoverReport` 格式 mutation 掃描 | mutation-strength tests（手動報告格式契約） | 見 Issue #80 留言 | 4 個存活變異（M1–M4）補釘 |
 | 82 | `factory-score` zod 強制轉型 mutation 掃描 | mutation-strength tests（zod 強制轉型契約） | 見 Issue #82 留言 | 3 組存活變異（M1/M2/M3+4）補釘 |
+| 50 | `dry-run-agent` 情境報告 mutation 掃描 | mutation-strength tests（情境契約） | 見 Issue #81 留言 | 3 個存活變異（M1–M3）補釘 |
 
 ### 1.1 #45 — factory-judge loadReport（觀察點）
 
@@ -67,5 +68,15 @@
   - M3/M4 技術棧欄位（stack/test-framework）繞過轉型直接取原始值 → `test-framework: true` / `stack: 2024` 退回 undefined，技術棧宣告悄悄失效
 - **實作**：新增 `src/cli/factory-score-mutation.test.ts`（6 則），M1、M2、M3/M4 三組變異皆實測「變異→紅、還原→綠」，且既有套件下皆存活（Before GREEN / After RED）。
 - **價值**：`factory-score` 是 agent 之前的初始計分 gate（`docs/06 §5.1`），強制轉型的目的是讓 score() 的 `agentAutomerge?.trim()` 與 resolveAxis 永遠看到字串，不會因未加引號的 YAML 純量而當掉或悄悄改變分數。過去若有人把 boolean/number 轉型做成失真、或讓技術棧欄位繞過轉型，都不會讓任何既有測試變紅；補釘後這三類回歸在 CI gate（`src/cli/**` 100% branch）就會被攔下。
+
+### 1.6 #50 — dry-run-agent 情境（觀察點）
+
+- **目標**：mutation 驗證 `dryRunReport`（`src/cli/dry-run-agent.ts`，docs/11 §4.3 的 stub 情境報告）——證明套件對三種情境報告的形狀契約有「牙齒」，而非只是行覆蓋。
+- **發現**：既有 `dry-run-agent.test.ts`（9 則）對 `success`/`guardrail`/`blocked` 各只釘住一、兩個欄位（如 changedPaths 內容、assertionDelta > 0、scenario === 'blocked'），下列三條隱性契約完全未覆蓋，變異後仍全綠（存活）：
+  - M1 `success` 把 `changedLines` 從 40 誤改成 0（宣稱改檔卻 0 行）→ 自相矛盾行數主張不被抓
+  - M2 `guardrail` 把 `hasAcceptanceCriteria` 誤設成 false（被當成缺驗收）→ SR4 許可判讀不被抓
+  - M3 `blocked` 誤帶 changedPaths（宣稱改檔）→ 污染計分/終點判定不被抓
+- **實作**：新增 `src/cli/dry-run-agent-mutation.test.ts`（4 則），三變異皆實測「變異→紅、還原→綠」，且既有套件下皆存活（Before GREEN / After RED）。
+- **價值**：情境報告是 `factory-run.yml` 流程接線的終點契約（`hasAcceptanceCriteria` 觸發 SR4、changedPaths/changedLines 影響計分）。過去誤改 success 行數主張、放寬 guardrail 驗收判讀、或讓 blocked 宣稱改檔，都不會讓既有測試變紅；補釘後這三類回歸在 CI gate（`src/cli/**` 100% branch）就會被攔下。
 
 每次試跑結果在對應 Issue 留言回報 PR 編號；缺陷標記依 `14` §1 紀律。
