@@ -84,6 +84,17 @@ jobs:
           printf '%s' "$GH_TOKEN" > .factory/run/gh-token
           echo "gh-token written ($(wc -c < .factory/run/gh-token) bytes)"
 
+      # git push 的認證：checkout action 預設以 GITHUB_TOKEN（唯讀）作為 git
+      # credential，agent 的 push 會被 403。改用 credential store 指向 App token
+      # （token 不進 remote URL、不進 log；store 檔在 .factory/，gitignored）。
+      - name: Configure agent git auth
+        run: |
+          TOKEN=$(cat .factory/run/gh-token)
+          git config --local credential.helper "store --file=$PWD/.factory/run/git-creds"
+          printf 'https://x-access-token:%s@github.com\n' "$TOKEN" > .factory/run/git-creds
+          chmod 600 .factory/run/git-creds
+          echo "git auth configured (credential store)"
+
       # Step 2 — 初始計分（agent 啟動前，docs/06 §5.1）
       - name: Initial score
         id: score
