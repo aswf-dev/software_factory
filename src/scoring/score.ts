@@ -54,7 +54,7 @@ const HARD_RULE_REASON: Record<HardRuleId, string> = {
  * Collapsing these two cases is deliberate: if an unrecognised string scored 0,
  * misspelling an annotation would silently reduce oversight.
  */
-function resolveAxis<T extends string>(
+export function resolveAxis<T extends string>(
   raw: string | undefined,
   allowed: readonly T[],
   scores: Record<T, 0 | 1 | 2>,
