@@ -1,0 +1,16 @@
+docs/08-metrics-kpi.md
+  h_1b119f25eaf333 128
+docs/11-test-strategy.md
+  h_1b119f25eaf333 341,372-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ce1791838d7fafad0456e234b944f8bbb57c2045",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
