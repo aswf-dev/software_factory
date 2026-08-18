@@ -1,0 +1,22 @@
+README.md
+  h_1b119f25eaf333 52-59
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 366-370,372,375-377
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 114-116,122,125
+docs/09-roadmap.md
+  h_1b119f25eaf333 81-96,99-100,102
+docs/10-open-questions.md
+  h_1b119f25eaf333 6,9-10,129-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "75eb391629cf3680e3c2b3570715229650ea22ea",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
