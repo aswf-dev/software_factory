@@ -1,0 +1,22 @@
+.dsh/skills/factory-pr-stacking/SKILL.md
+  h_1b119f25eaf333 22-23,28-32,44
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 58
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 86-87,89-93,115,129,297-298
+docs/10-open-questions.md
+  h_1b119f25eaf333 131
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 151-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5315cb85608c09634605bce422ba6af561bcda39",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
