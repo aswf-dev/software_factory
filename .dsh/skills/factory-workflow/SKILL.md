@@ -38,7 +38,6 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
   `export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)`（短效 installation token，
   由 CI 寫入 workspace；讀取失敗則依 factory-stop-rules 停手）。**永不把 token 寫入任何
   會進 git 的檔案**（如 commit message、文件、測試）。
-- `git push` 的認證已由 CI 以 credential store 預先設定（`git config credential.helper`，
-  指向 `.factory/run/git-creds`）——直接 push 即可，**不要**自行改 remote URL 或寫入 token。
+- `git push` 的認證已由 CI 設定（remote URL 內嵌 App token，優先於任何 credential helper）——**直接 push 即可**，不要自行改 remote URL、不要寫入 token 到任何檔案。
 - 任務描述本身不重複本 skill 內容——需要細節時回到本檔案。
 - 任何不確定的情況，依 factory-stop-rules 停手，**不要猜測並繼續**。

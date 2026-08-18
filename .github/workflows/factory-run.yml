@@ -84,16 +84,26 @@ jobs:
           printf '%s' "$GH_TOKEN" > .factory/run/gh-token
           echo "gh-token written ($(wc -c < .factory/run/gh-token) bytes)"
 
-      # git push 的認證：checkout action 預設以 GITHUB_TOKEN（唯讀）作為 git
-      # credential，agent 的 push 會被 403。改用 credential store 指向 App token
-      # （token 不進 remote URL、不進 log；store 檔在 .factory/，gitignored）。
+      # git push 的認證：checkout action 預設的 credential helper 會優先回傳
+      # GITHUB_TOKEN（唯讀）→ agent 的 push 被 403。解法：把 App token 直接嵌進
+      # remote URL —— git 對 URL 內嵌認證的優先級高於所有 helper，保證 push 用 App token。
+      # （token 只存在於 runner 暫存的 .git/config，gitignored；agent 本身已持有該 token）
       - name: Configure agent git auth
         run: |
           TOKEN=$(cat .factory/run/gh-token)
-          git config --local credential.helper "store --file=$PWD/.factory/run/git-creds"
-          printf 'https://x-access-token:%s@github.com\n' "$TOKEN" > .factory/run/git-creds
-          chmod 600 .factory/run/git-creds
-          echo "git auth configured (credential store)"
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          echo "origin now authenticates with app token"
+
+      # 寫入權限探針：在花費 LLM 成本之前確認 App token 真的能 push。
+      # 失敗即在此紅燈（fast fail），不進入 agent 步驟。
+      - name: Verify app token write access
+        run: |
+          git switch -c _factory-auth-probe
+          git commit --allow-empty -m "auth probe"
+          git push origin _factory-auth-probe
+          git push origin --delete _factory-auth-probe
+          git switch - 2>/dev/null || true
+          echo "app token write access verified"
 
       # Step 2 — 初始計分（agent 啟動前，docs/06 §5.1）
       - name: Initial score
