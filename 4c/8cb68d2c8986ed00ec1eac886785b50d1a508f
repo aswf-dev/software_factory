@@ -1,0 +1,34 @@
+.dsh/skills/factory-pr-stacking/SKILL.md
+  h_1b119f25eaf333 10-12,14,23-26,39
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 50-54
+.github/factory/task-template-fix-bug.txt
+  h_1b119f25eaf333 1,4-7,9
+.github/factory/task-template-update-deps.txt
+  h_1b119f25eaf333 1,4-7
+.github/factory/task-template-write-docs.txt
+  h_1b119f25eaf333 1,4-7
+.github/factory/task-template.txt
+  h_1b119f25eaf333 1,4-7,9
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 21-30,50,62-63,66-76,85,92-103,112,116,123,127-131,135-148,150-155,157,163-164,168,170,175-184,190,194,209,211-212,217-220,227,238-240,247,271-273,278,280-281,295,299,301-302,304-308,322-323,327-328,334-336,344,353
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 103-172,173-191
+scripts/weekly-metrics.sh
+  h_1b119f25eaf333 1-17
+src/cli/factory-metrics.test.ts
+  h_1b119f25eaf333 1-116
+src/cli/factory-metrics.ts
+  h_1b119f25eaf333 1-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "4c8cb68d2c8986ed00ec1eac886785b50d1a508f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
