@@ -1,0 +1,66 @@
+# Factory Issue Check — Issue 格式檢查器（零 LLM 成本）+ 半自動觸發。
+#
+# 觸發：
+#   - opened/edited：以 factory-issue-check CLI 檢查表單欄位（任務類型/需求/DoD），
+#     合規留言、不合規列出缺失（事前攔截，取代 agent 執行中的 SR4 事後停手）
+#   - labeled（factory/approved）：格式合規的 Issue 貼上核准 label → 同 repo
+#     自動 dispatch factory-run（半自動觸發；跨 repo 受 D6 權限限制，見 docs/16）
+#
+# 零 LLM 成本：只跑 node CLI（dist），不啟動 agent。
+name: Factory Issue Check
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  contents: read
+  issues: write
+  # 半自動 dispatch 需要（repo 的 workflow permissions 須允許 write；否則 dispatch 步驟
+  # 會失敗並在留言中提示手動 dispatch）
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: npm
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check issue format (opened/edited)
+        if: ${{ github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'edited') }}
+        run: |
+          node dist/cli/factory-issue-check.js \
+            "${{ github.event.issue.number }}" \
+            > .factory/issue-check.txt 2>&1 || true
+          cat .factory/issue-check.txt
+          gh issue comment "${{ github.event.issue.number }}" \
+            --body-file .factory/issue-check.txt
+          # 不合規 → exit 1（標記 workflow failure，防呆）
+          if grep -q '格式不合規' .factory/issue-check.txt; then
+            exit 1
+          fi
+          echo "格式合規"
+
+      # 半自動觸發：核准 label → 同 repo dispatch factory-run（僅本 repo 的工作項；
+      # 跨 repo 工作項請在 software_factory 手動 dispatch——D6 的 App 無 actions: write）
+      - name: Dispatch factory-run on approval label
+        if: ${{ github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'factory/approved' }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --body '🚀 收到 `factory/approved` 核准——開始 dispatch factory-run。'
+          # 從表單 body 抽 task_type（fallback agent-add-tests）
+          TASK_TYPE=$(gh issue view "${{ github.event.issue.number }}" --json body --jq .body \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const m=s.match(/### 任務類型\s*\n+(\S+)/);console.log(m?m[1]:"agent-add-tests")})')
+          echo "task_type=$TASK_TYPE"
+          gh workflow run factory-run.yml \
+            -f issue_number="${{ github.event.issue.number }}" \
+            -f task_type="$TASK_TYPE"
