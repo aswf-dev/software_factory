@@ -123,7 +123,7 @@
 | # | 工作 | 依據 | 狀態 |
 |---|---|---|---|
 | 2.1 | 擴充至 `agent-fix-bug`、`agent-update-deps`、`agent-write-docs` | `03` §3.1 | ✅ task_type 路由 + 三模板（T1–T2，PR #101）；**實跑驗證 2/3 型**（試點 #2 `agent-add-tests`、試點 #3 `agent-fix-bug`）；`update-deps`/`write-docs` 模板就緒待後續工作項 |
-| 2.2 | 擴大至 2–3 個 repo（含 1 個較高風險者） | — | ✅ **完成**：多 repo 支援（T4，PR #102）+ 試點 #1–#3 在 `philipz/fubon-tradingbot`（Q-P2-1：trunk=`software-factory` 分支、**main 全程未觸碰**、SHA 前後一致）|
+| 2.2 | 擴大至 2–3 個 repo（含 1 個較高風險者） | — | ✅ **完成（3 repo、雙語言）**：多 repo 支援（T4，PR #102）；`philipz/fubon-tradingbot`（TS，試點 #1–#3）+ `philipz/spring-modulith-orders`（Java/Spring Boot，試點 #1–#2，語言無關性驗證）——兩 repo 皆 Q-P2-1 模式（trunk=`software-factory` 分支、**main 全程未觸碰**）|
 | 2.3 | 驗證 `06` 計分在高風險 repo 的實際行為 | `06` §6 | ✅ **完成**：試點 #1（strategic/high/high=6 分 → in-loop 阻斷、agent 未啟動）；裁決 #568 調降 complexity → review tier 後試點 #2/#3 實跑 |
 | 2.4 | 實作二次判定（PR 建立後重新計分） | `06` §5.3 | ✅ **完成**：factory-rescore + workflow（T3，PR #101）+ 跨 repo dispatch（PR #109，#111 mkdir 修復）；試點 #3 對 PR #570/#572 手動 rescore 驗證成功（不升級時正確判定）；「攔截升級」正例仍待真實升級案例 |
 | 2.5 | 接上 OTel 指標後端，自動化 `08` 產出型指標 | `08` §7 | ✅ 務實版 factory-metrics CLI + 週檢腳本（T5，PR #103）；OTel 延後（Q08-4 保持開放） |
@@ -150,8 +150,25 @@
 | #1 | fubon #567（add-tests）| 高風險計分閘門（6 分 in-loop）、App 認證、Guard、main 保護 | ✅ 阻斷鏈路正確、agent 未啟動 |
 | #2 | fubon #569（add-tests）| agent 跨 repo 單層動作（讀碼→npm ci→寫測試→跑測試→建 PR）| ✅ PR #570 合併；發現 rescore mkdir bug（#111）|
 | #3 | fubon #571（fix-bug）| 跨 repo 三層 stacked PR、命名修正（Q07-2）、CI 獨立驗證 | ✅ #572→#576→#577 合併；兩次誠實停手（抓人類筆誤）；發現 CI 缺口 + TDD×stacked PR 張力（#116）|
+| Java #1 | spring-modulith-orders #1（add-tests）| 高風險計分閘門在 Java repo（6 分 in-loop）| ✅ 阻斷鏈路與 TS 同行為（計分機制語言無關）|
+| Java #2 | spring-modulith-orders #3（add-tests）| agent 跨語言實跑（讀 Java 碼→寫 JUnit→跑 Maven→建 PR）+ **新建 CI** 獨立驗證 | ✅ PR #4 合併（15 tests 全綠）；分支命名 slash 正確；test.yml 對 factory/* PR SUCCESS |
 
-**Phase 2 試跑發現與修復**：Q07-2 更正（gh-stack v0.1.0 positional）、rescore mkdir（#111）、CI 觸發條件缺口、it.skip 策略（#116）、app-id→client-id（#118）、needs-human 標籤殘留（小瑕疵，待改進）。全部記錄於 docs/15 §2。
+**Phase 2 試跑發現與修復**：Q07-2 更正（gh-stack v0.1.0 positional）、rescore mkdir（#111）、CI 觸發條件缺口、it.skip 策略（#116）、app-id→client-id（#118）、needs-human 標籤殘留（小瑕疵，待改進）。全部記錄於 docs/15 §2–§3。
+
+### 語言無關性結論（2026-08-18，Java/Spring Boot 試點實證）
+
+**factory 的 config-only 移植在 Java/Spring Boot repo 完整成立**——機制（計分/gate/judge/stop-rules/gh-stack/CI 觸發）語言無關，目標 repo 只放設定：
+
+| 面向 | 驗證結果 |
+|---|---|
+| 計分三軸 + risk-paths（H1–H7 路徑模式）| ✅ Java 結構（`orders/domain/**`、`db/migration/**`、`api/**`、`config/**`）正常匹配；高風險閘門（6 分 in-loop）行為與 TS 一致 |
+| agent 動作 | ✅ 讀 Java 碼、寫 JUnit、跑 `./mvnw test`（JDK 21）、建 PR——不需改 factory 邏輯 |
+| 分支命名 / stacked PR | ✅ `factory/<issue>-<nn>-<layer>`（slash）在 Java repo 相同 |
+| CI | ✅ 目標 repo **原本無 CI** → 依試點 #3 教訓新建 test.yml（觸發涵蓋 software-factory/factory/**、setup-java + mvnw）→ factory/* PR 獨立綠燈 |
+| 安全（Q-P2-1）| ✅ main 全程未觸碰（SHA 前後一致）|
+| Java 特定環境 | ✅ JDK 21、Maven 依賴下載、測試耗時——agent 在真實執行中自然處理（工作項驗收條件限定單元測試範圍可控制耗時）|
+
+**對第 3 期的意涵**：語言無關性實證後，Phase 3 的「低風險類別自動合併」可依 **repo/類別分開統計樣本與缺陷逃逸率**（docs/15 §2.5 建議）——Java repo 低風險類別達標即開放，不因語言不同而阻塞；反之任一 repo 類別出現缺陷逃逸，棘輪機制照常收回該類別。
 
 ### 放棄條件
 
