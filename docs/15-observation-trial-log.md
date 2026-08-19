@@ -205,3 +205,22 @@
 | **main 未被觸碰** | ✅ SHA 前後一致（`5107180e...`）|
 
 **結論**：高風險 Java repo 的計分/標籤/阻斷鏈路移植成功——與 fubon 試點 #1 完全同行為，**計分機制語言無關**獲實證。裁決 Issue #2（complexity high→low）後進行動作型工作項實跑驗證。
+
+### 3.3 試點 #2 — Java 動作型工作項（2026-08-18，run 32210313050）
+
+**前置**：裁決 #2 通過（complexity high→low，total 6→4 → review tier）；catalog 已更新（commit 20e5696，main 未動）。
+
+| 驗證點 | 結果 |
+|---|---|
+| 初始計分（complexity: low 生效）| ✅ total=4 → **review**（agent 啟動）|
+| Issue #3 標籤 | ✅ `oversight/review` |
+| **agent 跨語言執行**（讀 Java 碼→寫 JUnit→跑 mvn→建 PR）| ✅ 產出 PR #4（+394 行，`CacheErrorHandlerTests.java`，base=**software-factory**）|
+| agent 驗證 | ✅ `./mvnw test -Dtest=CacheErrorHandlerTests`（JDK 21）：**15 tests 全綠**；無參數 constructor 直測、不需 Spring context |
+| 分支命名（Q07-2 修正持續生效）| ✅ `factory/3-01-test`（slash）|
+| judge 終態 | ✅ ready-for-review（計分 4 分）|
+| **新建 CI 對 factory/* PR 獨立驗證** | ✅ test.yml（該 repo 原本無 CI）對 PR #4 跑 `./mvnw test` → **SUCCESS**——CI 移植 + 語言無關性完整驗證 |
+| **main 未被觸碰** | ✅ SHA 前後一致（`5107180e...`）|
+
+**結論**：agent 在 Java/Spring Boot repo 完整工作（讀碼、寫 JUnit、跑 Maven、建 PR）——**語言無關性獲實證**（與 fubon TS 試點同行為）。Java 特定環境（JDK 21、mvnw、測試耗時）在真實執行中自然處理。
+
+**待辦（人類）**：審查 PR #4 後合併至 software-factory 分支。
