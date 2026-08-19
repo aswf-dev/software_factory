@@ -38,6 +38,9 @@ jobs:
       - name: Check issue format (opened/edited)
         if: ${{ github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'edited') }}
         run: |
+          # .factory/ 被 gitignore（fresh checkout 不存在）——redirect 前必須建目錄
+          #（試點 #3 rescore mkdir bug 同款）
+          mkdir -p .factory
           node dist/cli/factory-issue-check.js \
             "${{ github.event.issue.number }}" \
             > .factory/issue-check.txt 2>&1 || true
