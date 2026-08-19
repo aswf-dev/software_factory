@@ -145,8 +145,8 @@
 | **Q05-8** | **actions/checkout 的 credentials includeIf**（`http.https://github.com/.extraheader` 寫在獨立檔、經 `includeIf.gitdir` 引入）會**覆蓋 URL 內嵌 App token**；`git config --unset-all` 清不掉 | 試跑 | ✅ **已解決**：移除 includeIf 項目 + URL 內嵌 App token |
 | **Q04-8** | Anthropic API **429 rate limit**（平行試跑觸發帳號限額） | 試跑 | ⚠️ **外部限制**：需循序執行或換較輕模型；見 `09` §2 |
 | **Q12-5** | 線上 ruleset 的 required check 只有 `test`，**缺 `quint-verify`**（repo 內 JSON 有，未套用） | `12` Q12-1 實例 | ⚠️ 待以 `gh api` 套用 |
-| **Q-P2-1** | **第二試點 repo 選擇與安全約束**（2026-08-18 裁決） | `09` §2.2 | ✅ **已裁決**：`philipz/fubon-tradingbot`（實碼庫、基線來源）；**絕不觸碰其 main**——工廠 trunk 用另開的 `software-factory` 分支；workflow 以 `base_branch` input 明確指定（T4）；非試點 repo 的 `base_branch` 不得為 main（Guard step + 對抗性測試強制） |
-| **Q04-9** | 分支命名與 `--draft` 紀律能否在真實試跑維持 | 試跑 | ✅ **已內建防護**（T1–T2）：task-type 模板 + skill 明寫命名規範與 `--draft` 禁令；對抗性測試釘選（T7）；試跑驗證結果見 T8 |
+| **Q-P2-1** | **第二試點 repo 選擇與安全約束**（2026-08-18 裁決） | `09` §2.2 | ✅ **已裁決並實證**：`philipz/fubon-tradingbot`；**絕不觸碰其 main**——工廠 trunk 用另開的 `software-factory` 分支；workflow 以 `base_branch` input 明確指定（T4）；非試點 repo 的 `base_branch` 不得為 main（Guard step + 對抗性測試強制）。**試點 #1–#3 全程 main SHA 前後一致**（`d01aed8d...`）|
+| **Q04-9** | 分支命名與 `--draft` 紀律能否在真實試跑維持 | 試跑 | ✅ **已驗證並修正**（試點 #2/#3）：試點 #2 產出 `factory-569-01-test`（dash）——根因是 **skill 教的 `--numbered/--prefix` 在 gh-stack v0.1.0 不存在**（Q07-2 更正），agent 被迫自創；修正 skill 為 positional 後，試點 #3 產出 `factory/571-01-test`（slash）**紀律維持**。`--draft` 禁令未見違反（PR 皆非 draft）|
 
 ---
 

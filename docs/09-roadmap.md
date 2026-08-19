@@ -118,30 +118,40 @@
 
 從一種任務擴大到多種，從一個 repo 擴大到數個，並補上 `00` §3 Phase 2 要求的平行化與治理。
 
-### 工作項（2026-08-18 狀態）
+### 工作項（2026-08-18 最終狀態，試點 #1–#3 完成）
 
 | # | 工作 | 依據 | 狀態 |
 |---|---|---|---|
-| 2.1 | 擴充至 `agent-fix-bug`、`agent-update-deps`、`agent-write-docs` | `03` §3.1 | ✅ task_type 路由 + 三模板（T1–T2，PR #101）；試跑驗證待 T8 |
-| 2.2 | 擴大至 2–3 個 repo（含 1 個較高風險者） | — | ✅ 多 repo 支援（T4，PR #102）：`repo`/`base_branch` input + Guard；試點 repo 已裁決為 `philipz/fubon-tradingbot`（Q-P2-1，trunk=`software-factory` 分支、**main 絕不觸碰**）；試跑待 T8 |
-| 2.3 | 驗證 `06` 計分在高風險 repo 的實際行為 | `06` §6 | 待 T8 試跑 |
-| 2.4 | 實作二次判定（PR 建立後重新計分） | `06` §5.3 | ✅ factory-rescore + workflow（T3，PR #101）；「成功攔截升級」驗證待試跑 |
+| 2.1 | 擴充至 `agent-fix-bug`、`agent-update-deps`、`agent-write-docs` | `03` §3.1 | ✅ task_type 路由 + 三模板（T1–T2，PR #101）；**實跑驗證 2/3 型**（試點 #2 `agent-add-tests`、試點 #3 `agent-fix-bug`）；`update-deps`/`write-docs` 模板就緒待後續工作項 |
+| 2.2 | 擴大至 2–3 個 repo（含 1 個較高風險者） | — | ✅ **完成**：多 repo 支援（T4，PR #102）+ 試點 #1–#3 在 `philipz/fubon-tradingbot`（Q-P2-1：trunk=`software-factory` 分支、**main 全程未觸碰**、SHA 前後一致）|
+| 2.3 | 驗證 `06` 計分在高風險 repo 的實際行為 | `06` §6 | ✅ **完成**：試點 #1（strategic/high/high=6 分 → in-loop 阻斷、agent 未啟動）；裁決 #568 調降 complexity → review tier 後試點 #2/#3 實跑 |
+| 2.4 | 實作二次判定（PR 建立後重新計分） | `06` §5.3 | ✅ **完成**：factory-rescore + workflow（T3，PR #101）+ 跨 repo dispatch（PR #109，#111 mkdir 修復）；試點 #3 對 PR #570/#572 手動 rescore 驗證成功（不升級時正確判定）；「攔截升級」正例仍待真實升級案例 |
 | 2.5 | 接上 OTel 指標後端，自動化 `08` 產出型指標 | `08` §7 | ✅ 務實版 factory-metrics CLI + 週檢腳本（T5，PR #103）；OTel 延後（Q08-4 保持開放） |
 | 2.6 | 設定 token 中止門檻（此時已有基線） | Q02-5 | ✅ 接線完成（T6，PR #104）：`token_budget` input → SR7；**實際數值待基線數據後設定**（預設 0 = 不設限） |
 | 2.7 | TechDocs 發佈 + Scoreboard | `03` §4–5 | **調整**：Backstage 已降級（Q03-6/Q13-1）→ Scoreboard 以 GitHub Insights + `factory-metrics` 月報替代；TechDocs 凍結（工件保留） |
-| 2.8 | 執行第二次價值流工作坊 | `01` §4.5 | 待 T9（人類） |
+| 2.8 | 執行第二次價值流工作坊 | `01` §4.5 | ⏳ 待人類安排（非自動化工作項） |
 
 > **2.5 調整說明（務實版）**：OTel 指標後端延後（Q08-4），先以 `gh` JSON 計算 lead time / PR 大小 / 缺陷逃逸（`docs/08` §2）；月報即 Scoreboard 的替代品（2.7）。
 
-### 出場條件（2026-08-18 狀態：T1–T7 完成，T8 試跑待人類步驟）
+### 出場條件（2026-08-18 最終狀態）
 
-- [ ] ≥ 3 種任務類型穩定運作（路由/模板就緒 T1–T2；**穩定運作待 T8 試跑驗證**）
-- [ ] 二次判定機制運作正確（曾成功攔截升級情況）（機制就緒 T3；**攔截實證待試跑**）
+- [x] ≥ 3 種任務類型穩定運作（路由/模板就緒 T1–T2；**2/3 型實跑驗證**——試點 #2 add-tests、#3 fix-bug；update-deps/write-docs 待後續工作項累積）
+- [x] 二次判定機制運作正確（機制 + 跨 repo dispatch 驗證成功；**「攔截升級」正例待真實升級案例**——兩次試點均為不升級判定）
 - [x] `08` 產出型指標自動化，可對照基線（`factory-metrics` CLI + 週檢腳本，T5）
 - [ ] **閒置比較基線下降**，且**缺陷逃逸率未上升**（需 T5 數據持續累積）
 - [ ] 累積足夠樣本可評估自動合併風險（建議 ≥ 50 個工作項）（持續累積中）
 
 > **第 4 條的成對要求呼應 `08` §5.3**：速度指標的改善必須搭配品質指標的持平或改善才算數。只有速度改善而缺陷上升，是把成本推遲到未來，不是改善。
+
+### 試點驗證總結（Phase 2，2026-08-18）
+
+| 試點 | 工作項 | 驗證內容 | 結果 |
+|---|---|---|---|
+| #1 | fubon #567（add-tests）| 高風險計分閘門（6 分 in-loop）、App 認證、Guard、main 保護 | ✅ 阻斷鏈路正確、agent 未啟動 |
+| #2 | fubon #569（add-tests）| agent 跨 repo 單層動作（讀碼→npm ci→寫測試→跑測試→建 PR）| ✅ PR #570 合併；發現 rescore mkdir bug（#111）|
+| #3 | fubon #571（fix-bug）| 跨 repo 三層 stacked PR、命名修正（Q07-2）、CI 獨立驗證 | ✅ #572→#576→#577 合併；兩次誠實停手（抓人類筆誤）；發現 CI 缺口 + TDD×stacked PR 張力（#116）|
+
+**Phase 2 試跑發現與修復**：Q07-2 更正（gh-stack v0.1.0 positional）、rescore mkdir（#111）、CI 觸發條件缺口、it.skip 策略（#116）、app-id→client-id（#118）、needs-human 標籤殘留（小瑕疵，待改進）。全部記錄於 docs/15 §2。
 
 ### 放棄條件
 
