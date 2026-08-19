@@ -1,0 +1,25 @@
+# spring-modulith-orders CODEOWNERS（Java 試點草稿）。
+#
+# 高風險路徑指定人類審查者：訂單核心（H2）、設定/連線（H3）、schema 遷移（H6）、
+# 對外 API（H7）必須由 @philipz 審查。依實際團隊成員調整。
+
+# 訂單核心（H2）
+src/main/java/**/orders/domain/       @philipz
+src/main/java/**/orders/OrdersApiService.java @philipz
+
+# 設定 / 連線資訊（H3）
+src/main/resources/application*.properties @philipz
+src/main/java/**/config/             @philipz
+
+# schema 遷移（H6）
+src/main/resources/db/                @philipz
+
+# 對外 API / 事件（H7）
+src/main/java/**/api/                 @philipz
+src/main/java/**/events/              @philipz
+
+# guardrail 自身（H5）——agent 不得修改；改動須人類審查
+.github/                              @philipz
+CODEOWNERS                            @philipz
+catalog-info.yaml                     @philipz
+.dsh/skills/                          @philipz

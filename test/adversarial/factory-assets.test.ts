@@ -308,3 +308,34 @@ describe('T8 試點草稿（trial/fubon-tradingbot/，Q-P2-1）', () => {
     expect(content).toContain('factory.io/business-criticality: strategic')
   })
 })
+
+describe('Java 試點草稿（trial/spring-modulith-orders/，語言無關性驗證）', () => {
+  it('README 存在且明寫 main 絕不觸碰 + Java 特定注意', () => {
+    const content = read('trial/spring-modulith-orders/README.md')
+    expect(content).toContain('software-factory')
+    expect(content).toContain('main 絕不觸碰')
+    expect(content).toContain('JDK 21')
+    expect(content).toContain('mvnw')
+  })
+  it('risk-paths 涵蓋 H1–H7（依 Java/Spring Boot 結構）', () => {
+    const content = read('trial/spring-modulith-orders/.github/factory/risk-paths.yml')
+    for (const h of ['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'H7']) {
+      expect(content).toContain(`${h}:`)
+    }
+    expect(content).toContain('orders/domain/**')   // H2 訂單核心
+    expect(content).toContain('db/migration/**')    // H6 Flyway
+    expect(content).toContain('**/api/**')          // H7 REST API
+  })
+  it('CI workflow 草稿存在且觸發涵蓋 software-factory/factory/**', () => {
+    const content = read('trial/spring-modulith-orders/.github/workflows/test.yml')
+    expect(content).toContain('software-factory')
+    expect(content).toContain("'factory/**'")
+    expect(content).toContain('setup-java')
+    expect(content).toContain('java-version')
+  })
+  it('catalog 採高風險輪廓（先驗證閘門、裁決調降後實跑——fubon 模式）', () => {
+    const content = read('trial/spring-modulith-orders/catalog-info.yaml')
+    expect(content).toContain('factory.io/risk-profile: high')
+    expect(content).toContain('factory.io/complexity: high')
+  })
+})

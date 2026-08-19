@@ -1,0 +1,20 @@
+# spring-modulith-orders catalog（Java 試點草稿；依該 repo 結構登錄，2026-08-18）。
+#
+# 三軸（docs/03 §2.2、docs/06 §3）：business-criticality / risk-profile / complexity。
+# 訂單服務承載訂單/金流資料 + 資料庫遷移 + 對外 API（REST/gRPC/事件），保守採高風險
+# 輪廓：多數工作項落在 in-loop（人類主導）——與 fubon 試點 #1 同模式驗證「高風險
+# repo 計分閘門」。若要讓 agent 實跑動作型工作項，比照裁決 #568 調降 complexity。
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: spring-modulith-orders
+  description: Spring Modulith 訂單服務（Spring Boot 3.5.5 / Java 21 / Maven）
+  annotations:
+    # 三軸評分（0–2 每軸；總分 6 為最高風險，直接 in-loop）
+    factory.io/business-criticality: strategic
+    factory.io/risk-profile: high
+    factory.io/complexity: high
+    # 技術棧 annotation（quint-spec 指向該 repo 自己的規格根）
+    factory.io/stack: java-springboot
+    factory.io/test-framework: junit
+    factory.io/quint-spec: specs/

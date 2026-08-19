@@ -1,0 +1,34 @@
+# spring-modulith-orders CI（Java 試點草稿；該 repo 目前無任何 workflow，需新建）。
+#
+# 目的：factory/* PR（base=software-factory 或串聯前一層 factory/*）每層獨立跑測試
+# ——docs/07 §2.2「每層獨立綠燈」的 CI 保證（試點 #3 教訓：觸發條件必須涵蓋
+# software-factory 與 factory/**，否則只有最底層觸發）。
+name: Tests
+
+on:
+  push:
+    branches: [main, software-factory]
+  pull_request:
+    # 串聯 stacked PR 的中間層 base 是前一層分支（factory/*）
+    branches: [main, software-factory, 'factory/**']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Spring Boot 3.5.5 需要 Java 21；mvnw wrapper 隨 repo 提供（不需全域 Maven）
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run unit tests
+        # 只跑單元測試（OrderServiceUnitTests 等），避開需要外部服務的
+        # E2E/整合測試（OrdersEndToEndTests、OrdersGrpcServiceNetworkIntegrationTest）
+        run: ./mvnw test

@@ -1,0 +1,58 @@
+# spring-modulith-orders risk hard rules（Java 試點草稿；依該 repo 實際結構，2026-08-18）。
+#
+# 觸及下列任一 pattern → risk = 2，無裁量空間（docs/06 §3.2, §5.2）。
+# H1–H4 源自 Gartner G00843405；H5–H7 為本專案擴充（guardrail 自我保護與不可逆操作）。
+# 此檔位於 .github/ 下，受 CODEOWNERS 保護——agent 不得修改約束自己的規則。
+#
+# 盤點依據（2026-08-18 `gh api .../git/trees/main?recursive=1`）：
+#   domain/（OrderEntity/OrderService/OrderRepository——訂單核心）
+#   api/（OrdersApi REST + DTO + OrderCreatedEvent 事件）
+#   infrastructure/（catalog gRPC/HTTP client、OrdersGrpcService）
+#   db/migration/（V1–V5 Flyway SQL）
+#   config/（大量設定含 gRPC/RabbitMQ/Hazelcast properties）
+hard_rules:
+  # H1 — 授權/認證邏輯（此 repo 目前無 auth；保留 pattern 以防新增）
+  H1:
+    - "**/security/**"
+    - "**/auth/**"
+    - "**/jwt*"
+    - "**/UserDetails*"
+
+  # H2 — 財務計算（訂單/金流核心——domain 是系統的心臟）
+  H2:
+    - "src/main/java/**/orders/domain/**"
+    - "src/main/java/**/orders/OrdersApiService.java"
+    - "**/payment/**"
+    - "**/ledger/**"
+
+  # H3 — 敏感資料處理（設定檔含連線資訊/金鑰；Properties 類別）
+  H3:
+    - "src/main/resources/application*.properties"
+    - "src/main/java/**/config/**"
+    - "**/*Properties.java"
+    - "**/*secret*"
+
+  # H4 — systems of record 與共用模組（外部整合與跨模組共用）
+  H4:
+    - "src/main/java/**/common/**"
+    - "src/main/java/**/infrastructure/**"
+
+  # H5 — guardrail 自身（agent 不得修改）
+  H5:
+    - ".github/**"
+    - "CODEOWNERS"
+    - "catalog-info.yaml"
+    - ".dsh/skills/**"
+
+  # H6 — 不可逆 schema 遷移（Flyway SQL）
+  H6:
+    - "src/main/resources/db/migration/**"
+    - "src/main/resources/db/changelog*"
+    - "**/*.sql"
+
+  # H7 — 對外 API 破壞性變更（REST controller、DTO、事件 schema、gRPC proto）
+  H7:
+    - "src/main/java/**/api/**"
+    - "**/events/**"
+    - "**/*.proto"
+    - "openapi.yaml"
