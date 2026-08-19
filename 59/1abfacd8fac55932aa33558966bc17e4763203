@@ -1,0 +1,14 @@
+.github/workflows/factory-issue-check.yml
+  h_1b119f25eaf333 41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "591abfacd8fac55932aa33558966bc17e4763203",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
