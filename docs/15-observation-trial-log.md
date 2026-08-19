@@ -179,3 +179,29 @@
 5. **結果**：#572 → #576（impl）→ #577（docs）全合併；`factory/*` 分支全清理；**main 未觸碰**。
 
 **教訓**：gh-stack 串聯 PR 的合併摩擦（base 分支連鎖刪除 + squash SHA 分歧）是**程序性成本**——docs/07 §3.5 已記錄、觀察期指標追蹤（審查等待時間）。本次實作驗證了重建流程可行（head 分支保留 + trunk-based 新 PR + 本地解衝突）。
+
+---
+
+## 3. Java/Spring Boot 試點（spring-modulith-orders，語言無關性驗證）
+
+> **依據**：docs/09 §3 2.2「2–3 個 repo」延伸——驗證 factory 的 config-only 移植在**不同語言**（Java/Spring Boot）repo 照常運作。機制不變（software_factory 集中），目標 repo 只放設定。
+
+### 3.1 前置（2026-08-18）
+
+- `software-factory` 分支已建立（gh api 建 ref，**main 未動**，SHA `5107180e` 前後一致）。
+- App `software-factory-worker` 已安裝至 spring-modulith-orders（mint token 實測成功）。
+- 設定已登錄（commit `5d767cf`）：catalog（strategic/high/high）、risk-paths（H1–H7 依 Java 結構）、CODEOWNERS、**新建 CI（test.yml——該 repo 原本無任何 workflow，觸發涵蓋 software-factory/factory/**，試點 #3 教訓）**、task-template × 5、factory skills × 4。
+- 草稿來源：`trial/spring-modulith-orders/`（PR #121）。
+
+### 3.2 試點 #1 — 高風險計分閘門（2026-08-18，run 32208975486）
+
+| 驗證點 | 結果 |
+|---|---|
+| Guard（base=software-factory）| ✅ |
+| App token mint（repositories 限定目標 repo）| ✅（App 已安裝）|
+| 目標 repo checkout + 寫入探針 push | ✅ |
+| 計分讀 Java repo 的 catalog/risk-paths | ✅ **total=6 → in-loop → agent 未啟動** |
+| Issue #1 標籤/留言 | ✅ `oversight/in-loop` + 阻斷說明 |
+| **main 未被觸碰** | ✅ SHA 前後一致（`5107180e...`）|
+
+**結論**：高風險 Java repo 的計分/標籤/阻斷鏈路移植成功——與 fubon 試點 #1 完全同行為，**計分機制語言無關**獲實證。裁決 Issue #2（complexity high→low）後進行動作型工作項實跑驗證。
