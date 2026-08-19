@@ -1,0 +1,20 @@
+.github/ISSUE_TEMPLATE/factory-work-item.yml
+  h_1b119f25eaf333 1-49
+.github/workflows/factory-issue-check.yml
+  h_1b119f25eaf333 1-66
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 1-130
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 1-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "1f644011a06b566adca97065b5776504c4f3f487",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
