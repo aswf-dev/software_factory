@@ -37,6 +37,9 @@ jobs:
 
       - name: Check issue format (opened/edited)
         if: ${{ github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'edited') }}
+        env:
+          # gh 在 Actions 不會自動用 GITHUB_TOKEN——需顯式傳（2026-08-19 實測）
+          GH_TOKEN: ${{ github.token }}
         run: |
           # .factory/ 被 gitignore（fresh checkout 不存在）——redirect 前必須建目錄
           #（試點 #3 rescore mkdir bug 同款）
