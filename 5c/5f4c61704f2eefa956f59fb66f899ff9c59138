@@ -1,0 +1,24 @@
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 311-341
+trial/spring-modulith-orders/.github/factory/risk-paths.yml
+  h_1b119f25eaf333 1-58
+trial/spring-modulith-orders/.github/workflows/test.yml
+  h_1b119f25eaf333 1-34
+trial/spring-modulith-orders/CODEOWNERS
+  h_1b119f25eaf333 1-25
+trial/spring-modulith-orders/README.md
+  h_1b119f25eaf333 1-26
+trial/spring-modulith-orders/catalog-info.yaml
+  h_1b119f25eaf333 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5c5f4c61704f2eefa956f59fb66f899ff9c59138",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
