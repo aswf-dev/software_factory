@@ -54,8 +54,11 @@ jobs:
 
       # D6：以 App 身分留言/貼標籤（比照 factory-run 的 token 橋接）。
       # repositories 限定目標 repo（最小權限）；App 需已安裝於目標 repo。
+      # 僅 factory/* PR 或 dispatch 需要（Dependabot 等非 factory PR 的 run 不取得
+      # secrets——GitHub 對 Dependabot PR 限制 secrets，mint 必然失敗，故整組 skip）。
       - name: Mint app token
         id: app-token
+        if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.pull_request.head.ref, 'factory/') }}
         uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
@@ -65,6 +68,7 @@ jobs:
       # 目標 repo checkout（工廠 trunk = base_branch）：catalog/risk-paths 由此讀取。
       # pull_request 觸發時目標即本 repo（無害的第二份 checkout）。
       - name: Checkout target repo
+        if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.pull_request.head.ref, 'factory/') }}
         uses: actions/checkout@v7
         with:
           repository: ${{ github.event_name == 'workflow_dispatch' && inputs.repo || github.repository }}
