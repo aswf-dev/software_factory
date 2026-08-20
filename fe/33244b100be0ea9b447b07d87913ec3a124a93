@@ -1,0 +1,16 @@
+package-lock.json
+  h_1b119f25eaf333 7167-7169,7173
+package.json
+  h_1b119f25eaf333 33-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "fe33244b100be0ea9b447b07d87913ec3a124a93",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
