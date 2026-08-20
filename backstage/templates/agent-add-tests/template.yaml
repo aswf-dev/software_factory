@@ -43,8 +43,9 @@ spec:
       name: 觸發工廠工作流
       action: github:actions:dispatch
       input:
-        # dispatch 一律到機制 repo（factory-run.yml 所在）；目標 repo 走 workflowInputs.repo
-        repoUrl: https://github.com/philipz/software_factory
+        # dispatch 一律到機制 repo（factory-run.yml 所在）；目標 repo 走 workflowInputs.repo。
+        # repoUrl 須為 scaffold 格式（host?owner=..&repo=..），非完整 URL。
+        repoUrl: github.com?owner=philipz&repo=software_factory
         workflowId: factory-run.yml
         branchOrTagName: main
         workflowInputs:
