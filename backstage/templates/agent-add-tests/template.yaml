@@ -26,6 +26,8 @@ spec:
           type: string
           ui:field: RepoUrlPicker
           ui:options:
+            # 只允許 github.com（單 host 時自動帶入，避免 Host 下拉互動問題）
+            allowedHosts: [github.com]
             allowedOwners: [philipz]
         issueNumber:
           title: Issue 編號
