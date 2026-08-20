@@ -96,7 +96,9 @@ describe('factory-run.yml 具備必要結構', () => {
   })
   it('guardrail patch 與鎖版 DSH', () => {
     expect(content).toContain('config/dsh/factory-guardrail.patch.yml')
-    expect(content).toContain('@deepseek-ai/dsh@')
+    // DSH 鎖版：devDependency（package.json 精確 pin）→ npm ci（lockfile）安裝
+    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.1\.0-rc\.\d+"/)
+    expect(content).toContain('npm ci')
   })
 })
 

@@ -53,8 +53,12 @@ jobs:
             echo "LSM: (securityfs not mounted)"
           fi
 
-      - name: Install pinned DSH
-        run: npm install --no-save @deepseek-ai/dsh@0.1.0-rc.6
+      - name: Install dependencies (dsh is a devDependency)
+        env:
+          # dsh 已為 devDependency（lockfile 鎖定，setup-node cache 生效）；npm ci 含它，
+          # rc.8 依賴樹較大，加大 heap 避免 OOM（2026-08-20 實測）
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npm ci
 
       # A clean DSH_HOME routes to the DEFAULT provider and fails with
       # MISSING_CREDENTIAL. Local runs hide this, because ~/.dsh/settings.yaml

@@ -372,7 +372,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -o pipefail
-          npx -y @deepseek-ai/dsh@0.1.0-rc.6 --profile headless \
+          npx -y @deepseek-ai/dsh@0.1.0-rc.8 --profile headless \
             --patch config/dsh/factory-guardrail.patch.yml \
             "$(sed "s/<ISSUE>/${{ inputs.issue_number }}/" .github/factory/task-template.txt)" \
             | tee agent-output.txt
