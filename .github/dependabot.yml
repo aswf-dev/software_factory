@@ -11,8 +11,6 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
-    # 版本更新 PR 由 Dependabot 開；security updates（含 GHSA）由 alerts 自動開
-    security-updates-only: false
   - package-ecosystem: github-actions
     directory: /
     schedule:
