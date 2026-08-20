@@ -288,3 +288,42 @@ yarn dev   # 預設 http://localhost:3000
 | Q03-6 | Backstage 的維運負擔是否值得（小團隊可能偏重） | 整體投資報酬 | 建議在第 1 期結束時以實際使用率重新評估（見 `09` kill criteria） |
 
 > 本文件的未決事項已收攏至 `docs/10-open-questions.md`。
+
+---
+
+## 7. 解凍與實作（Phase A1，2026-08-20 端到端閉環實證）
+
+> **背景**：Q03-6 降級裁決（純 GitHub 觸發、工件凍結）後，「日後公司採用增使用者時可逆轉」。此章記錄解凍的**實際設定方式與踩坑**——供後續環境複製與模式 B 開發參考。
+
+### 7.1 已驗證的組態（backstage-app，Backstage 1.53.0）
+
+| 組件 | 設定 | 驗證 |
+|---|---|---|
+| 認證 | `auth.providers.github.development`（`AUTH_GITHUB_CLIENT_ID/SECRET` env）+ backend 註冊 `plugin-auth-backend-module-github-provider` + signIn resolver `emailMatchingUserEntityProfileEmail`（白名單：`backstage/users.yaml` 的 `github.com/user-login`）| 登入成功、guest 已移除 |
+| Catalog | `catalog.locations`：software_factory/fubon/spring 的 `catalog-info.yaml` + Template + users | 0 警示 |
+| TechDocs | `techdocs.builder: local` + `generator.runIn: docker` + 各 repo 根 `mkdocs.yml` | software-factory docs 成功顯示 |
+| Scaffolder | `github:actions:dispatch`（`plugin-scaffolder-backend-module-github`）| Template 端到端觸發 factory-run 成功 |
+
+### 7.2 踩坑紀錄（複製時注意）
+
+1. **auth provider 需顯式註冊 module**：僅 config 的 `auth.providers.github` 不夠——backend 必須 `backend.add(import('@backstage/plugin-auth-backend-module-github-provider'))`（舊版自動、新版顯式）。
+2. **signIn resolver 名稱**：`emailMatchingUserEntityAnnotation` 無效（provider skip）→ 用 `emailMatchingUserEntityProfileEmail`（比對 User entity 的 `spec.profile.email`）。
+3. **guest 是未認證後門**：`auth.providers.guest` + `plugin-auth-backend-module-guest-provider` 都移除，登入頁只剩 GitHub。
+4. **前端登入頁需宣告**：新版 `createApp`（frontend-defaults）登入頁不會自動顯示 GitHub——需 `SignInPageBlueprint.make({ provider: { id: 'github-auth-provider', apiRef: githubAuthApiRef } })` 併入 `createFrontendModule({ pluginId: 'app' })`（官方 getting-started/config/authentication）。
+5. **Backstage Component 必填 spec**：`type` / `lifecycle` / `owner` 三個都要（factory 計分只讀 `factory.io/*` annotation，不衝突）。三個試點 repo 的 catalog 已補齊。
+6. **TechDocs 需 `docs/index.md`**：mkdocs 首頁入口，缺則「no index.md in root」。
+7. **`github:actions:dispatch` 的 input 型別**：`workflowInputs` 值需字串（issue_number 用 `type: string`）。
+8. **`github:actions:dispatch` 的 `repoUrl` 是 workflow 所在 repo**（factory-run 在 software_factory）——目標 repo 走 `workflowInputs.repo`；`repoUrl` 用 scaffold 格式 `github.com?owner=..&repo=..`（非完整 URL）。
+9. **RepoUrlPicker Host 下拉**：單 host 時加 `ui:options.allowedHosts: [github.com]` 自動帶入。
+
+### 7.3 啟動方式
+
+```bash
+cd ../backstage-app
+set -a && source .env && set +a   # AUTH_GITHUB_CLIENT_ID/SECRET、GITHUB_TOKEN、BACKEND_SECRET
+yarn start                        # app :3000、backend :7007
+```
+
+### 7.4 後續（模式 B）
+
+`backstage-plugin-dsh`：DSH web（`dsh --profile web --host 127.0.0.1 --trusted-host 127.0.0.1`）經 Backstage 後端 proxy 嵌入——DSH 不直接對外暴露，認證在 Backstage 邊界。
