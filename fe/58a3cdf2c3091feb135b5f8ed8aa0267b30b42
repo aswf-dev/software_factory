@@ -1,0 +1,18 @@
+.github/workflows/dsh-sandbox-probe.yml
+  h_1b119f25eaf333 57
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 284
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "fe58a3cdf2c3091feb135b5f8ed8aa0267b30b42",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
