@@ -1,0 +1,23 @@
+# Dependabot version updates（第一層 security，2026-08-20）。
+# - 每週檢查 npm 依賴更新（security updates 由 Dependabot alerts 另自動開 PR）
+# - 配合 test.yml 的 `npm audit --audit-level=high` gate：任何依賴漏洞都會讓 PR 紅燈
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: friday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    # 版本更新 PR 由 Dependabot 開；security updates（含 GHSA）由 alerts 自動開
+    security-updates-only: false
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: friday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies

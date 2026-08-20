@@ -1,0 +1,44 @@
+# Security scan（第一層 security，免費、不依賴 GHAS，2026-08-20）。
+#
+# 兩個免費工具跑在 Actions：
+#   - gitleaks：掃密鑰/金鑰洩漏（commit 歷史 + 目前工作樹）——對私有 repo 是
+#     secret scanning 的免費替代
+#   - Semgrep：開源 SAST——掃常見程式碼漏洞（注入、路徑穿越、不安全函式等）
+#
+# 只讀程式碼，不寫任何東西；內容 read + pull-requests read（gitleaks 掃 PR diff 用）。
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 掃完整歷史需要全 history（密鑰常藏在舊 commit）
+          fetch-depth: 0
+      - name: Run gitleaks (secret scanning)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Semgrep (SAST)
+        uses: returntocorp/semgrep-action@v1
+        with:
+          # 只跑 TS/JS 規則（本 repo 語言），避免誤報噪音
+          config: p/typescript

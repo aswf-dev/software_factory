@@ -35,6 +35,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 依賴漏洞 gate（第一層 security，2026-08-20）：npm audit 直接查 npm 已知
+      # CVE；high 以上即紅燈（配合 Dependabot alerts 自動開修復 PR）。
+      - name: npm audit (known vulnerabilities)
+        run: npm audit --audit-level=high
+
       - name: Typecheck
         run: npm run typecheck
 

@@ -341,3 +341,20 @@ describe('Java 試點草稿（trial/spring-modulith-orders/，語言無關性驗
     expect(content).toContain('factory.io/complexity: high')
   })
 })
+
+describe('Security 第一層資產（免費、不依賴 GHAS，2026-08-20）', () => {
+  it('dependabot.yml 存在且涵蓋 npm + github-actions', () => {
+    const c = read('.github/dependabot.yml')
+    expect(c).toContain('package-ecosystem: npm')
+    expect(c).toContain('package-ecosystem: github-actions')
+  })
+  it('test.yml 含 npm audit gate（high 以上紅燈）', () => {
+    const c = read('.github/workflows/test.yml')
+    expect(c).toContain('npm audit --audit-level=high')
+  })
+  it('security-scan.yml 存在且含 gitleaks + Semgrep（免費替代 GHAS）', () => {
+    const c = read('.github/workflows/security-scan.yml')
+    expect(c).toContain('gitleaks/gitleaks-action')
+    expect(c).toContain('returntocorp/semgrep-action')
+  })
+})
