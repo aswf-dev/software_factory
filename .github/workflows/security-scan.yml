@@ -28,7 +28,7 @@ jobs:
           # 掃完整歷史需要全 history（密鑰常藏在舊 commit）
           fetch-depth: 0
       - name: Run gitleaks (secret scanning)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
