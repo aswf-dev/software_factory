@@ -1,0 +1,16 @@
+.github/workflows/dsh-sandbox-probe.yml
+  h_1b119f25eaf333 57-60
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 283-285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "587c066aa516a0bea80592c629c3ee2c4a458277",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
