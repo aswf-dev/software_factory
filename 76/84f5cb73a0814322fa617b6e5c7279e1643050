@@ -1,0 +1,14 @@
+docs/index.md
+  h_1b119f25eaf333 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "7684f5cb73a0814322fa617b6e5c7279e1643050",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
