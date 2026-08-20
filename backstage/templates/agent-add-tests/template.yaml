@@ -31,8 +31,8 @@ spec:
             allowedOwners: [philipz]
         issueNumber:
           title: Issue 編號
-          type: number
-          description: 該 Issue 必須已具備明確的驗收條件（SR4：缺驗收條件 agent 會停手）
+          type: string
+          description: 該 Issue 必須已具備明確的驗收條件（SR4：缺驗收條件 agent 會停手）；workflow_dispatch 的 input 需字串
   steps:
     - id: dispatch
       name: 觸發工廠工作流
