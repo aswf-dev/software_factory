@@ -19,10 +19,10 @@ spec:
   type: service
   parameters:
     - title: 工作項資訊
-      required: [repoUrl, issueNumber]
+      required: [targetRepo, issueNumber]
       properties:
-        repoUrl:
-          title: 目標 repo
+        targetRepo:
+          title: 目標 repo（agent 工作對象）
           type: string
           ui:field: RepoUrlPicker
           ui:options:
@@ -33,20 +33,29 @@ spec:
           title: Issue 編號
           type: string
           description: 該 Issue 必須已具備明確的驗收條件（SR4：缺驗收條件 agent 會停手）；workflow_dispatch 的 input 需字串
+        baseBranch:
+          title: 目標 repo 的 factory trunk 分支
+          type: string
+          default: software-factory
+          description: 試點 repo 用 software-factory（Q-P2-1：main 絕不觸碰）
   steps:
     - id: dispatch
       name: 觸發工廠工作流
       action: github:actions:dispatch
       input:
-        repoUrl: ${{ parameters.repoUrl }}
+        # dispatch 一律到機制 repo（factory-run.yml 所在）；目標 repo 走 workflowInputs.repo
+        repoUrl: https://github.com/philipz/software_factory
         workflowId: factory-run.yml
         branchOrTagName: main
         workflowInputs:
           issue_number: ${{ parameters.issueNumber }}
+          repo: ${{ parameters.targetRepo | replace('github.com?owner=', '') | replace('&repo=', '/') }}
+          base_branch: ${{ parameters.baseBranch }}
+          task_type: agent-add-tests
   output:
     text:
       - title: 觸發完成
         content: |
-          已觸發 `factory-run.yml`（Issue #${{ parameters.issueNumber }}）。
+          已觸發 `factory-run.yml`（Issue #${{ parameters.issueNumber }}，repo: ${{ parameters.targetRepo | replace('github.com?owner=', '') | replace('&repo=', '/') }}）。
           執行狀態請見 GitHub Actions 頁面：
           https://github.com/philipz/software_factory/actions
