@@ -1,0 +1,18 @@
+backstage/plugins/README.md
+  h_1b119f25eaf333 27
+backstage/plugins/factory-draft-backend/src/router.ts
+  h_1b119f25eaf333 32
+backstage/versions.md
+  h_1b119f25eaf333 17-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "bba141dde65a0d4cff511cafed66776b0783f98c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
