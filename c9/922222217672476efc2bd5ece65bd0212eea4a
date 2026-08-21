@@ -1,0 +1,14 @@
+backstage/templates/factory-work-item/template.yaml
+  h_1b119f25eaf333 10-17,19-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "c9922222217672476efc2bd5ece65bd0212eea4a",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
