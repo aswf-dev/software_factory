@@ -327,3 +327,14 @@ yarn start                        # app :3000、backend :7007
 ### 7.4 後續（模式 B）
 
 `backstage-plugin-dsh`：DSH web（`dsh --profile web --host 127.0.0.1 --trusted-host 127.0.0.1`）經 Backstage 後端 proxy 嵌入——DSH 不直接對外暴露，認證在 Backstage 邊界。
+
+### 7.5 模式 B（DSH Web 內嵌）結論與上游需求（2026-08-20）
+
+**探索結論**：以「不異動 DSH 原始程式 + DSH 不直接對外暴露 + 認證在 Backstage 邊界」三約束，**Backstage 內嵌 DSH Web UI 目前架構上不可行**：
+
+1. **DSH SPA 無 base path**：資產（`/assets`、`/plugins`、`/api`）為絕對路徑——同源 proxy（`/dsh/*` 子路徑）會壞（webserver 是自訂 route table，無 prefix mount）。
+2. **browser-trust fence 拒絕跨源 iframe**：`isTrustedApiRequest` 要求 Origin 與 Host 同源；`--trusted-host` 只信任 Host header（防 DNS rebinding），非「允許跨源 Origin」。實測 `Origin: http://localhost:3000` → 403。這是防「惡意頁面跨站打本地 API」的正確預設。
+
+**實際可用的「在 Backstage 使用 DSH 功能」= 模式 A**（Template → factory-run → DSH headless 執行）——已端到端實證。
+
+**上游需求（已提交）**：DSH Web 支援 **base path** 與 **可設定 trust-origin**，讓 DSH Web 可被企業 IDP 子路徑同源掛載或顯式信任下 iframe 嵌入——見 https://github.com/deepseek-ai/deepseek-harness/discussions/3720 （Ideas 分類）。若上游接受，模式 B 再行評估。
