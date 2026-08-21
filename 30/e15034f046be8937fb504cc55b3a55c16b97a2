@@ -1,0 +1,16 @@
+backstage/plugins/factory-draft/src/index.tsx
+  h_1b119f25eaf333 111-112
+backstage/templates/factory-work-item/template.yaml
+  h_1b119f25eaf333 114-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "30e15034f046be8937fb504cc55b3a55c16b97a2",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
