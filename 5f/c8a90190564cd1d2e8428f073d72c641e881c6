@@ -1,0 +1,14 @@
+backstage/plugins/factory-draft/src/index.tsx
+  h_1b119f25eaf333 16,43,55-56,62-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5fc8a90190564cd1d2e8428f073d72c641e881c6",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
