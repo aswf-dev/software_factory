@@ -1,0 +1,20 @@
+scripts/backstage/start.sh
+  h_1b119f25eaf333 1-39
+scripts/backstage/stop.sh
+  h_1b119f25eaf333 1-80
+start.sh
+  h_1b119f25eaf333 1-59
+stop.sh
+  h_1b119f25eaf333 1-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f3e3af487472ad99083d561c2edb2f4dbb305220",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
