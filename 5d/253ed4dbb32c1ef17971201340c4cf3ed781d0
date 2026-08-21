@@ -1,0 +1,58 @@
+backstage/plugins/README.md
+  h_1b119f25eaf333 1-41
+backstage/plugins/factory-draft-backend/package.json
+  h_1b119f25eaf333 1-14
+backstage/plugins/factory-draft-backend/src/index.ts
+  h_1b119f25eaf333 1-28
+backstage/plugins/factory-draft-backend/src/llm.ts
+  h_1b119f25eaf333 1-45
+backstage/plugins/factory-draft-backend/src/router.ts
+  h_1b119f25eaf333 1-85
+backstage/plugins/factory-draft/package.json
+  h_1b119f25eaf333 1-14
+backstage/plugins/factory-draft/src/index.tsx
+  h_1b119f25eaf333 1-168
+backstage/templates/factory-work-item/template.yaml
+  h_1b119f25eaf333 1-118
+backstage/versions.md
+  h_1b119f25eaf333 13-16
+docs/03-idp-backstage.md
+  h_1b119f25eaf333 175-193
+docs/10-open-questions.md
+  h_1b119f25eaf333 44-46
+docs/14-observation-period.md
+  h_1b119f25eaf333 81
+docs/ADR/009-backstage-partial-unfreeze.md
+  h_1b119f25eaf333 1-66
+src/cli/factory-issue-check-mutation.test.ts
+  h_1b119f25eaf333 1-79
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 24-26,52,61-81
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 23-34,59-63,67
+src/factory-draft/issue-body.test.ts
+  h_1b119f25eaf333 1-57
+src/factory-draft/issue-body.ts
+  h_1b119f25eaf333 1-47
+src/factory-draft/parse.test.ts
+  h_1b119f25eaf333 1-48
+src/factory-draft/parse.ts
+  h_1b119f25eaf333 1-40
+src/factory-draft/prompts.test.ts
+  h_1b119f25eaf333 1-83
+src/factory-draft/prompts.ts
+  h_1b119f25eaf333 1-81
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 13,346-399
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5d253ed4dbb32c1ef17971201340c4cf3ed781d0",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
