@@ -1,0 +1,18 @@
+.github/factory/task-template-add-tests.txt
+  h_1b119f25eaf333 1-13
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 308-318
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 175,187-210,297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "7bbac04d5d06117895563500b8095d947f12e3c2",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
