@@ -78,3 +78,4 @@
 - **理由**：單人 repo 的 IDP 抽象層價值接近零（無「全隊共用」對象）；維運成本 > 價值（Q03-6 明示此為可降級情境）；現行 `gh workflow run` + Issue 流程已實證完整運作。
 - **可逆性（架構 D1）**：降級不關門——Backstage 只經 GitHub 契約耦合，工件全數保留；日後「公司內多使用者」需求出現時，重新部署 + Template 註冊即可升級（成本仍低）。
 - **升級觸發條件**：第 2 位協作者或第 2 個 repo 進入（Phase 2 的 2.2）時，重新評估。
+- **局部解凍（2026-08-21，ADR-009）**：單人使用但出現「統一入口 + LLM 草稿」的具體需求——解凍 `factory-work-item` 模板 + LLM 草稿 + direct dispatch 最小路徑（本機 `yarn dev`），其餘維持凍結。工件與裁決見 `docs/ADR/009-backstage-partial-unfreeze.md`。

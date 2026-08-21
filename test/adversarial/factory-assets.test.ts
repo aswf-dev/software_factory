@@ -10,6 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { DOD_LABELS } from '../../src/cli/factory-issue-check.js'
 
 const ROOT = join(import.meta.dirname, '../..')
 const read = (p: string): string => readFileSync(join(ROOT, p), 'utf8')
@@ -171,6 +172,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
   it('所有 task-template 帶 <REPO>/<BASE_BRANCH> 佔位與 run-env 匯出', () => {
     for (const t of [
       'task-template.txt',
+      'task-template-add-tests.txt',
       'task-template-fix-bug.txt',
       'task-template-update-deps.txt',
       'task-template-write-docs.txt',
@@ -181,6 +183,30 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       expect(c).toContain('export GH_REPO=$(cat .factory/run/repo')
       expect(c).toContain('export BASE_BRANCH=$(cat .factory/run/base-branch')
     }
+  })
+  it('4 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
+    const w = read('.github/workflows/factory-run.yml')
+    const m = w.match(/^ {8}options: \[(.+)\]$/m)
+    expect(m).not.toBeNull()
+    const options = m![1]!.split(',').map((s) => s.trim())
+    expect(options).toEqual([
+      'agent-add-tests',
+      'agent-fix-bug',
+      'agent-update-deps',
+      'agent-write-docs',
+    ])
+    // 檔名慣例：task-template-<type>.txt（type 無 agent- 前綴）——
+    // 路由必須剝除前綴，否則專屬模板永遠拼不出檔名（2026-08-21 實測抓到的
+    // 既有 bug：PR #101 後 4 型全部靜默 fallback 到通用模板）。
+    expect(w).toContain('task-template-${TASK_TYPE#agent-}.txt')
+    for (const t of options) {
+      const file = `task-template-${t.replace(/^agent-/, '')}.txt`
+      expect(read(`.github/factory/${file}`)).toContain('<ISSUE>')
+    }
+  })
+  it('通用模板 fallback 有 ::warning:: log（漂移不靜默，fail-loud 精神）', () => {
+    const w = read('.github/workflows/factory-run.yml')
+    expect(w).toMatch(/::warning::[^\n]*task-template/)
   })
 })
 
@@ -268,7 +294,7 @@ describe('Phase 2 資產釘選（Phase 2 T7）', () => {
   it('factory-run.yml 含 task_type 路由與 repo input', () => {
     const c = read('.github/workflows/factory-run.yml')
     expect(c).toContain('task_type')
-    expect(c).toContain('task-template-${TASK_TYPE}')
+    expect(c).toContain('task-template-${TASK_TYPE#agent-}')
     expect(c).toContain('inputs.repo')
   })
   it('factory-workflow skill 含任務型別分支與 --draft 禁令', () => {
@@ -342,6 +368,68 @@ describe('Java 試點草稿（trial/spring-modulith-orders/，語言無關性驗
   })
 })
 
+describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', () => {
+  it('ISSUE_TEMPLATE 的 DoD checkbox label 與 CLI DOD_LABELS 常數逐字一致', () => {
+    const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
+    // 表單 checkboxes 的選項 label 縮排為 8 空格 `- label: ...`
+    const labels = [...yml.matchAll(/^ {8}- label: (.+)$/gm)].map((m) => m[1])
+    expect(labels).toEqual([...DOD_LABELS])
+  })
+  it('ISSUE_TEMPLATE 的 task_type 4 種選項齊全', () => {
+    const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
+    for (const t of [
+      'agent-add-tests',
+      'agent-fix-bug',
+      'agent-update-deps',
+      'agent-write-docs',
+    ]) {
+      expect(yml).toContain(t)
+    }
+  })
+  it('Backstage factory-work-item 模板存在且含建 Issue + dispatch 結構', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    expect(t).toContain('apiVersion: scaffolder.backstage.io/v1beta3')
+    expect(t).toContain('github:issues:create')
+    expect(t).toContain('github:actions:dispatch')
+  })
+  it('taskType 表單預設 = agent-add-tests（與 workflow input / issue-check fallback 一致）', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    // 表單預設值讓 Review 按鈕不需手選即可按（2026-08-21 UX 修正），
+    // 且與 factory-run.yml 的 input default 及 issue-check 的 fallback 同源。
+    expect(t).toMatch(/default: agent-add-tests/)
+    expect(read('.github/workflows/factory-run.yml')).toContain('default: agent-add-tests')
+    expect(read('.github/workflows/factory-issue-check.yml')).toContain('"agent-add-tests"')
+  })
+  it('Backstage 模板的 DoD 選項與 CLI 常數逐字一致（兩路徑規則不發散）', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    for (const label of DOD_LABELS) {
+      expect(t).toContain(label)
+    }
+  })
+  it('Backstage 模板的 body 欄位標題與 CLI 解析器一致（### 標題逐字）', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    for (const title of ['任務類型', '需求描述（PRD）', '驗收標準（DoD）', '目標 repo（預設本 repo）']) {
+      expect(t).toContain(title)
+    }
+  })
+  it('Backstage 模板使用 factory-draft 客製欄位（LLM 草稿助手）', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    expect(t).toContain('ui:field: FactoryWorkItemDraftField')
+  })
+  it('factory-draft 客製 plugin 存在（backend 路由 + frontend 欄位）', () => {
+    const router = read('backstage/plugins/factory-draft-backend/src/router.ts')
+    expect(router).toContain('factory-draft')
+    const field = read('backstage/plugins/factory-draft/src/index.tsx')
+    expect(field).toContain('FactoryWorkItemDraftField')
+  })
+  it('LLM 草稿核心邏輯在 src/factory-draft 且有測試（純函式契約）', () => {
+    expect(read('src/factory-draft/prompts.ts')).toContain('CLARIFY_MAX_ROUNDS')
+    expect(read('src/factory-draft/parse.ts')).toContain('parseDraftJson')
+    expect(read('src/factory-draft/issue-body.ts')).toContain('buildIssueBody')
+    expect(read('src/factory-draft/issue-body.test.ts')).toContain('checkIssue')
+  })
+})
+
 describe('Security 第一層資產（免費、不依賴 GHAS，2026-08-20）', () => {
   it('dependabot.yml 存在且涵蓋 npm + github-actions', () => {
     const c = read('.github/dependabot.yml')
@@ -356,5 +444,24 @@ describe('Security 第一層資產（免費、不依賴 GHAS，2026-08-20）', (
     const c = read('.github/workflows/security-scan.yml')
     expect(c).toContain('gitleaks/gitleaks-action')
     expect(c).toContain('returntocorp/semgrep-action')
+  })
+})
+
+describe('factory-run 逾時捕獲與診斷（2026-08-21 run #32491052696 實測教訓）', () => {
+  const c = read('.github/workflows/factory-run.yml')
+  it('agent step 逾時 ≥ 40min（Java/mvn 建置需要時間）', () => {
+    const m = c.match(/timeout-minutes: (\d+)/g)
+    expect(Number(m?.[1]?.match(/\d+/)?.[0] ?? 25)).toBeGreaterThanOrEqual(40)
+  })
+  it('逾時/失敗捕獲：寫 --timed-out report + needs-human 標籤', () => {
+    expect(c).toContain('--timed-out')
+    expect(c).toContain('Handle agent timeout/failure')
+    expect(c).toContain('--add-label needs-human')
+    expect(c).toContain("steps.agent.outcome == 'failure'")
+  })
+  it('上傳 run artifacts（失敗也要，診斷用）', () => {
+    expect(c).toContain('actions/upload-artifact@v4')
+    expect(c).toContain('target/.factory/run/')
+    expect(c).toContain('if-no-files-found: ignore')
   })
 })

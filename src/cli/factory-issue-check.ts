@@ -20,6 +20,18 @@ import { isMainModule } from './is-main-module.js'
 export const REQUIRED_FIELDS = ['task_type', 'requirement', 'acceptance'] as const
 export type RequiredField = (typeof REQUIRED_FIELDS)[number]
 
+/**
+ * 驗收標準（DoD）的三個必勾選項 label，與 .github/ISSUE_TEMPLATE/factory-work-item.yml
+ * 的 checkbox options 逐字對齊（對抗性測試 factory-assets 會釘住兩邊一致）。
+ * 表單勾選項未勾選時不輸出；本清單要求三個全部以 `- [x] <label>` 出現才算合規
+ * （docs/ADR/009 表單驗證與檢查器規則一致的承諾）。
+ */
+export const DOD_LABELS = [
+  '有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）',
+  '不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）',
+  '跑測試確認綠燈（不跑需外部服務的 E2E）',
+] as const
+
 /** 欄位 id → 表單產生的 body 標題（GitHub Issue Forms 用 label 文字當 `###` 標題）。 */
 export const FIELD_TITLES: Record<string, string> = {
   task_type: '任務類型',
@@ -44,15 +56,15 @@ export function extractField(body: string, field: string): string | undefined {
   return value && value.length > 0 ? value : undefined
 }
 
-/** DoD 欄位是否「有勾選」（含 `- [x]` 且非空；表單必填勾選項在未勾時不存在）。 */
+/**
+ * DoD 是否「全部勾選」：三個規定 label 都必須以 `- [x] <label>` 出現在 acceptance
+ * 欄位中（表單未勾選的選項不輸出）。任何一項缺席即不合規——比「任一勾選即過」
+ * 更嚴格，與 Backstage 表單驗證（docs/ADR/009）保持一致。
+ */
 export function hasCheckedAcceptance(body: string): boolean {
   const value = extractField(body, 'acceptance')
   if (value === undefined) return false
-  // 表單產生的 DoD：未勾選項目不輸出；有任一 `- [x]` 即視為有 DoD 勾選
-  if (value.includes('[x]')) {
-    return true
-  }
-  return false
+  return DOD_LABELS.every((label) => value.includes(`- [x] ${label}`))
 }
 
 export function checkIssue(body: string): CheckResult {

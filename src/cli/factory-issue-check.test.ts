@@ -21,8 +21,9 @@ const COMPLIANT = [
   '',
   '### 驗收標準（DoD）',
   '',
-  '- [x] 有可驗證的測試/驗證方式',
-  '- [x] 不觸碰高風險路徑（H1–H3）',
+  '- [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）',
+  '- [x] 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）',
+  '- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）',
   '',
   '### 目標 repo（預設本 repo）',
   '',
@@ -48,7 +49,7 @@ describe('extractField', () => {
 })
 
 describe('hasCheckedAcceptance', () => {
-  it('有 `- [x]` 勾選 → true', () => {
+  it('3 個 DoD 選項全部勾選 → true', () => {
     expect(hasCheckedAcceptance(COMPLIANT)).toBe(true)
   })
   it('無 acceptance 欄位 → false', () => {
@@ -56,6 +57,27 @@ describe('hasCheckedAcceptance', () => {
   })
   it('acceptance 欄位存在但無勾選（未勾選項不輸出）→ false', () => {
     expect(hasCheckedAcceptance('### 驗收標準（DoD）\n\n- [ ] 未勾\n')).toBe(false)
+  })
+  it('只勾 1 項（其餘未勾選不輸出）→ false', () => {
+    const body = COMPLIANT.replace(
+      '- [x] 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）\n',
+      '',
+    ).replace('- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）\n', '')
+    expect(hasCheckedAcceptance(body)).toBe(false)
+  })
+  it('只勾 2 項 → false', () => {
+    const body = COMPLIANT.replace(
+      '- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）\n',
+      '',
+    )
+    expect(hasCheckedAcceptance(body)).toBe(false)
+  })
+  it('勾選的 label 與規定不符（文字漂移）→ false', () => {
+    const body = COMPLIANT.replace(
+      '- [x] 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）',
+      '- [x] 不觸碰高風險路徑',
+    )
+    expect(hasCheckedAcceptance(body)).toBe(false)
   })
 })
 

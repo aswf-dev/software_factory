@@ -52,3 +52,6 @@ docs/claude-key
 # Factory runtime artifacts (agent report, run state)
 .factory/
 _apalache-out/
+
+# Backstage 本機 dev 橋接（見 backstage/plugins/README.md wiring）
+backstage/plugins/node_modules

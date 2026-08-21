@@ -1,0 +1,14 @@
+{
+  "name": "@software-factory/factory-draft",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "description": "factory-draft 前端：scaffolder 客製欄位 FactoryWorkItemDraftField（LLM 草稿助手，docs/ADR/009）",
+  "dependencies": {
+    "@backstage/core-components": "見部署時鎖版",
+    "@backstage/plugin-scaffolder-react": "見部署時鎖版",
+    "react": "見部署時鎖版",
+    "react-use": "見部署時鎖版"
+  }
+}

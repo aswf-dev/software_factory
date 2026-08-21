@@ -172,6 +172,25 @@ spec:
 2. **前置條件寫在描述中**（如上例的「必須已具備重現步驟與驗收條件」），並由 workflow 實際檢查，不只是口頭約定。
 3. **輸出一定包含可追蹤的連結**，讓使用者知道去哪看結果。
 
+### 3.4 factory-work-item：工作項的統一入口（ADR-009 局部解凍）
+
+> **狀態**：2026-08-21 對 #50 凍結裁決做局部解凍（`docs/ADR/009-backstage-partial-unfreeze.md`）——只解凍「factory-work-item 模板 + LLM 草稿 + direct dispatch」最小路徑（本機 `yarn dev`），其餘維持凍結。
+
+**流程**：填寫制式欄位（可先用 LLM 草稿助手產生）→ 建立格式合規的 GitHub Issue → 直接 dispatch `factory-run.yml` 觸發 agent。**人類在 Backstage 點擊送出＝核准**，取代 `factory/approved` label 閘門（label 觸發保留給 GitHub 原生路徑）。
+
+| 元件 | 位置 | 說明 |
+|---|---|---|
+| Template | `backstage/templates/factory-work-item/template.yaml` | 欄位與 `.github/ISSUE_TEMPLATE/factory-work-item.yml` 對齊；body 格式與 `src/factory-draft/issue-body.ts` 一致（round-trip 測試 + 對抗性測試釘住） |
+| LLM 純邏輯 | `src/factory-draft/`（prompts / parse / issue-body） | grill-me 收斂版釐清 prompt、一次生成 prompt（結構化 JSON + 品質標示 notes）、issue body 格式參考實作——repo 工具鏈 typecheck + 單元測試 |
+| Backend 插件 | `backstage/plugins/factory-draft-backend/` | Express 路由 `/api/factory-draft/clarify`、`/generate`，呼叫 DeepSeek（key 存本機 app-config）——⚠️ 部署時驗證 |
+| Frontend 欄位 | `backstage/plugins/factory-draft/` | `FactoryWorkItemDraftField`（🎯 釐清 / ✨ 一次生成 / 品質標示區）——⚠️ 部署時驗證 |
+
+**LLM 草稿的治理邊界**（docs/01 職責的機械化）：LLM 只產草稿與釐清，**不得自行決定要做什麼或優先順序**——最終送出權在使用者；品質標示（notes）只在表單審查畫面顯示，**不寫入 Issue body**；草稿產出是人類發起的動作，不影響 agent 稽核身分（ADR-006）。
+
+**憑證**（安全邊界見 ADR-009）：本機 app-config 存 philipz PAT（僅供人類發起的 dispatch）與 DeepSeek API key（僅供草稿生成）；App 不擴權。
+
+**deploy-time 驗證項**（Q03-2 模式，見 `docs/10` Q09-1）：`github:issues:create` 於鎖版 plugin 是否存在（約 v1.40 起）與輸出欄位名；`createScaffolderFieldExtension`/`formData` 簽章；template 表達式拼接。Wiring 步驟見 `backstage/plugins/README.md`。
+
 ---
 
 ## 4. TechDocs：文件即平台的一部分

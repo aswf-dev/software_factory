@@ -1,0 +1,126 @@
+# factory-work-item Template（docs/ADR/009 局部解凍）
+#
+# 統一入口：填寫制式欄位（可先用 LLM 草稿助手產生）→ 建立格式合規的 GitHub Issue
+# → 直接 dispatch factory-run.yml 觸發 agent（人類點擊送出＝核准，取代 label 閘門）。
+#
+# 欄位與 .github/ISSUE_TEMPLATE/factory-work-item.yml 對齊；body 格式與
+# src/factory-draft/issue-body.ts（buildIssueBody）一致——對抗性測試
+# factory-assets 釘住「### 標題」與 DoD label 逐字一致。
+#
+# ✅ 已驗證（Q09-1，2026-08-21 於 ../backstage-app v1.53.0 實跑，詳見 backstage/versions.md）：
+# - github:issues:create 於 plugin-scaffolder-backend-module-github@0.9.11 存在，
+#   輸入 repoUrl/title/body/labels/token，輸出 issueUrl + issueNumber；
+# - FactoryWorkItemDraftField 以 FormFieldBlueprint.make 註冊（new frontend system）
+#   編譯成功（bundle 含該 extension）；
+# - catalog location 的 ref 不得含斜線（git-url-parse 拆錯）——dev 用 commit SHA，
+#   PR #145 合併後改回 main。
+# ⏳ 剩餘待瀏覽器實測（需 GitHub OAuth 登入）：
+# - 表達式字串拼接（'[factory] ' + ...）與 block scalar 內多行 ${{ }} 渲染；
+# - rjsf formData 跨欄位讀取（讀 parameters.taskType 供草稿上下文）；
+# - 完整表單流程：釐清 → 一次生成 → 建 Issue → dispatch factory-run。
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: factory-work-item
+  title: 開立 Factory 工作項
+  description: 填寫制式欄位（可先用 LLM 產生草稿）→ 建立格式合規的 GitHub Issue → 觸發 factory agent
+spec:
+  owner: user:philipz
+  type: service
+  parameters:
+    - title: 工作項資訊
+      required: [oneLiner, taskType, requirement, dodTest, dodRisk, dodRun, targetRepo]
+      properties:
+        oneLiner:
+          title: 一句話需求（Issue 標題）
+          type: string
+          description: 將自動加上 `[factory] ` 前綴成為 Issue 標題
+        taskType:
+          title: 任務類型
+          type: string
+          default: agent-add-tests
+          enum:
+            - agent-add-tests
+            - agent-fix-bug
+            - agent-update-deps
+            - agent-write-docs
+          description: 決定 task-template 與 skill 分支（docs/09 §3 2.1）；預設 agent-add-tests（與 workflow input / issue-check fallback 一致）
+        requirement:
+          title: 需求描述（PRD）
+          type: string
+          ui:field: FactoryWorkItemDraftField
+          description: 做什麼、為什麼、範圍（可先按「✨ 一次生成」讓 LLM 產生草稿再逐欄審改）
+        dodTest:
+          title: 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）
+          type: boolean
+          description: 驗收標準（DoD）必勾項 1/3
+        dodRisk:
+          title: 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）
+          type: boolean
+          description: 驗收標準（DoD）必勾項 2/3
+        dodRun:
+          title: 跑測試確認綠燈（不跑需外部服務的 E2E）
+          type: boolean
+          description: 驗收標準（DoD）必勾項 3/3
+        targetRepo:
+          title: 目標 repo（agent 工作對象）
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            # 只允許 github.com（單 host 時自動帶入，避免 Host 下拉互動問題）
+            allowedHosts: [github.com]
+            allowedOwners: [philipz]
+        baseBranch:
+          title: 目標 repo 的 factory trunk 分支
+          type: string
+          default: software-factory
+          description: 試點 repo 用 software-factory（Q-P2-1：main 絕不觸碰）
+  steps:
+    - id: create-issue
+      name: 建立 GitHub Issue
+      action: github:issues:create
+      input:
+        repoUrl: ${{ parameters.targetRepo }}
+        title: ${{ '[factory] ' + parameters.oneLiner }}
+        body: |
+          ### 任務類型
+
+          ${{ parameters.taskType }}
+
+          ### 需求描述（PRD）
+
+          ${{ parameters.requirement }}
+
+          ### 驗收標準（DoD）
+
+          - [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）
+          - [x] 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）
+          - [x] 跑測試確認綠燈（不跑需外部服務的 E2E）
+
+          ### 目標 repo（預設本 repo）
+
+          ${{ parameters.targetRepo | replace('github.com?owner=', '') | replace('&repo=', '/') }}
+        labels:
+          - meta/observation
+    - id: dispatch
+      name: 觸發工廠工作流
+      action: github:actions:dispatch
+      input:
+        # dispatch 一律到機制 repo（factory-run.yml 所在）；目標 repo 走 workflowInputs.repo
+        repoUrl: github.com?owner=philipz&repo=software_factory
+        workflowId: factory-run.yml
+        branchOrTagName: main
+        workflowInputs:
+          # issueNumber 輸出是 number；workflowInputs 值必須全為字串
+          #（2026-08-21 實測 InputError）——nunjucks 內建 string filter 轉型
+          issue_number: ${{ steps['create-issue'].output.issueNumber | string }}
+          repo: ${{ parameters.targetRepo | replace('github.com?owner=', '') | replace('&repo=', '/') }}
+          base_branch: ${{ parameters.baseBranch }}
+          task_type: ${{ parameters.taskType }}
+  output:
+    text:
+      - title: 建立與觸發完成
+        content: |
+          已建立 Issue（title: `[factory] ${{ parameters.oneLiner }}`）並觸發 `factory-run.yml`（task_type: ${{ parameters.taskType }}）。
+          執行狀態請見 GitHub Actions 頁面：
+          https://github.com/philipz/software_factory/actions

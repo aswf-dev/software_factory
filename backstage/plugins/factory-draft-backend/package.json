@@ -1,0 +1,15 @@
+{
+  "name": "@software-factory/factory-draft-backend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "description": "factory-draft 後端插件：LLM 草稿生成與 grill-me 收斂版釐清（docs/ADR/009）",
+  "dependencies": {
+    "@backstage/backend-common": "見部署時鎖版",
+    "@backstage/backend-plugin-api": "見部署時鎖版",
+    "@backstage/config": "見部署時鎖版",
+    "express": "^4"
+  },
+  "type": "module"
+}

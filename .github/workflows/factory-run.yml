@@ -62,7 +62,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       # 機制 repo（本 repo：workflow/CLI/skill 所在）在根目錄；
       # 目標 repo（inputs.repo）另行 checkout 至 target/，agent 在 target/ 內工作。
@@ -265,7 +265,7 @@ jobs:
       - name: Run factory agent
         id: agent
         if: success()
-        timeout-minutes: 25      # step 級逾時：逾時仍可被捕獲走 needs-human
+        timeout-minutes: 50      # step 級逾時（Java/mvn 建置需較長時間；2026-08-21 25min 不夠）
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           # 多 provider 金鑰：全部以 env 傳入（DSH 在 sandbox 外讀取），
@@ -305,9 +305,17 @@ jobs:
                 "$P" "$MODEL" >> "$HOME/.dsh/settings.yaml"
               echo "trying model routing: $P/$MODEL"
               # 依 task_type 選模板（優先目標 repo 的模板，fallback 到機制 repo）
-              TEMPLATE=".github/factory/task-template-${TASK_TYPE}.txt"
-              [ -f "$TEMPLATE" ] || TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template-${TASK_TYPE}.txt"
-              [ -f "$TEMPLATE" ] || TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template.txt"
+              # 檔名慣例為 task-template-<type>.txt（type 無 agent- 前綴，
+              # docs/09 §3 2.1）；TASK_TYPE 帶 agent- 前綴，故剝除後再拼檔名。
+              TEMPLATE=".github/factory/task-template-${TASK_TYPE#agent-}.txt"
+              [ -f "$TEMPLATE" ] || TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template-${TASK_TYPE#agent-}.txt"
+              if [ ! -f "$TEMPLATE" ]; then
+                # 4 種 task_type 應各有專屬模板（factory-assets 對抗性測試釘住）；
+                # 走到這裡表示漂移（缺檔或新增 task_type 未建檔）——fail-loud：
+                # 警告不可靜默，讓維護者看到降級。
+                echo "::warning::No dedicated task-template for task_type=${TASK_TYPE}; falling back to generic task-template.txt"
+                TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template.txt"
+              fi
               echo "task template: $TEMPLATE"
               "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
                 --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
@@ -348,6 +356,22 @@ jobs:
             > .factory/judge.json
           cat .factory/judge.json
 
+      # agent 逾時/失敗捕獲：judge 只在 success 跑，逾時會靜默（2026-08-21 實測
+      # run #32491052696 逾時後無 needs-human）。此步補最小 report + 留言 + 標籤。
+      - name: Handle agent timeout/failure
+        if: always() && steps.agent.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          cd target
+          node "$GITHUB_WORKSPACE/dist/cli/write-report.js" \
+            "${{ inputs.issue_number }}" 1 \
+            .factory/run/stdout.txt .factory/run/stderr.txt --timed-out || true
+          gh issue comment "${{ inputs.issue_number }}" \
+            --body "⏱️ factory agent 未在時限內完成（逾時或失敗）——已轉交人類接手。請查看 run ${{ github.run_id }} 的 logs。"
+          gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
+
       - name: Apply judge labels and comment
         if: steps.agent.outcome == 'success'
         env:
@@ -363,3 +387,14 @@ jobs:
         run: |
           echo "run=${{ github.run_id }} repo=${{ inputs.repo }} base=${{ inputs.base_branch }} issue=${{ inputs.issue_number }} dry_run=${{ inputs.dry_run }}"
           echo "工廠執行完成。第 1 期：所有變更等待人類審查後合併。"
+
+      # 診斷：agent 的 stdout/stderr/report 上傳成 artifact（失敗也要，否則無從查）
+      - name: Upload run artifacts
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-run-${{ inputs.issue_number }}
+          path: |
+            target/.factory/run/
+          if-no-files-found: ignore

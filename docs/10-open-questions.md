@@ -41,8 +41,9 @@
 
 | 編號 | 事項 | 來源 | 處置 |
 |---|---|---|---|
-| **Q03-1 / Q02-3** | **Backstage 版本、create-app 指令、插件名稱與設定格式全部未查證** | `03`,`02` | 實作首步鎖版並核對官方文件 |
-| **Q03-2** | `github:actions:dispatch` scaffolder action 是否存在及其簽章 | `03` | 若不存在，改用「建 Issue → 標籤觸發」的鬆耦合方案 |
+| **Q03-1 / Q02-3** | **Backstage 版本、create-app 指令、插件名稱與設定格式全部未查證** | `03`,`02` | ✅ 已鎖版 `0.9.0`（create-app，2026-08-17，見 `backstage/versions.md`）；實際插件 API 以部署時驗證 |
+| **Q03-2** | `github:actions:dispatch` scaffolder action 是否存在及其簽章 | `03` | ✅ **已驗證（2026-08-17）**：`@backstage/plugin-scaffolder-backend-module-github` 內建 action，inputs `token/repoUrl/workflowId/workflowInputs/branchOrTagName`，無輸出 schema（見 `backstage/templates/agent-add-tests/template.yaml` 註解） |
+| **Q09-1** | `github:issues:create` 於鎖版 plugin 是否存在（約 v1.40 起）與其輸出欄位名 | `03`,`ADR-009` | 部署時驗證（Q03-2 模式）；缺則升版並記錄於 `backstage/versions.md`；另驗證 `FactoryWorkItemDraftField` 的 `createScaffolderFieldExtension`/`formData` 簽章與 template 表達式拼接 |
 | **Q03-3** | Node v22.21.1 是否在支援範圍 | `03` | 必要時以 nvm 切版 |
 | **Q03-4** | `factory.io/` annotation 命名空間是否衝突 | `03` | 實作時確認 |
 
