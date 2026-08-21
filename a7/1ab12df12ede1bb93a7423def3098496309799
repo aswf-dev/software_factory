@@ -1,0 +1,26 @@
+.gitignore
+  h_1b119f25eaf333 55-57
+backstage/plugins/README.md
+  h_1b119f25eaf333 11-36,39,41,43-54
+backstage/plugins/factory-draft-backend/package.json
+  h_1b119f25eaf333 13-14
+backstage/plugins/factory-draft-backend/src/index.ts
+  h_1b119f25eaf333 5,11-12,14,29-31
+backstage/plugins/factory-draft-backend/src/router.ts
+  h_1b119f25eaf333 19-21
+backstage/plugins/factory-draft/src/index.tsx
+  h_1b119f25eaf333 5-7,9-13,16,18-26,28,36,38-39,48-50,69,86,97,120-124,131,172-176,181,185-197
+backstage/versions.md
+  h_1b119f25eaf333 22-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "a71ab12df12ede1bb93a7423def3098496309799",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
