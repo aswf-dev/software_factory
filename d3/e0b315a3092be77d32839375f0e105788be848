@@ -1,0 +1,14 @@
+backstage/versions.md
+  h_1b119f25eaf333 46-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "d3e0b315a3092be77d32839375f0e105788be848",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
