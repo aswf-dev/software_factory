@@ -43,3 +43,7 @@
 #   `set -a; . ./.env; set +a`（或走 `yarn start` repo 級指令）。
 # - ⏳ endpoint 掛載後由 httpRouter 強制 auth（401 Missing credentials）——
 #   LLM 端點需瀏覽器 GitHub OAuth 登入後才能端到端呼叫（UI 步驟，未在本輪驗證）。
+# - ⚠️ PAT 需含 **Commit statuses: Read**（fine-grained）——TechDocs 的 stale check
+#   會呼叫 commits/{ref}/status?per_page=0（GithubUrlReader.getRepoDetails），缺此
+#   權限回 403 "Resource not accessible by personal access token"（2026-08-21 實測，
+#   非 rate limit）。改權限不需重生 token，backend 重啟生效。
