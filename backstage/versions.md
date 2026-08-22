@@ -47,3 +47,11 @@
 #   會呼叫 commits/{ref}/status?per_page=0（GithubUrlReader.getRepoDetails），缺此
 #   權限回 403 "Resource not accessible by personal access token"（2026-08-21 實測，
 #   非 rate limit）。改權限不需重生 token，backend 重啟生效。
+
+# 2026-08-22 實測教訓（feat/factory-draft-robustness）：
+# - DeepSeek 偶發回傳空 content（choices[0].message.content 缺失）→ callDeepSeek 丟錯；
+#   Express 4 不自動捕獲 async handler rejection → response 永不送出 →
+#   前端無限轉圈（log: Unhandled rejection LLM response missing content）。
+# - 修正：router 全部端點包 try/catch（失敗一律回 500）；callDeepSeek 加 90 秒
+#   AbortController 逾時 + 空回應記錄 finish_reason/原始摘要；前端 post() 加 120 秒
+#   逾時 + busy 提示「正在呼叫 LLM（可能需 20–60 秒）」。

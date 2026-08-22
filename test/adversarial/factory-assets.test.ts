@@ -465,3 +465,24 @@ describe('factory-run 逾時捕獲與診斷（2026-08-21 run #32491052696 實測
     expect(c).toContain('if-no-files-found: ignore')
   })
 })
+
+describe('factory-draft 防呆契約（2026-08-22：無限轉圈教訓）', () => {
+  const router = read('backstage/plugins/factory-draft-backend/src/router.ts')
+  const llm = read('backstage/plugins/factory-draft-backend/src/llm.ts')
+  const field = read('backstage/plugins/factory-draft/src/index.tsx')
+  it('router 的 async handler 有 try/catch 防護（Express 4 不捕 async 錯誤 → 無回應轉圈）', () => {
+    expect(router).toContain('.catch(')
+    expect(router).toContain('res.status(500)')
+  })
+  it('llm.ts 有 AbortController 逾時（90 秒）與空回應診斷記錄', () => {
+    expect(llm).toContain('AbortController')
+    expect(llm).toContain('LLM_TIMEOUT_MS = 90_000')
+    expect(llm).toContain('LLM_MAX_TOKENS = 8000') // reasoning 模型：預算須容納思考+內容（2026-08-22 finish_reason=length）
+    expect(llm).toContain('finish_reason')
+  })
+  it('前端 post() 有 120 秒逾時（轉圈必定結束）', () => {
+    expect(field).toContain('POST_TIMEOUT_MS = 120_000')
+    expect(field).toContain('AbortController')
+    expect(field).toContain('LLM 回應逾時，請重試')
+  })
+})

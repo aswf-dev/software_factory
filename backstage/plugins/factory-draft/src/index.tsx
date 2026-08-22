@@ -56,15 +56,31 @@ function DraftFieldComponent(props: DraftProps) {
   const current: string = typeof value === 'string' ? value : typeof formData === 'string' ? formData : ''
   const requirementText = current ?? ''
 
+  // 前端逾時：backend 可能正常處理 20–60 秒；超過 120 秒強制結束轉圈並提示重試
+  const POST_TIMEOUT_MS = 120_000
+
   const post = async (path: string, body: unknown) => {
     // discoveryApi 解析 backend 的絕對 URL（相對路徑會打到 frontend → 404）；
     // fetchApi 附上使用者認證 token（raw fetch 會 401）
     const baseUrl = await discoveryApi.getBaseUrl('factory-draft')
-    const res = await fetchApi.fetch(`${baseUrl}/${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), POST_TIMEOUT_MS)
+    let res: Response
+    try {
+      res = await fetchApi.fetch(`${baseUrl}/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+    } catch (e) {
+      if (controller.signal.aborted) {
+        throw new Error('LLM 回應逾時，請重試')
+      }
+      throw e
+    } finally {
+      clearTimeout(timer)
+    }
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as {
         error?: string | { message?: string }
@@ -160,7 +176,12 @@ function DraftFieldComponent(props: DraftProps) {
         error={Boolean(rawErrors?.length)}
         helperText={rawErrors?.length ? rawErrors.join('、') : 'PRD 四段：目標模組/檔案、做什麼、為什麼、範圍'}
       />
-      {busy && <CircularProgress size={16} />}
+      {busy && (
+        <Box className={classes.row} style={{ alignItems: 'center' }}>
+          <CircularProgress size={16} />
+          <Typography variant="caption">正在呼叫 LLM（可能需 20–60 秒，請稍候）…</Typography>
+        </Box>
+      )}
       {chat.map((c, i) => (
         <Box key={i} marginTop={1} padding={1} style={{ background: theme.palette.background.default }}>
           <Typography variant="body2" component="pre" style={{ whiteSpace: 'pre-wrap' }}>
