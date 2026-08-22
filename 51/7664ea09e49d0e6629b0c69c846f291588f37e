@@ -1,0 +1,22 @@
+backstage/plugins/factory-draft-backend/src/llm.ts
+  h_1b119f25eaf333 17-19,22-48,55,57-58,60-65
+backstage/plugins/factory-draft-backend/src/router.ts
+  h_1b119f25eaf333 37-50,52,72,75,96
+backstage/plugins/factory-draft/src/index.tsx
+  h_1b119f25eaf333 59-61,66-83,179-184
+backstage/versions.md
+  h_1b119f25eaf333 50-57
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 468-487
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "517664ea09e49d0e6629b0c69c846f291588f37e",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
