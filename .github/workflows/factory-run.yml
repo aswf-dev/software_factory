@@ -392,7 +392,7 @@ jobs:
       - name: Upload run artifacts
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: factory-run-${{ inputs.issue_number }}
           path: |

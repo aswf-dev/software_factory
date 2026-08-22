@@ -460,7 +460,9 @@ describe('factory-run 逾時捕獲與診斷（2026-08-21 run #32491052696 實測
     expect(c).toContain("steps.agent.outcome == 'failure'")
   })
   it('上傳 run artifacts（失敗也要，診斷用）', () => {
-    expect(c).toContain('actions/upload-artifact@v4')
+    // 只驗證用 upload-artifact 上傳、不綁版本：@v4（node20）已因 Node 20 棄用
+    // 升級為 @v7（node24），版本號是實作細節，寫死會擋掉 runtime 升級。
+    expect(c).toContain('actions/upload-artifact@')
     expect(c).toContain('target/.factory/run/')
     expect(c).toContain('if-no-files-found: ignore')
   })
