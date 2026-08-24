@@ -1,0 +1,22 @@
+docs/05-guardrails-governance.md
+  h_1b119f25eaf333 215-221,276
+docs/10-open-questions.md
+  h_1b119f25eaf333 94
+docs/ADR/010-agent-team-tools-deferred.md
+  h_1b119f25eaf333 1-57
+docs/ADR/README.md
+  h_1b119f25eaf333 40-42
+mkdocs.yml
+  h_1b119f25eaf333 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9250fa14f364a86a68e6e47304de9dfabb54c581",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
