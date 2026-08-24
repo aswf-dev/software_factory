@@ -59,4 +59,5 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 - **PR 一律非 draft**：`gh stack submit --auto` 或 `gh pr create` 皆不可加 `--draft`（draft 無法合併，擋住審查流程）。
 
 - 任務描述本身不重複本 skill 內容——需要細節時回到本檔案。
+- **輸出紀律**：設計/推導/思考過程不輸出到 stdout（DSH stdout 有輸出上限，過量輸出會導致執行中斷）——產物直接寫入目標檔案，stdout 只留簡短進度與最終摘要。
 - 任何不確定的情況，依 factory-stop-rules 停手，**不要猜測並繼續**。
