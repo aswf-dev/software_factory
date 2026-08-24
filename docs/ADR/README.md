@@ -37,6 +37,9 @@
 | [ADR-005](005-autonomy-ceiling.md) | 自主性上限設為 on-the-loop 低風險類別 | 已接受 | D5 |
 | [ADR-006](006-github-app-identity.md) | agent 以 GitHub App 身分行動 | 已接受 | D6 |
 | [ADR-007](007-github-actions-ci.md) | CI 平台採用 GitHub Actions | 已接受 | D7 |
+| [ADR-008](008-quint-formal-verification.md) | Quint 正式方法整合（Phase A） | 已接受 | `11-test-strategy.md` |
+| [ADR-009](009-backstage-partial-unfreeze.md) | Backstage 局部解凍——factory-work-item 模板作為統一入口 | 已接受 | `14` §1.7 修正 |
+| [ADR-010](010-agent-team-tools-deferred.md) | 多 agent 團隊工具（dsh-agent-teams / workflow 工具）延後採用 | 已接受 | `05` §6.1、Q05-5 |
 
 ## 何時該寫新的 ADR
 

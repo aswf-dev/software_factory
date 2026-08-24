@@ -212,6 +212,13 @@ agent 透過**環境變數**間接使用憑證（`gh` CLI 讀 `GH_TOKEN`、LLM a
 - 若引入多 agent 協作（如一個寫碼、一個審查），複合風險出現：**兩個 agent 可能互相確認彼此的錯誤**。
 - 治理要求：**審查者 agent 的產出不得取代人類審查，只能作為附加意見**。人類審查在 D5 的範圍內永不移除。
 
+> **多 agent 工具（dsh-agent-teams / workflow 工具）的採用門檻**（2026-08-24 評估，ADR-010）：
+> 現階段**不採用**。現行 factory 的 skills 與 CI templates 皆以「單一 DSH headless agent 處理單一工作項」為前提（一次 run = 一次 headless 呼叫、單一 `report.json`、judge/stop-rules/token 預算全部圍繞單 agent），而多 agent 團隊插件（如 `dsh-agent-teams`）或 workflow 編排工具會瓦解「單一帳戶單元」的缺陷歸因與棘輪機制。採用前必須依序滿足：
+> 1. **Q05-5 先補齊**：複合風險治理細則——審查者 agent 產出僅為附加意見（人類審查永不移除）、缺陷歸因與棘輪延伸到團隊、token 分帳與 report 聚合格式、stop-rules 由隊長繼承/轉交；
+> 2. **版本與 headless 驗證**：DSH 升級至插件目標 API 世代後，在 `factory-run` 相同的 headless + `factory-guardrail.patch.yml`（workspace-write + approval never）下實測（沿用 `dsh-sandbox-probe` 模式），確認狀態檔寫入不違反沙箱；
+> 3. **任務規模**：出現單 agent 無法勝任的工作項型別（或 roadmap 第 3 期之後明確要求角色分工）——現行工作項刻意小（≤100–300 行），平行化已由 Actions 層「每 issue 一個 run」達成。
+> 另注意：安裝插件需改 DSH 設定面，屬 SR3（需改 CI 設定）與 H5 保護範圍，只能由人類決策；agent 不得自行引入。
+
 > **為何排除生態系層**：跨組織 agent 協作涉及共謀與合規問題，遠超小團隊的治理能力。這是能力邊界的誠實承認。
 
 ---
@@ -266,7 +273,7 @@ agent 透過**環境變數**間接使用憑證（`gh` CLI 讀 `GH_TOKEN`、LLM a
 | Q05-2 | landlock 在 Linux runner 的實際隔離強度未驗證 | 中 | 實作時在 CI 驗證（= Q04-3） |
 | Q05-3 | 稽核紀錄保存期限未定 | 低 | 依組織政策決定 |
 | Q05-4 | token 中止門檻未定 | 低 | 先量測再定（= Q02-5） |
-| Q05-5 | 多 agent 協作時的複合風險治理細則未展開 | 低 | 第 1 期不涉及；引入前須先補此節 |
+| Q05-5 | 多 agent 協作時的複合風險治理細則未展開 | 低 | 第 1 期不涉及；引入前須先補此節（2026-08-24 已評估 dsh-agent-teams / workflow 工具，結論：目前不採用，門檻見 §6.1 與 ADR-010） |
 | Q05-6 | CODEOWNERS 的高風險路徑模式需依實際 repo 結構調整 | 低 | 實作時確定 |
 
 > 本文件的未決事項已收攏至 `docs/10-open-questions.md`。
