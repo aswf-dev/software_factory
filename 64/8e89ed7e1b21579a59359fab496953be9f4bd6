@@ -1,0 +1,14 @@
+src/pipeline/run-work-item.ts
+  h_1b119f25eaf333 150,153,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "648e89ed7e1b21579a59359fab496953be9f4bd6",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
