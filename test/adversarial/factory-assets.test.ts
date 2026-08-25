@@ -80,6 +80,41 @@ describe('task-template 自足且指向 skills', () => {
   })
 })
 
+describe('task-template 完成後立即停止（防 agent 開完 PR 後空轉不退出）', () => {
+  // 實測（issue #35，run 32821356056）：agent 開完 3 個 stacked PR（07:32）後沒有結束
+  // turn——DSH headless 的 whenIdle 等 agent 靜止，agent-loop 因 inbox 持續有 pending
+  // 一直開新 turn，run 卡到被取消（07:41）都未退出。根因：模板只有「完成後留言 + 寫
+  // report」，沒有「完成後立即停止」——LLM 傾向繼續自我對話/驗證。
+  //
+  // 契約：每個 task-template 都必須明確指示「所有步驟完成後立即停止」，不繼續任何
+  // 額外工作/驗證/輸出。缺此指示的模板會讓 agent 在 CI 空轉直到 50min timeout。
+  const TEMPLATES = [
+    'task-template.txt',
+    'task-template-add-tests.txt',
+    'task-template-fix-bug.txt',
+    'task-template-update-deps.txt',
+    'task-template-write-docs.txt',
+  ]
+
+  it('全部 5 個 task-template 含「完成後立即停止」指示（防 CI 空轉）', () => {
+    for (const t of TEMPLATES) {
+      const c = read(`.github/factory/${t}`)
+      expect(c, `${t} 缺「完成後立即停止」指示`).toMatch(/立即停止|立即結束|停止任何額外/)
+    }
+  })
+
+  it('停止指示與輸出紀律相鄰（同在收尾步驟，防止 LLM 略過）', () => {
+    for (const t of TEMPLATES) {
+      const c = read(`.github/factory/${t}`)
+      const stopIdx = c.search(/立即停止|立即結束/)
+      const reportIdx = c.indexOf('report.json')
+      // 停止指示必須在 report.json 之後（收尾的最後一步）——若在前面，agent 可能
+      // 在寫 report 前就停止
+      expect(stopIdx, `${t} 停止指示位置錯誤`).toBeGreaterThan(reportIdx)
+    }
+  })
+})
+
 describe('factory-run.yml 具備必要結構', () => {
   const content = read('.github/workflows/factory-run.yml')
   it('workflow_dispatch 輸入 issue_number 與 dry_run', () => {
