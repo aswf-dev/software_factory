@@ -147,9 +147,10 @@ export function runWorkItem(input: PipelineInput): PipelineResult {
 
   // Gate 3 — re-score against the real diff. One-way: may only escalate,
   // closing the "describe it as low risk, then change high-risk code" path.
+  // Gate 2.5 已保證 changedPaths 非 undefined，無需 ?? 預設（score 內部亦有 = [] 兜底）。
   const updatedScore = score({
     ...input.initial,
-    changedPaths: run.changedPaths ?? [],
+    changedPaths: run.changedPaths,
     changedLines: run.changedLines ?? undefined,
   })
   const finalScore = rescore(initialScore, updatedScore)
@@ -157,7 +158,7 @@ export function runWorkItem(input: PipelineInput): PipelineResult {
   // Gate 4 — stop rules see the actual behaviour, not the intent.
   const stopDecision = evaluateStopRules({
     syncFailures: run.syncFailures ?? undefined,
-    changedPaths: run.changedPaths ?? undefined,
+    changedPaths: run.changedPaths,
     triggeredHardRules: finalScore.triggeredHardRules,
     addedDependencies: run.addedDependencies ?? undefined,
     assertionDelta: run.assertionDelta ?? undefined,
