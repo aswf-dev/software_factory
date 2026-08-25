@@ -1,0 +1,20 @@
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 197-200,205-207
+src/pipeline/run-work-item-mutation.test.ts
+  h_1b119f25eaf333 23,155-195
+src/pipeline/run-work-item.ts
+  h_1b119f25eaf333 125-147
+test/e2e/work-item-flow.test.ts
+  h_1b119f25eaf333 257-261,269-271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "86132a243f774a78f1a1ef975ddc9120eec4f222",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
