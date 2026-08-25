@@ -194,13 +194,17 @@ describe('main', () => {
     expect(() => judge('bad.json', { invocation: { exitCode: 0 } })).toThrow(CliError)
   })
 
-  it('agent 只回報 invocation（選填欄位全缺）→ 仍走完流程', () => {
+  it('agent 只回報 invocation（fallback report 特徵）→ needs-human，不誤判為完成', () => {
+    // write-report.js 在 agent 被截斷時補的最小 report：只有 issueNumber + invocation，
+    // changedPaths 缺席（undefined）。這是「宣稱成功但未留下變更軌跡」的異常特徵
+    // （issue #35 實測：被判 ready-for-review 卻無任何 PR）——必須 needs-human。
     const { result } = judge('minimal.json', {
       issueNumber: 205,
       invocation: { exitCode: 0, stdout: 'DONE' },
     })
-    expect(['ready-to-automerge', 'ready-for-review']).toContain(result.outcome)
-    expect(result.stopDecision?.mustStop).toBe(false)
+    expect(result.outcome).toBe('needs-human')
+    expect(result.labels).toContain('needs-human')
+    expect(result.summary).toContain('changedPaths')
   })
 
   it('tokensUsed 超過 tokenBudget → needs-human + SR7（Q02-5 接線）', () => {

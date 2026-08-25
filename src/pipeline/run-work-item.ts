@@ -122,11 +122,35 @@ export function runWorkItem(input: PipelineInput): PipelineResult {
     }
   }
 
+  // Gate 2.5 — a run that claims success but leaves no change trace is treated
+  // as an anomaly, not as "completed with no changes" (docs/04 §4.2).
+  //
+  // `changedPaths === undefined` (absent) is the signature of the fallback
+  // report write-report.js produces when the agent was cut off (e.g. DSH stdout
+  // cap) yet the process still exited 0. Treating that as `?? []` would send a
+  // broken run to ready-for-review with nothing to review (issue #35 實測：
+  // agent 停在「Let me re-run a few times」卻被輸出 ready-for-review、無 PR）。
+  // An explicit `[]` means the agent reported "no changes" and stays valid.
+  if (run.changedPaths === undefined) {
+    return {
+      outcome: 'needs-human',
+      initialScore,
+      finalScore: initialScore,
+      dshResult,
+      stopDecision: null,
+      labels: [initialScore.label, 'needs-human'],
+      summary:
+        'agent 宣稱成功（exit 0）但未回報任何變更路徑（changedPaths 缺席）——' +
+        '疑似執行被截斷或未寫完整 report，需人類確認',
+    }
+  }
+
   // Gate 3 — re-score against the real diff. One-way: may only escalate,
   // closing the "describe it as low risk, then change high-risk code" path.
+  // Gate 2.5 已保證 changedPaths 非 undefined，無需 ?? 預設（score 內部亦有 = [] 兜底）。
   const updatedScore = score({
     ...input.initial,
-    changedPaths: run.changedPaths ?? [],
+    changedPaths: run.changedPaths,
     changedLines: run.changedLines ?? undefined,
   })
   const finalScore = rescore(initialScore, updatedScore)
@@ -134,7 +158,7 @@ export function runWorkItem(input: PipelineInput): PipelineResult {
   // Gate 4 — stop rules see the actual behaviour, not the intent.
   const stopDecision = evaluateStopRules({
     syncFailures: run.syncFailures ?? undefined,
-    changedPaths: run.changedPaths ?? undefined,
+    changedPaths: run.changedPaths,
     triggeredHardRules: finalScore.triggeredHardRules,
     addedDependencies: run.addedDependencies ?? undefined,
     assertionDelta: run.assertionDelta ?? undefined,

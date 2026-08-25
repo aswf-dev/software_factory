@@ -254,9 +254,11 @@ describe('E2E：不變量', () => {
     expect(r.dshResult?.taskVerified).toBe(false)
   })
 
-  it('agent 回報最小資訊（全部選填欄位皆缺）時仍能安全完成', () => {
-    // A minimal runner reports only the invocation. The pipeline must not crash
-    // or silently treat missing data as "nothing changed and all is well".
+  it('agent 回報最小資訊（fallback report 特徵）→ needs-human，不誤判為完成', () => {
+    // A minimal runner reports only the invocation — this is the fallback report
+    // write-report.js produces when the agent was cut off. The pipeline must not
+    // silently treat missing changedPaths as "nothing changed and all is well":
+    // that would send a broken run to ready-for-review (issue #35 實測無 PR)。
     const r = runWorkItem({
       issueNumber: 114,
       initial: LOW_RISK,
@@ -264,9 +266,9 @@ describe('E2E：不變量', () => {
     })
 
     expect(r.dshResult?.outcome).toBe('completed')
-    expect(['ready-to-automerge', 'ready-for-review']).toContain(r.outcome)
-    expect(r.stopDecision?.mustStop).toBe(false)
-    expect(r.finalScore.total).toBe(r.initialScore.total)
+    expect(r.outcome).toBe('needs-human')
+    expect(r.labels).toContain('needs-human')
+    expect(r.stopDecision).toBeNull()
   })
 
   it('stacked PR 分支命名符合 docs/07 §3.2', () => {
