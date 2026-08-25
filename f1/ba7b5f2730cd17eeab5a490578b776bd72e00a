@@ -1,0 +1,24 @@
+.github/factory/task-template-add-tests.txt
+  h_1b119f25eaf333 13
+.github/factory/task-template-fix-bug.txt
+  h_1b119f25eaf333 13
+.github/factory/task-template-update-deps.txt
+  h_1b119f25eaf333 13
+.github/factory/task-template-write-docs.txt
+  h_1b119f25eaf333 13
+.github/factory/task-template.txt
+  h_1b119f25eaf333 12
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 83-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "f1ba7b5f2730cd17eeab5a490578b776bd72e00a",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
