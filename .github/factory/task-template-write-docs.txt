@@ -10,5 +10,6 @@
 4. 依 factory-pr-stacking 拆分：01-docs 通常單層；若文件涉及多個獨立主題才拆。
 5. 文件必須與實作一致（不得描述不存在的行為）；繁體中文（repo 語言慣例）。
 6. 完成後在 Issue 留言回報 PR 編號，並依 factory-workflow 寫出 .factory/run/report.json。
+7. **完成後立即停止**：report.json 寫完即為工作項終點——不要繼續任何額外工作（重跑測試、額外驗證、自我檢查、輸出思考）。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到 50 分鐘 timeout。
 
 若觸發任何停手規則，依該規則處理後結束。
