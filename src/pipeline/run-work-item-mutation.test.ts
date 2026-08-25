@@ -20,6 +20,7 @@ import type { HardRuleId, ScoreInput } from '../scoring/types.js'
  *  | M1 | 把 no-runner guard 移到 Gate 1（in-loop）之上（閘門順序顛倒） | GREEN  | RED    |
  *  | M2 | DSH 失敗的回報標籤移除 `needs-human`（只剩 tier 標籤）        | GREEN  | RED    |
  *  | M3 | `ready-for-review` 的 summary 只保留第一個 blocker            | GREEN  | RED    |
+ *  | M4 | 移除 Gate 2.5（exit 0 + changedPaths 缺席 → needs-human）    | GREEN  | RED    |
  *
  * "Before" = pre-existing suite (test/e2e/work-item-flow.test.ts) alone;
  * "After" = the same suite plus the mutation-tests added here. M1/M2/M3 are
@@ -148,6 +149,47 @@ describe('M3 變異：ready-for-review 的 summary 只保留第一個 blocker', 
     // 兩種 blocker 都必須出現在最終 summary（M3 只留第一個 → 這裡變紅）。
     expect(r.summary).toContain('否決')
     expect(r.summary).toContain('上限')
+  })
+})
+
+describe('M4 變異：exit 0 但 changedPaths 缺席（fallback report）必須 needs-human', () => {
+  /**
+   * Agent 被截斷（DSH stdout 上限中斷）但 process 以 exit 0 結束時，CI 的
+   * write-report.js 會補一份「最小 report」——只有 issueNumber + invocation，
+   * changedPaths 缺席（undefined，不是空陣列 []）。
+   *
+   * 這份 fallback report 的特徵就是「宣稱成功但未留下任何變更軌跡」。若 pipeline
+   * 把 `changedPaths ?? []` 當空變更一路放行，會把一次壞掉的執行判成
+   * ready-for-review（issue #35 實測：agent 停在「Let me re-run a few times」，
+   * 卻被輸出 ready-for-review、無任何 PR）。
+   *
+   * write-report.ts 的 docstring 明說 fallback 的目的是「使 factory-judge 仍能
+   * 走完 needs-human 判定」——但現行 pipeline 對 exit 0 + 缺 changedPaths 判了
+   * ready-for-review，與設計意圖矛盾。本測試釘住：must be needs-human。
+   *
+   * Mutation: 把 `changedPaths === undefined` 檢查移除（或改回 ?? [] 放行）→ RED。
+   */
+  it('exit 0 + changedPaths 缺席 → needs-human（不得 ready-for-review）', () => {
+    const r = runWorkItem({
+      issueNumber: 35,
+      initial: LOW_RISK,
+      runAgent: () => ({ invocation: { exitCode: 0, stdout: 'DONE', stderr: '' } }),
+    })
+
+    expect(r.outcome).toBe('needs-human')
+    expect(r.labels).toContain('needs-human')
+    // 與「明確回報無變更（[]）」區分——缺席是異常，不是合法空變更
+    expect(r.summary).toContain('changedPaths')
+  })
+
+  it('對照組：exit 0 + changedPaths 明確為 []（無變更）→ 不落入 needs-human（M4 不誤傷）', () => {
+    const r = runWorkItem({
+      issueNumber: 36,
+      initial: LOW_RISK,
+      runAgent: () => ({ invocation: { exitCode: 0, stdout: 'DONE', stderr: '' }, changedPaths: [] }),
+    })
+    // 空陣列是 agent 明確回報「無變更」——仍走正常 pipeline（此情境計分 0 → automerge）
+    expect(r.outcome).not.toBe('needs-human')
   })
 })
 
