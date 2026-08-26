@@ -1,0 +1,20 @@
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 454-494
+docs/06-human-oversight-policy.md
+  h_1b119f25eaf333 245
+docs/10-open-questions.md
+  h_1b119f25eaf333 151
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 1-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "12fd572f98da4827ac77cea80a94a639d01080e0",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
