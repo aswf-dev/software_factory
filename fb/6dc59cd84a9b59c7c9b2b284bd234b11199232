@@ -1,0 +1,14 @@
+.github/workflows/quint-verify.yml
+  h_1b119f25eaf333 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "fb6dc59cd84a9b59c7c9b2b284bd234b11199232",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
