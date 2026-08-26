@@ -47,6 +47,20 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // Model-tier routing decides which LLM a work item uses (cost/capability,
+        // docs/ADR/011); an untested branch is an unverified routing decision.
+        'src/model-tier/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
+        'src/issue-analysis/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
       },
     },
   },
