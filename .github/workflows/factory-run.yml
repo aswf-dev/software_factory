@@ -39,12 +39,18 @@ on:
         type: choice
         options: [success, blocked, guardrail]
         default: success
-      model_provider:
-        description: 模型 provider（預設 deepseek；失敗自動依 qwen→anthropic fallback，Q04-8）
+      model_tier:
+        description: 模型 tier（auto＝依 Issue 複雜度自動選擇；low/medium→deepseek-v4-flash、high→deepseek-v4-pro、critical→claude-fable-5，ADR-011）
         required: false
         type: choice
-        options: [deepseek, qwen, anthropic]
-        default: deepseek
+        options: [auto, low, medium, high, critical]
+        default: auto
+      model_provider:
+        description: 模型 provider 偏好（auto＝不偏好；非 auto 時該 provider 置於 chain 前，失敗仍依 chain fallback，Q04-8/ADR-011）
+        required: false
+        type: choice
+        options: [auto, deepseek, qwen, anthropic]
+        default: auto
       token_budget:
         description: 單一工作項 token 上限（0 = 不設限，Q02-5 待基線校準後設定實際值）
         required: false
@@ -244,6 +250,28 @@ jobs:
         run: |
           echo "blocked-in-loop; agent 未啟動（docs/06 §4.3）"
 
+      # Step 2.5 — 模型 tier 選擇（docs/ADR/011, docs/04 §7）。
+      # 以「Issue 需求分析（零 LLM 成本）＋初始計分」決定 model chain；agent 步驟
+      # 沿 chain 依序嘗試（provider 層失敗 fallback）。dry_run 也執行以驗證接線。
+      - name: Select model tier
+        id: model
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          mkdir -p .factory
+          gh issue view "${{ inputs.issue_number }}" --json body > .factory/issue.json
+          node dist/cli/factory-model.js \
+            --issue .factory/issue.json \
+            --score .factory/score.json \
+            --tiers config/dsh/model-tiers.yaml \
+            --providers config/dsh/settings.providers.yaml \
+            --tier "${{ inputs.model_tier }}" \
+            --provider "${{ inputs.model_provider }}" \
+            > .factory/model.json
+          cat .factory/model.json
+          echo "model tier selected: $(jq -r .tier .factory/model.json) ($(jq -r .complexitySource .factory/model.json))"
+
       # Step 3 — 執行 agent（DSH headless，受限沙箱；或 dry-run stub）。
       # agent 的工作目錄 = target/（目標 repo）；機制（node_modules/dist/config）
       # 在根目錄以絕對路徑引用。
@@ -288,22 +316,21 @@ jobs:
             # 再進入目標 repo 工作目錄（其餘路徑以 $GITHUB_WORKSPACE 絕對引用）
             cd target
             mkdir -p "$HOME/.dsh"
-            # 模型 failover 鏈（Q04-8）：預設 deepseek → qwen → anthropic。
-            # 先放使用者選的 provider，再依固定優先序補其餘（去重）。
-            CHAIN="${{ inputs.model_provider }}"
-            for P in deepseek qwen anthropic; do
-              case " $CHAIN " in *" $P "*) ;; *) CHAIN="$CHAIN $P" ;; esac
-            done
-            for P in $CHAIN; do
-              case "$P" in
-                deepseek) MODEL="deepseek-v4-flash" ;;
-                qwen)     MODEL="qwen3.7-flash" ;;
-                *)        MODEL="claude-sonnet-4-5" ;;
-              esac
+            # 模型 tier 路由（ADR-011）：chain 來自「Select model tier」步驟的
+            # model.json（primary + fallback）。每項重寫 agent-default-model 後跑 dsh；
+            # provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback。
+            while IFS= read -r ENTRY; do
+              [ -z "$ENTRY" ] && continue
+              P=$(printf '%s' "$ENTRY" | jq -r .provider)
+              MODEL=$(printf '%s' "$ENTRY" | jq -r .model)
+              EFFORT=$(printf '%s' "$ENTRY" | jq -r '.reasoningEffort // empty')
               cp "$GITHUB_WORKSPACE/config/dsh/settings.providers.yaml" "$HOME/.dsh/settings.yaml"
-              printf 'agent-default-model:\n  provider: %s\n  model: %s\n' \
-                "$P" "$MODEL" >> "$HOME/.dsh/settings.yaml"
-              echo "trying model routing: $P/$MODEL"
+              {
+                printf 'agent-default-model:\n  provider: %s\n  model: %s\n' \
+                  "$P" "$MODEL"
+                [ -n "$EFFORT" ] && printf '  reasoningEffort: %s\n' "$EFFORT"
+              } >> "$HOME/.dsh/settings.yaml"
+              echo "trying model routing: $P/$MODEL${EFFORT:+ (effort=$EFFORT)}"
               # 依 task_type 選模板（優先目標 repo 的模板，fallback 到機制 repo）
               # 檔名慣例為 task-template-<type>.txt（type 無 agent- 前綴，
               # docs/09 §3 2.1）；TASK_TYPE 帶 agent- 前綴，故剝除後再拼檔名。
@@ -331,7 +358,7 @@ jobs:
               if ! grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL" .factory/run/stderr.txt; then
                 break
               fi
-            done
+            done < <(jq -c '.chain[]' "$GITHUB_WORKSPACE/.factory/model.json")
           fi
           set -e
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
@@ -397,4 +424,6 @@ jobs:
           name: factory-run-${{ inputs.issue_number }}
           path: |
             target/.factory/run/
+            .factory/model.json
+            .factory/issue.json
           if-no-files-found: ignore

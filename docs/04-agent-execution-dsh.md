@@ -454,6 +454,47 @@ concurrency:
 
 ---
 
+## 7. 模型分級路由（Model Tier Routing，ADR-011）
+
+### 7.1 現況與動機
+
+第 1 期的模型選擇是固定映射：`model_provider` input 決定 provider，每種 provider 對應單一 model（預設 `deepseek-v4-flash`）。**所有 Issue 一律同一顆模型，與難度無關。**
+
+ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
+
+| tier | primary（用戶優先序） | fallback（品質擔保，正常不走） |
+|---|---|---|
+| low / medium | deepseek-v4-flash | qwen3.7-flash |
+| high | deepseek-v4-pro | claude-sonnet-5 → qwen3.7-flash |
+| critical | **claude-fable-5**（只有最高 tier 才用） | claude-opus-4-5 → deepseek-v4-pro → qwen3.7-flash |
+
+模型 id 來自 pi-ai catalog（定價見 `docs/ADR/011`）；tier→chain 政策宣告於 `config/dsh/model-tiers.yaml`（版控、CODEOWNERS 保護、可調校）。
+
+### 7.2 複雜度訊號（零 LLM 成本）
+
+`src/issue-analysis/complexity.ts` 把 docs/06 §3.3 的判準機械化（scope 關鍵字、目標檔案/模組數、風險關鍵字），讀 Issue body 的任務類型＋需求文字。解析順序（`src/model-tier/resolve.ts`）：
+
+```
+手動 --tier ＞ Issue 需求分析 ＞ catalog（factory.io/complexity）＞ fail-safe high
+```
+
+critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動）。**fail-safe 方向為 high**（deepseek-v4-pro）：不可知 ⇒ 不降級，也不誤燒 fable 旗艦成本。
+
+### 7.3 接線（factory-run.yml）
+
+1. **Select model tier 步驟**（Initial score 後、agent 前；零 LLM 成本）：`gh issue view --json body` → `factory-model` CLI → `.factory/model.json`（含 `tier`/`reason`/`chain`）。
+2. **agent 步驟**：以 `jq -c '.chain[]'` 迭代 chain，每項把 `agent-default-model: {provider, model[, reasoningEffort]}` 寫入 `$HOME/.dsh/settings.yaml` 後跑 dsh。**provider 層失敗**（`RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL`）沿 chain fallback；**任務層失敗不重試**（§4.2 不變）。
+3. **factory-issue-check 留言**同步回報：格式合規 ＋ 📊 複雜度分析（等級＋判據）＋ 🤖 建議模型（tier＋primary＋fallback）。留言建議與實際路由共用同一解析核心，永不打架。
+
+### 7.4 手動覆寫
+
+- `model_tier`（auto/low/medium/high/critical，預設 auto）：直接指定 tier；
+- `model_provider`（auto/deepseek/qwen/anthropic，預設 auto）：偏好 provider，chain 內該 provider 置前、其餘依序，失敗仍沿 chain fallback。
+
+> **誠實揭露**：啟發式分析是粗略近似（Q06-2 已知）；誤判由「留言展示判據給人看＋`model_tier` 覆寫」緩解。`deepseek-v4-pro ≈ opus/sonnet 等級` 為待 A/B 驗證假設。
+
+---
+
 ## 未決事項
 
 | 編號 | 事項 | 影響 | 處置 |

@@ -1,0 +1,49 @@
+# DSH 模型分級路由政策（docs/ADR/011、docs/04 §7）。
+#
+# 依 Issue 複雜度選擇模型 tier（低/中 → deepseek-v4-flash、高 → deepseek-v4-pro、
+# 只有最高 critical → claude-fable-5）。每個 tier 的 primary 為首選，fallback
+# 僅在 provider 層失敗（429/credential/UNKNOWN_MODEL）時依序嘗試；任務層失敗
+# 不重試（docs/02 §6）。
+#
+# 由 factory-model CLI 讀取（--tiers），並與 config/dsh/settings.providers.yaml
+# 的 provider 宣告互相驗證（對抗性測試釘住：本檔 provider 必須是已宣告 route）。
+# 模型 id 來自 pi-ai catalog（2026-08 查證）；定價（USD/MTok input/output）：
+#   deepseek-v4-flash $0.14/0.28、deepseek-v4-pro $0.435/0.87、
+#   claude-sonnet-5 $2/10、claude-opus-4-5 $5/25、claude-fable-5 $10/50、
+#   qwen3.7-flash（DashScope 手動 route）。
+tiers:
+  low:
+    primary:
+      provider: deepseek
+      model: deepseek-v4-flash
+    fallback:
+      - provider: qwen
+        model: qwen3.7-flash
+  medium:
+    primary:
+      provider: deepseek
+      model: deepseek-v4-flash
+    fallback:
+      - provider: qwen
+        model: qwen3.7-flash
+  high:
+    primary:
+      provider: deepseek
+      model: deepseek-v4-pro
+    fallback:
+      - provider: anthropic
+        model: claude-sonnet-5
+      - provider: qwen
+        model: qwen3.7-flash
+  critical:
+    # 用戶優先序：只有最高 tier 才使用 claude-fable-5。
+    primary:
+      provider: anthropic
+      model: claude-fable-5
+    fallback:
+      - provider: anthropic
+        model: claude-opus-4-5
+      - provider: deepseek
+        model: deepseek-v4-pro
+      - provider: qwen
+        model: qwen3.7-flash
