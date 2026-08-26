@@ -1,0 +1,32 @@
+.github/workflows/factory-issue-check.yml
+  h_1b119f25eaf333 49-50
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 42-47,49,52-53,253-274,319-326,328-333,361,427-428
+config/dsh/model-tiers.yaml
+  h_1b119f25eaf333 1-49
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 11,92-101,106,140-183,187,196-197
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 2-3,10-13,15,20-27,58-67,97,101-105,109-136,138-139,142,152-188,193,202-214
+src/cli/factory-model-mutation.test.ts
+  h_1b119f25eaf333 1-150
+src/cli/factory-model.test.ts
+  h_1b119f25eaf333 1-260
+src/cli/factory-model.ts
+  h_1b119f25eaf333 1-144
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 528-607
+test/integration/factory-model-cli.test.ts
+  h_1b119f25eaf333 1-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d1cfb9152c7f27a60901df584fb1a56b7c102258",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
