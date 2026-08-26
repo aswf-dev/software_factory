@@ -1,0 +1,22 @@
+src/issue-analysis/complexity.test.ts
+  h_1b119f25eaf333 1-110
+src/issue-analysis/complexity.ts
+  h_1b119f25eaf333 1-170
+src/model-tier/resolve.test.ts
+  h_1b119f25eaf333 1-342
+src/model-tier/resolve.ts
+  h_1b119f25eaf333 1-267
+vitest.config.ts
+  h_1b119f25eaf333 50-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d7634361ad9c06327df561aac90cebb1571ea599",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
