@@ -33,4 +33,4 @@ metadata:
 spec:
   type: service
   lifecycle: experimental
-  owner: user:philipz
+  owner: group:default/factory-team
