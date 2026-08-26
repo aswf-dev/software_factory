@@ -46,6 +46,8 @@ jobs:
           mkdir -p .factory
           node dist/cli/factory-issue-check.js \
             "${{ github.event.issue.number }}" \
+            --tiers config/dsh/model-tiers.yaml \
+            --providers config/dsh/settings.providers.yaml \
             > .factory/issue-check.txt 2>&1 || true
           cat .factory/issue-check.txt
           gh issue comment "${{ github.event.issue.number }}" \

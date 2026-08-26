@@ -8,6 +8,7 @@ import {
   extractField,
   hasCheckedAcceptance,
   main,
+  parseCheckArgs,
 } from './factory-issue-check.js'
 
 const COMPLIANT = [
@@ -88,11 +89,21 @@ describe('checkIssue', () => {
     expect(r.missing).toEqual([])
     expect(r.taskType).toBe('agent-add-tests')
   })
-  it('缺需求 → missing requirement', () => {
+  it('回傳複雜度分析（需求文字無 scope 訊號 → low）', () => {
+    const r = checkIssue(COMPLIANT)
+    expect(r.analysis.complexity).toBe('low')
+    expect(r.analysis.evidence.length).toBeGreaterThan(0)
+  })
+  it('需求含跨模組 → 分析 medium', () => {
+    const body = COMPLIANT.replace('為 X 補測試', '跨模組的需求，動多個檔案')
+    expect(checkIssue(body).analysis.complexity).toBe('medium')
+  })
+  it('缺需求 → missing requirement，分析 fail-safe high', () => {
     const body = COMPLIANT.replace('### 需求描述（PRD）\n\n為 X 補測試\n\n', '')
     const r = checkIssue(body)
     expect(r.ok).toBe(false)
     expect(r.missing).toContain('requirement')
+    expect(r.analysis.complexity).toBe('high')
   })
   it('缺任務類型 → missing task_type', () => {
     const body = COMPLIANT.replace('### 任務類型\n\nagent-add-tests\n\n', '')
@@ -126,10 +137,54 @@ describe('buildCheckComment', () => {
     expect(c).toContain('requirement')
     expect(c).toContain('acceptance')
   })
+  it('留言包含複雜度分析行（即使格式不合規）', () => {
+    expect(buildCheckComment(checkIssue(COMPLIANT))).toContain('📊 **複雜度分析**')
+    expect(buildCheckComment(checkIssue(COMPLIANT))).toContain('low')
+    expect(buildCheckComment(checkIssue('x'))).toContain('📊 **複雜度分析**')
+    expect(buildCheckComment(checkIssue('x'))).toContain('high')
+  })
+  it('有建議模型時 → 🤖 行含 tier、primary 與 fallback', () => {
+    const r = checkIssue(COMPLIANT)
+    const c = buildCheckComment(r, {
+      tier: 'low',
+      selected: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      chain: [
+        { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        { provider: 'qwen', model: 'qwen3.7-flash' },
+      ],
+      reason: 'Issue 需求分析：low',
+    })
+    expect(c).toContain('🤖 **建議模型**')
+    expect(c).toContain('deepseek/deepseek-v4-flash')
+    expect(c).toContain('low tier')
+    expect(c).toContain('qwen/qwen3.7-flash')
+  })
+  it('無建議模型 → 不出 🤖 行', () => {
+    expect(buildCheckComment(checkIssue(COMPLIANT))).not.toContain('🤖')
+  })
+})
+
+describe('parseCheckArgs', () => {
+  it('positional issueNumber + --tiers/--providers 旗標', () => {
+    const { issueNumber, paths } = parseCheckArgs(['12', '--tiers', 't.yaml', '--providers', 'p.yaml'])
+    expect(issueNumber).toBe('12')
+    expect(paths).toEqual({ tiersPath: 't.yaml', providersPath: 'p.yaml' })
+  })
+  it('無旗標 → 預設路徑', () => {
+    const { paths } = parseCheckArgs(['12'])
+    expect(paths.tiersPath).toBe('config/dsh/model-tiers.yaml')
+    expect(paths.providersPath).toBe('config/dsh/settings.providers.yaml')
+  })
+  it('缺旗標值 → CliError', () => {
+    expect(() => parseCheckArgs(['12', '--tiers'])).toThrow()
+  })
+  it('未知參數 → CliError', () => {
+    expect(() => parseCheckArgs(['12', 'extra'])).toThrow()
+  })
 })
 
 describe('main（注入 fake gh）', () => {
-  it('讀 issue body 並回傳檢查結果與留言', () => {
+  it('讀 issue body 並回傳檢查結果與留言（含分析與建議模型）', () => {
     const gh = (args: string[]): string => {
       expect(args[0]).toBe('issue')
       expect(args[1]).toBe('view')
@@ -138,6 +193,8 @@ describe('main（注入 fake gh）', () => {
     const out = main(['12'], gh)
     expect(out.result.ok).toBe(true)
     expect(out.comment).toContain('格式合規')
+    expect(out.comment).toContain('📊 **複雜度分析**')
+    expect(out.comment).toContain('🤖 **建議模型**')
   })
   it('缺 issueNumber → CliError', () => {
     const gh = (): string => {

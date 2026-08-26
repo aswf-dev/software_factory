@@ -525,3 +525,83 @@ describe('factory-draft 防呆契約（2026-08-22：無限轉圈教訓）', () =
     expect(field).toContain('LLM 回應逾時，請重試')
   })
 })
+
+describe('模型分級路由契約（docs/ADR/011）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  interface TierShape {
+    primary: { provider: string; model: string }
+    fallback: { provider: string; model: string }[]
+  }
+  const tiers = (
+    load(read('config/dsh/model-tiers.yaml')) as {
+      tiers: { low: TierShape; medium: TierShape; high: TierShape; critical?: TierShape }
+    }
+  ).tiers
+  const providers = Object.keys(
+    (load(read('config/dsh/settings.providers.yaml')) as {
+      'llm-pi-ai': { providers: Record<string, unknown> }
+    })['llm-pi-ai'].providers,
+  )
+
+  it('用戶模型優先序：low/medium=flash、high=pro、只有 critical=fable', () => {
+    expect(tiers.low.primary.model).toBe('deepseek-v4-flash')
+    expect(tiers.medium.primary.model).toBe('deepseek-v4-flash')
+    expect(tiers.high.primary.model).toBe('deepseek-v4-pro')
+    expect(tiers.critical).toBeDefined() // critical tier 必備（fable 的唯一出口）
+    expect(tiers.critical?.primary.model).toBe('claude-fable-5')
+    expect(tiers.critical?.primary.provider).toBe('anthropic')
+  })
+
+  it('fable 只出現在 critical tier（其餘 tier 不得引用）', () => {
+    for (const [id, t] of Object.entries(tiers)) {
+      const models = [t.primary, ...t.fallback].map((e) => e.model)
+      if (id === 'critical') {
+        expect(models).toContain('claude-fable-5')
+      } else {
+        expect(models).not.toContain('claude-fable-5')
+        expect(models).not.toContain('claude-opus-4-5') // opus 為 critical 的品質擔保，不提前動用
+      }
+    }
+  })
+
+  it('每個 tier 有 primary 與非空 fallback（provider 層失敗必須可 fallback）', () => {
+    for (const [id, t] of Object.entries(tiers)) {
+      expect(t.primary.model, `tier ${id}`).toBeTruthy()
+      expect(t.fallback.length, `tier ${id} fallback`).toBeGreaterThan(0)
+    }
+  })
+
+  it('chain 引用的 provider 全部已宣告於 settings.providers.yaml', () => {
+    for (const [id, t] of Object.entries(tiers)) {
+      for (const e of [t.primary, ...t.fallback]) {
+        expect(providers, `tier ${id} provider ${e.provider}`).toContain(e.provider)
+      }
+    }
+  })
+
+  it('factory-run.yml：Select model tier 步驟與 chain 迴圈接線', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('model_tier')
+    expect(c).toContain('default: auto')
+    expect(c).toContain('dist/cli/factory-model.js')
+    expect(c).toContain('.factory/model.json')
+    expect(c).toContain('agent-default-model')
+    expect(c).toContain('jq -c \'.chain[]\'')
+    expect(c).toContain('Select model tier')
+  })
+
+  it('factory-issue-check.yml 傳 --tiers/--providers（留言含建議模型）', () => {
+    const c = read('.github/workflows/factory-issue-check.yml')
+    expect(c).toContain('dist/cli/factory-issue-check.js')
+    expect(c).toContain('--tiers config/dsh/model-tiers.yaml')
+    expect(c).toContain('--providers config/dsh/settings.providers.yaml')
+  })
+
+  it('factory-issue-check 留言含複雜度分析與建議模型行（ADR-011）', () => {
+    const src = read('src/cli/factory-issue-check.ts')
+    expect(src).toContain('📊 **複雜度分析**')
+    expect(src).toContain('🤖 **建議模型**')
+    expect(src).toContain('analyzeComplexity')
+    expect(src).toContain('resolveModelTier')
+  })
+})
