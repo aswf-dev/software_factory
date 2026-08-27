@@ -4,6 +4,8 @@ name: Quint Verify
 
 on:
   pull_request:
+  # 與 test.yml 一致：手動 dispatch 可為「跳過 CI 的 docs-only PR」或合併後 main 補上 required check
+  workflow_dispatch:
 
 permissions:
   contents: read

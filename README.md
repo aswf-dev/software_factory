@@ -30,6 +30,7 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/10-open-questions.md`](docs/10-open-questions.md) | 待驗證假設與待裁決事項 |
 | [`docs/11-test-strategy.md`](docs/11-test-strategy.md) | 測試框架與測試計畫（第 0 期核心交付） |
 | [`docs/12-repo-settings-guide.md`](docs/12-repo-settings-guide.md) | GitHub repo 設定指引（分支保護、required checks） |
+| [`docs/17-backstage-rebuild.md`](docs/17-backstage-rebuild.md) | Backstage 重建手冊（新機器 / 雲端 VM 重新安裝） |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
 | [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
 

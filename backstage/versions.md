@@ -55,3 +55,18 @@
 # - 修正：router 全部端點包 try/catch（失敗一律回 500）；callDeepSeek 加 90 秒
 #   AbortController 逾時 + 空回應記錄 finish_reason/原始摘要；前端 post() 加 120 秒
 #   逾時 + busy 提示「正在呼叫 LLM（可能需 20–60 秒）」。
+
+# 2026-08-26 更新（PR Board + Roadmap + 持久化 + 版控）
+# - 新增插件鎖版（與 Backstage 1.53.0 套件集逐一核對相容）：
+#   @backstage-community/plugin-github-pull-requests-board@1.3.1（frontend，/alpha）
+#   @rothenbergt/backstage-plugin-roadmap@2.3.0（frontend，自動發現）
+#   @rothenbergt/backstage-plugin-roadmap-backend@1.0.1（backend，backend.add 註冊）
+# - DB 持久化：backend.database.connection 用 `directory: ./backstage-db`
+#   （Backstage 1.53 基底連線**不接受檔案路徑字串**，實測 error
+#   `connection.filename is not supported`；每個 plugin 產生 <pluginId>.sqlite）。
+# - roadmap.adminUsers: group:default/factory-team（通知收件人；權限為 allow-all）。
+# - Roadmap 的 page 擴充未設 title → 不會自動產生 sidebar nav item，
+#   需在 packages/app/src/modules/nav/Sidebar.tsx 手動加 SidebarItem。
+# - backstage-app 已入版控（獨立 repo，D1 不變：不入 software_factory repo）：
+#   https://github.com/philipz/backstage-app（main = 現況；不含 node_modules/.env/backstage-db/dsh）。
+# - 重建指引：docs/17-backstage-rebuild.md（路徑 B：clone；路徑 A：create-app 逐項套用）。
