@@ -1,0 +1,16 @@
+config/dsh/settings.providers.yaml
+  h_1b119f25eaf333 10-14,22,25
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 616-624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "90fdcd58badbd5a817592fea0ab0ebcb23292e3f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
