@@ -20,7 +20,7 @@
 **agent 的產出組織為一疊有序的小 PR**，而非單一大 PR。標準序列由底而頂為：
 
 ```
-trunk (main)
+trunk (software-factory)
   └── 01-test    測試/契約先行
         └── 02-impl    實作
               └── 03-docs    文件

@@ -37,7 +37,7 @@ spec:
           title: 目標 repo 的 factory trunk 分支
           type: string
           default: software-factory
-          description: 試點 repo 用 software-factory（Q-P2-1：main 絕不觸碰）
+          description: 統一（ADR-013）：所有 repo 的 factory trunk 皆為 software-factory 分支，main 絕不觸碰（Q-P2-1）；含機制 repo 自身
   steps:
     - id: dispatch
       name: 觸發工廠工作流
