@@ -1,0 +1,32 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 27,30,77-82,84-91
+.github/workflows/test.yml
+  h_1b119f25eaf333 11-13
+backstage/templates/agent-add-tests/template.yaml
+  h_1b119f25eaf333 40
+backstage/templates/factory-work-item/template.yaml
+  h_1b119f25eaf333 77
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 45
+docs/09-roadmap.md
+  h_1b119f25eaf333 126
+docs/10-open-questions.md
+  h_1b119f25eaf333 149
+docs/ADR/003-stacked-pr.md
+  h_1b119f25eaf333 23
+docs/ADR/013-trunk-unification-software-factory.md
+  h_1b119f25eaf333 1-44
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 143,145,149,151,155-161,437-452
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e59ee1c9b88a96df85f5dbf46b357d2c03850fce",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
