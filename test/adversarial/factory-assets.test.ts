@@ -624,6 +624,13 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(c).toContain('Select model tier')
   })
 
+  it('chain fallback 涵蓋 credential 錯誤（AUTH/401/invalid_api_key，#171 實測壞 key 未 fallback）', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    for (const token of ['RATE_LIMIT', '429', 'MISSING_CREDENTIAL', 'UNKNOWN_MODEL', 'AUTH', '401', 'INVALID_CREDENTIAL', 'invalid_api_key']) {
+      expect(c, `fallback 條件缺 ${token}`).toContain(token)
+    }
+  })
+
   it('factory-issue-check.yml 傳 --tiers/--providers（留言含建議模型）', () => {
     const c = read('.github/workflows/factory-issue-check.yml')
     expect(c).toContain('dist/cli/factory-issue-check.js')

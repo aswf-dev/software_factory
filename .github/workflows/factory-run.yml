@@ -392,9 +392,11 @@ jobs:
               code=$?
               echo "provider=$P exit=$code"
               if [ "$code" -eq 0 ]; then break; fi
-              # 僅 provider 層失敗才 fallback（429/credential/model）；
+              # 僅 provider 層失敗才 fallback（rate limit/credential/model）；
               # 任務層失敗（非上述錯誤）不重試（docs/02 §6）。
-              if ! grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL" .factory/run/stderr.txt; then
+              # 含 AUTH/401/invalid_api_key：壞 key 也屬 credential 層失敗，應沿 chain
+              # fallback（2026-08-28 #171 實測：qwen key 401 直接 needs-human，未 fallback）。
+              if ! grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL|AUTH|401|INVALID_CREDENTIAL|invalid_api_key" .factory/run/stderr.txt; then
                 break
               fi
             done < <(jq -c '.chain[]' "$GITHUB_WORKSPACE/.factory/model.json")
