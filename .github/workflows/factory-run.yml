@@ -137,6 +137,31 @@ jobs:
           gh label create "ready"              --color "0e8a16" --force
           echo "factory labels ensured ($GH_REPO)"
 
+      # 集中式 Issue 格式檢查（ADR-012）：檢查邏輯只存在機制 repo（dist CLI），
+      # 目標 repo 不再複製 factory-issue-check.yml——每次 dispatch 在此執行一次，
+      # 留言含「格式合規＋複雜度分析＋建議模型」三行（ADR-011），不合規即紅燈停派。
+      # 目標 repo 的舊副本已刪除（DRIFT-ELIMINATION）；此步驟取代它。
+      - name: Check issue format (central enforcement)
+        env:
+          # gh 在 Actions 不會自動用 GITHUB_TOKEN——需顯式傳（2026-08-19 實測）
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          mkdir -p .factory
+          node dist/cli/factory-issue-check.js \
+            "${{ inputs.issue_number }}" \
+            --tiers config/dsh/model-tiers.yaml \
+            --providers config/dsh/settings.providers.yaml \
+            > .factory/issue-check.txt 2>&1 || true
+          cat .factory/issue-check.txt
+          gh issue comment "${{ inputs.issue_number }}" --body-file .factory/issue-check.txt
+          # 不合規 → exit 1（紅燈停派；與機制 repo 自身 factory-issue-check 同語意）
+          if grep -q '格式不合規' .factory/issue-check.txt; then
+            echo "::error::Issue 格式不合規（factory-issue-check）——停止派工，請依留言修正後重新 dispatch"
+            exit 1
+          fi
+          echo "格式合規"
+
       # DSH 的 sandbox 不會把 GH_TOKEN 傳進 agent 的 process 環境（實測：
       # step 層的 gh 可用 App token，但 agent 內的 gh 看不到任何 token）。
       # 故把短效 installation token 寫入目標 repo 的 workspace（gitignored、
@@ -316,6 +341,12 @@ jobs:
             # 再進入目標 repo 工作目錄（其餘路徑以 $GITHUB_WORKSPACE 絕對引用）
             cd target
             mkdir -p "$HOME/.dsh"
+            # 共享 skills root（ADR-012）：factory skills 單一事實來源在機制 repo，
+            # 目標 repo 不再複製 .dsh/skills（DRIFT-ELIMINATION）——同步到
+            # $HOME/.dsh/skills（DSH rank 400 user-dsh）供 agent 載入。
+            mkdir -p "$HOME/.dsh/skills"
+            cp -r "$GITHUB_WORKSPACE/.dsh/skills/." "$HOME/.dsh/skills/"
+            echo "skills synced: $(ls "$HOME/.dsh/skills" | tr '\n' ' ')"
             # 模型 tier 路由（ADR-011）：chain 來自「Select model tier」步驟的
             # model.json（primary + fallback）。每項重寫 agent-default-model 後跑 dsh；
             # provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback。
