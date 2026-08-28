@@ -79,7 +79,7 @@ describe('factory-model 實機執行', () => {
     ])
   })
 
-  it('高複雜度 + total=4 → critical（claude-fable-5，用戶優先序）', () => {
+  it('高複雜度 + total=4 → critical（claude-opus-5，fable-5 已移除）', () => {
     const issue = fixture('high.json', issueJson('跨服務架構變更，含授權邏輯'))
     const score = fixture('score4.json', scoreJson(4))
     const { status, stdout } = runCli(cliPath, [
@@ -95,7 +95,7 @@ describe('factory-model 實機執行', () => {
     expect(status).toBe(0)
     const out = JSON.parse(stdout)
     expect(out.tier).toBe('critical')
-    expect(out.chain[0].model).toBe('claude-fable-5')
+    expect(out.chain[0].model).toBe('claude-opus-5')
     expect(out.reason).toContain('critical')
   })
 

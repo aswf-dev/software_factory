@@ -29,8 +29,8 @@ function tiersYaml(): string {
     '    primary: { provider: deepseek, model: deepseek-v4-pro }',
     '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }, { provider: qwen, model: qwen3.7-flash }]',
     '  critical:',
-    '    primary: { provider: anthropic, model: claude-fable-5 }',
-    '    fallback: [{ provider: anthropic, model: claude-opus-4-5 }]',
+    '    primary: { provider: anthropic, model: claude-opus-5 }',
+    '    fallback: [{ provider: deepseek, model: deepseek-v4-pro }]',
     '',
   ].join('\n')
 }
@@ -141,7 +141,7 @@ describe('main — 自動解析', () => {
     expect(r.chain[0]).toEqual({ provider: 'deepseek', model: 'deepseek-v4-flash' })
   })
 
-  it('Issue 分析 high + score total=4 → critical（claude-fable-5）', () => {
+  it('Issue 分析 high + score total=4 → critical（claude-opus-5）', () => {
     const issue = fixture('high.json', issueJson('跨服務架構變更，含授權邏輯'))
     const score = fixture('score4.json', scoreJson('high', 4))
     const r = main([
@@ -155,8 +155,8 @@ describe('main — 自動解析', () => {
       providersPath,
     ])
     expect(r.tier).toBe('critical')
-    expect(r.selected.model).toBe('claude-fable-5')
-    expect(r.chain.map((e) => e.model)).toEqual(['claude-fable-5', 'claude-opus-4-5'])
+    expect(r.selected.model).toBe('claude-opus-5')
+    expect(r.chain.map((e) => e.model)).toEqual(['claude-opus-5', 'deepseek-v4-pro'])
   })
 
   it('無 --issue → catalog fallback（medium → medium tier）', () => {
@@ -206,7 +206,7 @@ describe('main — 手動覆寫與偏好 provider', () => {
     ])
     expect(r.tier).toBe('critical')
     expect(r.complexitySource).toBe('manual')
-    expect(r.selected.model).toBe('claude-fable-5')
+    expect(r.selected.model).toBe('claude-opus-5')
   })
 
   it('--provider anthropic → chain 內 anthropic 置前', () => {

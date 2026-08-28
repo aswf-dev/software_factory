@@ -148,7 +148,7 @@
 | **Q12-5** | 線上 ruleset 的 required check 只有 `test`，**缺 `quint-verify`**（repo 內 JSON 有，未套用） | `12` Q12-1 實例 | ⚠️ 待以 `gh api` 套用 |
 | **Q-P2-1** | **第二試點 repo 選擇與安全約束**（2026-08-18 裁決） | `09` §2.2 | ✅ **已裁決並實證**：`philipz/fubon-tradingbot`；**絕不觸碰其 main**——工廠 trunk 用另開的 `software-factory` 分支；workflow 以 `base_branch` input 明確指定（T4）；非試點 repo 的 `base_branch` 不得為 main（Guard step + 對抗性測試強制）。**試點 #1–#3 全程 main SHA 前後一致**（`d01aed8d...`）|
 | **Q04-9** | 分支命名與 `--draft` 紀律能否在真實試跑維持 | 試跑 | ✅ **已驗證並修正**（試點 #2/#3）：試點 #2 產出 `factory-569-01-test`（dash）——根因是 **skill 教的 `--numbered/--prefix` 在 gh-stack v0.1.0 不存在**（Q07-2 更正），agent 被迫自創；修正 skill 為 positional 後，試點 #3 產出 `factory/571-01-test`（slash）**紀律維持**。`--draft` 禁令未見違反（PR 皆非 draft）|
-| **Q04-10** | 依 Issue 複雜度分級路由 LLM 模型（低/中→flash、高→pro、最高→fable；檢查留言含複雜度分析＋建議模型） | `ADR/011` | ✅ **已實作（2026-08-25）**：`src/issue-analysis/complexity.ts`（啟發式分析）＋`src/model-tier/resolve.ts`（解析核心）＋`src/cli/factory-model.ts`（選模 CLI）＋`config/dsh/model-tiers.yaml`（tier→chain 政策）；`factory-run.yml` 新增 Select model tier 步驟並以 chain 迭代取代固定映射；`factory-issue-check` 留言含 📊 複雜度分析＋🤖 建議模型。`deepseek-v4-pro ≈ opus/sonnet 等級` 為待 A/B 驗證假設 |
+| **Q04-10** | 依 Issue 複雜度分級路由 LLM 模型（低/中→qwen3.8-flash、高→pro、最高→opus-5（fable-5 已移除）；檢查留言含複雜度分析＋建議模型） | `ADR/011` | ✅ **已實作（2026-08-25）**：`src/issue-analysis/complexity.ts`（啟發式分析）＋`src/model-tier/resolve.ts`（解析核心）＋`src/cli/factory-model.ts`（選模 CLI）＋`config/dsh/model-tiers.yaml`（tier→chain 政策）；`factory-run.yml` 新增 Select model tier 步驟並以 chain 迭代取代固定映射；`factory-issue-check` 留言含 📊 複雜度分析＋🤖 建議模型。2026-08-28 裁決：fable-5 需額外 credit 已移除，critical 改為 claude-opus-5。`deepseek-v4-pro ≈ opus/sonnet 等級` 為待 A/B 驗證假設 |
 
 ---
 

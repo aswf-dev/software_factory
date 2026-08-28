@@ -33,11 +33,8 @@ const TIERS: TierPolicies = {
     ],
   },
   critical: {
-    primary: { provider: 'anthropic', model: 'claude-fable-5' },
-    fallback: [
-      { provider: 'anthropic', model: 'claude-opus-4-5' },
-      { provider: 'deepseek', model: 'deepseek-v4-pro' },
-    ],
+    primary: { provider: 'anthropic', model: 'claude-opus-5' },
+    fallback: [{ provider: 'deepseek', model: 'deepseek-v4-pro' }],
   },
 }
 
@@ -66,7 +63,7 @@ describe('resolveModelTier — 自動路徑解析順序', () => {
     expect(r.complexitySource).toBe('catalog')
   })
 
-  it('無分析且 catalog 未標註 → fail-safe high（deepseek-v4-pro，不誤燒 fable）', () => {
+  it('無分析且 catalog 未標註 → fail-safe high（deepseek-v4-pro，不誤燒旗艦成本）', () => {
     const r = resolveModelTier({ tiers: TIERS, declaredProviders: PROVIDERS })
     expect(r.tier).toBe('high')
     expect(r.complexitySource).toBe('fail-safe')
@@ -95,7 +92,7 @@ describe('resolveModelTier — 自動路徑解析順序', () => {
 })
 
 describe('resolveModelTier — critical 升級條件', () => {
-  it('分析 high 且 total=4 → critical（claude-fable-5）', () => {
+  it('分析 high 且 total=4 → critical（claude-opus-5）', () => {
     const r = resolveModelTier({
       tiers: TIERS,
       declaredProviders: PROVIDERS,
@@ -103,11 +100,11 @@ describe('resolveModelTier — critical 升級條件', () => {
       scoreTotal: CRITICAL_MIN_TOTAL,
     })
     expect(r.tier).toBe('critical')
-    expect(r.selected.model).toBe('claude-fable-5')
+    expect(r.selected.model).toBe('claude-opus-5')
     expect(r.reason).toContain('critical')
   })
 
-  it('分析 high 且 total=3 → high（不升級，不誤燒 fable）', () => {
+  it('分析 high 且 total=3 → high（不升級，不誤燒旗艦成本）', () => {
     const r = resolveModelTier({
       tiers: TIERS,
       declaredProviders: PROVIDERS,
@@ -138,7 +135,7 @@ describe('resolveModelTier — 手動覆寫', () => {
     })
     expect(r.tier).toBe('critical')
     expect(r.complexitySource).toBe('manual')
-    expect(r.selected.model).toBe('claude-fable-5')
+    expect(r.selected.model).toBe('claude-opus-5')
   })
 
   it('manualTier=low → low（即使分析 high）', () => {
