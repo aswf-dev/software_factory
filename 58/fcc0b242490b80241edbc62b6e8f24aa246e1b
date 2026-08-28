@@ -1,0 +1,24 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 43
+config/dsh/model-tiers.yaml
+  h_1b119f25eaf333 3,8-10,14-15,19-20,22-23,26-27,29-30,39,51
+config/dsh/settings.providers.yaml
+  h_1b119f25eaf333 18,23-25
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 467-469
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 546-553
+test/integration/factory-model-cli.test.ts
+  h_1b119f25eaf333 62,77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "58fcc0b242490b80241edbc62b6e8f24aa246e1b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
