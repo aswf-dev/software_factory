@@ -15,11 +15,14 @@ llm-pi-ai:
     deepseek:
       apiKeyEnv: DEEPSEEK_API_KEY
     qwen:
-      displayName: Qwen (DashScope)
+      displayName: Qwen (DashScope / QwenCloud)
       apiKeyEnv: QWEN_API_KEY
       api: openai-completions
       baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
       models:
+        - id: qwen3.8-flash
+          name: Qwen3.8 Flash
+          contextWindow: 1048576
         - id: qwen3.7-flash
           name: Qwen3.7 Flash
           contextWindow: 131072

@@ -543,9 +543,14 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     })['llm-pi-ai'].providers,
   )
 
-  it('用戶模型優先序：low/medium=flash、high=pro、只有 critical=fable', () => {
-    expect(tiers.low.primary.model).toBe('deepseek-v4-flash')
-    expect(tiers.medium.primary.model).toBe('deepseek-v4-flash')
+  it('用戶模型優先序：low/medium=qwen3.8-flash（2026-08-27 起為預設）、high=pro、只有 critical=fable', () => {
+    expect(tiers.low.primary.provider).toBe('qwen')
+    expect(tiers.low.primary.model).toBe('qwen3.8-flash')
+    expect(tiers.medium.primary.provider).toBe('qwen')
+    expect(tiers.medium.primary.model).toBe('qwen3.8-flash')
+    // 原預設 deepseek-v4-flash 退居 low/medium fallback（跨 provider failover，Q04-8）
+    expect(tiers.low.fallback.map((e) => e.model)).toContain('deepseek-v4-flash')
+    expect(tiers.medium.fallback.map((e) => e.model)).toContain('deepseek-v4-flash')
     expect(tiers.high.primary.model).toBe('deepseek-v4-pro')
     expect(tiers.critical).toBeDefined() // critical tier 必備（fable 的唯一出口）
     expect(tiers.critical?.primary.model).toBe('claude-fable-5')

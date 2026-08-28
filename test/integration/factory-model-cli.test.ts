@@ -59,7 +59,7 @@ afterAll(() => {
 })
 
 describe('factory-model 實機執行', () => {
-  it('簡單需求 → exit 0、tier=low、chain 為 deepseek-v4-flash → qwen3.7-flash', () => {
+  it('簡單需求 → exit 0、tier=low、chain 為 qwen3.8-flash → deepseek-v4-flash', () => {
     const issue = fixture('low.json', issueJson('為單一工具函式補測試'))
     const { status, stdout } = runCli(cliPath, [
       '--issue',
@@ -74,8 +74,8 @@ describe('factory-model 實機執行', () => {
     expect(out.tier).toBe('low')
     expect(out.complexitySource).toBe('issue-analysis')
     expect(out.chain.map((e: { model: string }) => e.model)).toEqual([
+      'qwen3.8-flash',
       'deepseek-v4-flash',
-      'qwen3.7-flash',
     ])
   })
 

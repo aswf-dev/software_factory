@@ -464,9 +464,9 @@ ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
 
 | tier | primary（用戶優先序） | fallback（品質擔保，正常不走） |
 |---|---|---|
-| low / medium | deepseek-v4-flash | qwen3.7-flash |
-| high | deepseek-v4-pro | claude-sonnet-5 → qwen3.7-flash |
-| critical | **claude-fable-5**（只有最高 tier 才用） | claude-opus-4-5 → deepseek-v4-pro → qwen3.7-flash |
+| low / medium | **qwen3.8-flash**（2026-08-27 起為預設） | deepseek-v4-flash |
+| high | deepseek-v4-pro | claude-sonnet-5 → qwen3.8-flash |
+| critical | **claude-fable-5**（只有最高 tier 才用） | claude-opus-4-5 → deepseek-v4-pro → qwen3.8-flash |
 
 模型 id 來自 pi-ai catalog（定價見 `docs/ADR/011`）；tier→chain 政策宣告於 `config/dsh/model-tiers.yaml`（版控、CODEOWNERS 保護、可調校）。
 
