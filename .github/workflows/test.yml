@@ -8,7 +8,9 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    # software-factory 是 factory trunk（統一規則 ADR-013，stacked PR 的 base）——
+    # push 也需獨立綠燈（docs/07 §2.2「每層獨立綠燈」；試點 #3 教訓同 POC ci.yml）
+    branches: [main, software-factory]
   pull_request:
   # Squash merges create a NEW commit on main whose content differs from the
   # verified PR head, and that commit can end up with no check-runs at all.
