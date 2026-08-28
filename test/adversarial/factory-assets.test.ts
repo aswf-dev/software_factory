@@ -140,20 +140,25 @@ describe('factory-run.yml 具備必要結構', () => {
   })
 })
 
-describe('factory-run.yml 多 repo 支援（Q-P2-1，Phase 2 T4）', () => {
+describe('factory-run.yml 多 repo 支援（Q-P2-1 統一，Phase 2 T4）', () => {
   const content = read('.github/workflows/factory-run.yml')
-  it('含 repo 與 base_branch 輸入（repo 預設本 repo）', () => {
+  it('含 repo 與 base_branch 輸入（統一後 base_branch 預設 software-factory）', () => {
     expect(content).toContain('repo:')
     expect(content).toContain('default: philipz/software_factory')
     expect(content).toContain('base_branch:')
-    expect(content).toContain('default: main')
+    expect(content).toContain('default: software-factory')
   })
-  it('Guard step：非試點 repo 的 base_branch 不得為 main', () => {
+  it('Guard step：所有 repo 的 base_branch 一律不得為 main（含機制 repo，ADR-013 統一）', () => {
     expect(content).toMatch(/Guard base_branch safety/)
-    expect(content).toContain('inputs.repo')
     expect(content).toContain('inputs.base_branch')
-    expect(content).toContain('!= "philipz/software_factory"')
     expect(content).toContain('== "main"')
+    // 統一後無「機制 repo 特例」——不再有 != "philipz/software_factory" 的放行條件
+    expect(content).not.toContain('!= "philipz/software_factory"')
+  })
+  it('Guard step：checkout 前驗證 trunk 分支存在（#171 實測教訓，零成本 fast-fail）', () => {
+    expect(content).toContain('git/ref/heads/')
+    expect(content).toContain('inputs.base_branch')
+    expect(content).toContain('不存在分支')
   })
   it('App token 依目標 repo 換發（最小權限）', () => {
     expect(content).toContain('repositories: ${{ inputs.repo }}')
@@ -428,6 +433,22 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     expect(t).toContain('apiVersion: scaffolder.backstage.io/v1beta3')
     expect(t).toContain('github:issues:create')
     expect(t).toContain('github:actions:dispatch')
+  })
+  it('Backstage 兩模板 baseBranch 統一語意（ADR-013：所有 repo 用 software-factory，main 絕不觸碰）', () => {
+    for (const f of [
+      'backstage/templates/factory-work-item/template.yaml',
+      'backstage/templates/agent-add-tests/template.yaml',
+    ]) {
+      const t = read(f)
+      expect(t).toContain('default: software-factory')
+      expect(t).toContain('所有 repo 的 factory trunk 皆為 software-factory 分支')
+      // 不得再出現誤導的「試點 repo 用」舊說明（機制 repo 也統一）
+      expect(t).not.toContain('試點 repo 用 software-factory')
+    }
+  })
+  it('test.yml push 觸發涵蓋 software-factory（factory trunk 每層獨立綠燈，ADR-013）', () => {
+    const t = read('.github/workflows/test.yml')
+    expect(t).toMatch(/branches: \[main, software-factory\]/)
   })
   it('taskType 表單預設 = agent-add-tests（與 workflow input / issue-check fallback 一致）', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')

@@ -123,7 +123,7 @@
 | # | 工作 | 依據 | 狀態 |
 |---|---|---|---|
 | 2.1 | 擴充至 `agent-fix-bug`、`agent-update-deps`、`agent-write-docs` | `03` §3.1 | ✅ task_type 路由 + 三模板（T1–T2，PR #101）；**實跑驗證 2/3 型**（試點 #2 `agent-add-tests`、試點 #3 `agent-fix-bug`）；`update-deps`/`write-docs` 模板就緒待後續工作項 |
-| 2.2 | 擴大至 2–3 個 repo（含 1 個較高風險者） | — | ✅ **完成（3 repo、雙語言）**：多 repo 支援（T4，PR #102）；`philipz/fubon-tradingbot`（TS，試點 #1–#3）+ `philipz/spring-modulith-orders`（Java/Spring Boot，試點 #1–#2，語言無關性驗證）——兩 repo 皆 Q-P2-1 模式（trunk=`software-factory` 分支、**main 全程未觸碰**）|
+| 2.2 | 擴大至 2–3 個 repo（含 1 個較高風險者） | — | ✅ **完成（3 repo、雙語言）**：多 repo 支援（T4，PR #102）；`philipz/fubon-tradingbot`（TS，試點 #1–#3）+ `philipz/spring-modulith-orders`（Java/Spring Boot，試點 #1–#2，語言無關性驗證）——兩 repo 皆 Q-P2-1 模式（trunk=`software-factory` 分支、**main 全程未觸碰**）。**2026-08-28 統一（ADR-013）**：機制 repo 自身也採 `software-factory` trunk |
 | 2.3 | 驗證 `06` 計分在高風險 repo 的實際行為 | `06` §6 | ✅ **完成**：試點 #1（strategic/high/high=6 分 → in-loop 阻斷、agent 未啟動）；裁決 #568 調降 complexity → review tier 後試點 #2/#3 實跑 |
 | 2.4 | 實作二次判定（PR 建立後重新計分） | `06` §5.3 | ✅ **完成**：factory-rescore + workflow（T3，PR #101）+ 跨 repo dispatch（PR #109，#111 mkdir 修復）；試點 #3 對 PR #570/#572 手動 rescore 驗證成功（不升級時正確判定）；「攔截升級」正例仍待真實升級案例 |
 | 2.5 | 接上 OTel 指標後端，自動化 `08` 產出型指標 | `08` §7 | ✅ 務實版 factory-metrics CLI + 週檢腳本（T5，PR #103）；OTel 延後（Q08-4 保持開放） |
