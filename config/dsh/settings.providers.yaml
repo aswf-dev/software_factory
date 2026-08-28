@@ -7,7 +7,11 @@
 #
 # - anthropic：pi-ai 內建目錄路由（現役，成本最高）
 # - deepseek：pi-ai 內建目錄路由（DSH 預設 provider；成本低）
-# - qwen：手動宣告的 OpenAI-compatible 路由（DashScope 相容端點）
+# - qwen：手動宣告的 OpenAI-compatible 路由（QwenCloud 國際端點 dashscope-intl；
+#   2026-08-28 修正：原誤用中國端點 dashscope.aliyuncs.com，導致 QwenCloud
+#   Pay-As-You-Go key 回 401 invalid_api_key——QwenCloud 文件
+#   docs.qwencloud.com/developer-guides/getting-started/first-api-call 指定
+#   國際端點 https://dashscope-intl.aliyuncs.com/compatible-mode/v1）
 llm-pi-ai:
   providers:
     anthropic:
@@ -15,10 +19,10 @@ llm-pi-ai:
     deepseek:
       apiKeyEnv: DEEPSEEK_API_KEY
     qwen:
-      displayName: Qwen (DashScope / QwenCloud)
+      displayName: Qwen (QwenCloud / DashScope-intl)
       apiKeyEnv: QWEN_API_KEY
       api: openai-completions
-      baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      baseURL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
       models:
         - id: qwen3.8-flash
           name: Qwen3.8 Flash

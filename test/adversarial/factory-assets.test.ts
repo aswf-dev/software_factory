@@ -613,6 +613,15 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     }
   })
 
+  it('qwen route 指向 QwenCloud 國際端點（dashscope-intl，2026-08-28 修正 401）', () => {
+    // 實測：QwenCloud Pay-As-You-Go key 對中國端點 dashscope.aliyuncs.com 回 401
+    // invalid_api_key；國際端點 dashscope-intl.aliyuncs.com 正常（文件
+    // docs.qwencloud.com/developer-guides/getting-started/first-api-call）。
+    const s = read('config/dsh/settings.providers.yaml')
+    expect(s).toContain('baseURL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1')
+    expect(s).not.toContain('baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1')
+  })
+
   it('factory-run.yml：Select model tier 步驟與 chain 迴圈接線', () => {
     const c = read('.github/workflows/factory-run.yml')
     expect(c).toContain('model_tier')
