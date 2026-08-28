@@ -1,0 +1,16 @@
+docs/ADR/012-guardrail-reference-architecture.md
+  h_1b119f25eaf333 31-33
+scripts/setup-local-dsh.sh
+  h_1b119f25eaf333 1-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0e27c37addadb85d5d511086b20a322c10653122",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
