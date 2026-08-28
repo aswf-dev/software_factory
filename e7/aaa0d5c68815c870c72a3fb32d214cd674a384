@@ -1,0 +1,34 @@
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 546,555-556,560,563-565,570-579
+src/cli/factory-model.test.ts
+  h_1b119f25eaf333 32-33,144,158-159,209
+src/model-tier/resolve.ts
+  h_1b119f25eaf333 251,257
+config/dsh/model-tiers.yaml
+  h_1b119f25eaf333 4,17,43-44,47
+  h_1b119f25eaf333 10-11
+docs/10-open-questions.md
+  h_1b119f25eaf333 151
+src/model-tier/resolve.test.ts
+  h_1b119f25eaf333 36-37,66,95,103,107,138
+test/integration/factory-model-cli.test.ts
+  h_1b119f25eaf333 82,98
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 469,481
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 12-13,19,30-35,37
+  h_1b119f25eaf333 14
+src/cli/factory-model-mutation.test.ts
+  h_1b119f25eaf333 18,41,73,84,117-118,125-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e7aaa0d5c68815c870c72a3fb32d214cd674a384",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
