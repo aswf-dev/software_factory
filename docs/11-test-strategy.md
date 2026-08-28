@@ -73,8 +73,8 @@
 |---|---|---|---|
 | **Node** | v22.21.1 | 執行環境 | ✅ 本機實測 |
 | **TypeScript** | 7.0.2 | 型別 | ✅ npm registry |
-| **Vitest** | 4.1.10 | 測試框架 | ✅ engines 明列支援 `^22.0.0` |
-| **@vitest/coverage-v8** | 4.1.10 | 覆蓋率 | ✅ npm registry |
+| **Vitest** | 4.1.11 | 測試框架 | ✅ engines 明列支援 `^22.0.0` |
+| **@vitest/coverage-v8** | 4.1.11 | 覆蓋率（與 vitest 同版 lockstep，issue #171） | ✅ npm registry |
 | **zod** | 4.4.3 | 設定 schema 驗證 | ✅ npm registry |
 | **js-yaml** | 5.3.0 | 讀取 `risk-paths.yml` 等 | ✅ npm registry |
 | **minimatch** | 10.2.6 | 路徑模式比對（H1–H7） | ✅ npm registry |
