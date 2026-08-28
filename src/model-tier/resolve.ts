@@ -248,13 +248,13 @@ export function resolveModelTier(input: ModelResolutionInput): ModelResolution {
     complexity = 'high'
     complexitySource = 'fail-safe'
     evidence = ['無 Issue 分析且 catalog 未標註/非法 → fail-safe 採最高複雜度']
-    reason = 'fail-safe：未宣告複雜度 → high（deepseek-v4-pro，不誤燒 fable）'
+    reason = 'fail-safe：未宣告複雜度 → high（deepseek-v4-pro，不誤燒旗艦成本）'
   }
 
   let tier: ModelTier = complexity === 'low' ? 'low' : complexity === 'medium' ? 'medium' : 'high'
   if (tier === 'high' && input.scoreTotal !== undefined && input.scoreTotal >= CRITICAL_MIN_TOTAL) {
     tier = 'critical'
-    reason = `${reason}；複雜度 high 且總分 ${input.scoreTotal} ≥ ${CRITICAL_MIN_TOTAL} → critical（claude-fable-5）`
+    reason = `${reason}；複雜度 high 且總分 ${input.scoreTotal} ≥ ${CRITICAL_MIN_TOTAL} → critical（claude-opus-5）`
   }
 
   const policy = tiers[tier]

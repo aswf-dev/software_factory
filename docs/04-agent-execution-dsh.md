@@ -466,7 +466,7 @@ ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
 |---|---|---|
 | low / medium | **qwen3.8-flash**（2026-08-27 起為預設） | deepseek-v4-flash |
 | high | deepseek-v4-pro | claude-sonnet-5 → qwen3.8-flash |
-| critical | **claude-fable-5**（只有最高 tier 才用） | claude-opus-4-5 → deepseek-v4-pro → qwen3.8-flash |
+| critical | **claude-opus-5**（最高 tier；fable-5 需額外 credit 已移除，2026-08-28） | deepseek-v4-pro → qwen3.8-flash |
 
 模型 id 來自 pi-ai catalog（定價見 `docs/ADR/011`）；tier→chain 政策宣告於 `config/dsh/model-tiers.yaml`（版控、CODEOWNERS 保護、可調校）。
 
@@ -478,7 +478,7 @@ ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
 手動 --tier ＞ Issue 需求分析 ＞ catalog（factory.io/complexity）＞ fail-safe high
 ```
 
-critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動）。**fail-safe 方向為 high**（deepseek-v4-pro）：不可知 ⇒ 不降級，也不誤燒 fable 旗艦成本。
+critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動）。**fail-safe 方向為 high**（deepseek-v4-pro）：不可知 ⇒ 不降級，也不誤燒旗艦成本。
 
 ### 7.3 接線（factory-run.yml）
 

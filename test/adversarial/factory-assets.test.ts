@@ -543,7 +543,7 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     })['llm-pi-ai'].providers,
   )
 
-  it('用戶模型優先序：low/medium=qwen3.8-flash（2026-08-27 起為預設）、high=pro、只有 critical=fable', () => {
+  it('用戶模型優先序：low/medium=qwen3.8-flash（2026-08-27 起為預設）、high=pro、critical=opus-5', () => {
     expect(tiers.low.primary.provider).toBe('qwen')
     expect(tiers.low.primary.model).toBe('qwen3.8-flash')
     expect(tiers.medium.primary.provider).toBe('qwen')
@@ -552,21 +552,29 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(tiers.low.fallback.map((e) => e.model)).toContain('deepseek-v4-flash')
     expect(tiers.medium.fallback.map((e) => e.model)).toContain('deepseek-v4-flash')
     expect(tiers.high.primary.model).toBe('deepseek-v4-pro')
-    expect(tiers.critical).toBeDefined() // critical tier 必備（fable 的唯一出口）
-    expect(tiers.critical?.primary.model).toBe('claude-fable-5')
+    expect(tiers.critical).toBeDefined() // critical tier 必備（最高 tier 的出口）
+    expect(tiers.critical?.primary.model).toBe('claude-opus-5')
     expect(tiers.critical?.primary.provider).toBe('anthropic')
   })
 
-  it('fable 只出現在 critical tier（其餘 tier 不得引用）', () => {
+  it('claude-fable-5 已移除（需額外 credit，2026-08-28 用戶裁決）——任何 tier 不得引用', () => {
     for (const [id, t] of Object.entries(tiers)) {
       const models = [t.primary, ...t.fallback].map((e) => e.model)
-      if (id === 'critical') {
-        expect(models).toContain('claude-fable-5')
-      } else {
-        expect(models).not.toContain('claude-fable-5')
-        expect(models).not.toContain('claude-opus-4-5') // opus 為 critical 的品質擔保，不提前動用
+      expect(models, `tier ${id} 不得含 fable-5`).not.toContain('claude-fable-5')
+      if (id !== 'critical') {
+        expect(models, `tier ${id} 不得提前動用 opus-5`).not.toContain('claude-opus-5')
       }
     }
+  })
+
+  it('critical tier：primary = claude-opus-5、fallback 由 deepseek-v4-pro 起（fable 已移除）', () => {
+    // 2026-08-28 用戶裁決：fable-5 需額外 credit（實測 run #33175623064 無法使用）
+    // → 移除 fable-5，critical 預設改為同代旗艦 claude-opus-5。
+    const critical = tiers.critical
+    expect(critical).toBeDefined()
+    expect(critical?.primary.model).toBe('claude-opus-5')
+    expect(critical?.primary.provider).toBe('anthropic')
+    expect(critical?.fallback[0]?.model).toBe('deepseek-v4-pro')
   })
 
   it('每個 tier 有 primary 與非空 fallback（provider 層失敗必須可 fallback）', () => {

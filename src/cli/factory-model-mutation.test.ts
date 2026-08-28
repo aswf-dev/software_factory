@@ -15,7 +15,7 @@ const TIERS: TierPolicies = {
     fallback: [{ provider: 'anthropic', model: 'claude-sonnet-5' }],
   },
   critical: {
-    primary: { provider: 'anthropic', model: 'claude-fable-5' },
+    primary: { provider: 'anthropic', model: 'claude-opus-5' },
     fallback: [{ provider: 'deepseek', model: 'deepseek-v4-pro' }],
   },
 }
@@ -38,7 +38,7 @@ const PROVIDERS = ['deepseek', 'qwen', 'anthropic']
  *  | M2 | critical 門檻 `>=` 誤放寬成 `>`（total=4 不再升級）         | GREEN  | RED   |
  *  | M3 | fail-safe 預設改為 low（未宣告 → 最便宜而非最強）           | GREEN  | RED   |
  *  | M4 | 偏好 provider 從「置前」誤改成「置後」                       | GREEN  | RED   |
- *  | M5 | critical 升級整個移除（複雜度 high 永不觸發 fable）          | GREEN  | RED   |
+ *  | M5 | critical 升級整個移除（複雜度 high 永不觸發 opus-5）          | GREEN  | RED   |
  *  | M6 | manual tier 誤把 'auto' 當作實際 tier 使用                   | GREEN  | RED   |
  */
 
@@ -70,7 +70,7 @@ describe('M1 變異：解析順序被顛倒（catalog 優先於 Issue 分析）'
 })
 
 describe('M2 變異：critical 門檻放寬（total=4 不升級）', () => {
-  /** 門檻是 `>= 4`；改成 `> 4` 會讓 total=4（review 上緣）漏掉 fable 升級。 */
+  /** 門檻是 `>= 4`；改成 `> 4` 會讓 total=4（review 上緣）漏掉 opus-5 升級。 */
   it(`total = ${CRITICAL_MIN_TOTAL} → critical`, () => {
     const r = resolveModelTier({
       tiers: TIERS,
@@ -81,7 +81,7 @@ describe('M2 變異：critical 門檻放寬（total=4 不升級）', () => {
     expect(r.tier).toBe('critical')
   })
 
-  it('total = 3 → high（不誤燒 fable）', () => {
+  it('total = 3 → high（不誤燒旗艦成本）', () => {
     const r = resolveModelTier({
       tiers: TIERS,
       declaredProviders: PROVIDERS,
@@ -114,16 +114,16 @@ describe('M4 變異：偏好 provider 被誤改成置後', () => {
 })
 
 describe('M5 變異：critical 升級被移除', () => {
-  /** 複雜度 high + 總分上緣必須能觸發 fable（用戶優先序：只有最高才用 fable）。 */
-  it('high + total=4 → fable 出現在 chain[0]', () => {
+  /** 複雜度 high + 總分上緣必須能觸發 critical（最高 tier 用 opus-5，fable-5 已移除）。 */
+  it('high + total=4 → claude-opus-5 出現在 chain[0]', () => {
     const r = resolveModelTier({
       tiers: TIERS,
       declaredProviders: PROVIDERS,
       analysis: { complexity: 'high', score: 2, evidence: ['scope 高'] },
       scoreTotal: 4,
     })
-    expect(r.selected.model).toBe('claude-fable-5')
-    expect(r.chain[0]?.model).toBe('claude-fable-5')
+    expect(r.selected.model).toBe('claude-opus-5')
+    expect(r.chain[0]?.model).toBe('claude-opus-5')
   })
 })
 
