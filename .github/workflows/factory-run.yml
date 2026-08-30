@@ -6,8 +6,13 @@
 name: Factory Run
 
 # run-name 供 factory-run-cleanup.yml（G2）在 workflow_run 事件中解析目標
-# （repo + issue）；格式由該 workflow 的解析規則釘住，改動須兩邊同步。
-run-name: Factory Run (${{ inputs.repo }} #${{ inputs.issue_number }})
+# （repo + issue）；格式由該 workflow 的解析規則釘住，改動須兩邊同步
+# （對抗性測試 factory-assets 也會釘住兩者的契約）。
+#
+# ⚠️ YAML 陷阱（2026-08 實測）：plain scalar 中的 ` #` 會被 YAML 當成註解——
+# 未加引號時 run-name 解析值只剩 `Factory Run (${{ inputs.repo }}`，`#<issue>)`
+# 整段消失，cleanup 的解析正則失配。必須以雙引號包裹，`#` 才是字面值。
+run-name: "Factory Run (${{ inputs.repo }} #${{ inputs.issue_number }})"
 
 on:
   workflow_dispatch:

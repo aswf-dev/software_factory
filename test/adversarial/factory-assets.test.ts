@@ -526,6 +526,29 @@ describe('factory-run 逾時捕獲與診斷（2026-08-21 run #32491052696 實測
   })
 })
 
+describe('run-name 與 cleanup 解析契約（docs/18 §2.2，G2）', () => {
+  // 2026-08 實測教訓：plain scalar 中的 ` #` 會被 YAML 當成註解——run-name 解析值
+  // 只剩 `Factory Run (${{ inputs.repo }}`，`#<issue>)` 整段消失，factory-run-cleanup
+  // 的解析正則失配（G2 靜默失效）。run-name 必須以雙引號包裹，`#` 才是字面值。
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+
+  it('run-name（YAML 解析後）代入 inputs 必須是 cleanup 可解析的完整格式', () => {
+    const wf = load(read('.github/workflows/factory-run.yml')) as { 'run-name'?: string }
+    const runName = wf['run-name']
+    expect(runName, 'run-name 必須存在').toBeDefined()
+    const resolved = runName!
+      .replace('${{ inputs.repo }}', 'owner/repo')
+      .replace('${{ inputs.issue_number }}', '123')
+    expect(resolved).toBe('Factory Run (owner/repo #123)')
+  })
+
+  it('cleanup workflow 含對應的解析正則（#<issue>) 結尾）', () => {
+    const cleanup = read('.github/workflows/factory-run-cleanup.yml')
+    expect(cleanup).toContain('#([0-9]+)\\)$')
+    expect(cleanup).toContain('display_title')
+  })
+})
+
 describe('factory-draft 防呆契約（2026-08-22：無限轉圈教訓）', () => {
   const router = read('backstage/plugins/factory-draft-backend/src/router.ts')
   const llm = read('backstage/plugins/factory-draft-backend/src/llm.ts')
