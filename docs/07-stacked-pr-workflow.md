@@ -196,6 +196,7 @@ gh pr merge <底層PR編號> --squash --delete-branch
 - **每層必須能獨立綠燈**（2026-08-18 #61 教訓）：測試層不得引用未 export 的 API；若測試需要某個 export，把 export 併入測試層（export 是測試基礎設施），02-impl 只放真實行為變更。
 - **上層 base 分支被刪除時**：PR 會關閉——該層內容需重建為 main-based 的新 PR（保留 commit 內容，重開 PR）。
 - **strict required checks**：main 每有合併，其餘 PR 變 BEHIND——合併前 `gh pr update-branch`。
+- **`Closes #<n>` 只在下游合併到 default branch 時自動關閉 Issue**（2026-08-30 #186 實測）：依 ADR-013 兩段式合併（factory PR → `software-factory` → 人工合併進 `main`），PR 合併進 `software-factory`（非 default branch）**不會**觸發自動關閉——`Closes #186` 存在但 Issue 仍 OPEN。工作項合併完成後須**人工關閉 Issue**（建議在 software-factory → main 同步時一併確認）。
 - 此流程對人類審查者是**程序性摩擦**，已列入觀察期指標（審查等待時間）；若摩擦持續偏高，考量合併策略調整（如降低疊層層數）。
 
 ---
