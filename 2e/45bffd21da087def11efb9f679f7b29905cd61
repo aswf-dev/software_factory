@@ -1,0 +1,26 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 35-39
+.github/workflows/factory-run-cleanup.yml
+  h_1b119f25eaf333 1-101
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 8-11,415-450,453-454,457,485-486,494-517,521-522,524-529
+docs/18-silent-failure-hardening.md
+  h_1b119f25eaf333 1-130
+src/cli/factory-crosscheck.test.ts
+  h_1b119f25eaf333 1-327
+src/cli/factory-crosscheck.ts
+  h_1b119f25eaf333 1-303
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 41-43,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2e45bffd21da087def11efb9f679f7b29905cd61",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
