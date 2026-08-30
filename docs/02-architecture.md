@@ -309,10 +309,13 @@ Backstage ──依賴──► GitHub ◄──依賴── DSH
 | `gh stack sync` 連續兩次失敗 | 指令 exit code | 停手、標記 `needs-human`（規則見 `07` §3.3、§4.1） |
 | GitHub API 限流 | HTTP 429 | 指數退避重試；仍失敗則標記並停手 |
 | 風險計分落入 in-loop | 計分規則 | 不啟動 agent 實作，只產出分析供人類參考 |
+| agent 自報（report.json）與實際 git diff 不一致（假完成／隱藏變更／行數缺失） | `factory-crosscheck` 以本地 git diff 交叉驗證自報（G3，見 `18` §2.3） | crosscheck 留言 mismatch 明細並標 `needs-human`、step fail；**judge/apply-labels 跳過**——不讓造假 report 產出看似正常的終態（dry_run 跳過此步） |
+| agent 成功後 judge/apply-labels 崩潰（Issue 無終態留言） | job 內終態守衛：`always()` 且 `job.status != 'success'` 且 agent 已啟動（G1，見 `18` §2.1） | 檢查 Issue 有無含本 run id 的終態留言，無則補貼 `needs-human` + 留言（所有終態留言都含 run id，不重複貼） |
+| job 級逾時／取消（整個 job 被外力終止，job 內任何 step——含 `always()`——都不會執行，job 內無法自救） | 外部 workflow `factory-run-cleanup` 以 `workflow_run` 監看 Factory Run 完成事件（G2，見 `18` §2.2） | 四條件全成立才補 `needs-human`：結論 ∈ {failure, cancelled, timed_out}、run-name 可解析出 repo＋issue、已進入 agent 階段、Issue 無含該 run id 的終態留言 |
 
 > **不自動重試的理由**：LLM 執行具非決定性，盲目重試會放大成本且可能產生不同的錯誤產出。重試必須是人類的決定，或針對**已知的暫時性錯誤**（如網路、限流）才自動化。
 
-**共同原則**：所有降級路徑的終點都是 `needs-human` + 人類可讀的失敗原因。**agent 永不靜默失敗，也永不自行放寬限制**。
+**共同原則**：所有降級路徑的終點都是 `needs-human` + 人類可讀的失敗原因。**agent 永不靜默失敗，也永不自行放寬限制**。上表末三列（G1–G3）把此原則補強到「**任何**失敗路徑都到 `needs-human`」——包括失敗發生在終態處理本身（judge 崩潰、job 被外力終止）與「agent 成功但自報不實」這三種原本會靜默的路徑（審計與實作細節見 `18`）。
 
 ---
 

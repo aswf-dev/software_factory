@@ -407,6 +407,16 @@ jobs:
 
 > **重要提醒**：exit 0 代表「agent 的回合正常結束」，**不代表「任務正確完成」**。任務正確性由 GitHub 層的 required checks 與人類審查判定（D4）。**絕不可把 exit 0 當作品質保證**——這是本契約最容易被誤解的一點。
 
+**終態守衛（G1–G3，見 `18` §2）**：上表只描述「agent step 如何結束」，涵蓋不到「處理終態的後續步驟失敗」與「report 是否真實」。`factory-run.yml` 的接線順序為 **agent → crosscheck → judge → apply-labels**，三個守衛補齊其餘失敗路徑：
+
+| 失敗路徑 | 守衛 | 處置／終態 |
+|---|---|---|
+| exit 0，但 report.json 與實際 git diff 不一致（假完成／隱藏變更／行數缺失） | **G3** `factory-crosscheck`（fail-loud，擋下 judge） | 留言 mismatch 明細（含本 run id）並標 `needs-human`；judge/apply-labels 跳過——不讓可能造假的 report 產出看似正常的終點；dry_run 模式跳過 crosscheck |
+| exit 0 且 report 誠實，但 judge/apply-labels 步驟崩潰 | **G1** 終態守衛（job 內 `always()` 步驟，僅在 job 非 success 且 agent 已啟動時動作） | grep Issue 留言有無含本 run id 的終態留言，無則補貼 `needs-human` + 留言；agent 啟動前的失敗（guard/issue-check/score）各有大聲訊號，守衛不動作 |
+| **job 級**逾時／取消（GitHub 直接終止整個 job，job 內任何 step——含 G1 與 `always()`——都來不及執行） | **G2** 外部 `factory-run-cleanup` workflow（以 `workflow_run` 監看 Factory Run 完成事件） | 四條件全成立才補 `needs-human`：結論 ∈ {failure, cancelled, timed_out}、run-name 可解析出 repo＋issue、已進入 agent 階段、Issue 無含該 run id 的終態留言。⚠️ `workflow_run` 要求此 workflow 位於 default branch，隨 software-factory → main 合併路徑同步後才生效（ADR-013） |
+
+三者共同保證：不論 agent 成敗、失敗發生在管線哪個位置，run 都會在 Issue 留下含 run id 的明確終態交還紀錄（去重靠 grep run id，不重複貼）；完整行為矩陣見 `18` §3。
+
 ### 4.3 平行化與資源上限
 
 `00` §3 Phase 2 Step 1 要求以非同步平行化避免閒置等待。在 GitHub Actions 中：
