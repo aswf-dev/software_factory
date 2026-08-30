@@ -5,6 +5,10 @@
 # LLM key 的 CI 上驗證流程接線。
 name: Factory Run
 
+# run-name 供 factory-run-cleanup.yml（G2）在 workflow_run 事件中解析目標
+# （repo + issue）；格式由該 workflow 的解析規則釘住，改動須兩邊同步。
+run-name: Factory Run (${{ inputs.repo }} #${{ inputs.issue_number }})
+
 on:
   workflow_dispatch:
     inputs:
@@ -408,12 +412,49 @@ jobs:
             "${{ inputs.issue_number }}" "$code" \
             .factory/run/stdout.txt .factory/run/stderr.txt
 
-      # Step 4–5 — 執行後判定：重計分 + 停手規則（重用 runWorkItem 管線）。
+      # Step 4 — 交叉驗證（G3，docs/18 §2.3）：把 agent 自報的 report.json 與目標
+      # repo 的實際 git diff 比對。report 是 agent 自報（不可信），judge 只驗形狀；
+      # mismatch（假完成 / 隱藏變更 / 行數缺失）在此 fail-loud → 貼 needs-human，
+      # 並擋下後續 judge（避免在錯誤輸入上做出看似正常的終點判定）。
+      - name: Cross-check report vs git diff
+        id: crosscheck
+        if: steps.agent.outcome == 'success' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          set +e
+          node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
+            "${{ inputs.issue_number }}" \
+            target/.factory/run/report.json \
+            --base "${{ inputs.base_branch }}" --target target \
+            > .factory/crosscheck.json 2> .factory/crosscheck.err
+          code=$?
+          set -e
+          cat .factory/crosscheck.json
+          if [ "$code" -ne 0 ]; then
+            echo "::error::report 與實際 git diff 不一致（詳見 .factory/crosscheck.json）"
+            {
+              echo "## 工廠執行中止：report 與實際變更不一致"
+              echo ""
+              echo "（run: ${{ github.run_id }}）"
+              echo ""
+              jq -r '[.mismatches[] | "- \(.kind)：\(.detail)"] | join("\n")' .factory/crosscheck.json 2>/dev/null \
+                || echo "- （crosscheck 執行失敗，無 mismatch 明細；請查看 run logs）"
+            } > .factory/crosscheck-comment.txt
+            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/crosscheck-comment.txt
+            gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
+          fi
+          exit $code
+
+      # Step 5 — 執行後判定：重計分 + 停手規則（重用 runWorkItem 管線）。
       # report.json 在 target/.factory/run/（agent cwd=target）；catalog/risk-paths 讀目標 repo。
       # TOKEN_BUDGET 由 input 帶入（0 = 不設限），judge 讀 env（Q02-5 SR7 接線）。
+      # crosscheck skipped（dry_run）或成功才放行 judge；crosscheck 失敗時其自身已貼
+      # needs-human，judge 不該再基於（可能是假的）report 產出終點。
       - name: Judge terminal state
         id: judge
-        if: steps.agent.outcome == 'success'
+        if: steps.agent.outcome == 'success' && (steps.crosscheck.outcome == 'success' || steps.crosscheck.outcome == 'skipped')
         env:
           TOKEN_BUDGET: ${{ inputs.token_budget }}
         run: |
@@ -441,7 +482,8 @@ jobs:
           gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
 
       - name: Apply judge labels and comment
-        if: steps.agent.outcome == 'success'
+        id: apply-labels
+        if: steps.agent.outcome == 'success' && (steps.crosscheck.outcome == 'success' || steps.crosscheck.outcome == 'skipped')
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
@@ -449,12 +491,42 @@ jobs:
           node dist/cli/apply-judge-labels.js \
             "${{ inputs.issue_number }}" .factory/judge.json
 
+      # 終態守衛（G1，docs/18 §2.1）——堵住「失敗未進入控制流」的靜默路徑：
+      # agent 已啟動但 job 失敗（judge/apply-labels 步驟 crash、gh API 錯誤等）時，
+      # 若 Issue 沒有本 run 的終態留言，補貼 needs-human 並留言。
+      # 不重複貼的依據：所有終態留言（timeout handler / crosscheck / 本守衛）
+      # 都內含 github.run_id；grep 到即代表已有交還紀錄。
+      - name: Ensure terminal state (guard)
+        if: always() && job.status != 'success' && steps.agent.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          set +e
+          COMMENTS=$(gh issue view "${{ inputs.issue_number }}" \
+            --json comments --jq '[.comments[].body] | join("\n")' 2>/dev/null)
+          set -e
+          if printf '%s' "$COMMENTS" | grep -qF "${{ github.run_id }}"; then
+            echo "terminal state already posted for run ${{ github.run_id }}; guard idle"
+          else
+            echo "::warning::run ${{ github.run_id }} 未留下終態留言——補貼 needs-human（G1 終態守衛）"
+            gh issue comment "${{ inputs.issue_number }}" \
+              --body "⚠️ 工廠執行未正常完成（run: ${{ github.run_id }}）——agent 已啟動但未收到終態判定（可能 judge/labels 步驟失敗）。已交還人類，請查看 Actions run logs。"
+            gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
+          fi
+
       # Step 6（人類）— 第 1 期不自動合併；留言告知等待審查
       - name: Summary
         if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
         run: |
-          echo "run=${{ github.run_id }} repo=${{ inputs.repo }} base=${{ inputs.base_branch }} issue=${{ inputs.issue_number }} dry_run=${{ inputs.dry_run }}"
-          echo "工廠執行完成。第 1 期：所有變更等待人類審查後合併。"
+          echo "run=${{ github.run_id }} repo=${{ inputs.repo }} base=${{ inputs.base_branch }} issue=${{ inputs.issue_number }} dry_run=${{ inputs.dry_run }} job_status=$JOB_STATUS"
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "工廠執行完成。第 1 期：所有變更等待人類審查後合併。"
+          else
+            echo "⚠️ 工廠執行未正常完成（job_status=$JOB_STATUS）——終態以 Issue 上的 needs-human 標籤為準，詳情見 run log。"
+          fi
 
       # 診斷：agent 的 stdout/stderr/report 上傳成 artifact（失敗也要，否則無從查）
       - name: Upload run artifacts
