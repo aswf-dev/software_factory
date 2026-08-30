@@ -1,0 +1,14 @@
+mkdocs.yml
+  h_1b119f25eaf333 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a2545654f7bf084e1db262502bf1cdfc9845d979",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
