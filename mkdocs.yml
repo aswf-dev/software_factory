@@ -18,6 +18,7 @@ nav:
   - 缺陷追蹤與觀察期: 14-observation-period.md
   - 觀察期試跑紀錄: 15-observation-trial-log.md
   - Backstage 重建手冊: 17-backstage-rebuild.md
+  - Silent Failure 補強: 18-silent-failure-hardening.md
   - 架構決策記錄（ADR）: ADR/README.md
   - 詞彙表: GLOSSARY.md
 plugins:
