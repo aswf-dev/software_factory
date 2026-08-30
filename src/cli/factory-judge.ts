@@ -38,8 +38,11 @@ const InvocationSchema = z.object({
  * 只有 issueNumber 與 invocation 為必填 —— 沒有這兩者就無從判定「哪個工作項、
  * 執行成敗如何」。其餘欄位缺席代表「agent 未回報」，交由 pipeline 的既有
  * fail-safe 處理，而不是在此臆測數值。
+ *
+ * @export 供 factory-crosscheck 等「以 report 為輸入的判定器」共用，確保只有
+ * 一份 report 契約。
  */
-const ReportSchema = z.object({
+export const ReportSchema = z.object({
   issueNumber: z.number(),
   invocation: InvocationSchema,
   changedPaths: z.array(z.string()).optional(),

@@ -32,6 +32,11 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 
 寫入路徑：`.factory/run/report.json`（位於 workspace 根目錄）。此報告是 CI 判定終點的輸入；**欄位缺漏時 CI 會以最保守方式處理**，但完整填寫能讓人類接手時看到全貌。
 
+> **報告必須誠實反映實際變更（docs/18 §2.3）**：CI 會以 `factory-crosscheck` 把
+> `changedPaths`/`changedLines` 與實際 git diff 交叉比對——漏報或虛報（如宣稱改了檔但
+> 沒建分支、或改了檔卻沒寫進報告）會直接觸發 needs-human。填寫前先以
+> `git diff --name-only $BASE_BRANCH...<分支>` 核對。
+
 ## 任務型別
 
 任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs）。依型別調整：
