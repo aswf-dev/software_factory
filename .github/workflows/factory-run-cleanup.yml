@@ -1,0 +1,101 @@
+# Factory Run Cleanup — job 級逾時/取消的終態守衛（G2，docs/18 §2.2）。
+#
+# 問題：factory-run.yml 的 job-level `timeout-minutes` 或使用者取消會**直接終止 job**，
+# job 內任何 step（含 `if: always()`）都不會再執行——Issue 停留在無終態狀態，
+# 等同文章所述「失敗沒有進入控制流」的靜默路徑。
+#
+# 本 workflow 監看 Factory Run 的完成事件，在下列條件全部成立時補 needs-human：
+#   1. 該 run 結論為 failure / cancelled / timed_out；
+#   2. run-name（`Factory Run (<repo> #<issue>)`）可解析出目標 repo 與 issue；
+#   3. 該 run 已進入 agent 階段（jobs API 中出現「Run factory agent」step）——
+#      agent 啟動前的失敗（guard/issue-check/score）各有自己的大聲訊號，不在此處理；
+#   4. Issue 上尚無含該 run id 的終態留言（避免與 timeout handler / crosscheck /
+#      終態守衛重複貼）。
+#
+# ⚠️ 部署注意：workflow_run 觸發要求本 workflow 位於 repo 的 **default branch（main）**。
+# 合併路徑（ADR-013）：software-factory → main 時本檔案隨之同步，此監看才生效。
+name: Factory Run Cleanup
+
+on:
+  workflow_run:
+    workflows: ["Factory Run"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  cleanup:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'cancelled' || github.event.workflow_run.conclusion == 'timed_out' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # 從 run 的 display_title（= factory-run.yml 的 run-name）解析 repo 與 issue。
+      # 解析失敗（如舊版 run 無 run-name）→ 無法定位目標，安全略過。
+      - name: Resolve run target (repo + issue)
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          TITLE=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID" --jq .display_title)
+          echo "display_title=$TITLE"
+          if [[ "$TITLE" =~ ^Factory\ Run\ \(([^ ]+)\ #([0-9]+)\)$ ]]; then
+            echo "repo=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+            echo "issue=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+            echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "無法從 run-name 解析 repo/issue（可能是舊版 run）；略過"
+            echo "issue=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 確認該 run 是否已進入 agent 階段：jobs API 中「Run factory agent」step
+      # 出現即代表啟動過（結論 null = 執行中被終止，也算）。agent 啟動前的
+      # 失敗不在此處理，避免在 guard/issue-check 紅燈時誤貼 needs-human。
+      - name: Check agent stage reached
+        id: stage
+        if: steps.resolve.outputs.issue != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REACHED=$(gh api "repos/${{ github.repository }}/actions/runs/${{ steps.resolve.outputs.run_id }}/jobs" \
+            --jq '[.jobs[].steps[] | select(.name == "Run factory agent")] | length')
+          echo "agent_step_entries=$REACHED"
+          if [ "$REACHED" -gt 0 ]; then
+            echo "reached=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reached=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # D6：以 App 身分在目標 repo 留言/貼標籤（與 factory-run 相同的 token 橋接）。
+      - name: Mint app token
+        if: steps.resolve.outputs.issue != '' && steps.stage.outputs.reached == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          repositories: ${{ steps.resolve.outputs.repo }}
+
+      - name: Post needs-human if no terminal comment
+        if: steps.resolve.outputs.issue != '' && steps.stage.outputs.reached == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ISSUE="${{ steps.resolve.outputs.issue }}"
+          REPO="${{ steps.resolve.outputs.repo }}"
+          RUN_ID="${{ steps.resolve.outputs.run_id }}"
+          COMMENTS=$(gh issue view "$ISSUE" --repo "$REPO" \
+            --json comments --jq '[.comments[].body] | join("\n")' 2>/dev/null || true)
+          if printf '%s' "$COMMENTS" | grep -qF "$RUN_ID"; then
+            echo "run $RUN_ID 已有終態留言（$REPO #$ISSUE）；cleanup idle"
+          else
+            echo "::warning::run $RUN_ID 異常結束（逾時/取消）且無終態留言——補貼 needs-human（G2 cleanup）"
+            gh issue comment "$ISSUE" --repo "$REPO" \
+              --body "⚠️ 工廠執行異常結束（run: $RUN_ID，逾時或取消）——agent 已啟動但未留下終態判定。已交還人類，請查看 Actions run logs。"
+            gh issue edit "$ISSUE" --repo "$REPO" --add-label needs-human
+          fi
