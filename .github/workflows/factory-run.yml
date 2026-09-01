@@ -105,13 +105,34 @@ jobs:
       # App 權限最小化（Contents/PRs/Issues RW、Actions/Metadata R），
       # 無 Administration/Workflows —— agent 無法修改 guardrail 自身。
       # repositories 限定目標 repo（最小權限；App 需已安裝於目標 repo）。
+      # ⚠️ owner 必須顯式傳入：該 action 的 owner 預設為「當前 repo 的 owner」
+      # （即 philipz），且 repositories 只收**不含 owner 的 repo 名**。跨 owner
+      # 時直接傳 owner/name 會被擋下——2026-09-01 實測 run 33523314113：
+      # "Repository '...' includes owner 'agent-playground', which does not
+      # match the resolved owner 'philipz'"。故拆成 owner + 純 repo 名。
+      # Actions 運算式沒有 split()（內建僅 contains/startsWith/format/join/…），
+      # 故以 shell 拆出 owner 與純 repo 名。
+      - name: Resolve target owner/name
+        id: target
+        env:
+          TARGET_REPO: ${{ inputs.repo }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_REPO" in
+            */*) ;;
+            *) echo "::error::inputs.repo 必須為 owner/name 格式，實得：$TARGET_REPO"; exit 1 ;;
+          esac
+          echo "owner=${TARGET_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${TARGET_REPO#*/}" >> "$GITHUB_OUTPUT"
+
       - name: Mint app token
         id: app-token
         uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
-          repositories: ${{ inputs.repo }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
 
       # 分支存在性檢查（#171 教訓 fast-fail）：不存在的 trunk 會在 checkout 才炸，
       # 此處以 App token 提前擋下。**必須用 App token**——GITHUB_TOKEN 只授權機制 repo，
