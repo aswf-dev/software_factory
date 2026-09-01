@@ -19,7 +19,8 @@ nav:
   - 觀察期試跑紀錄: 15-observation-trial-log.md
   - Backstage 重建手冊: 17-backstage-rebuild.md
   - Silent Failure 補強: 18-silent-failure-hardening.md
-  - Agent 行為守則: 19-agent-code-of-ethics.md
+  - SWEBOK v4 對照（SDLC 差距分析）: 19-swebok-v4-sdlc-gap-analysis.md
+  - SDLC 改善工項清單: 20-work-items.md
   - 架構決策記錄（ADR）: ADR/README.md
   - 詞彙表: GLOSSARY.md
 plugins:
