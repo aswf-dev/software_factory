@@ -1,0 +1,14 @@
+backstage/templates/agent-add-tests/template.yaml
+  h_1b119f25eaf333 28-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4cc544a6b7be589e3fdb78b433eeb78dc0bd054c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
