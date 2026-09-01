@@ -1,0 +1,34 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 49,55
+.github/ISSUE_TEMPLATE/factory-work-item.yml
+  h_1b119f25eaf333 16
+.github/factory/task-template-analyze.txt
+  h_1b119f25eaf333 1-25
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 28,286-287,289-290,435-439,443
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 81-82
+docs/09-roadmap.md
+  h_1b119f25eaf333 136-137
+src/cli/apply-score-labels.test.ts
+  h_1b119f25eaf333 5,39-54,73-87
+src/cli/apply-score-labels.ts
+  h_1b119f25eaf333 25-33,43-51,65,69,79,83-84,86
+src/cli/factory-crosscheck.test.ts
+  h_1b119f25eaf333 137-176,395,400,409,413-416
+src/cli/factory-crosscheck.ts
+  h_1b119f25eaf333 140,148-159,278,283,288,299-300,313,317,320
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 119,122,292,302,484,491
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1d7ed45cd04d3ef63e76aebddf7cefd686aff8ab",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
