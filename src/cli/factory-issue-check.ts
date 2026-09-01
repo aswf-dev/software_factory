@@ -15,6 +15,12 @@
  * 輸出：CheckResult（ok + 缺失欄位清單 + 複雜度分析）。
  *
  * 純函式可單元測試；gh 呼叫以注入（GhRunner）取代（模式同 factory-rescore）。
+ *
+ * 2026-09（docs/18 §4 G5、#200）擴充：DoD 具體性提示（checkDodSpecificity）——
+ * 表單三個 checkbox 對每個 Issue 逐字相同，「字面存在」不等於「具體可驗證」；
+ * 對自訂條目／驗證方式逐條做形式檢查（每條含可觀察結果、無空泛詞彙），不具體時
+ * 留言輸出 💡 提示。屬 Verification 而非 Validation：不判「該不該做」、不改
+ * 合規判定與計分邏輯。
  */
 import { execFileSync } from 'node:child_process'
 import { analyzeComplexity, type ComplexityAnalysis } from '../issue-analysis/complexity.js'
@@ -244,6 +250,7 @@ export function checkIssue(body: string): CheckResult {
 
 /**
  * 建構檢查留言：格式合規/不合規 ＋ 複雜度分析 ＋ 建議模型（recommendation 有值時）。
+ * ＋ DoD 具體性提示（💡，advisory，docs/18 §4 G5——僅在不具體時出現）。
  * 分析行即使格式不合規也輸出（best-effort；缺需求欄位 → fail-safe high）。
  */
 export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommendation): string {

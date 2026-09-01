@@ -19,8 +19,8 @@
 | **G2** | job 級 `timeout-minutes` 或取消會**直接終止 job**，job 內任何 step（含 `always()`）都不會執行 → Issue 停留在無終態狀態 | 無任何機制 | ✅ 已修 |
 | **G3** | report.json 是 agent 自報；judge 的 zod 只驗證形狀、不驗證真實性——`changedPaths`/`changedLines` 造假或漏報不會被發現（SR6/SR4/重計分都建立在錯誤輸入上） | `factory-judge` 無交叉驗證 | ✅ 已修 |
 
-未實作（P2，見 §4）：G4 紅燈證據未留存、G5 DoD 表單形式檢查、G6 無獨立測試重跑
-step、G8 report 無 requirement→status evidence slot。
+未實作（P2，見 §4）：G4 紅燈證據未留存、G6 無獨立測試重跑 step、
+G8 report 無 requirement→status evidence slot（G5 已於 #200 實作，見 §4 註）。
 
 ---
 
@@ -117,6 +117,13 @@ dry_run 模式跳過 crosscheck（stub 不建分支）。
 | **G5** | DoD 檢查只驗證 checkbox 字面存在，內容可空洞 | issue-check 留言增加「DoD 是否具體可驗證」提示 | 形式檢查可被勾選空泛內容通過 |
 | **G6** | 沒有獨立的「測試確實執行且通過」step，依賴 target repo 自身 PR CI | 在 crosscheck 之後加一步跑 target repo 測試命令（需 per-repo 測試命令設定） | 若 target repo 無 CI 覆蓋 factory 分支，「tests pass」只有 agent 自述 |
 | **G8** | report.json 無 requirement→status 的 evidence slot（文章建議 #1） | report 增加 `requirements: [{id, status}]`，crosscheck 驗證 status 欄位完整性 | 把「每個要求一個明確狀態」結構化 |
+
+**G5 已實作（Issue #200）**：`factory-issue-check` 新增 `checkDodSpecificity` —
+排除模板固定三項後逐條審查 acceptance 自訂條目（無自訂條目時退回 requirement 的
+「驗證方式」段落）：每條須含可觀察結果線索（code span 命令／測試・斷言・輸出類詞彙／
+「→」後果／量化閾值）且不命中空泛詞彙清單（更好／優化／完善／盡量…）。不具體時
+留言輸出 💡 提示；**advisory 性質——不影響 ok、exit code 與計分**。這是 Verification
+（形式檢查）；Validation（這條驗收「該不該做」）仍屬 human-in-the-loop，不在本項範圍。
 
 ---
 
