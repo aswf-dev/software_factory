@@ -26,11 +26,18 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
   "assertionDelta": <測試斷言淨增減，負數表示減少>,
   "addedDependencies": ["<新增相依套件名>"],
   "syncFailures": <gh stack sync 連續失敗次數>,
-  "hasAcceptanceCriteria": <true|false>
+  "hasAcceptanceCriteria": <true|false>,
+  "requirements": [{"id": "<驗收條件編號>", "status": "<passed|failed|skipped>"}]
 }
 ```
 
 寫入路徑：`.factory/run/report.json`（位於 workspace 根目錄）。此報告是 CI 判定終點的輸入；**欄位缺漏時 CI 會以最保守方式處理**，但完整填寫能讓人類接手時看到全貌。
+
+> **`requirements` 欄位（G8 需求追蹤，docs/20 B1）**：每一條 Issue 驗收條件（DoD）對應一個
+> `{id, status}`——`id` 為驗收條件編號、`status` 為其對應測試/實作的狀態
+> （`passed`/`failed`/`skipped`）。`factory-crosscheck` 會驗證該欄位完整性（每條驗收條件
+> 都有對應條目且 status 齊全）；此欄位缺漏或造假時與 `changedPaths` 同樣觸發 needs-human。
+> **此欄位為「誠實自報」＋CI 交叉驗證，不取代人類審查（docs/06 §4.3）。**
 
 > **報告必須誠實反映實際變更（docs/18 §2.3）**：CI 會以 `factory-crosscheck` 把
 > `changedPaths`/`changedLines` 與實際 git diff 交叉比對——漏報或虛報（如宣稱改了檔但
