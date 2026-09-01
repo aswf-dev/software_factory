@@ -34,6 +34,18 @@ jobs:
           node-version: '22.21.1'
           cache: npm
 
+      # Quint Rust evaluator 二進位快取（~/.quint/rust-evaluator-<version>）：
+      # 首次執行由 npm 套件從 GitHub Releases 下載；並行 run 多時會撞 rate limit
+      # （2026-09-01 run 33480276123 實測）。key 以 lockfile hash 標定——quint
+      # 升版即失效重建（docs/20 後續、Q04-8 教訓）。
+      - name: Cache Quint evaluator binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.quint
+          key: quint-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            quint-${{ runner.os }}-
+
       - name: Install dependencies
         run: npm ci
 
