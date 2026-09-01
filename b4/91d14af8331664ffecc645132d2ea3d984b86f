@@ -1,0 +1,16 @@
+docs/10-open-questions.md
+  h_1b119f25eaf333 9,122
+docs/20-work-items.md
+  h_1b119f25eaf333 36,124-126,167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b491d14af8331664ffecc645132d2ea3d984b86f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
