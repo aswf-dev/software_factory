@@ -134,6 +134,46 @@ describe('compareReportToActual', () => {
     ).toEqual([])
   })
 
+  it('analyze-only + 純 docs 報告 → 無 analyze-code-change', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['docs/research/12-impact.md'],
+      added: 40,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      { changedPaths: ['docs/research/12-impact.md'], changedLines: 40, requirements: [{ id: 'R1', status: 'passed' }] },
+      actual,
+      true,
+    )
+    expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(false)
+  })
+
+  it('analyze-only + src/ 變更 → analyze-code-change（僅分析不實作）', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts', 'docs/research/12-impact.md'],
+      added: 20,
+      deleted: 5,
+      uncommitted: [],
+    }
+    const m = compareReportToActual({ changedPaths: ['src/a.ts', 'docs/research/12-impact.md'], changedLines: 25 }, actual, true)
+    expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(true)
+  })
+
+  it('非 analyze-only（預設）→ 不做 docs 限制', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 20,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 20 }, actual, false)
+    expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(false)
+  })
+
   it('宣稱變更但無分支、無 diff、無未提交 → no-trace（假完成）', () => {
     const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 30 }, emptyActual)
     expect(m.some((x) => x.kind === 'no-trace')).toBe(true)
@@ -352,11 +392,12 @@ describe('collectActualDiff', () => {
 })
 
 describe('parseArgs', () => {
-  it('預設值：base=software-factory、target=target', () => {
+  it('預設值：base=software-factory、target=target、analyzeOnly=false', () => {
     expect(parseArgs(['12', 'report.json'])).toEqual({
       issueNumber: 12,
       reportPath: 'report.json',
       paths: { base: 'software-factory', target: 'target' },
+      analyzeOnly: false,
     })
   })
 
@@ -365,7 +406,12 @@ describe('parseArgs', () => {
       issueNumber: 12,
       reportPath: 'r.json',
       paths: { base: 'main', target: 't2' },
+      analyzeOnly: false,
     })
+  })
+
+  it('--analyze-only 旗標', () => {
+    expect(parseArgs(['12', 'r.json', '--analyze-only']).analyzeOnly).toBe(true)
   })
 
   it('參數錯誤 → CliError', () => {

@@ -13,6 +13,7 @@ body:
         - agent-fix-bug
         - agent-update-deps
         - agent-write-docs
+        - agent-analyze
     validations:
       required: true
   - type: textarea

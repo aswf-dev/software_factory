@@ -137,12 +137,25 @@ export function compareReportToActual(
     requirements?: readonly { id: string; status: string }[] | undefined
   },
   actual: CrosscheckActual,
+  analyzeOnly = false,
 ): CrosscheckMismatch[] {
   const mismatches: CrosscheckMismatch[] = []
   const reported = collectReportedPaths(report.changedPaths)
   const actualPaths = actual.paths.filter((p) => !isFactoryInternal(p))
   const hasDiff = actualPaths.length > 0
   const actualTotal = actual.added + actual.deleted
+
+  // agent-analyze（docs/20 C1）：僅分析不實作——變更只允許 docs/**（報告檔）。
+  // 任何 src/、設定、測試變更都是型別契約違反，fail-loud 交還人類。
+  if (analyzeOnly) {
+    const forbidden = actualPaths.filter((p) => !p.startsWith('docs/'))
+    if (forbidden.length > 0) {
+      mismatches.push({
+        kind: 'analyze-code-change',
+        detail: `analyze 模式（僅分析不實作）只允許 docs/ 下的報告檔，實際 diff 含非文件變更：${forbidden.join('、')}`,
+      })
+    }
+  }
 
   if (reported.length > 0 && !hasDiff && actual.branches.length === 0 && actual.uncommitted.length === 0) {
     mismatches.push({
@@ -262,15 +275,17 @@ export interface CrosscheckCliPaths {
   target: string
 }
 
-/** 解析位置參數：`<issueNumber> <reportPath> [--base <b>] [--target <t>]`。 */
+/** 解析位置參數：`<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]`。 */
 export function parseArgs(argv: string[]): {
   issueNumber: number
   reportPath: string
   paths: CrosscheckCliPaths
+  analyzeOnly: boolean
 } {
   const positional: string[] = []
   let base = 'software-factory'
   let target = 'target'
+  let analyzeOnly = false
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--base') {
@@ -281,6 +296,8 @@ export function parseArgs(argv: string[]): {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) throw new CliError('--target requires a directory')
       target = v
+    } else if (arg === '--analyze-only') {
+      analyzeOnly = true
     } else if (!arg.startsWith('--')) {
       positional.push(arg)
     } else {
@@ -293,14 +310,14 @@ export function parseArgs(argv: string[]): {
   }
   const reportPath = positional[1]
   if (reportPath === undefined) throw new CliError('reportPath is required')
-  return { issueNumber, reportPath, paths: { base, target } }
+  return { issueNumber, reportPath, paths: { base, target }, analyzeOnly }
 }
 
 export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput {
-  const { issueNumber, reportPath, paths } = parseArgs(argv)
+  const { issueNumber, reportPath, paths, analyzeOnly } = parseArgs(argv)
   const report = loadReport(reportPath)
   const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
-  const mismatches = compareReportToActual(report, actual)
+  const mismatches = compareReportToActual(report, actual, analyzeOnly)
   return {
     issueNumber,
     ok: mismatches.length === 0,

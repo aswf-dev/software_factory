@@ -25,7 +25,7 @@ on:
         description: 任務類型（決定 task-template 與 skill 分支）
         required: false
         type: choice
-        options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs]
+        options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze]
         default: agent-add-tests
       repo:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
@@ -283,8 +283,11 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
         run: |
+          # 第三參數 = task_type：agent-analyze 允許 in-loop 以「僅分析」模式執行
+          # （docs/06 §4「僅可產出分析與方案」的實作，docs/20 C1）
           node dist/cli/apply-score-labels.js \
-            "${{ inputs.issue_number }}" .factory/score.json
+            "${{ inputs.issue_number }}" .factory/score.json \
+            "${{ inputs.task_type }}"
 
       # 被擋下（in-loop）時說明並結束；agent 步驟會被 if: success() 跳過
       - name: Stop when in-loop
@@ -429,10 +432,15 @@ jobs:
           GH_REPO: ${{ inputs.repo }}
         run: |
           set +e
+          ANALYZE_FLAG=""
+          if [ "${{ inputs.task_type }}" = "agent-analyze" ]; then
+            # analyze 模式：crosscheck 驗證「僅分析不實作」（非 docs/ 變更 → fail-loud）
+            ANALYZE_FLAG="--analyze-only"
+          fi
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e

@@ -133,6 +133,8 @@
 
 > **2.5 調整說明（務實版）**：OTel 指標後端延後（Q08-4），先以 `gh` JSON 計算 lead time / PR 大小 / 缺陷逃逸（`docs/08` §2）；月報即 Scoreboard 的替代品（2.7）。
 
+> **2.1 補記（2026-09-01，docs/20 C1）**：新增第 5 種任務類型 **`agent-analyze`**（分析/調查型，不產程式碼變更，docs/ 報告單層 PR）。路由/模板/skill/對抗性測試五處接線見 `docs/20` §4；`factory-run.yml` 的 `options` 陣列為唯一機械清單（factory-assets 對抗性測試釘住）。in-loop（5–6 分）工作項可透過此型產出分析（docs/06 §4「僅可產出分析與方案」的實作）。
+
 ### 出場條件（2026-08-18 最終狀態）
 
 - [x] ≥ 3 種任務類型穩定運作（路由/模板就緒 T1–T2；**2/3 型實跑驗證**——試點 #2 add-tests、#3 fix-bug；update-deps/write-docs 待後續工作項累積）

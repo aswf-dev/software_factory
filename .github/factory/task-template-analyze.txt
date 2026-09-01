@@ -1,0 +1,25 @@
+處理 GitHub Issue #<ISSUE>（repo: <REPO>，工廠 trunk 分支: <BASE_BRANCH>）。
+
+1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules。
+   **輸出紀律（重要）**：設計/推導/思考過程**不要輸出到 stdout**——直接撰寫目標檔案（報告）；stdout 只用於簡短進度與最終摘要（PR 編號、驗證結果、.factory/run/report.json 摘要）。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
+2. 若環境變數 GH_TOKEN 不存在，先執行：
+   export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)
+   export GH_REPO=$(cat .factory/run/repo 2>/dev/null)
+   export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)
+3. 讀取該 Issue 的內容與驗收條件；若缺可驗證的驗收條件，依 factory-stop-rules 停手。
+4. **本類型是分析型（agent-analyze）**：執行分析（bug 重現／根因分析／影響分析／可行性調查）。
+   **不產生任何程式碼變更**——不修改 src/、不修改測試、不修改設定檔；變更只允許 docs/ 下的報告檔。
+5. 產出報告：在 `docs/research/` 下建立 `<issue>-<主題>.md`，結構必須包含：
+   - **結論摘要**（一頁內可讀完）
+   - **證據與根因**（可重現步驟／引用檔案與行號）
+   - **影響範圍**（受影響模組／使用者／下游）
+   - **方案比較**（至少兩個方案，含被拒方案與理由）
+   - **建議下一步**（可直接開成工作項的描述，含驗收條件草案）
+6. 以**單層 PR** 提交（base 為 $BASE_BRANCH，絕不 push 到 main）。
+   若計分為 in-loop：你仍可產出分析報告 PR（docs/06 §4「僅可產出分析與方案，不得實作」）——
+   **報告不具放行效力**，人類審查後才可能據以開新工作項。
+7. 完成後在 Issue 留言回報 PR 編號與摘要，並依 factory-workflow 寫出 .factory/run/report.json
+   （changedPaths 應只含 docs/ 下的報告檔；requirements 依驗收條件填寫）。
+8. **完成後立即停止**：report.json 寫完即為工作項終點——不要繼續任何額外工作（重跑測試、額外驗證、自我檢查、輸出思考）。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到 50 分鐘 timeout。
+
+若觸發任何停手規則，依該規則處理後結束。

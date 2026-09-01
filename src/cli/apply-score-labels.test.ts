@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { buildBlockComment, computeScoreLabels, main } from './apply-score-labels.js'
+import { buildAnalyzeComment, buildBlockComment, computeScoreLabels, main } from './apply-score-labels.js'
 import { CliError } from './run-cli.js'
 
 let tmp: string
@@ -36,6 +36,22 @@ describe('computeScoreLabels（純函式）', () => {
     expect(out.blocked).toBe(true)
     expect(buildBlockComment(6)).toContain('human-in-the-loop')
   })
+  it('in-loop + agent-analyze → 不擋（僅分析模式），analyzeAllowed=true', () => {
+    const out = computeScoreLabels({ total: 6, tier: 'in-loop', label: 'oversight/in-loop' }, 'agent-analyze')
+    expect(out.blocked).toBe(false)
+    expect(out.analyzeAllowed).toBe(true)
+    expect(buildAnalyzeComment(6)).toContain('僅分析不實作')
+  })
+  it('in-loop + 其他類型 → 照常擋（task_type 與計分正交，analyze 是唯一例外）', () => {
+    const out = computeScoreLabels({ total: 6, tier: 'in-loop', label: 'oversight/in-loop' }, 'agent-fix-bug')
+    expect(out.blocked).toBe(true)
+    expect(out.analyzeAllowed).toBe(false)
+  })
+  it('非 in-loop + agent-analyze → 不擋、analyzeAllowed=false（analyze 模式只影響 in-loop）', () => {
+    const out = computeScoreLabels({ total: 2, tier: 'review', label: 'oversight/review' }, 'agent-analyze')
+    expect(out.blocked).toBe(false)
+    expect(out.analyzeAllowed).toBe(false)
+  })
 })
 
 describe('main（注入 fake gh）', () => {
@@ -52,6 +68,21 @@ describe('main（注入 fake gh）', () => {
     const out = main([String(102), writeScore({ score: { total: 6, tier: 'in-loop', label: 'oversight/in-loop' } })], gh)
     expect(out.blocked).toBe(true)
     expect(gh).toHaveBeenCalledWith(['issue', 'comment', '102', '--body', expect.stringContaining('human-in-the-loop')])
+  })
+
+  it('in-loop + agent-analyze → 不阻斷，貼 analyze 說明留言', () => {
+    const gh = vi.fn()
+    const out = main(
+      [
+        String(106),
+        writeScore({ score: { total: 6, tier: 'in-loop', label: 'oversight/in-loop' } }),
+        'agent-analyze',
+      ],
+      gh,
+    )
+    expect(out.blocked).toBe(false)
+    expect(out.analyzeAllowed).toBe(true)
+    expect(gh).toHaveBeenCalledWith(['issue', 'comment', '106', '--body', expect.stringContaining('僅分析不實作')])
   })
 
   it('score.json 格式錯誤 → CliError（fail-loud）', () => {
