@@ -1,0 +1,14 @@
+docs/20-work-items.md
+  h_1b119f25eaf333 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4489ab99e4ca9dc9d97cb49b8f86d81cc70623f3",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
