@@ -155,7 +155,7 @@ D1（docs/19 收尾；Q19 標記依賴前項完成）
 ## 7. 延後項目（Q19-1/2 裁決）
 
 - **P1 六項**（釋出管理、rollback runbook、ATDD 驗收層、架構審查指引、自動化判定、估算裁適）：逐項後議，建議 P0 落地＋觀察期數據後再裁。
-- **候選類型**：agent-write-spec（需四護欄：draft 標記／禁自動合併／spec-approved 標籤／DoD 含未決事項）、agent-refactor（需 characterization-test 拆分規則）、agent-security-fix（需類型級限制）、agent-migrate、agent-release-notes（需先有釋出流程）：等 C1 實跑驗證後再議。
+- **候選類型**：agent-write-spec、agent-refactor、agent-security-fix、agent-migrate、agent-release-notes——詳細評估（定義/依據/風險/前置/紅線/排序）見 `docs/21-candidate-work-item-types.md`（活文件，逐步完善）。
 
 ---
 

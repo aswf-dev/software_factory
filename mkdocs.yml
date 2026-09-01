@@ -21,6 +21,7 @@ nav:
   - Silent Failure 補強: 18-silent-failure-hardening.md
   - SWEBOK v4 對照（SDLC 差距分析）: 19-swebok-v4-sdlc-gap-analysis.md
   - SDLC 改善工項清單: 20-work-items.md
+  - 候選工作類型清單: 21-candidate-work-item-types.md
   - 架構決策記錄（ADR）: ADR/README.md
   - 詞彙表: GLOSSARY.md
 plugins:
