@@ -45,7 +45,13 @@ jobs:
           TITLE=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID" --jq .display_title)
           echo "display_title=$TITLE"
           if [[ "$TITLE" =~ ^Factory\ Run\ \(([^ ]+)\ #([0-9]+)\)$ ]]; then
-            echo "repo=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+            TARGET_REPO="${BASH_REMATCH[1]}"
+            echo "repo=$TARGET_REPO" >> "$GITHUB_OUTPUT"
+            # create-github-app-token 的 owner 預設為當前 repo owner，且
+            # repositories 只收不含 owner 的名稱——跨 owner 必須拆開傳
+            # （2026-09-01 實測 run 33523363381 因此失敗）。
+            echo "owner=${TARGET_REPO%%/*}" >> "$GITHUB_OUTPUT"
+            echo "name=${TARGET_REPO#*/}" >> "$GITHUB_OUTPUT"
             echo "issue=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
             echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
           else
@@ -79,7 +85,8 @@ jobs:
         with:
           client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
-          repositories: ${{ steps.resolve.outputs.repo }}
+          owner: ${{ steps.resolve.outputs.owner }}
+          repositories: ${{ steps.resolve.outputs.name }}
 
       - name: Post needs-human if no terminal comment
         if: steps.resolve.outputs.issue != '' && steps.stage.outputs.reached == 'true'

@@ -224,7 +224,15 @@ describe('factory-run.yml 多 repo 支援（Q-P2-1 統一，Phase 2 T4）', () =
     expect(content).toContain('不存在分支')
   })
   it('App token 依目標 repo 換發（最小權限）', () => {
-    expect(content).toContain('repositories: ${{ inputs.repo }}')
+    // owner 與 repo 名必須拆開傳：create-github-app-token 的 owner 預設為
+    // 當前 repo owner（philipz），repositories 只收不含 owner 的名稱——
+    // 跨 owner 直接傳 owner/name 會被擋（實測 run 33523314113）。
+    expect(content).toContain('owner: ${{ steps.target.outputs.owner }}')
+    expect(content).toContain('repositories: ${{ steps.target.outputs.name }}')
+    // owner/name 由 inputs.repo 拆出，仍是「依目標 repo」換發
+    expect(content).toContain('TARGET_REPO: ${{ inputs.repo }}')
+    expect(content).toContain('${TARGET_REPO%%/*}')
+    expect(content).toContain('${TARGET_REPO#*/}')
   })
   it('目標 repo 以 base_branch checkout 至 target/（main 絕不觸碰）', () => {
     expect(content).toContain('repository: ${{ inputs.repo }}')
