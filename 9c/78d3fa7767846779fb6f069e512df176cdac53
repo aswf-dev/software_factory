@@ -1,0 +1,16 @@
+docs/10-open-questions.md
+  h_1b119f25eaf333 6-7,11,19,30-31
+docs/21-candidate-work-item-types.md
+  h_1b119f25eaf333 3-4,6-7,11,15-16,19-21,27,34-39,45-54,59,64,72,77,83,87-88,94,96-97,103,106-108,112,122-123,128-129,132-135,141,145-185,193-194,196-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9c78d3fa7767846779fb6f069e512df176cdac53",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
