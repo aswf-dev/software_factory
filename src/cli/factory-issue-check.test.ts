@@ -230,7 +230,7 @@ const WITH_VERIFICATION = COMPLIANT.replace(
 )
 
 describe('checkDodSpecificity', () => {
-  it.skip('模板三項不納審；自訂條目逐條審查（可觀察/空泛各自標記）', () => {
+  it('模板三項不納審；自訂條目逐條審查（可觀察/空泛各自標記）', () => {
     const r = checkDodSpecificity(
       withDodExtras(['- [x] 跑 `npm test` 輸出 0 failed', '- 介面更好用']),
     )
@@ -242,27 +242,27 @@ describe('checkDodSpecificity', () => {
     expect(r.items[1]?.vagueTerms).toContain('更好')
     expect(r.specific).toBe(false)
   })
-  it.skip('每條都具體（可觀察＋無空泛）→ specific true', () => {
+  it('每條都具體（可觀察＋無空泛）→ specific true', () => {
     const r = checkDodSpecificity(
       withDodExtras(['- [x] `npm run coverage` 輸出 src/cli 分支覆蓋 100%']),
     )
     expect(r.items).toHaveLength(1)
     expect(r.specific).toBe(true)
   })
-  it.skip('有可觀察線索但含空泛詞 → 仍不具體（防 every 只查單面）', () => {
+  it('有可觀察線索但含空泛詞 → 仍不具體（防 every 只查單面）', () => {
     const r = checkDodSpecificity(withDodExtras(['- 跑 `npm test` 綠燈，體驗更好']))
     expect(r.items[0]?.observable).toBe(true)
     expect(r.items[0]?.vagueTerms).toEqual(['更好'])
     expect(r.specific).toBe(false)
   })
-  it.skip('混合一具體一空泛 → specific false（防 every 退化為 some）', () => {
+  it('混合一具體一空泛 → specific false（防 every 退化為 some）', () => {
     const r = checkDodSpecificity(
       withDodExtras(['- [x] `npm test` 綠燈', '- [x] 盡量完善文檔']),
     )
     expect(r.items).toHaveLength(2)
     expect(r.specific).toBe(false)
   })
-  it.skip('裸 bullet 與未勾選自訂條目都納審', () => {
+  it('裸 bullet 與未勾選自訂條目都納審', () => {
     const r = checkDodSpecificity(
       withDodExtras([
         '- 執行驗證命令回傳 exit 0',
@@ -274,18 +274,18 @@ describe('checkDodSpecificity', () => {
     expect(r.items[0]?.observable).toBe(true)
     expect(r.items[1]?.text).toBe('補回歸測試（test/ 目錄）')
   })
-  it.skip('acceptance 僅模板三項 → 退回 requirement 的「驗證方式」單行', () => {
+  it('acceptance 僅模板三項 → 退回 requirement 的「驗證方式」單行', () => {
     const r = checkDodSpecificity(WITH_VERIFICATION)
     expect(r.items).toHaveLength(1)
     expect(r.items[0]?.text).toBe('跑 `npm test` 全綠，並新增回歸測試')
     expect(r.specific).toBe(true)
   })
-  it.skip('無自訂條目且無驗證方式 → 空清單、specific false（僅模板 checkbox = 空洞）', () => {
+  it('無自訂條目且無驗證方式 → 空清單、specific false（僅模板 checkbox = 空洞）', () => {
     const r = checkDodSpecificity(COMPLIANT)
     expect(r.items).toEqual([])
     expect(r.specific).toBe(false)
   })
-  it.skip('驗證方式：接連續 bullet → 收集到非 bullet 為止', () => {
+  it('驗證方式：接連續 bullet → 收集到非 bullet 為止', () => {
     const body = COMPLIANT.replace(
       '為 X 補測試',
       [
@@ -302,19 +302,19 @@ describe('checkDodSpecificity', () => {
     expect(r.items[1]?.observable).toBe(true)
     expect(r.specific).toBe(true)
   })
-  it.skip('半形冒號的驗證方式行亦可抽取', () => {
+  it('半形冒號的驗證方式行亦可抽取', () => {
     const body = COMPLIANT.replace('為 X 補測試', '修復 V\n\n驗證方式: run tests, expect green')
     const r = checkDodSpecificity(body)
     expect(r.items).toHaveLength(1)
     expect(r.specific).toBe(true)
   })
-  it.skip('驗證方式：後為空且下一行非 bullet → 空清單', () => {
+  it('驗證方式：後為空且下一行非 bullet → 空清單', () => {
     const body = COMPLIANT.replace('為 X 補測試', '修復 W\n\n驗證方式：\n稍後補上')
     const r = checkDodSpecificity(body)
     expect(r.items).toEqual([])
     expect(r.specific).toBe(false)
   })
-  it.skip('缺 acceptance 欄位 → 仍退回 requirement 驗證方式（合規判定另行處理）', () => {
+  it('缺 acceptance 欄位 → 仍退回 requirement 驗證方式（合規判定另行處理）', () => {
     const body = [
       '### 任務類型',
       '',
@@ -332,7 +332,7 @@ describe('checkDodSpecificity', () => {
     expect(r.specific).toBe(true)
     expect(checkIssue(body).missing).toContain('acceptance')
   })
-  it.skip('英文空泛詞不分大小寫命中', () => {
+  it('英文空泛詞不分大小寫命中', () => {
     const r = checkDodSpecificity(withDodExtras(['- Make It Better and Optimize the flow']))
     expect(r.items[0]?.vagueTerms).toEqual(expect.arrayContaining(['better', 'optimize']))
     expect(r.items[0]?.observable).toBe(false)
@@ -341,7 +341,7 @@ describe('checkDodSpecificity', () => {
 })
 
 describe('buildCheckComment — 💡 DoD 具體性提示（advisory）', () => {
-  it.skip('空泛自訂條目 → 留言列出台詞、空泛詞與缺可觀察原因', () => {
+  it('空泛自訂條目 → 留言列出台詞、空泛詞與缺可觀察原因', () => {
     const c = buildCheckComment(
       checkIssue(
         withDodExtras([
@@ -360,16 +360,16 @@ describe('buildCheckComment — 💡 DoD 具體性提示（advisory）', () => {
     expect(c).not.toContain('「跑 `npm test` 綠燈」（')
     expect(c).toContain('缺可觀察結果')
   })
-  it.skip('僅模板 checkbox 且無驗證方式 → 提示補寫可驗證條目', () => {
+  it('僅模板 checkbox 且無驗證方式 → 提示補寫可驗證條目', () => {
     const c = buildCheckComment(checkIssue(COMPLIANT))
     expect(c).toContain('💡 **DoD 具體性提示**')
     expect(c).toContain('只有表單固定的 3 個勾選項')
   })
-  it.skip('具體驗收描述 → 不發提示', () => {
+  it('具體驗收描述 → 不發提示', () => {
     const c = buildCheckComment(checkIssue(WITH_VERIFICATION))
     expect(c).not.toContain('💡')
   })
-  it.skip('提示不影響合規判定：ok/missing/exit 語義與計分行不變', () => {
+  it('提示不影響合規判定：ok/missing/exit 語義與計分行不變', () => {
     const r = checkIssue(COMPLIANT)
     expect(r.ok).toBe(true)
     expect(r.missing).toEqual([])
@@ -377,10 +377,10 @@ describe('buildCheckComment — 💡 DoD 具體性提示（advisory）', () => {
     expect(c).toContain('格式合規')
     expect(c).toContain('📊 **複雜度分析**')
   })
-  it.skip('提示列不含「格式不合規」——避免誤觸 workflow 的出口 grep', () => {
+  it('提示列不含「格式不合規」——避免誤觸 workflow 的出口 grep', () => {
     expect(buildCheckComment(checkIssue(COMPLIANT))).not.toContain('格式不合規')
   })
-  it.skip('超 60 字條目 → 留言截斷顯示', () => {
+  it('超 60 字條目 → 留言截斷顯示', () => {
     const longText = `讓體驗更好${'長'.repeat(70)}`
     const c = buildCheckComment(checkIssue(withDodExtras([`- ${longText}`])))
     expect(c).toContain('💡 **DoD 具體性提示**')
@@ -390,7 +390,7 @@ describe('buildCheckComment — 💡 DoD 具體性提示（advisory）', () => {
 })
 
 describe('main — 具體性提示接進留言', () => {
-  it.skip('fake gh 回傳空泛 DoD → comment 含 💡 提示', () => {
+  it('fake gh 回傳空泛 DoD → comment 含 💡 提示', () => {
     const gh = (): string => JSON.stringify({ body: withDodExtras(['- 盡量優化']) })
     const out = main(['200'], gh)
     expect(out.comment).toContain('💡 **DoD 具體性提示**')
