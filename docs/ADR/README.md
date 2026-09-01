@@ -40,6 +40,10 @@
 | [ADR-008](008-quint-formal-verification.md) | Quint 正式方法整合（Phase A） | 已接受 | `11-test-strategy.md` |
 | [ADR-009](009-backstage-partial-unfreeze.md) | Backstage 局部解凍——factory-work-item 模板作為統一入口 | 已接受 | `14` §1.7 修正 |
 | [ADR-010](010-agent-team-tools-deferred.md) | 多 agent 團隊工具（dsh-agent-teams / workflow 工具）延後採用 | 已接受 | `05` §6.1、Q05-5 |
+| [ADR-011](011-model-tier-routing.md) | 依 Issue 複雜度分級路由 LLM 模型（model tier routing） | 已接受 | `04` §7、`06` §3.3、Q06-2 |
+| [ADR-012](012-guardrail-reference-architecture.md) | Guardrail 集中化架構（消除目標 repo 副本漂移） | 已接受 | `04` §3.2、`factory-issue-check.yml`、`factory-run.yml` |
+| [ADR-013](013-trunk-unification-software-factory.md) | factory trunk 統一——機制 repo 也採 software-factory 分支 | 已接受 | `09` §2.2、Q-P2-1、`factory-run.yml` |
+| [ADR-014](014-sdlc-tailoring.md) | SDLC 生命週期模型與裁適宣告 | 已接受 | `00` §2、SWEBOK Ch10 §2.8 |
 
 ## 何時該寫新的 ADR
 

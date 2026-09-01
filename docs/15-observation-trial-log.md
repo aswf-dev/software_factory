@@ -224,3 +224,13 @@
 **結論**：agent 在 Java/Spring Boot repo 完整工作（讀碼、寫 JUnit、跑 Maven、建 PR）——**語言無關性獲實證**（與 fubon TS 試點同行為）。Java 特定環境（JDK 21、mvnw、測試耗時）在真實執行中自然處理。
 
 **待辦（人類）**：審查 PR #4 後合併至 software-factory 分支。
+
+---
+
+## 4. 教訓補記（meta/observation，不動 §1–§3 既有紀錄）
+
+### 4.1 跨 session/turn 的 git 狀態必須重查（2026-09-01，SWEBOK 討論）
+
+**背景**：2026-09-01 SWEBOK 討論中，兩個 agent session 皆在分支歸屬上用舊資訊宣稱（deepseek/Opus5 分支），而 `git branch --show-current` 一次就能查清。這是「看起來太顯然，沒人重查」的靜默失敗模式。
+
+**教訓**：跨 session/turn 協作時，git 分支與工作樹狀態可能已變；宣稱任何狀態前以 `git branch --show-current` / `git cat-file -e HEAD:<path>` 重查；「上輪查過」不算數。

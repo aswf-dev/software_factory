@@ -45,6 +45,28 @@ describe('factory-stop-rules 含關鍵禁令', () => {
   })
 })
 
+// Issue #192（P0-2，SWEBOK Ch1 §6.2–6.3 需求變更控制）：發現需求與 Issue
+// 描述不符時，處置權屬於人類——skill 必須明寫停手條款且禁止 agent 自行擴大範圍。
+// 這些檔案是「配置而非程式碼」：條款被靜默移除時不會有任何功能徵兆，只有測試抓得到。
+describe('factory-stop-rules 需求變更控制條款（Issue #192）', () => {
+  const content = read('.dsh/skills/factory-stop-rules/SKILL.md')
+  it('SKILL.md 含需求與 Issue 不符的停手條款（缺漏／矛盾／範圍歧義）', () => {
+    expect(content).toContain('需求變更控制')
+    expect(content).toMatch(/需求與 Issue 描述不符/)
+    expect(content).toMatch(/缺漏／矛盾／範圍歧義/)
+  })
+  it('條款明寫「不自行擴大範圍」與人類的後續處置（更新 Issue 重跑或開新 Issue）', () => {
+    expect(content).toContain('不自行擴大範圍')
+    expect(content).toMatch(/更新 Issue/)
+    expect(content).toMatch(/開新 Issue/)
+  })
+  it('docs/07 交叉引用該條款（處置路徑在流程文件可見）', () => {
+    const docs07 = read('docs/07-stacked-pr-workflow.md')
+    expect(docs07).toContain('需求變更控制')
+    expect(docs07).toMatch(/stop-rules.*第 8 條|第 8 條.*stop-rules/)
+  })
+})
+
 describe('factory-pr-stacking 含 CI 執行細節', () => {
   const content = read('.dsh/skills/factory-pr-stacking/SKILL.md')
   it('-m 必填、submit --auto、sync 優先於 rebase', () => {
@@ -112,6 +134,46 @@ describe('task-template 完成後立即停止（防 agent 開完 PR 後空轉不
       // 在寫 report 前就停止
       expect(stopIdx, `${t} 停止指示位置錯誤`).toBeGreaterThan(reportIdx)
     }
+  })
+})
+
+describe('add-tests 劃界一致（#198：test-only 單層＋揭露缺陷 it.skip 流程）', () => {
+  // 2026-09-01 共識：add-tests 模板曾寫「01-test→02-impl→03-docs」三層、skill 寫
+  // 「01-test 層是主體」單層——agent 收到衝突指令。契約（防止再次漂移）：
+  // 1) add-tests = test-only 單層；2) 測試須在既有實作上直接綠燈；
+  // 3) 揭露既有缺陷（紅且非測試自身錯誤）→ it.skip 交付＋Issue 留言＋建議開
+  //    fix-bug 工作項（沿用 fix-bug 機制，不停手）。fix-bug 模板不在本次範圍。
+  const tpl = read('.github/factory/task-template-add-tests.txt')
+  const skill = read('.dsh/skills/factory-workflow/SKILL.md')
+
+  it('add-tests 模板為單層指令（無三層殘留）', () => {
+    expect(tpl).toContain('01-test')
+    expect(tpl).toContain('單層')
+    expect(tpl).not.toContain('02-impl')
+    expect(tpl).not.toContain('03-docs')
+  })
+  it('add-tests 模板明寫綠燈要求與 it.skip 缺陷流程（不猜測、不停手）', () => {
+    expect(tpl).toMatch(/既有實作上直接綠燈/)
+    expect(tpl).toContain('it.skip')
+    expect(tpl).toContain('斷言完整保留')
+    expect(tpl).toContain('fix-bug')
+    expect(tpl).toContain('不停手')
+  })
+  it('factory-workflow skill 的 agent-add-tests 條目與模板一致', () => {
+    const m = skill.match(/\*\*agent-add-tests\*\*：(.+)/)
+    expect(m, 'skill 缺 agent-add-tests 條目').not.toBeNull()
+    expect(m![1]).toContain('單層')
+    expect(m![1]).toContain('直接綠燈')
+    expect(m![1]).toContain('it.skip')
+    expect(m![1]).toContain('斷言完整保留')
+    expect(m![1]).toContain('fix-bug')
+    expect(m![1]).toContain('不停手')
+    expect(m![1]).toContain('誠實停手') // 保留「充分覆蓋→停手」條款
+  })
+  it('fix-bug 模板維持三層（本 Issue 範圍：不動 fix-bug）', () => {
+    const fix = read('.github/factory/task-template-fix-bug.txt')
+    expect(fix).toContain('02-impl')
+    expect(fix).toContain('03-docs')
   })
 })
 
