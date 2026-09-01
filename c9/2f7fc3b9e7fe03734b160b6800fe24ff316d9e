@@ -1,0 +1,16 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 55
+.github/factory/task-template-analyze.txt
+  h_1b119f25eaf333 22-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c92f7fc3b9e7fe03734b160b6800fe24ff316d9e",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
