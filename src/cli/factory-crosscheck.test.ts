@@ -52,6 +52,7 @@ function makeReport(partial: Record<string, unknown> = {}): string {
     invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
     changedPaths: ['src/a.ts'],
     changedLines: 30,
+    requirements: [{ id: 'R1', status: 'passed' }],
     ...partial,
   })
 }
@@ -121,7 +122,16 @@ describe('compareReportToActual', () => {
       deleted: 10,
       uncommitted: [],
     }
-    expect(compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 30 }, actual)).toEqual([])
+    expect(
+      compareReportToActual(
+        {
+          changedPaths: ['src/a.ts'],
+          changedLines: 30,
+          requirements: [{ id: 'R1', status: 'passed' }],
+        },
+        actual,
+      ),
+    ).toEqual([])
   })
 
   it('宣稱變更但無分支、無 diff、無未提交 → no-trace（假完成）', () => {
@@ -218,7 +228,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
   // 測試/實作→status」的證據槽。crosscheck 必須對「有實質變更卻未回報 requirements」與
   // 「條目 id/status 不完備」fail-loud——這份欄位是 agent 自報，隻字未報等同靜默缺漏。
 
-  it.skip('有實質變更但 requirements 缺席 → requirements-missing', () => {
+  it('有實質變更但 requirements 缺席 → requirements-missing', () => {
     const actual: CrosscheckActual = {
       branches: ['factory/12-01-test'],
       paths: ['src/a.ts'],
@@ -233,7 +243,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
     expect(m.some((x) => x.kind === 'requirements-missing')).toBe(true)
   })
 
-  it.skip('有實質變更但 requirements 為空陣列 → requirements-missing', () => {
+  it('有實質變更但 requirements 為空陣列 → requirements-missing', () => {
     const actual: CrosscheckActual = {
       branches: ['factory/12-01-test'],
       paths: ['src/a.ts'],
@@ -248,7 +258,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
     expect(m.some((x) => x.kind === 'requirements-missing')).toBe(true)
   })
 
-  it.skip('條目缺少 id → requirements-incomplete', () => {
+  it('條目缺少 id → requirements-incomplete', () => {
     const actual: CrosscheckActual = {
       branches: ['factory/12-01-test'],
       paths: ['src/a.ts'],
@@ -267,7 +277,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
     expect(m.some((x) => x.kind === 'requirements-incomplete')).toBe(true)
   })
 
-  it.skip('條目缺少 status → requirements-incomplete', () => {
+  it('條目缺少 status → requirements-incomplete', () => {
     const actual: CrosscheckActual = {
       branches: ['factory/12-01-test'],
       paths: ['src/a.ts'],

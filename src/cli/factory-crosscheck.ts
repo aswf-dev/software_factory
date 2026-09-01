@@ -50,7 +50,6 @@ export interface CrosscheckOutput {
   actual: CrosscheckActual
   mismatches: CrosscheckMismatch[]
 }
-
 /** git 命令注入點（測試以 fake 取代）；cwd 為目標 repo checkout。 */
 export type GitRunner = (args: string[], cwd?: string) => string
 
@@ -188,6 +187,25 @@ export function compareReportToActual(
       kind: 'uncommitted-changes',
       detail: `工作樹仍有未提交變更：${actual.uncommitted.join('、')}`,
     })
+  }
+  // G8（docs/18 §4、docs/20 B1）：requirements[{id,status}] 是「驗收條件→測試/實作→
+  // status」的證據槽。有實質變更卻未回報 requirements，或條目 id/status 為空，
+  // 都是靜默缺漏——crosscheck 必須 fail-loud，不讓「每條驗收條件一個明確狀態」
+  // 的契約被空值矇混。注意：shape（型別/enum）已由 ReportSchema 的 zod 收緊，
+  // 此處只管內容完備性（有 diff 卻未回報、blank id/status）。
+  if (hasDiff) {
+    const reqs = report.requirements ?? []
+    if (reqs.length === 0) {
+      mismatches.push({
+        kind: 'requirements-missing',
+        detail: `diff 非空（含 ${actualPaths.length} 個檔案）但 report 未回報 requirements（G8 需求追蹤證據槽）`,
+      })
+    } else if (reqs.some((r) => r.id.trim() === '' || r.status.trim() === '')) {
+      mismatches.push({
+        kind: 'requirements-incomplete',
+        detail: 'requirements 存在條目但 id 或 status 為空——每條驗收條件必須有一個明確狀態',
+      })
+    }
   }
   return mismatches
 }
