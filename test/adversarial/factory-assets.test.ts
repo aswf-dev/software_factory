@@ -116,9 +116,10 @@ describe('task-template 完成後立即停止（防 agent 開完 PR 後空轉不
     'task-template-fix-bug.txt',
     'task-template-update-deps.txt',
     'task-template-write-docs.txt',
+    'task-template-analyze.txt',
   ]
 
-  it('全部 5 個 task-template 含「完成後立即停止」指示（防 CI 空轉）', () => {
+  it('全部 6 個 task-template 含「完成後立即停止」指示（防 CI 空轉）', () => {
     for (const t of TEMPLATES) {
       const c = read(`.github/factory/${t}`)
       expect(c, `${t} 缺「完成後立即停止」指示`).toMatch(/立即停止|立即結束|停止任何額外/)
@@ -288,7 +289,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       expect(c).toContain('export BASE_BRANCH=$(cat .factory/run/base-branch')
     }
   })
-  it('4 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
+  it('5 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
     const w = read('.github/workflows/factory-run.yml')
     const m = w.match(/^ {8}options: \[(.+)\]$/m)
     expect(m).not.toBeNull()
@@ -298,6 +299,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'agent-fix-bug',
       'agent-update-deps',
       'agent-write-docs',
+      'agent-analyze',
     ])
     // 檔名慣例：task-template-<type>.txt（type 無 agent- 前綴）——
     // 路由必須剝除前綴，否則專屬模板永遠拼不出檔名（2026-08-21 實測抓到的
@@ -479,13 +481,14 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     const labels = [...yml.matchAll(/^ {8}- label: (.+)$/gm)].map((m) => m[1])
     expect(labels).toEqual([...DOD_LABELS])
   })
-  it('ISSUE_TEMPLATE 的 task_type 4 種選項齊全', () => {
+  it('ISSUE_TEMPLATE 的 task_type 5 種選項齊全', () => {
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     for (const t of [
       'agent-add-tests',
       'agent-fix-bug',
       'agent-update-deps',
       'agent-write-docs',
+      'agent-analyze',
     ]) {
       expect(yml).toContain(t)
     }

@@ -22,14 +22,30 @@ const ScoreSchema = z.object({
 })
 export type ScoreLike = z.infer<typeof ScoreSchema>['score']
 
-export function computeScoreLabels(score: ScoreLike): { labels: string[]; blocked: boolean } {
-  return { labels: [score.label], blocked: score.tier === 'in-loop' }
+export function computeScoreLabels(
+  score: ScoreLike,
+  taskType?: string,
+): { labels: string[]; blocked: boolean; analyzeAllowed: boolean } {
+  const inLoop = score.tier === 'in-loop'
+  // agent-analyze（docs/20 C1）：in-loop 工作項允許「僅分析不實作」——這是 docs/06 §4
+  // 「僅可產出分析與方案，不得實作」的實作，不是放寬監督層級。報告 PR 仍須人類審查。
+  const analyzeAllowed = inLoop && taskType === 'agent-analyze'
+  return { labels: [score.label], blocked: inLoop && !analyzeAllowed, analyzeAllowed }
 }
 
 export function buildBlockComment(total: number): string {
   return (
     `工廠執行未啟動：初始計分 ${total} 分屬 human-in-the-loop（docs/06 §4.3）。` +
     '設計與實作須由人類主導。'
+  )
+}
+
+export function buildAnalyzeComment(total: number): string {
+  return (
+    `⚠️ 初始計分 ${total} 分屬 human-in-the-loop（docs/06 §4.3），但本工作項為 ` +
+    '**agent-analyze**（僅分析不實作）——依 docs/06 §4「僅可產出分析與方案，不得實作」，' +
+    '允許 agent 產出分析報告 PR 供人類審查。**報告不具放行效力**；分析不得觸碰 src/ 等' +
+    '程式碼變更（crosscheck 以 analyze 模式驗證）。'
   )
 }
 
@@ -46,10 +62,11 @@ const realGh: GhRunner = (args) => {
 export interface ScoreLabelsOutput {
   labels: string[]
   blocked: boolean
+  analyzeAllowed: boolean
 }
 
 export function main(argv: string[], gh: GhRunner = realGh): ScoreLabelsOutput {
-  const [issueNumber, scorePath] = argv
+  const [issueNumber, scorePath, taskType] = argv
   if (issueNumber === undefined) throw new CliError('issueNumber is required')
   if (scorePath === undefined) throw new CliError('scorePath is required')
 
@@ -59,12 +76,14 @@ export function main(argv: string[], gh: GhRunner = realGh): ScoreLabelsOutput {
     throw new CliError(`score (${scorePath}) is invalid: ${detail}`)
   }
 
-  const { labels, blocked } = computeScoreLabels(parsed.data.score)
+  const { labels, blocked, analyzeAllowed } = computeScoreLabels(parsed.data.score, taskType)
   gh(['issue', 'edit', issueNumber, '--add-label', labels.join(',')])
   if (blocked) {
     gh(['issue', 'comment', issueNumber, '--body', buildBlockComment(parsed.data.score.total)])
+  } else if (analyzeAllowed) {
+    gh(['issue', 'comment', issueNumber, '--body', buildAnalyzeComment(parsed.data.score.total)])
   }
-  return { labels, blocked }
+  return { labels, blocked, analyzeAllowed }
 }
 
 /* v8 ignore start -- 副作用區塊：僅在子行程直接執行時進入 */

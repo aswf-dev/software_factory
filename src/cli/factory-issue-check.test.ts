@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildCheckComment,
+  checkDodSpecificity,
   checkIssue,
   extractField,
   hasCheckedAcceptance,
@@ -205,5 +206,193 @@ describe('main（注入 fake gh）', () => {
   it('gh 回傳非 JSON → CliError', () => {
     const gh = (): string => 'not json'
     expect(() => main(['1'], gh)).toThrow()
+  })
+})
+
+/**
+ * DoD 具體性檢查（docs/18 §4 G5、Issue #200）：模板三個 checkbox 對每個 Issue 都
+ * 逐字相同，「字面存在」不等於「具體可驗證」。本段釘住「每條含可觀察結果、
+ * 無空泛詞彙」的形式檢查與 💡 提示留言（advisory，不影響 ok/計分）。
+ */
+
+/** 在模板三項固定 checkbox 之後追加自訂驗收條目。 */
+function withDodExtras(extras: string[]): string {
+  return COMPLIANT.replace(
+    '- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）',
+    '- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）\n' + extras.join('\n'),
+  )
+}
+
+/** requirement 含「驗證方式：…」單行（factory Issue 慣例）。 */
+const WITH_VERIFICATION = COMPLIANT.replace(
+  '為 X 補測試',
+  '修復 Y\n\n驗證方式：跑 `npm test` 全綠，並新增回歸測試',
+)
+
+describe('checkDodSpecificity', () => {
+  it('模板三項不納審；自訂條目逐條審查（可觀察/空泛各自標記）', () => {
+    const r = checkDodSpecificity(
+      withDodExtras(['- [x] 跑 `npm test` 輸出 0 failed', '- 介面更好用']),
+    )
+    expect(r.items).toHaveLength(2)
+    expect(r.items[0]?.text).toBe('跑 `npm test` 輸出 0 failed')
+    expect(r.items[0]?.observable).toBe(true)
+    expect(r.items[0]?.vagueTerms).toEqual([])
+    expect(r.items[1]?.observable).toBe(false)
+    expect(r.items[1]?.vagueTerms).toContain('更好')
+    expect(r.specific).toBe(false)
+  })
+  it('每條都具體（可觀察＋無空泛）→ specific true', () => {
+    const r = checkDodSpecificity(
+      withDodExtras(['- [x] `npm run coverage` 輸出 src/cli 分支覆蓋 100%']),
+    )
+    expect(r.items).toHaveLength(1)
+    expect(r.specific).toBe(true)
+  })
+  it('有可觀察線索但含空泛詞 → 仍不具體（防 every 只查單面）', () => {
+    const r = checkDodSpecificity(withDodExtras(['- 跑 `npm test` 綠燈，體驗更好']))
+    expect(r.items[0]?.observable).toBe(true)
+    expect(r.items[0]?.vagueTerms).toEqual(['更好'])
+    expect(r.specific).toBe(false)
+  })
+  it('混合一具體一空泛 → specific false（防 every 退化為 some）', () => {
+    const r = checkDodSpecificity(
+      withDodExtras(['- [x] `npm test` 綠燈', '- [x] 盡量完善文檔']),
+    )
+    expect(r.items).toHaveLength(2)
+    expect(r.specific).toBe(false)
+  })
+  it('裸 bullet 與未勾選自訂條目都納審', () => {
+    const r = checkDodSpecificity(
+      withDodExtras([
+        '- 執行驗證命令回傳 exit 0',
+        '- [ ] 補回歸測試（test/ 目錄）',
+        '- [ ]', // 裸 checkbox 行：不構成條目，跳過
+      ]),
+    )
+    expect(r.items).toHaveLength(2)
+    expect(r.items[0]?.observable).toBe(true)
+    expect(r.items[1]?.text).toBe('補回歸測試（test/ 目錄）')
+  })
+  it('acceptance 僅模板三項 → 退回 requirement 的「驗證方式」單行', () => {
+    const r = checkDodSpecificity(WITH_VERIFICATION)
+    expect(r.items).toHaveLength(1)
+    expect(r.items[0]?.text).toBe('跑 `npm test` 全綠，並新增回歸測試')
+    expect(r.specific).toBe(true)
+  })
+  it('無自訂條目且無驗證方式 → 空清單、specific false（僅模板 checkbox = 空洞）', () => {
+    const r = checkDodSpecificity(COMPLIANT)
+    expect(r.items).toEqual([])
+    expect(r.specific).toBe(false)
+  })
+  it('驗證方式：接連續 bullet → 收集到非 bullet 為止', () => {
+    const body = COMPLIANT.replace(
+      '為 X 補測試',
+      [
+        '修復 Z',
+        '',
+        '驗證方式：',
+        '- 跑 `vitest run` 綠燈',
+        '- 錯誤率下降 50%',
+        '以上為全部。',
+      ].join('\n'),
+    )
+    const r = checkDodSpecificity(body)
+    expect(r.items).toHaveLength(2)
+    expect(r.items[1]?.observable).toBe(true)
+    expect(r.specific).toBe(true)
+  })
+  it('半形冒號的驗證方式行亦可抽取', () => {
+    const body = COMPLIANT.replace('為 X 補測試', '修復 V\n\n驗證方式: run tests, expect green')
+    const r = checkDodSpecificity(body)
+    expect(r.items).toHaveLength(1)
+    expect(r.specific).toBe(true)
+  })
+  it('驗證方式：後為空且下一行非 bullet → 空清單', () => {
+    const body = COMPLIANT.replace('為 X 補測試', '修復 W\n\n驗證方式：\n稍後補上')
+    const r = checkDodSpecificity(body)
+    expect(r.items).toEqual([])
+    expect(r.specific).toBe(false)
+  })
+  it('缺 acceptance 欄位 → 仍退回 requirement 驗證方式（合規判定另行處理）', () => {
+    const body = [
+      '### 任務類型',
+      '',
+      'agent-fix-bug',
+      '',
+      '### 需求描述（PRD）',
+      '',
+      '修復 V',
+      '',
+      '驗證方式：`npm test` 綠燈',
+      '',
+    ].join('\n')
+    const r = checkDodSpecificity(body)
+    expect(r.items).toHaveLength(1)
+    expect(r.specific).toBe(true)
+    expect(checkIssue(body).missing).toContain('acceptance')
+  })
+  it('英文空泛詞不分大小寫命中', () => {
+    const r = checkDodSpecificity(withDodExtras(['- Make It Better and Optimize the flow']))
+    expect(r.items[0]?.vagueTerms).toEqual(expect.arrayContaining(['better', 'optimize']))
+    expect(r.items[0]?.observable).toBe(false)
+    expect(r.specific).toBe(false)
+  })
+})
+
+describe('buildCheckComment — 💡 DoD 具體性提示（advisory）', () => {
+  it('空泛自訂條目 → 留言列出台詞、空泛詞與缺可觀察原因', () => {
+    const c = buildCheckComment(
+      checkIssue(
+        withDodExtras([
+          '- [x] 跑 `npm test` 綠燈', // 具體條目：不應出現在提示中
+          '- 介面更好用', // 缺可觀察＋空泛
+          '- 介面更親和', // 僅缺可觀察
+          '- 跑 `npm test` 綠燈，體驗更好', // 僅空泛（有可觀察線索）
+        ]),
+      ),
+    )
+    expect(c).toContain('💡 **DoD 具體性提示**')
+    expect(c).toContain('「介面更好用」')
+    expect(c).toContain('空泛詞彙：更好')
+    expect(c).toContain('「介面更親和」（缺可觀察結果')
+    expect(c).toContain('「跑 `npm test` 綠燈，體驗更好」（空泛詞彙：更好）')
+    expect(c).not.toContain('「跑 `npm test` 綠燈」（')
+    expect(c).toContain('缺可觀察結果')
+  })
+  it('僅模板 checkbox 且無驗證方式 → 提示補寫可驗證條目', () => {
+    const c = buildCheckComment(checkIssue(COMPLIANT))
+    expect(c).toContain('💡 **DoD 具體性提示**')
+    expect(c).toContain('只有表單固定的 3 個勾選項')
+  })
+  it('具體驗收描述 → 不發提示', () => {
+    const c = buildCheckComment(checkIssue(WITH_VERIFICATION))
+    expect(c).not.toContain('💡')
+  })
+  it('提示不影響合規判定：ok/missing/exit 語義與計分行不變', () => {
+    const r = checkIssue(COMPLIANT)
+    expect(r.ok).toBe(true)
+    expect(r.missing).toEqual([])
+    const c = buildCheckComment(r)
+    expect(c).toContain('格式合規')
+    expect(c).toContain('📊 **複雜度分析**')
+  })
+  it('提示列不含「格式不合規」——避免誤觸 workflow 的出口 grep', () => {
+    expect(buildCheckComment(checkIssue(COMPLIANT))).not.toContain('格式不合規')
+  })
+  it('超 60 字條目 → 留言截斷顯示', () => {
+    const longText = `讓體驗更好${'長'.repeat(70)}`
+    const c = buildCheckComment(checkIssue(withDodExtras([`- ${longText}`])))
+    expect(c).toContain('💡 **DoD 具體性提示**')
+    expect(c).not.toContain(longText)
+    expect(c).toContain(`${'長'.repeat(55)}…」`)
+  })
+})
+
+describe('main — 具體性提示接進留言', () => {
+  it('fake gh 回傳空泛 DoD → comment 含 💡 提示', () => {
+    const gh = (): string => JSON.stringify({ body: withDodExtras(['- 盡量優化']) })
+    const out = main(['200'], gh)
+    expect(out.comment).toContain('💡 **DoD 具體性提示**')
   })
 })

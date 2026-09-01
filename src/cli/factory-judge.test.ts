@@ -122,6 +122,51 @@ describe('loadReport', () => {
     expect(() => loadReport(path)).toThrow(CliError)
   })
 
+  it('讀出 requirements 欄位（G8：驗收條件證據槽）', () => {
+    const path = report('with-requirements.json', {
+      issueNumber: 42,
+      invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+      changedPaths: ['src/a.ts'],
+      requirements: [
+        { id: 'R1', status: 'passed' },
+        { id: 'R2', status: 'failed' },
+      ],
+    })
+    const r = loadReport(path)
+    expect(r.requirements).toEqual([
+      { id: 'R1', status: 'passed' },
+      { id: 'R2', status: 'failed' },
+    ])
+  })
+
+  it('requirements 條目型別錯誤（status 非 passed/failed/skipped）→ CliError', () => {
+    const path = report('bad-requirements.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      requirements: [{ id: 'R1', status: 'whatever' }],
+    })
+    expect(() => loadReport(path)).toThrow(CliError)
+    expect(() => loadReport(path)).toThrow(/requirements/)
+  })
+
+  it('requirements 條目缺 id → CliError', () => {
+    const path = report('no-id-requirements.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      requirements: [{ status: 'passed' }],
+    })
+    expect(() => loadReport(path)).toThrow(CliError)
+  })
+
+  it('requirements 缺 status → CliError', () => {
+    const path = report('no-status-requirements.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      requirements: [{ id: 'R1' }],
+    })
+    expect(() => loadReport(path)).toThrow(CliError)
+  })
+
   it('不是合法 JSON → 單行 CliError，不外洩 parser stack', () => {
     const path = report('broken.json', '{ not json')
     expect(() => loadReport(path)).toThrow(CliError)

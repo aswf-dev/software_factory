@@ -178,3 +178,39 @@ describe('M4 變異：hasAcceptanceCriteria 型別被放寬成 boolean-or-string
     expect(r.hasAcceptanceCriteria).toBe(false)
   })
 })
+
+describe('M5 變異：requirements 條目的 status 型別被放寬成 string', () => {
+  /**
+   * `requirements[{id,status}]` 是 G8 需求追蹤（docs/20 B1）的證據槽——status
+   * 只能是 passed/failed/skipped 三態，crosscheck 據此驗證「每條驗收條件都有一個
+   * 明確狀態」。若 status 型別看守放寬成任意字串（如 `z.string()`），agent 誤報
+   * `status: 'maybe'` 會被寬容讀入，「狀態齊全」的驗證即被空洞值繞過。既有套件
+   * 只測「status 缺席」與「enum 之外的值」，此段錨定 enum 必須是封閉三態。
+   */
+  it('requirements.status 帶 enum 之外的字串 → CliError', () => {
+    expect(() =>
+      loadReport(
+        report('m5.json', {
+          issueNumber: 1,
+          invocation: { exitCode: 0 },
+          requirements: [{ id: 'R1', status: 'maybe' }],
+        }),
+      ),
+    ).toThrow(CliError)
+  })
+
+  it('三態 status 仍被接受（錨定，避免過度收緊）', () => {
+    const r = loadReport(
+      report('m5-ok.json', {
+        issueNumber: 1,
+        invocation: { exitCode: 0 },
+        requirements: [
+          { id: 'R1', status: 'passed' },
+          { id: 'R2', status: 'failed' },
+          { id: 'R3', status: 'skipped' },
+        ],
+      }),
+    )
+    expect(r.requirements?.map((x) => x.status)).toEqual(['passed', 'failed', 'skipped'])
+  })
+})

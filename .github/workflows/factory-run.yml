@@ -25,7 +25,7 @@ on:
         description: 任務類型（決定 task-template 與 skill 分支）
         required: false
         type: choice
-        options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs]
+        options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze]
         default: agent-add-tests
       repo:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
@@ -85,19 +85,13 @@ jobs:
 
       # 安全約束（Q-P2-1 統一，ADR-013）：所有 repo（含機制 repo 自身）的 factory trunk
       # 一律為 software-factory 分支，main 絕不觸碰。Guard 在花費任何成本（token/LLM）
-      # 之前就擋下，並在 checkout 前驗證 trunk 分支確實存在（#171 實測教訓）。
+      # 之前就擋下（純 shell 檢查、零成本）；trunk 分支存在性檢查移到 App token mint 之後
+      # （2026-09-01 T3 試點實測抓到：此處用 github.token 查跨 repo 必然 404——
+      # GITHUB_TOKEN 只授權機制 repo，跨 repo 路徑先前從未被實測）。
       - name: Guard base_branch safety (Q-P2-1 統一)
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ inputs.base_branch }}" == "main" ]; then
             echo "::error::base_branch 不得為 main（Q-P2-1 統一安全約束：所有 repo 的 main 絕不觸碰，trunk 一律 software-factory）"
-            exit 1
-          fi
-          # 分支存在性檢查：不存在的 trunk 會在 checkout 才炸（#171 實測）；此處零成本 fast-fail
-          if ! gh api "repos/${{ inputs.repo }}/git/ref/heads/${{ inputs.base_branch }}" >/dev/null 2>&1; then
-            echo "::error::目標 repo ${{ inputs.repo }} 不存在分支 base_branch=${{ inputs.base_branch }}"
-            echo "::error::統一規則：所有 repo 的 factory trunk 皆為 software-factory 分支（main 絕不觸碰）"
             exit 1
           fi
           echo "guard ok: repo=${{ inputs.repo }} base_branch=${{ inputs.base_branch }}"
@@ -118,6 +112,21 @@ jobs:
           client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
           repositories: ${{ inputs.repo }}
+
+      # 分支存在性檢查（#171 教訓 fast-fail）：不存在的 trunk 會在 checkout 才炸，
+      # 此處以 App token 提前擋下。**必須用 App token**——GITHUB_TOKEN 只授權機制 repo，
+      # 查目標 repo 必然 404（2026-09-01 T3 試點實測抓到，跨 repo 路徑首度被實測）。
+      - name: Verify trunk branch exists (cross-repo)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          if ! gh api "repos/${{ inputs.repo }}/git/ref/heads/${{ inputs.base_branch }}" >/dev/null 2>&1; then
+            echo "::error::目標 repo ${{ inputs.repo }} 不存在分支 base_branch=${{ inputs.base_branch }}"
+            echo "::error::統一規則：所有 repo 的 factory trunk 皆為 software-factory 分支（main 絕不觸碰）"
+            exit 1
+          fi
+          echo "trunk exists: ${{ inputs.repo }}@${{ inputs.base_branch }}"
 
       # 目標 repo checkout（工廠 trunk = base_branch）：agent 在此工作，
       # catalog/risk-paths/templates/skills 均從此讀取（Q-P2-1：main 絕不觸碰）。
@@ -283,8 +292,11 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
         run: |
+          # 第三參數 = task_type：agent-analyze 允許 in-loop 以「僅分析」模式執行
+          # （docs/06 §4「僅可產出分析與方案」的實作，docs/20 C1）
           node dist/cli/apply-score-labels.js \
-            "${{ inputs.issue_number }}" .factory/score.json
+            "${{ inputs.issue_number }}" .factory/score.json \
+            "${{ inputs.task_type }}"
 
       # 被擋下（in-loop）時說明並結束；agent 步驟會被 if: success() 跳過
       - name: Stop when in-loop
@@ -429,10 +441,15 @@ jobs:
           GH_REPO: ${{ inputs.repo }}
         run: |
           set +e
+          ANALYZE_FLAG=""
+          if [ "${{ inputs.task_type }}" = "agent-analyze" ]; then
+            # analyze 模式：crosscheck 驗證「僅分析不實作」（非 docs/ 變更 → fail-loud）
+            ANALYZE_FLAG="--analyze-only"
+          fi
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e

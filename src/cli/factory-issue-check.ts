@@ -15,6 +15,12 @@
  * 輸出：CheckResult（ok + 缺失欄位清單 + 複雜度分析）。
  *
  * 純函式可單元測試；gh 呼叫以注入（GhRunner）取代（模式同 factory-rescore）。
+ *
+ * 2026-09（docs/18 §4 G5、#200）擴充：DoD 具體性提示（checkDodSpecificity）——
+ * 表單三個 checkbox 對每個 Issue 逐字相同，「字面存在」不等於「具體可驗證」；
+ * 對自訂條目／驗證方式逐條做形式檢查（每條含可觀察結果、無空泛詞彙），不具體時
+ * 留言輸出 💡 提示。屬 Verification 而非 Validation：不判「該不該做」、不改
+ * 合規判定與計分邏輯。
  */
 import { execFileSync } from 'node:child_process'
 import { analyzeComplexity, type ComplexityAnalysis } from '../issue-analysis/complexity.js'
@@ -51,12 +57,147 @@ export const FIELD_TITLES: Record<string, string> = {
   acceptance: '驗收標準（DoD）',
 }
 
+/**
+ * 空泛詞彙清單（具體性檢查的形式黑名單，docs/18 §4 G5）。
+ * 刻意保守：只收「幾乎必然無法第三方驗證」的詞，避免誤傷
+ * 「錯誤率下降 20%」這類量化描述（提升/改善等不入列）。
+ */
+export const VAGUE_TERMS = [
+  '更好',
+  '最佳化',
+  '優化',
+  '完善',
+  '盡量',
+  '適當',
+  '合理',
+  '等等',
+  '差不多',
+  'improve',
+  'optimize',
+  'better',
+  'enhance',
+  'as appropriate',
+  'etc.',
+] as const
+
+/**
+ * 可觀察結果的形式線索（白名單）：code span（命令/檔案/API）、箭頭後果、
+ * 測試/斷言/輸出類詞彙、量化閾值。命中任一即視為「含可觀察結果」。
+ */
+const OBSERVABLE_PATTERNS: readonly RegExp[] = [
+  /`[^`]+`/,
+  /→/,
+  /(測試|斷言|驗證|紅燈|綠燈|輸出|回傳|返回|日誌|報錯|退出碼|通過|失敗|test|assert|output|exit|expect|coverage)/i,
+  /[0-9]+\s*(%|ms|秒|次|行|個|kb|mb)/i,
+]
+
+/** 單條驗收條目的形式審查結果。 */
+export interface DodItemReview {
+  /** 條目原文（已 trim）。 */
+  text: string
+  /** 命中的空泛詞彙（英文比對不分大小寫）。 */
+  vagueTerms: string[]
+  /** 是否含可觀察結果線索。 */
+  observable: boolean
+}
+
+/** DoD 具體性審查（docs/18 §4 G5：Verification——只查形式，不判該不該做）。 */
+export interface DodReview {
+  /** 受審條目：acceptance 欄位的自訂條目（排除模板固定三項）；無則退回 requirement 的「驗證方式」。 */
+  items: DodItemReview[]
+  /** 每條都具體（含可觀察結果且無空泛詞彙）；空清單 → false（無具體驗收描述）。 */
+  specific: boolean
+}
+
+/** 逐條形式審查：空泛詞彙黑名單 ＋ 可觀察結果白名單。 */
+export function reviewDodItem(text: string): DodItemReview {
+  const lower = text.toLowerCase()
+  const vagueTerms = VAGUE_TERMS.filter((t) => lower.includes(t.toLowerCase()))
+  const observable = OBSERVABLE_PATTERNS.some((re) => re.test(text))
+  return { text, vagueTerms, observable }
+}
+
+/** 由 `- `／`* `（含 checkbox）條目行抽取文字；排除模板固定三項與裸 checkbox。 */
+function extractBulletTexts(value: string): string[] {
+  const items: string[] = []
+  for (const raw of value.split('\n')) {
+    const m = raw.trim().match(/^[-*]\s+(?:\[[ xX]\]\s*)?(.+)$/)
+    if (m === null) continue
+    const text = (m[1] as string).trim()
+    if ((DOD_LABELS as readonly string[]).includes(text)) continue
+    if (/^\[[ xX]\]$/.test(text)) continue
+    items.push(text)
+  }
+  return items
+}
+
+/** requirement 中的「驗證方式」條目：冒號後單行，或冒號後的連續 bullet 清單。 */
+function extractVerificationItems(requirementValue: string | undefined): string[] {
+  if (requirementValue === undefined) return []
+  const lines = requirementValue.split('\n')
+  const idx = lines.findIndex((l) => l.includes('驗證方式'))
+  if (idx === -1) return []
+  const after = (lines[idx] as string).split(/[：:]/).slice(1).join('：').trim()
+  if (after.length > 0) return [after]
+  const rest: string[] = []
+  for (const line of lines.slice(idx + 1)) {
+    const m = line.trim().match(/^[-*]\s+(.+)$/)
+    if (m === null) break
+    rest.push((m[1] as string).trim())
+  }
+  return rest
+}
+
+/**
+ * DoD 具體性檢查（docs/18 §4 G5）：模板的三個 checkbox 對每個 Issue 都逐字相同，
+ * 「字面存在」不等於「具體可驗證」（SWEBOK Ch1 §4.3）。受審條目 = acceptance 欄位
+ * 中自訂的驗收條目；若作者只勾模板三項（factory 慣例），退回 requirement 的
+ * 「驗證方式」段落。這是提示（advisory），不改變 ok/missing 合規判定與計分。
+ */
+export function checkDodSpecificity(body: string): DodReview {
+  const customItems = extractBulletTexts(extractField(body, 'acceptance') ?? '')
+  const sources =
+    customItems.length > 0
+      ? customItems
+      : extractVerificationItems(extractField(body, 'requirement'))
+  const items = sources.map(reviewDodItem)
+  const specific =
+    items.length > 0 && items.every((i) => i.observable && i.vagueTerms.length === 0)
+  return { items, specific }
+}
+
+/** 💡 提示留言列：空清單與逐條標記兩類；只對不具體的條目發話。 */
+export function buildDodSpecificityHint(dod: DodReview): string[] {
+  if (dod.items.length === 0) {
+    return [
+      '💡 **DoD 具體性提示**（形式檢查，不影響合規判定與計分）：驗收標準只有表單固定的 ' +
+        '3 個勾選項，且需求未寫「驗證方式」——沒有本 Issue 專有的可驗證條目。請補至少一條含' +
+        '可觀察結果的驗收（命令／輸出／斷言／檔案），避免空泛詞彙（更好／優化／完善…）。',
+    ]
+  }
+  const flagged = dod.items.filter((i) => !i.observable || i.vagueTerms.length > 0)
+  const details = flagged.map((i) => {
+    const reasons: string[] = []
+    if (!i.observable) reasons.push('缺可觀察結果線索（命令／輸出／斷言／量化閾值）')
+    if (i.vagueTerms.length > 0) reasons.push(`空泛詞彙：${i.vagueTerms.join('、')}`)
+    const shown = i.text.length > 60 ? `${i.text.slice(0, 60)}…` : i.text
+    return `- 「${shown}」（${reasons.join('；')}）`
+  })
+  return [
+    '💡 **DoD 具體性提示**（形式檢查，不影響合規判定與計分）：以下驗收條目疑似空泛，' +
+      '建議改寫為第三方可驗證的形式（每條含可觀察結果）：',
+    ...details,
+  ]
+}
+
 export interface CheckResult {
   ok: boolean
   missing: RequiredField[]
   taskType?: string | undefined
   /** 需求複雜度分析（零 LLM 成本；fail-safe 方向為 high）。 */
   analysis: ComplexityAnalysis
+  /** DoD 具體性審查（advisory；不影響 ok，docs/18 §4 G5）。 */
+  dod: DodReview
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -103,11 +244,13 @@ export function checkIssue(body: string): CheckResult {
       taskType,
       requirement: extractField(body, 'requirement'),
     }),
+    dod: checkDodSpecificity(body),
   }
 }
 
 /**
  * 建構檢查留言：格式合規/不合規 ＋ 複雜度分析 ＋ 建議模型（recommendation 有值時）。
+ * ＋ DoD 具體性提示（💡，advisory，docs/18 §4 G5——僅在不具體時出現）。
  * 分析行即使格式不合規也輸出（best-effort；缺需求欄位 → fail-safe high）。
  */
 export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommendation): string {
@@ -133,6 +276,9 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
       `🤖 **建議模型**：${recommendation.selected.provider}/${recommendation.selected.model}` +
         `（${recommendation.tier} tier；fallback: ${fallback}）`,
     )
+  }
+  if (!r.dod.specific) {
+    lines.push(...buildDodSpecificityHint(r.dod))
   }
   if (r.ok) {
     lines.push(

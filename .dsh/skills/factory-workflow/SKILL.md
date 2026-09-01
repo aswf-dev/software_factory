@@ -26,11 +26,18 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
   "assertionDelta": <測試斷言淨增減，負數表示減少>,
   "addedDependencies": ["<新增相依套件名>"],
   "syncFailures": <gh stack sync 連續失敗次數>,
-  "hasAcceptanceCriteria": <true|false>
+  "hasAcceptanceCriteria": <true|false>,
+  "requirements": [{"id": "<驗收條件編號>", "status": "<passed|failed|skipped>"}]
 }
 ```
 
 寫入路徑：`.factory/run/report.json`（位於 workspace 根目錄）。此報告是 CI 判定終點的輸入；**欄位缺漏時 CI 會以最保守方式處理**，但完整填寫能讓人類接手時看到全貌。
+
+> **`requirements` 欄位（G8 需求追蹤，docs/20 B1）**：每一條 Issue 驗收條件（DoD）對應一個
+> `{id, status}`——`id` 為驗收條件編號、`status` 為其對應測試/實作的狀態
+> （`passed`/`failed`/`skipped`）。`factory-crosscheck` 會驗證該欄位完整性（每條驗收條件
+> 都有對應條目且 status 齊全）；此欄位缺漏或造假時與 `changedPaths` 同樣觸發 needs-human。
+> **此欄位為「誠實自報」＋CI 交叉驗證，不取代人類審查（docs/06 §4.3）。**
 
 > **報告必須誠實反映實際變更（docs/18 §2.3）**：CI 會以 `factory-crosscheck` 把
 > `changedPaths`/`changedLines` 與實際 git diff 交叉比對——漏報或虛報（如宣稱改了檔但
@@ -39,12 +46,13 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 
 ## 任務型別
 
-任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs）。依型別調整：
+任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs / agent-analyze）。依型別調整：
 
 - **agent-add-tests**：為**既有行為**補測試——test-only **單層**（01-test 是主體，無實作/文件層），新增測試必須在既有實作上**直接綠燈**。若測試揭露**既有缺陷**（紅燈且非測試自身錯誤）→ 以 `it.skip` 交付（斷言完整保留、該層單獨 CI 綠）＋在 Issue 留言報告＋建議另開 agent-fix-bug 工作項修復（沿用 fix-bug 的紅燈交付機制，**不停手**，本工作項不改實作）。若既有測試已充分覆蓋，依 factory-stop-rules 誠實停手（不為交差而製造無意義測試）。
 - **agent-fix-bug**：先寫「重現失敗」的測試（紅），再實作修復（綠）。不刪除/弱化既有斷言。**01-test 層的紅燈測試以 `it.skip` 提交**（斷言完整保留、該層單獨 CI 綠；紅燈驗證在沙箱內完成）；**02-impl 層 un-skip（改回 `it`）**並含修復——否則 01-test 單獨 PR 必然 CI 紅（docs/07 §2.2 教訓，試點 #3）。
 - **agent-update-deps**：通常是單一 PR（docs/07 §2.3）；不得未經核可新增未鎖定的新套件（SR5）；更新後全量測試。
 - **agent-write-docs**：文件與實作一致；繁體中文；單層 PR 為主。
+- **agent-analyze**：分析/調查型（bug 重現、根因分析、影響分析、可行性、in-loop 前置分析）——**不產生程式碼變更**，只允許 `docs/research/` 下的報告檔。產出為 **docs/ 報告 PR（單層）**＋「建議下一步」（可直接開成工作項）；DoD = 報告含結論摘要／證據與根因／影響範圍／方案比較／建議下一步。**in-loop（5–6 分）工作項可用**——docs/06 §4「僅可產出分析與方案，不得實作」的實作；報告不具放行效力，仍須人類審查（crosscheck 以 analyze 模式驗證無 src/ 變更，違反即 needs-human）。**report.json 的 `requirements` 必填**：每條驗收條件對應 `{id, status}`（`passed`＝報告已涵蓋／`failed`＝報告指出未涵蓋或無法達成／`skipped`＝不適用），缺漏會觸發 `requirements-missing` fail-loud（docs/20 B1）。
 
 ## 原則
 

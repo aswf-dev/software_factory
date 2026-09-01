@@ -52,6 +52,7 @@ function makeReport(partial: Record<string, unknown> = {}): string {
     invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
     changedPaths: ['src/a.ts'],
     changedLines: 30,
+    requirements: [{ id: 'R1', status: 'passed' }],
     ...partial,
   })
 }
@@ -121,7 +122,56 @@ describe('compareReportToActual', () => {
       deleted: 10,
       uncommitted: [],
     }
-    expect(compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 30 }, actual)).toEqual([])
+    expect(
+      compareReportToActual(
+        {
+          changedPaths: ['src/a.ts'],
+          changedLines: 30,
+          requirements: [{ id: 'R1', status: 'passed' }],
+        },
+        actual,
+      ),
+    ).toEqual([])
+  })
+
+  it('analyze-only + 純 docs 報告 → 無 analyze-code-change', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['docs/research/12-impact.md'],
+      added: 40,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      { changedPaths: ['docs/research/12-impact.md'], changedLines: 40, requirements: [{ id: 'R1', status: 'passed' }] },
+      actual,
+      true,
+    )
+    expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(false)
+  })
+
+  it('analyze-only + src/ 變更 → analyze-code-change（僅分析不實作）', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts', 'docs/research/12-impact.md'],
+      added: 20,
+      deleted: 5,
+      uncommitted: [],
+    }
+    const m = compareReportToActual({ changedPaths: ['src/a.ts', 'docs/research/12-impact.md'], changedLines: 25 }, actual, true)
+    expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(true)
+  })
+
+  it('非 analyze-only（預設）→ 不做 docs 限制', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 20,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 20 }, actual, false)
+    expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(false)
   })
 
   it('宣稱變更但無分支、無 diff、無未提交 → no-trace（假完成）', () => {
@@ -213,6 +263,109 @@ describe('compareReportToActual', () => {
   })
 })
 
+describe('compareReportToActual — requirements 驗證（G8）', () => {
+  // G8（docs/18 §4、docs/20 B1）：report 的 requirements[{id,status}] 是「驗收條件→
+  // 測試/實作→status」的證據槽。crosscheck 必須對「有實質變更卻未回報 requirements」與
+  // 「條目 id/status 不完備」fail-loud——這份欄位是 agent 自報，隻字未報等同靜默缺漏。
+
+  it('有實質變更但 requirements 缺席 → requirements-missing', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      { changedPaths: ['src/a.ts'], changedLines: 5, requirements: undefined },
+      actual,
+    )
+    expect(m.some((x) => x.kind === 'requirements-missing')).toBe(true)
+  })
+
+  it('有實質變更但 requirements 為空陣列 → requirements-missing', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      { changedPaths: ['src/a.ts'], changedLines: 5, requirements: [] },
+      actual,
+    )
+    expect(m.some((x) => x.kind === 'requirements-missing')).toBe(true)
+  })
+
+  it('條目缺少 id → requirements-incomplete', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      {
+        changedPaths: ['src/a.ts'],
+        changedLines: 5,
+        requirements: [{ id: '', status: 'passed' }],
+      },
+      actual,
+    )
+    expect(m.some((x) => x.kind === 'requirements-incomplete')).toBe(true)
+  })
+
+  it('條目缺少 status → requirements-incomplete', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      {
+        changedPaths: ['src/a.ts'],
+        changedLines: 5,
+        requirements: [{ id: 'R1', status: '' as 'passed' }],
+      },
+      actual,
+    )
+    expect(m.some((x) => x.kind === 'requirements-incomplete')).toBe(true)
+  })
+
+  it('requirements 齊全 → 不觸發 requirements-missing / requirements-incomplete', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      {
+        changedPaths: ['src/a.ts'],
+        changedLines: 5,
+        requirements: [
+          { id: 'R1', status: 'passed' },
+          { id: 'R2', status: 'failed' },
+          { id: 'R3', status: 'skipped' },
+        ],
+      },
+      actual,
+    )
+    expect(m.filter((x) => x.kind === 'requirements-missing' || x.kind === 'requirements-incomplete')).toEqual([])
+  })
+
+  it('無變更（diff 為空）時 requirements 缺席 → 不誤報 requirements-missing', () => {
+    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [] }
+    const m = compareReportToActual({ changedPaths: [], changedLines: 0, requirements: undefined }, actual)
+    expect(m.some((x) => x.kind === 'requirements-missing')).toBe(false)
+  })
+})
+
 describe('collectActualDiff', () => {
   it('無分支 → 空事實；有分支 → union 去重、行數累加、未提交解析', () => {
     const git = fakeGit({
@@ -239,11 +392,12 @@ describe('collectActualDiff', () => {
 })
 
 describe('parseArgs', () => {
-  it('預設值：base=software-factory、target=target', () => {
+  it('預設值：base=software-factory、target=target、analyzeOnly=false', () => {
     expect(parseArgs(['12', 'report.json'])).toEqual({
       issueNumber: 12,
       reportPath: 'report.json',
       paths: { base: 'software-factory', target: 'target' },
+      analyzeOnly: false,
     })
   })
 
@@ -252,7 +406,12 @@ describe('parseArgs', () => {
       issueNumber: 12,
       reportPath: 'r.json',
       paths: { base: 'main', target: 't2' },
+      analyzeOnly: false,
     })
+  })
+
+  it('--analyze-only 旗標', () => {
+    expect(parseArgs(['12', 'r.json', '--analyze-only']).analyzeOnly).toBe(true)
   })
 
   it('參數錯誤 → CliError', () => {

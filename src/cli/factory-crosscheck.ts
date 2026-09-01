@@ -50,7 +50,6 @@ export interface CrosscheckOutput {
   actual: CrosscheckActual
   mismatches: CrosscheckMismatch[]
 }
-
 /** git 命令注入點（測試以 fake 取代）；cwd 為目標 repo checkout。 */
 export type GitRunner = (args: string[], cwd?: string) => string
 
@@ -132,14 +131,31 @@ export function collectReportedPaths(changedPaths: readonly string[] | undefined
  * 同樣危險，都要交還人類。
  */
 export function compareReportToActual(
-  report: { changedPaths?: readonly string[] | undefined; changedLines?: number | undefined },
+  report: {
+    changedPaths?: readonly string[] | undefined
+    changedLines?: number | undefined
+    requirements?: readonly { id: string; status: string }[] | undefined
+  },
   actual: CrosscheckActual,
+  analyzeOnly = false,
 ): CrosscheckMismatch[] {
   const mismatches: CrosscheckMismatch[] = []
   const reported = collectReportedPaths(report.changedPaths)
   const actualPaths = actual.paths.filter((p) => !isFactoryInternal(p))
   const hasDiff = actualPaths.length > 0
   const actualTotal = actual.added + actual.deleted
+
+  // agent-analyze（docs/20 C1）：僅分析不實作——變更只允許 docs/**（報告檔）。
+  // 任何 src/、設定、測試變更都是型別契約違反，fail-loud 交還人類。
+  if (analyzeOnly) {
+    const forbidden = actualPaths.filter((p) => !p.startsWith('docs/'))
+    if (forbidden.length > 0) {
+      mismatches.push({
+        kind: 'analyze-code-change',
+        detail: `analyze 模式（僅分析不實作）只允許 docs/ 下的報告檔，實際 diff 含非文件變更：${forbidden.join('、')}`,
+      })
+    }
+  }
 
   if (reported.length > 0 && !hasDiff && actual.branches.length === 0 && actual.uncommitted.length === 0) {
     mismatches.push({
@@ -184,6 +200,25 @@ export function compareReportToActual(
       kind: 'uncommitted-changes',
       detail: `工作樹仍有未提交變更：${actual.uncommitted.join('、')}`,
     })
+  }
+  // G8（docs/18 §4、docs/20 B1）：requirements[{id,status}] 是「驗收條件→測試/實作→
+  // status」的證據槽。有實質變更卻未回報 requirements，或條目 id/status 為空，
+  // 都是靜默缺漏——crosscheck 必須 fail-loud，不讓「每條驗收條件一個明確狀態」
+  // 的契約被空值矇混。注意：shape（型別/enum）已由 ReportSchema 的 zod 收緊，
+  // 此處只管內容完備性（有 diff 卻未回報、blank id/status）。
+  if (hasDiff) {
+    const reqs = report.requirements ?? []
+    if (reqs.length === 0) {
+      mismatches.push({
+        kind: 'requirements-missing',
+        detail: `diff 非空（含 ${actualPaths.length} 個檔案）但 report 未回報 requirements（G8 需求追蹤證據槽）`,
+      })
+    } else if (reqs.some((r) => r.id.trim() === '' || r.status.trim() === '')) {
+      mismatches.push({
+        kind: 'requirements-incomplete',
+        detail: 'requirements 存在條目但 id 或 status 為空——每條驗收條件必須有一個明確狀態',
+      })
+    }
   }
   return mismatches
 }
@@ -240,15 +275,17 @@ export interface CrosscheckCliPaths {
   target: string
 }
 
-/** 解析位置參數：`<issueNumber> <reportPath> [--base <b>] [--target <t>]`。 */
+/** 解析位置參數：`<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]`。 */
 export function parseArgs(argv: string[]): {
   issueNumber: number
   reportPath: string
   paths: CrosscheckCliPaths
+  analyzeOnly: boolean
 } {
   const positional: string[] = []
   let base = 'software-factory'
   let target = 'target'
+  let analyzeOnly = false
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--base') {
@@ -259,6 +296,8 @@ export function parseArgs(argv: string[]): {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) throw new CliError('--target requires a directory')
       target = v
+    } else if (arg === '--analyze-only') {
+      analyzeOnly = true
     } else if (!arg.startsWith('--')) {
       positional.push(arg)
     } else {
@@ -271,14 +310,14 @@ export function parseArgs(argv: string[]): {
   }
   const reportPath = positional[1]
   if (reportPath === undefined) throw new CliError('reportPath is required')
-  return { issueNumber, reportPath, paths: { base, target } }
+  return { issueNumber, reportPath, paths: { base, target }, analyzeOnly }
 }
 
 export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput {
-  const { issueNumber, reportPath, paths } = parseArgs(argv)
+  const { issueNumber, reportPath, paths, analyzeOnly } = parseArgs(argv)
   const report = loadReport(reportPath)
   const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
-  const mismatches = compareReportToActual(report, actual)
+  const mismatches = compareReportToActual(report, actual, analyzeOnly)
   return {
     issueNumber,
     ok: mismatches.length === 0,
