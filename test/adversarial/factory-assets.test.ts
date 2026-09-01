@@ -45,6 +45,28 @@ describe('factory-stop-rules 含關鍵禁令', () => {
   })
 })
 
+// Issue #192（P0-2，SWEBOK Ch1 §6.2–6.3 需求變更控制）：發現需求與 Issue
+// 描述不符時，處置權屬於人類——skill 必須明寫停手條款且禁止 agent 自行擴大範圍。
+// 這些檔案是「配置而非程式碼」：條款被靜默移除時不會有任何功能徵兆，只有測試抓得到。
+describe('factory-stop-rules 需求變更控制條款（Issue #192）', () => {
+  const content = read('.dsh/skills/factory-stop-rules/SKILL.md')
+  it('SKILL.md 含需求與 Issue 不符的停手條款（缺漏／矛盾／範圍歧義）', () => {
+    expect(content).toContain('需求變更控制')
+    expect(content).toMatch(/需求與 Issue 描述不符/)
+    expect(content).toMatch(/缺漏／矛盾／範圍歧義/)
+  })
+  it('條款明寫「不自行擴大範圍」與人類的後續處置（更新 Issue 重跑或開新 Issue）', () => {
+    expect(content).toContain('不自行擴大範圍')
+    expect(content).toMatch(/更新 Issue/)
+    expect(content).toMatch(/開新 Issue/)
+  })
+  it('docs/07 交叉引用該條款（處置路徑在流程文件可見）', () => {
+    const docs07 = read('docs/07-stacked-pr-workflow.md')
+    expect(docs07).toContain('需求變更控制')
+    expect(docs07).toMatch(/stop-rules.*第 8 條|第 8 條.*stop-rules/)
+  })
+})
+
 describe('factory-pr-stacking 含 CI 執行細節', () => {
   const content = read('.dsh/skills/factory-pr-stacking/SKILL.md')
   it('-m 必填、submit --auto、sync 優先於 rebase', () => {
