@@ -67,10 +67,13 @@ spec:
           title: 目標 repo（agent 工作對象）
           type: string
           ui:field: RepoUrlPicker
+          # 預設帶入 philipz，但 Owner 欄位保持可編輯（不設 allowedOwners）——
+          # allowedOwners 會把 Owner render 成受限的下拉選單，單一值時等同唯讀，
+          # 導致無法驗證非 philipz 的 repo（例如 agent-playground）。
+          default: github.com?owner=philipz
           ui:options:
             # 只允許 github.com（單 host 時自動帶入，避免 Host 下拉互動問題）
             allowedHosts: [github.com]
-            allowedOwners: [philipz]
         baseBranch:
           title: 目標 repo 的 factory trunk 分支
           type: string

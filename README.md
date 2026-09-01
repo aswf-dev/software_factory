@@ -30,6 +30,7 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/10-open-questions.md`](docs/10-open-questions.md) | 待驗證假設與待裁決事項 |
 | [`docs/11-test-strategy.md`](docs/11-test-strategy.md) | 測試框架與測試計畫（第 0 期核心交付） |
 | [`docs/12-repo-settings-guide.md`](docs/12-repo-settings-guide.md) | GitHub repo 設定指引（分支保護、required checks） |
+| [`docs/16-rescore-multirepo.md`](docs/16-rescore-multirepo.md) | 跨 repo 二次判定操作（rescore dispatch） |
 | [`docs/17-backstage-rebuild.md`](docs/17-backstage-rebuild.md) | Backstage 重建手冊（新機器 / 雲端 VM 重新安裝） |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
 | [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
@@ -42,6 +43,119 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | **實作工程師** | `02` 架構 → `04` DSH 執行 → `05` 治理 → `07` stacked PR |
 | **審查者** | `06` 監督政策 → `07` §6 審查者指引 |
 | **想理解為什麼** | `00` 來源精要 → `01` 價值流 → `ADR/` |
+
+## 接入指引（Onboarding：讓一個新 repo 能被工廠處理）
+
+工廠可對**任何 repo**（含非 `philipz` owner）工作，但目標 repo 必須先滿足下列條件。
+前 4 項若缺少，`factory-run.yml` 會**在花費任何 LLM 成本之前失敗**。
+
+| # | 必要條件 | 檢查指令 | 缺少時的症狀 |
+|---|---|---|---|
+| 1 | 已安裝 GitHub App `software-factory-worker` | `gh api orgs/<org>/installations --jq '.installations[].app_slug'` | Mint app token 步驟失敗 |
+| 2 | 存在 `software-factory` 分支（工廠 trunk） | `gh api repos/<owner>/<name>/git/ref/heads/software-factory` | `::error::目標 repo ... 不存在分支 base_branch=software-factory` |
+| 3 | 根目錄有 `catalog-info.yaml` | `gh api "repos/<owner>/<name>/contents/catalog-info.yaml?ref=software-factory"` | `error: file not found: target/catalog-info.yaml` |
+| 4 | 有 `.github/factory/risk-paths.yml` | `gh api "repos/<owner>/<name>/contents/.github/factory/risk-paths.yml?ref=software-factory"` | 同上（risk-paths 路徑） |
+| 5 | Issues 功能已啟用 | `gh api repos/<owner>/<name> --jq .has_issues` | Backstage `github:issues:create` 無法建立 Issue |
+
+> **注意 1**：條件 3、4 的檔案位於 `software-factory` 分支，**查詢時務必帶 `?ref=software-factory`**。
+> 省略會查到預設分支（`main`）而得到誤導性的 404。
+>
+> **注意 2**：GitHub 對 **fork** 一律預設關閉 Issues（設計上希望 bug 回報到上游）。
+> fork 來的 repo 需手動開啟第 5 項：`gh api -X PUT repos/<owner>/<name> -F has_issues=true`
+
+### 步驟
+
+以 `<owner>/<name>` 代表目標 repo。條件 2–4 都寫在 **`software-factory` 分支**上（`main` 絕不觸碰，Q-P2-1）。
+
+```bash
+# 1. 建立工廠 trunk 分支（自 main 分出）
+MAIN_SHA=$(gh api repos/<owner>/<name>/git/ref/heads/main --jq .object.sha)
+gh api -X POST repos/<owner>/<name>/git/refs \
+  -f ref=refs/heads/software-factory -f sha="$MAIN_SHA"
+
+# 2. 加入 catalog-info.yaml 與 risk-paths.yml（見下方內容），推到 software-factory 分支
+#    risk-paths.yml 可直接沿用本 repo 的 .github/factory/risk-paths.yml（H1–H7 通用）
+
+# 3. 驗證計分（本 repo 內執行；決定 agent 能否自主跑）
+npm run build
+node dist/cli/factory-score.js \
+  --catalog <目標 repo>/catalog-info.yaml \
+  --risk-paths <目標 repo>/.github/factory/risk-paths.yml
+```
+
+`catalog-info.yaml` 最小範例：
+
+```yaml
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: <name>
+  description: <一句話描述>
+  annotations:
+    # 三軸評分（docs/06 §3）；每軸 0–2 分
+    factory.io/business-criticality: tactical   # tactical | operational | strategic
+    factory.io/risk-profile: low                # low | medium | high
+    factory.io/complexity: low                  # low | medium | high
+    factory.io/stack: typescript
+```
+
+### 三軸評分決定 agent 能否自主執行
+
+**這是接入時最容易踩的坑**：三軸標註直接決定工作項會不會被擋下。
+
+| 總分 | tier | 結果 |
+|---|---|---|
+| 0–1 | `on-loop` | agent 自主執行，允許 automerge |
+| 2–4 | `review` | agent 執行，需人類審查 |
+| 5–6 | `in-loop` | **agent 被 `exit 1` 擋下**，人類主導（`agent-analyze` 除外，可僅分析） |
+
+未標註的軸會 **fail-safe 判為 2 分**（保守方向）——三軸全未標＝6 分＝直接 `in-loop`，agent 完全跑不起來。
+另外，觸碰 `risk-paths.yml` 的 H1–H7 硬性規則會**強制 risk = 2 分且無裁量空間**。
+
+真實 PoC repo 宜標 `tactical`/`low`/`low`（0 分）；高風險 repo（如涉及金流）標高分是刻意讓其落在 `in-loop`。
+
+## 使用方式（開立工作項）
+
+### 方式 A：Backstage 表單（建議）
+
+Backstage → **開立 Factory 工作項**（`backstage/templates/factory-work-item/template.yaml`）。
+
+填寫 → 送出即代表**人類核准**（取代 label 閘門），流程為：
+建立格式合規的 Issue → dispatch `factory-run.yml` → agent 在目標 repo 的 trunk 上工作 → 交付 stacked PR。
+
+| 欄位 | 說明 |
+|---|---|
+| 一句話需求 | 自動加上 `[factory] ` 前綴成為 Issue 標題 |
+| 任務類型 | `agent-add-tests` / `agent-fix-bug` / `agent-update-deps` / `agent-write-docs` / `agent-analyze` |
+| 需求描述（PRD） | 可按「✨ 一次生成」讓 LLM 產生草稿再逐欄審改 |
+| 驗收標準（DoD） | 三項必勾 |
+| 目標 repo | 預設 `philipz`，**可改為其他 owner**（須先完成上方接入指引） |
+| 目標分支 | 固定 `software-factory` |
+
+### 方式 B：CLI dispatch
+
+Issue 需已存在且格式合規（見 `.github/ISSUE_TEMPLATE/factory-work-item.yml`）。
+
+```bash
+gh workflow run factory-run.yml --repo philipz/software_factory \
+  -f issue_number=<Issue 編號> \
+  -f repo=<owner>/<name> \
+  -f base_branch=software-factory \
+  -f task_type=agent-update-deps
+```
+
+**首次接入建議先跑 dry run**（以 stub agent 取代真實 DSH，不花 LLM 成本，可驗證前置條件是否齊備）：
+
+```bash
+gh workflow run factory-run.yml --repo philipz/software_factory \
+  -f issue_number=<編號> -f repo=<owner>/<name> \
+  -f dry_run=true -f dry_run_scenario=success
+```
+
+### 二次判定（rescore）
+
+PR 開出後若需重新計分（例如調降某軸後），見 `docs/16-rescore-multirepo.md`。
+**無自動化**——App 無 `actions:write` 權限，須手動觸發。
 
 ## 開發
 
