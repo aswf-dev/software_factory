@@ -1,0 +1,18 @@
+docs/10-open-questions.md
+  h_1b119f25eaf333 6-7,9,11,19,27-31
+docs/19-swebok-v4-sdlc-gap-analysis.md
+  h_1b119f25eaf333 1-320
+mkdocs.yml
+  h_1b119f25eaf333 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "01b9db0811d898807c9e4d222933bef45b6d46f6",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
