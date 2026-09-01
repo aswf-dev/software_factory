@@ -51,12 +51,42 @@ export const FIELD_TITLES: Record<string, string> = {
   acceptance: '驗收標準（DoD）',
 }
 
+/** 單條驗收條目的形式審查結果。 */
+export interface DodItemReview {
+  /** 條目原文（已 trim）。 */
+  text: string
+  /** 命中的空泛詞彙（英文比對不分大小寫）。 */
+  vagueTerms: string[]
+  /** 是否含可觀察結果線索。 */
+  observable: boolean
+}
+
+/** DoD 具體性審查（docs/18 §4 G5：Verification——只查形式，不判該不該做）。 */
+export interface DodReview {
+  /** 受審條目：acceptance 欄位的自訂條目（排除模板固定三項）；無則退回 requirement 的「驗證方式」。 */
+  items: DodItemReview[]
+  /** 每條都具體（含可觀察結果且無空泛詞彙）；空清單 → false（無具體驗收描述）。 */
+  specific: boolean
+}
+
+/**
+ * DoD 具體性檢查（docs/18 §4 G5、Issue #200）——01-test 腳手架：僅提供簽名與
+ * 型別讓測試層獨立編譯並把 `dod` 接進 CheckResult；具體行為（空泛詞彙黑名單、
+ * 可觀察結果白名單、💡 提示留言）由 02-impl 層實作、測試同步 un-skip。
+ */
+export function checkDodSpecificity(body: string): DodReview {
+  void body
+  return { items: [], specific: true }
+}
+
 export interface CheckResult {
   ok: boolean
   missing: RequiredField[]
   taskType?: string | undefined
   /** 需求複雜度分析（零 LLM 成本；fail-safe 方向為 high）。 */
   analysis: ComplexityAnalysis
+  /** DoD 具體性審查（advisory；不影響 ok，docs/18 §4 G5）。 */
+  dod: DodReview
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -103,6 +133,7 @@ export function checkIssue(body: string): CheckResult {
       taskType,
       requirement: extractField(body, 'requirement'),
     }),
+    dod: checkDodSpecificity(body),
   }
 }
 
