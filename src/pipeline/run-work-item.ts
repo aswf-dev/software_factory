@@ -58,6 +58,12 @@ export interface AgentRun {
   hasAcceptanceCriteria?: boolean | undefined
   /** Tokens the run consumed (agent self-report, Q02-5). */
   tokensUsed?: number | undefined
+  /**
+   * G8 需求追蹤（docs/18 §4、docs/20 B1）：驗收條件→測試/實作→status 的證據槽。
+   * 由 report.json 原樣穿透；crosscheck 負責驗證其完整性（每條驗收條件都有一個
+   * 明確狀態），pipeline 本身不在此臆測或強制。
+   */
+  requirements?: readonly { id: string; status: 'passed' | 'failed' | 'skipped' }[] | undefined
 }
 
 export interface PipelineResult {

@@ -52,6 +52,19 @@ export const ReportSchema = z.object({
   syncFailures: z.number().optional(),
   hasAcceptanceCriteria: z.boolean().optional(),
   tokensUsed: z.number().optional(),
+  /**
+   * G8 需求追蹤（docs/18 §4、docs/20 B1）：每一條 Issue 驗收條件對應一個
+   * {id, status}。status 為封閉三態（passed/failed/skipped）——這是「每條驗收
+   * 條件都有一個明確狀態」的證據槽。agent 自報、外部不可信，因此以 zod 收緊。
+   */
+  requirements: z
+    .array(
+      z.object({
+        id: z.string(),
+        status: z.enum(['passed', 'failed', 'skipped']),
+      }),
+    )
+    .optional(),
 })
 
 export type FactoryReport = z.infer<typeof ReportSchema>
@@ -131,6 +144,7 @@ function toAgentRun(report: FactoryReport): AgentRun {
     syncFailures: report.syncFailures,
     hasAcceptanceCriteria: report.hasAcceptanceCriteria,
     tokensUsed: report.tokensUsed,
+    requirements: report.requirements,
   }
 }
 

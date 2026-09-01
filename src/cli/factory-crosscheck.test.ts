@@ -213,6 +213,109 @@ describe('compareReportToActual', () => {
   })
 })
 
+describe('compareReportToActual — requirements 驗證（G8）', () => {
+  // G8（docs/18 §4、docs/20 B1）：report 的 requirements[{id,status}] 是「驗收條件→
+  // 測試/實作→status」的證據槽。crosscheck 必須對「有實質變更卻未回報 requirements」與
+  // 「條目 id/status 不完備」fail-loud——這份欄位是 agent 自報，隻字未報等同靜默缺漏。
+
+  it.skip('有實質變更但 requirements 缺席 → requirements-missing', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      { changedPaths: ['src/a.ts'], changedLines: 5, requirements: undefined },
+      actual,
+    )
+    expect(m.some((x) => x.kind === 'requirements-missing')).toBe(true)
+  })
+
+  it.skip('有實質變更但 requirements 為空陣列 → requirements-missing', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      { changedPaths: ['src/a.ts'], changedLines: 5, requirements: [] },
+      actual,
+    )
+    expect(m.some((x) => x.kind === 'requirements-missing')).toBe(true)
+  })
+
+  it.skip('條目缺少 id → requirements-incomplete', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      {
+        changedPaths: ['src/a.ts'],
+        changedLines: 5,
+        requirements: [{ id: '', status: 'passed' }],
+      },
+      actual,
+    )
+    expect(m.some((x) => x.kind === 'requirements-incomplete')).toBe(true)
+  })
+
+  it.skip('條目缺少 status → requirements-incomplete', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      {
+        changedPaths: ['src/a.ts'],
+        changedLines: 5,
+        requirements: [{ id: 'R1', status: '' as 'passed' }],
+      },
+      actual,
+    )
+    expect(m.some((x) => x.kind === 'requirements-incomplete')).toBe(true)
+  })
+
+  it('requirements 齊全 → 不觸發 requirements-missing / requirements-incomplete', () => {
+    const actual: CrosscheckActual = {
+      branches: ['factory/12-01-test'],
+      paths: ['src/a.ts'],
+      added: 5,
+      deleted: 0,
+      uncommitted: [],
+    }
+    const m = compareReportToActual(
+      {
+        changedPaths: ['src/a.ts'],
+        changedLines: 5,
+        requirements: [
+          { id: 'R1', status: 'passed' },
+          { id: 'R2', status: 'failed' },
+          { id: 'R3', status: 'skipped' },
+        ],
+      },
+      actual,
+    )
+    expect(m.filter((x) => x.kind === 'requirements-missing' || x.kind === 'requirements-incomplete')).toEqual([])
+  })
+
+  it('無變更（diff 為空）時 requirements 缺席 → 不誤報 requirements-missing', () => {
+    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [] }
+    const m = compareReportToActual({ changedPaths: [], changedLines: 0, requirements: undefined }, actual)
+    expect(m.some((x) => x.kind === 'requirements-missing')).toBe(false)
+  })
+})
+
 describe('collectActualDiff', () => {
   it('無分支 → 空事實；有分支 → union 去重、行數累加、未提交解析', () => {
     const git = fakeGit({

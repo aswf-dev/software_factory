@@ -132,7 +132,11 @@ export function collectReportedPaths(changedPaths: readonly string[] | undefined
  * 同樣危險，都要交還人類。
  */
 export function compareReportToActual(
-  report: { changedPaths?: readonly string[] | undefined; changedLines?: number | undefined },
+  report: {
+    changedPaths?: readonly string[] | undefined
+    changedLines?: number | undefined
+    requirements?: readonly { id: string; status: string }[] | undefined
+  },
   actual: CrosscheckActual,
 ): CrosscheckMismatch[] {
   const mismatches: CrosscheckMismatch[] = []
