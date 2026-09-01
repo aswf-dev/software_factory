@@ -523,6 +523,24 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     expect(read('.github/workflows/factory-run.yml')).toContain('default: agent-add-tests')
     expect(read('.github/workflows/factory-issue-check.yml')).toContain('"agent-add-tests"')
   })
+  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（5 型，2026-09-01 C1 漂移修復）', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
+    const expected = [
+      'agent-add-tests',
+      'agent-fix-bug',
+      'agent-update-deps',
+      'agent-write-docs',
+      'agent-analyze',
+    ]
+    for (const ty of expected) {
+      expect(t).toContain(ty)
+      expect(yml).toContain(ty)
+    }
+    // Backstage enum 不該有 ISSUE_TEMPLATE 以外的類型（反向釘住）
+    const bsEnums = [...t.matchAll(/^ {12}- (agent-[a-z-]+)$/gm)].map((m) => m[1])
+    expect(bsEnums).toEqual(expected)
+  })
   it('Backstage 模板的 DoD 選項與 CLI 常數逐字一致（兩路徑規則不發散）', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
     for (const label of DOD_LABELS) {

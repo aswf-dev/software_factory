@@ -44,6 +44,7 @@ spec:
             - agent-fix-bug
             - agent-update-deps
             - agent-write-docs
+            - agent-analyze
           description: 決定 task-template 與 skill 分支（docs/09 §3 2.1）；預設 agent-add-tests（與 workflow input / issue-check fallback 一致）
         requirement:
           title: 需求描述（PRD）
