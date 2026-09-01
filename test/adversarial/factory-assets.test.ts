@@ -115,6 +115,46 @@ describe('task-template 完成後立即停止（防 agent 開完 PR 後空轉不
   })
 })
 
+describe('add-tests 劃界一致（#198：test-only 單層＋揭露缺陷 it.skip 流程）', () => {
+  // 2026-09-01 共識：add-tests 模板曾寫「01-test→02-impl→03-docs」三層、skill 寫
+  // 「01-test 層是主體」單層——agent 收到衝突指令。契約（防止再次漂移）：
+  // 1) add-tests = test-only 單層；2) 測試須在既有實作上直接綠燈；
+  // 3) 揭露既有缺陷（紅且非測試自身錯誤）→ it.skip 交付＋Issue 留言＋建議開
+  //    fix-bug 工作項（沿用 fix-bug 機制，不停手）。fix-bug 模板不在本次範圍。
+  const tpl = read('.github/factory/task-template-add-tests.txt')
+  const skill = read('.dsh/skills/factory-workflow/SKILL.md')
+
+  it('add-tests 模板為單層指令（無三層殘留）', () => {
+    expect(tpl).toContain('01-test')
+    expect(tpl).toContain('單層')
+    expect(tpl).not.toContain('02-impl')
+    expect(tpl).not.toContain('03-docs')
+  })
+  it('add-tests 模板明寫綠燈要求與 it.skip 缺陷流程（不猜測、不停手）', () => {
+    expect(tpl).toMatch(/既有實作上直接綠燈/)
+    expect(tpl).toContain('it.skip')
+    expect(tpl).toContain('斷言完整保留')
+    expect(tpl).toContain('fix-bug')
+    expect(tpl).toContain('不停手')
+  })
+  it('factory-workflow skill 的 agent-add-tests 條目與模板一致', () => {
+    const m = skill.match(/\*\*agent-add-tests\*\*：(.+)/)
+    expect(m, 'skill 缺 agent-add-tests 條目').not.toBeNull()
+    expect(m![1]).toContain('單層')
+    expect(m![1]).toContain('直接綠燈')
+    expect(m![1]).toContain('it.skip')
+    expect(m![1]).toContain('斷言完整保留')
+    expect(m![1]).toContain('fix-bug')
+    expect(m![1]).toContain('不停手')
+    expect(m![1]).toContain('誠實停手') // 保留「充分覆蓋→停手」條款
+  })
+  it('fix-bug 模板維持三層（本 Issue 範圍：不動 fix-bug）', () => {
+    const fix = read('.github/factory/task-template-fix-bug.txt')
+    expect(fix).toContain('02-impl')
+    expect(fix).toContain('03-docs')
+  })
+})
+
 describe('factory-run.yml 具備必要結構', () => {
   const content = read('.github/workflows/factory-run.yml')
   it('workflow_dispatch 輸入 issue_number 與 dry_run', () => {

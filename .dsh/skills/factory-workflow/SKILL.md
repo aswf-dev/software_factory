@@ -41,7 +41,7 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 
 任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs）。依型別調整：
 
-- **agent-add-tests**：01-test 層是主體；若既有測試已充分覆蓋，依 factory-stop-rules 誠實停手（不為交差而製造無意義測試）。
+- **agent-add-tests**：為**既有行為**補測試——test-only **單層**（01-test 是主體，無實作/文件層），新增測試必須在既有實作上**直接綠燈**。若測試揭露**既有缺陷**（紅燈且非測試自身錯誤）→ 以 `it.skip` 交付（斷言完整保留、該層單獨 CI 綠）＋在 Issue 留言報告＋建議另開 agent-fix-bug 工作項修復（沿用 fix-bug 的紅燈交付機制，**不停手**，本工作項不改實作）。若既有測試已充分覆蓋，依 factory-stop-rules 誠實停手（不為交差而製造無意義測試）。
 - **agent-fix-bug**：先寫「重現失敗」的測試（紅），再實作修復（綠）。不刪除/弱化既有斷言。**01-test 層的紅燈測試以 `it.skip` 提交**（斷言完整保留、該層單獨 CI 綠；紅燈驗證在沙箱內完成）；**02-impl 層 un-skip（改回 `it`）**並含修復——否則 01-test 單獨 PR 必然 CI 紅（docs/07 §2.2 教訓，試點 #3）。
 - **agent-update-deps**：通常是單一 PR（docs/07 §2.3）；不得未經核可新增未鎖定的新套件（SR5）；更新後全量測試。
 - **agent-write-docs**：文件與實作一致；繁體中文；單層 PR 為主。
