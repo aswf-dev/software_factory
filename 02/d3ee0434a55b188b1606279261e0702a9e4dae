@@ -1,0 +1,20 @@
+.github/workflows/factory-rescore.yml
+  h_1b119f25eaf333 59-75,83-84
+.github/workflows/factory-run-cleanup.yml
+  h_1b119f25eaf333 48-54,88-89
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 108-127,134-135
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 227-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "02d3ee0434a55b188b1606279261e0702a9e4dae",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
