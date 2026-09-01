@@ -1,0 +1,14 @@
+docs/19-swebok-v4-sdlc-gap-analysis.md
+  h_1b119f25eaf333 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f78b6c8c6e0ade78c97dcd48d9f295991f3e8876",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
