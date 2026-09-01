@@ -34,7 +34,7 @@
 | B1 | P0-1 G8 需求追蹤落地 | agent-fix-bug | 8 | `src/cli/factory-judge/crosscheck`＋pipeline | 中 | #199 | ✅ 完成（PR #216/#222/#223 已合併） |
 | B2 | P0-3 G5 DoD 具體性檢查 | agent-fix-bug | 9 | `src/cli/factory-issue-check`＋Issue 模板 | 中 | #200 | ✅ 完成（PR #211/#220/#221 已合併） |
 | C1 | 新增 `agent-analyze` 類型 | 綜合（最大項） | 10 | 七處接線＋試點 | H5→審查 | #201 | 待執行 |
-| D1 | docs/19 共識修正＋合併 | agent-write-docs | 11 | `docs/19`＋`docs/10` | 低 | #202 | 待執行 |
+| D1 | docs/19 共識修正＋合併 | agent-write-docs | 11 | `docs/19`＋`docs/10` | 低 | #202 | ✅ 完成（PR #224 已合併；PDF 另以 PR 補入） |
 
 > **監督欄說明**：改 `.github/**`、`.dsh/skills/**`、`catalog-info.yaml` 觸發 H5 → risk=2 → 人類審查（預期行為，非阻礙）。
 >
