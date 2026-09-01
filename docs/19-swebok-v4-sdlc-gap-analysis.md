@@ -1,6 +1,6 @@
 # 19 — SWEBOK v4 對照：SDLC 差距分析與改善建議
 
-> **依據**：IEEE Computer Society《Guide to the Software Engineering Body of Knowledge》v4.0a（2026-08 釋出，editor: Hironori Washizaki）。全文 411 頁、18 個知識領域（KA）＋附錄 B（ISO/IEC/IEEE 12207 標準地圖）。
+> **依據**：IEEE Computer Society《Guide to the Software Engineering Body of Knowledge》v4.0a（2026-08 釋出，editor: Hironori Washizaki）。全文 411 頁、18 個知識領域（KA）＋附錄 B（ISO/IEC/IEEE 12207 標準地圖）。原始 PDF 置於 `docs/swebok-v4.pdf`（IEEE Computer Society 免費下載物，computer.org/swebok，無散布限制）。
 > **讀者**：規劃工廠範圍的人、平台工程師、決定「流程要不要改」的人。
 >
 > **本文件的性質**：以 SWEBOK v4 作為「一個完整 SDLC 該有哪些流程要素」的對照基準，檢視工廠現有流程的覆蓋度與缺口。**覆蓋度弱不等於必須補**——每一項建議都附「本專案是否適用」的裁適判斷。SWEBOK 是體（body of knowledge），不是強制規範；本文件只引章節號與要點，不重製全文。
