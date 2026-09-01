@@ -52,7 +52,7 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 - **agent-fix-bug**：先寫「重現失敗」的測試（紅），再實作修復（綠）。不刪除/弱化既有斷言。**01-test 層的紅燈測試以 `it.skip` 提交**（斷言完整保留、該層單獨 CI 綠；紅燈驗證在沙箱內完成）；**02-impl 層 un-skip（改回 `it`）**並含修復——否則 01-test 單獨 PR 必然 CI 紅（docs/07 §2.2 教訓，試點 #3）。
 - **agent-update-deps**：通常是單一 PR（docs/07 §2.3）；不得未經核可新增未鎖定的新套件（SR5）；更新後全量測試。
 - **agent-write-docs**：文件與實作一致；繁體中文；單層 PR 為主。
-- **agent-analyze**：分析/調查型（bug 重現、根因分析、影響分析、可行性、in-loop 前置分析）——**不產生程式碼變更**，只允許 `docs/research/` 下的報告檔。產出為 **docs/ 報告 PR（單層）**＋「建議下一步」（可直接開成工作項）；DoD = 報告含結論摘要／證據與根因／影響範圍／方案比較／建議下一步。**in-loop（5–6 分）工作項可用**——docs/06 §4「僅可產出分析與方案，不得實作」的實作；報告不具放行效力，仍須人類審查（crosscheck 以 analyze 模式驗證無 src/ 變更，違反即 needs-human）。
+- **agent-analyze**：分析/調查型（bug 重現、根因分析、影響分析、可行性、in-loop 前置分析）——**不產生程式碼變更**，只允許 `docs/research/` 下的報告檔。產出為 **docs/ 報告 PR（單層）**＋「建議下一步」（可直接開成工作項）；DoD = 報告含結論摘要／證據與根因／影響範圍／方案比較／建議下一步。**in-loop（5–6 分）工作項可用**——docs/06 §4「僅可產出分析與方案，不得實作」的實作；報告不具放行效力，仍須人類審查（crosscheck 以 analyze 模式驗證無 src/ 變更，違反即 needs-human）。**report.json 的 `requirements` 必填**：每條驗收條件對應 `{id, status}`（`passed`＝報告已涵蓋／`failed`＝報告指出未涵蓋或無法達成／`skipped`＝不適用），缺漏會觸發 `requirements-missing` fail-loud（docs/20 B1）。
 
 ## 原則
 
