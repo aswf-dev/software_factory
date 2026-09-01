@@ -33,7 +33,7 @@
 | A7 | add-tests 模板/skill 一致化 | agent-write-docs＋測試 | 7 | `.github/factory/`＋skill＋測試 | H5→審查 | #198 | ✅ 合併（PR #205） |
 | B1 | P0-1 G8 需求追蹤落地 | agent-fix-bug | 8 | `src/cli/factory-judge/crosscheck`＋pipeline | 中 | #199 | ✅ 完成（PR #216/#222/#223 已合併） |
 | B2 | P0-3 G5 DoD 具體性檢查 | agent-fix-bug | 9 | `src/cli/factory-issue-check`＋Issue 模板 | 中 | #200 | ✅ 完成（PR #211/#220/#221 已合併） |
-| C1 | 新增 `agent-analyze` 類型 | 綜合（最大項） | 10 | 七處接線＋試點 | H5→審查 | #201 | 待執行 |
+| C1 | 新增 `agent-analyze` 類型 | 綜合（最大項） | 10 | 七處接線＋試點 | H5→審查 | #201 | ✅ 完成（PR #227＋試點 T1/T2/T3＋4 衍生修正） |
 | D1 | docs/19 共識修正＋合併 | agent-write-docs | 11 | `docs/19`＋`docs/10` | 低 | #202 | ✅ 完成（PR #224 已合併；PDF 另以 PR 補入） |
 
 > **監督欄說明**：改 `.github/**`、`.dsh/skills/**`、`catalog-info.yaml` 觸發 H5 → risk=2 → 人類審查（預期行為，非阻礙）。
@@ -121,6 +121,9 @@
   6. `config/dsh/model-tiers.yaml`／`src/cli/factory-model.ts` — 路由考量（複雜度路由已覆蓋；analyze 偏推理，依試點調 tier）
   7. `docs/07`（analyze=單層拆分）＋`docs/09`（路由說明）
 - **DoD**：七處接線完成、對抗性測試 5 型綠；**試點驗證 ≥1 個真實工作項實跑**（人類安排，比照 Phase 2）；`docs/10` Q19-2/3 標記已裁決。
+
+- **試點結果（2026-09-01）**：T1（#228→報告 PR #231）、T2（#229→#230）、T3（#595→#597，fubon in-loop 6 分前置分析）全數完成並合併；報告品質經抽查良好（結論/證據/影響/方案比較/建議下一步五段齊全）。
+- **試點衍生修正（4 個，全部合併）**：#232 guard 跨 repo 分支檢查改用 App token（原用 github.token 查目標 repo 必 404）；#233 analyze 模板明訂 requirements 語意；#234 quint 二進位快取（~/.quint，避免並行 rate limit）；#236 重跑遇既有交付時誠實回報（changedPaths=[]＋標明既有 PR）。
 - **風險**：改 `.github/`、`skills/` → H5 → 人類審查；試點屬觀察期動作。
 
 ---
@@ -161,6 +164,6 @@ D1（docs/19 收尾；Q19 標記依賴前項完成）
 | 編號 | 事項 | 處置 |
 |---|---|---|
 | Q20-1 | 工項是否開成 GitHub Issue（`factory-work-item` 模板，`meta/observation` 標籤） | 使用者裁決投放方式 |
-| Q20-2 | C1 試點驗證的安排（目標 repo、樣本數） | 人類安排，比照 Phase 2 |
+| ~~Q20-2~~ | C1 試點驗證的安排（目標 repo、樣本數） | ✅ **已裁決（2026-09-01）**：software_factory×2（T1/T2）＋fubon-tradingbot×1（T3 in-loop，complexity 暫時調升後復原） |
 
 > 本文件的未決事項已收攏至 `docs/10-open-questions.md`。

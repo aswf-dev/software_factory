@@ -44,6 +44,13 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 > 沒建分支、或改了檔卻沒寫進報告）會直接觸發 needs-human。填寫前先以
 > `git diff --name-only $BASE_BRANCH...<分支>` 核對。
 
+> **重跑／既有交付（2026-09-01 T3 試點 #595 教訓）**：若執行中發現**本工作項的交付物已存在**
+> （如前次 run 已開 PR 且內容完整），**不得重複建立 PR**；此時 `changedPaths` 填 `[]`、
+> `changedLines` 填 `0`（本次 run 無新變更），並在 Issue 留言與 report 中標明**既有 PR 編號**
+> 與你對其內容的**驗證結論**（讀過、確認涵蓋驗收條件）。crosscheck 的 `no-trace` 只攔
+> 「宣稱變更卻零交付」的假完成；誠實標示重複使用不會誤觸。不確定既有 PR 是否完整時，
+> 依 factory-stop-rules 停手交還人類，**不要猜測**。
+
 ## 任務型別
 
 任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs / agent-analyze）。依型別調整：

@@ -23,6 +23,8 @@
    **requirements 必填（G8 crosscheck 會驗證）**：依 Issue 每條驗收條件填寫 {id, status}——
    status 為報告對該條的涵蓋狀態：`passed`＝報告已明確涵蓋；`failed`＝報告指出該條無法達成
    或未被涵蓋；`skipped`＝該條不適用於分析型。不可留空。
+   **若發現本工作項的報告 PR 已存在（如先前 run 已交付）**：不重複開 PR；changedPaths 填 `[]`、
+   changedLines 填 `0`，留言與 report 標明既有 PR 編號＋驗證結論（見 factory-workflow skill 的重跑指引）。
 8. **完成後立即停止**：report.json 寫完即為工作項終點——不要繼續任何額外工作（重跑測試、額外驗證、自我檢查、輸出思考）。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到 50 分鐘 timeout。
 
 若觸發任何停手規則，依該規則處理後結束。
