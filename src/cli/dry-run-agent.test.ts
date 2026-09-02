@@ -67,4 +67,13 @@ describe('main', () => {
     const onDisk = JSON.parse(readFileSync(join(tmp, '.factory/run/report.json'), 'utf8'))
     expect(onDisk.issueNumber).toBe(104)
   })
+
+  it('同時寫出固定 usage.json 與 usage.md（無 LLM 也能測 usage 留言接線）', () => {
+    main(['success', '104'], tmp)
+    const usage = JSON.parse(readFileSync(join(tmp, '.factory/run/usage.json'), 'utf8'))
+    expect(usage.source).toBe('dsh-session-log')
+    expect(usage.totals.totalTokens).toBeGreaterThan(0)
+    const md = readFileSync(join(tmp, '.factory/run/usage.md'), 'utf8')
+    expect(md).toContain('Token 用量與成本')
+  })
 })

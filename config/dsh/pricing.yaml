@@ -1,0 +1,34 @@
+# 模型定價表（USD / MTok，input / output）——「每工作項成本」換算的唯一事實來源
+# （docs/ADR/011-model-tier-routing.md、docs/04-agent-execution-dsh.md §5）。
+#
+# 定價來源：pi-ai catalog 2026-08 查證（ADR-011 §3 表格與 model-tiers.yaml 註記），
+# 數值與該兩處文件一致。repo 日後改價只動本檔；對抗性測試會釘住
+# 「model-tiers.yaml 引用的每個 model id 都必須在本檔有 input/output 價」。
+#
+# 欄位語意（usage 事件為 disjoint 桶，與 DSH TokenUsage 慣例一致）：
+#   inputUsdPerMTok   : 未快取輸入（inputTokens）每 MTok 價格
+#   outputUsdPerMTok  : 輸出（outputTokens，已含 reasoning）每 MTok 價格
+#   cacheReadUsdPerMTok : 快取讀取（cacheReadTokens）每 MTok 價格；缺欄＝快取讀取
+#                       不單獨計價（僅列 tokens、不計入金額，render 會註明）。
+#
+# 誠實揭露：cacheRead 價格為估算——anthropic 依供應商「cache read = input × 0.1」
+# 慣例設定並註明；qwen/deepseek 未查得官方 cache read 價，故缺欄（不單獨計價）。
+# 本表是估算用，非供應商帳單。
+pricing:
+  qwen3.8-flash:
+    inputUsdPerMTok: 0.15
+    outputUsdPerMTok: 0.47
+  deepseek-v4-flash:
+    inputUsdPerMTok: 0.14
+    outputUsdPerMTok: 0.28
+  deepseek-v4-pro:
+    inputUsdPerMTok: 0.435
+    outputUsdPerMTok: 0.87
+  claude-sonnet-5:
+    inputUsdPerMTok: 2
+    outputUsdPerMTok: 10
+    cacheReadUsdPerMTok: 0.2
+  claude-opus-5:
+    inputUsdPerMTok: 5
+    outputUsdPerMTok: 25
+    cacheReadUsdPerMTok: 0.5

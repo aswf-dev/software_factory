@@ -435,17 +435,23 @@ concurrency:
 
 ## 5. 成本控制（支柱四的執行面）
 
-**已查證的機制**：`dsh-token-meter` 提供以 session 為單位的 token 計量（`measure(session)` 回傳請求壓力與當前表面 token 數）；`dsh-session-telemetry-otel` 提供 OTel 遙測輸出。
+**已查證的機制**：DSH 把每次 run 的 session 寫成 durable log（`$DSH_HOME/sessions/**/session.jsonl[.zstd]`），內含 provider 回報的逐 step usage 事件（`inputTokens/outputTokens/cacheReadTokens/reasoningTokens`＋route）；DSH Web UI 的「Turn usage」與 token-meter projection 就是回放這份 log 算出 token 用量（官方 subsystem 文件見 deepseek-harness `docs/subsystems/token-meter.md`）。`dsh-token-meter` 另提供 replay-aware 計量與 OTel 輸出。
 
 **工廠的成本控制策略**（三層）：
 
 | 層 | 機制 | 作用 |
 |---|---|---|
-| 1. 硬性時間上限 | Actions `timeout-minutes: 30` | 最終保險，必然生效 |
-| 2. Token 上限 | token-meter 讀數 | ⚠️ 中止門檻值待定（Q02-5，需先取得基線） |
-| 3. 事後歸因 | OTel → 指標後端 | 供 `08` 的「每工作項成本」指標 |
+| 1. 硬性時間上限 | Actions `timeout-minutes: 50` | 最終保險，必然生效 |
+| 2. Token 上限 | SR7（`tokensUsed > tokenBudget` → needs-human） | ⚠️ 中止門檻值待定（Q02-5，需先取得基線） |
+| 3. 事後歸因 | `factory-usage` 回放 session log → Issue 留言＋`report.json` 的 `usage` 區塊 | 供 `08` 的「每工作項成本」指標 |
 
 > **第 2 層的誠實說明**：目前**尚無基線數據**可據以設定合理門檻。過低會頻繁誤中止，過高則形同虛設。因此第一階段**先只做量測不做中止**（第 1 層的時間上限已提供保護），累積數週數據後再設門檻。這比憑空定一個數字更負責。
+
+### 5.1 量測落地：每工作項 token 用量與成本
+
+- **做法**：agent 步驟結束後，CI 執行 `factory-usage` CLI——回放本次 run 的 DSH session log（鏡射 DSH 自己的 fold：逐 `(turn,step)` 累加 provider 回報的 usage，同一 step 的重複樣本以後到者取代、不重複計），乘上 `config/dsh/pricing.yaml` 定價表（USD/MTok，數值同 `ADR/011`）換算成本。
+- **呈現**：終態留言（`apply-judge-labels`）與執行報告（`report.json` 的 `usage` 區塊）附上「總 token（input/output/cache-read/reasoning 細分）＋ 估算 USD」；`usage.json` 上傳 artifacts。dry-run 以 stub 產固定 usage，接線可在無 LLM 下驗證。
+- **誠實邊界**：用量是 **CI 實測**（session log），不是 agent 自報（SR7 的 `tokensUsed` 語意不變，列 follow-up 再接通）；金額是**估算**（依 `pricing.yaml`），非供應商帳單；session log 找不到或壞檔（如逾時被 kill、flush 未完成）時留言標「無法量測」，**不偽造、不擋 run**。reasoning ⊆ output（DSH disjoint 慣例），換算時不再加總一次。
 
 ---
 

@@ -196,9 +196,12 @@ describe('factory-run.yml 具備必要結構', () => {
   it('guardrail patch 與鎖版 DSH', () => {
     expect(content).toContain('config/dsh/factory-guardrail.patch.yml')
     // DSH 鎖版：devDependency（package.json 精確 pin）→ npm ci（lockfile）安裝
-    // 0.1.1-rc.2：credentials 檔改為 version:1 + refs: 格式（與執行中 harness 同步；
-    // 0.1.0-rc.8 的解析器只認舊 flat layout，讀新格式會 boot 失敗）。
-    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.1\.1-rc\.\d+"/)
+    // 2026-09 起鎖 0.1.2-alpha 系列（本機 Web GUI 與 CI 共用）：DSH 0.1.2-alpha 起
+    // web 有 launch-token 瀏覽器認證（start.sh 依賴）；credentials/session 格式隨
+    // 版本演進（0.1.0-rc.8 的解析器只認舊 flat layout，讀新格式會 boot 失敗），
+    // 故必須精確鎖版並與執行中的 harness 同步。Regex 只鎖 alpha 系列、允許
+    // patch 號浮動（0.1.2-alpha.4 等），避免升 alpha patch 時誤紅。
+    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.1\.2-alpha\.\d+"/)
     expect(content).toContain('npm ci')
   })
 })
@@ -767,5 +770,72 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(src).toContain('🤖 **建議模型**')
     expect(src).toContain('analyzeComplexity')
     expect(src).toContain('resolveModelTier')
+  })
+})
+
+describe('用量與成本契約（docs/04 §5、docs/08 §2.3、docs/ADR/011）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  interface TierShape {
+    primary: { provider: string; model: string }
+    fallback: { provider: string; model: string }[]
+  }
+  const tiers = (
+    load(read('config/dsh/model-tiers.yaml')) as {
+      tiers: Record<string, TierShape>
+    }
+  ).tiers
+  const pricing = (
+    load(read('config/dsh/pricing.yaml')) as {
+      pricing: Record<string, { inputUsdPerMTok: number; outputUsdPerMTok: number }>
+    }
+  ).pricing
+
+  it('pricing.yaml 存在且每個 model id 都有 input/output 價（新增 model 漏定價即紅燈）', () => {
+    const modelIds = new Set<string>()
+    for (const t of Object.values(tiers)) {
+      modelIds.add(t.primary.model)
+      for (const f of t.fallback) modelIds.add(f.model)
+    }
+    expect(modelIds.size).toBeGreaterThan(0)
+    for (const id of modelIds) {
+      const p = pricing[id]
+      expect(p, `pricing.yaml 缺 model ${id}`).toBeDefined()
+      expect(p?.inputUsdPerMTok, `${id} input`).toBeGreaterThan(0)
+      expect(p?.outputUsdPerMTok, `${id} output`).toBeGreaterThan(0)
+    }
+  })
+
+  it('定價數值與 ADR-011 表一致（qwen3.8-flash $0.15/0.47 等）', () => {
+    expect(pricing['qwen3.8-flash']?.inputUsdPerMTok).toBe(0.15)
+    expect(pricing['qwen3.8-flash']?.outputUsdPerMTok).toBe(0.47)
+    expect(pricing['deepseek-v4-pro']?.inputUsdPerMTok).toBe(0.435)
+    expect(pricing['deepseek-v4-pro']?.outputUsdPerMTok).toBe(0.87)
+    expect(pricing['claude-opus-5']?.inputUsdPerMTok).toBe(5)
+    expect(pricing['claude-opus-5']?.outputUsdPerMTok).toBe(25)
+  })
+
+  it('factory-run.yml 含 Measure usage 步驟（讀 DSH session log + 定價表）', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('Measure usage & cost')
+    expect(c).toContain('dist/cli/factory-usage.js')
+    expect(c).toContain('--sessions-root')
+    expect(c).toContain('--pricing')
+  })
+
+  it('factory-run.yml 把 usage.md 傳給 apply-judge-labels（終態留言附用量段落）', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('apply-judge-labels.js')
+    expect(c).toContain('usage.md')
+  })
+
+  it('apply-judge-labels 的 buildJudgeComment 支援 usage 參數（留言可附用量）', () => {
+    const src = read('src/cli/apply-judge-labels.ts')
+    expect(src).toContain('usageMarkdown')
+  })
+
+  it('factory-judge ReportSchema 接受 usage 欄位（執行報告留底）', () => {
+    const src = read('src/cli/factory-judge.ts')
+    expect(src).toContain('UsageReportSchema')
+    expect(src).toContain('usage:')
   })
 })

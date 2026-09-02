@@ -17,6 +17,7 @@
 import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { runWorkItem, type AgentRun, type PipelineResult } from '../pipeline/run-work-item.js'
+import { UsageReportSchema } from '../usage/report-schema.js'
 import { loadScoreInput } from './factory-score.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, runCli } from './run-cli.js'
@@ -65,6 +66,14 @@ export const ReportSchema = z.object({
       }),
     )
     .optional(),
+  /**
+   * CI 實測的 token 用量與成本（factory-usage 寫回，docs/04 §5）。
+   *
+   * 與 tokensUsed（agent 自報，SR7 用）不同：usage 是 CI 於 run 結束後回放
+   * DSH session log 的實測值，非 agent 自報。schema 內保留它，讓 judge.json
+   * 與執行報告留底；pipeline 判定不讀它（量測是附註不是 gate）。
+   */
+  usage: UsageReportSchema.optional(),
 })
 
 export type FactoryReport = z.infer<typeof ReportSchema>

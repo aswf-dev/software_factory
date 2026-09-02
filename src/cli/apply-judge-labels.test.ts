@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -58,6 +58,17 @@ describe('computeJudgeLabels（純函式）', () => {
     expect(comment).toContain('SR3 觸發')
     expect(comment).not.toContain(PHASE1_HUMAN_REVIEW_NOTE)
   })
+  it('提供 usage markdown → 附加在留言尾段（--- 分隔）', () => {
+    const comment = buildJudgeComment('ready-for-review', 'ok', '## 📊 Token 用量與成本\n\n- 總 token：100')
+    expect(comment).toContain('---')
+    expect(comment).toContain('## 📊 Token 用量與成本')
+    expect(comment).toContain('總 token：100')
+  })
+  it('usage markdown 為空 → 不附加空段落', () => {
+    const comment = buildJudgeComment('ready-for-review', 'ok', '   ')
+    expect(comment).not.toContain('---')
+    expect(comment).toBe('## 工廠執行結果：ready-for-review\n\nok')
+  })
 })
 
 describe('main（注入 fake gh）', () => {
@@ -89,5 +100,25 @@ describe('main（注入 fake gh）', () => {
 
   it('缺參數 → CliError', () => {
     expect(() => main([], vi.fn())).toThrow(CliError)
+  })
+
+  it('第三參數為 usage markdown 檔 → 留言含用量段落', () => {
+    const gh = vi.fn()
+    const usagePath = join(tmp, 'usage.md')
+    writeFileSync(usagePath, '## 📊 Token 用量與成本\n\n- 總 token：100')
+    main([String(201), writeJudge(RESULT('ready-for-review', ['oversight/review'], 'ok'), 'with-usage.json'), usagePath], gh)
+    expect(gh).toHaveBeenCalledWith(['issue', 'comment', '201', '--body', expect.stringContaining('總 token：100')])
+  })
+
+  it('第三參數指向不存在的檔 → 不附用量、不拋錯（量測是附註不是 gate）', () => {
+    const gh = vi.fn()
+    main([String(201), writeJudge(RESULT('ready-for-review', ['oversight/review'], 'ok'), 'missing-usage.json'), join(tmp, 'nope.md')], gh)
+    expect(gh).toHaveBeenCalledWith(['issue', 'comment', '201', '--body', expect.not.stringContaining('Token 用量')])
+  })
+
+  it('第三參數為空字串 → 不附用量', () => {
+    const gh = vi.fn()
+    main([String(201), writeJudge(RESULT('ready-for-review', ['oversight/review'], 'ok'), 'empty-usage.json'), ''], gh)
+    expect(gh).toHaveBeenCalledWith(['issue', 'comment', '201', '--body', expect.not.stringContaining('Token 用量')])
   })
 })

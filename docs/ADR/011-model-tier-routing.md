@@ -32,6 +32,10 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 | critical | claude-opus-5 | $5/25 | 最高 tier；fable-5 已移除（需額外 credit） |
 | fallback | deepseek-v4-pro / qwen3.8-flash | — | 品質擔保，正常不走 |
 
+> **機器可讀副本**：定價表另有 `config/dsh/pricing.yaml`（`factory-usage` 換算「每工作項成本」
+> 的唯一事實來源，`docs/04` §5.1）。兩處同源，對抗性測試釘住「model-tiers 引用的每個
+> model id 都必須在 pricing.yaml 有價」。
+
 > **2026-08-28 修正**：critical 由 `claude-fable-5` 改為 **`claude-opus-5`**（$5/25、1M ctx、支援 xhigh/max thinking）——fable-5 需額外 credit，帳號方案未包含（實測 run #33175623064 無法使用），故移除 fable-5 並以同代旗艦 opus-5 為 primary。
 
 誠實揭露：「deepseek-v4-pro ≈ opus/sonnet 等級」是待 A/B 驗證的假設（非實測對比）。config 為唯一事實來源，`model_tier` 手動覆寫可隨時指定 opus；high tier 的 fallback 不含 opus，避免無謂升級。
