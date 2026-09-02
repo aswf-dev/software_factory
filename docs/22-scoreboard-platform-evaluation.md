@@ -194,6 +194,56 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 
 此遷移是「資料變重才做」，不阻塞 MVP——但**事件 schema 第一版就要有 owner/事件時間/版本欄位**，讓遷移只是搬資料不是重造。
 
+### 6.4 認證選型：Access vs 自接 OAuth vs Managed Auth
+
+> **先釐清層級**：「Cloudflare Access vs Google ID / GitHub ID」是**常見的比錯層**——它們不是同類替代品。Access 的設定畫面裡，反而要選「用 GitHub 還是 Google 當登入方式」。
+
+| 層 | 是什麼 | 角色 | 代表 |
+|---|---|---|---|
+| **身分來源（IdP）** | 只證明「你是誰」的 OAuth/OIDC 提供者 | 登入來源 | **Google ID、GitHub ID**、Okta |
+| **存取閘道（IAP）** | 擋在 origin 前面的身分感知代理，**未認證的請求到不了 app** | 決定「誰能進這扇門」 | **Cloudflare Access** |
+| **身分平台（Managed Auth）** | 完整使用者系統：user table、註冊流程、session、RBAC、多租戶 | 決定「你的顧客是誰、屬於哪個租戶、付了什麼方案」 | Clerk、Auth0、Supabase Auth、Firebase Auth |
+
+**因此 Access 與 GitHub/Google 通常是「一起用」而不是二選一**：Access 當閘道，GitHub/Google 當它的登入按鈕。真正與 Access 對照的是「自己在 app 內接 OAuth 寫 session」與「用 Managed Auth 平台」。
+
+#### 6.4.1 三種做法的優劣（對照本專案：內部後台 → 未來付費客戶）
+
+| | **Cloudflare Access（閘道）** | **自接 GitHub/Google OAuth** | **Managed Auth（Clerk/Auth0/Supabase）** |
+|---|---|---|---|
+| 開發量 | 近乎零程式碼（dashboard 設定 path 規則） | 中～高：session、CSRF、token refresh、帳號表全自理 | 低：SDK＋內建 UI |
+| 免費額度（2026-09 外部資料，以官方為準） | Zero Trust Free **50 人** | 免費（僅 OAuth 本身） | Clerk ~10k MAU／Supabase ~50k MAU／Auth0 ~25k MAU |
+| 計費模型 | **per seat（按人頭）** | — | 按 MAU |
+| 適合「內部小團隊後台」 | ✅ **最合適** | ✅ 可行（repo 生態全在 GitHub 時尤其自然） | 🔶 過重 |
+| 適合「外部付費客戶登入」 | ❌ **不適合**（內部信任模型＋per-seat 計費） | 🔶 僅限開發者客群（不能要求客戶有 GitHub 帳號） | ✅ **對口**（註冊流程、訂閱綁定、Org/多租戶） |
+| 多租戶 / RBAC | ❌ 只有 email/群組白名單 | ❌ 自建 | ✅ 內建 Organization/Roles |
+| 與訂閱計費整合 | ❌ 無 | ❌ 自建 | ✅ 常見 Stripe 整合模式 |
+| MFA / 裝置條件 | ✅ 內建（含 device posture） | ❌ 自建 | ✅ 內建 |
+| 鎖定風險 | 綁 Cloudflare（app 須在 CF 後方） | 低（標準 OIDC） | 中～高（專有元件/資料模型） |
+
+#### 6.4.2 Cloudflare Access 的優點與界線
+
+**優點**
+- 免費 50 人正好覆蓋「短期後台給小團隊」；MFA、path 級規則（`/admin`、`/api/*`）皆為設定而非程式碼。
+- 可直接把 **GitHub 或 Google 設為 login method**，成員用既有帳號登入，不必發新密碼。
+- 通過後在 header 注入 JWT（`Cf-Access-Jwt-Assertion`），Worker 讀 email/sub 即可授權——**app 不必自建整套 auth stack**。
+- 與 §6.1 的 Cloudflare 主架構同一供應商，維運面一致。
+
+**界線（必須寫明，否則日後會踩）**
+- Access 是**內部信任模型**：政策是「email/群組白名單」，**沒有**自助註冊、訂閱方案、租戶內 RBAC、使用者 profile、密碼重置等 SaaS 必需品。
+- **計費按人頭（per seat）**：對「未來幾百上千位付費客戶」不是正確工具——Access 是給「你的團隊存取內部資源」，不是給「你的顧客登入你的產品」。
+- Access 只管「誰能進門」；**門內的多租戶資料隔離與訂閱綁定仍要自己寫**（JWT 給 identity，不給商業模型）。
+
+#### 6.4.3 建議：分兩層，不要二選一
+
+| 階段 | 認證做法 |
+|---|---|
+| **MVP／內部後台（現在）** | **Cloudflare Access**，login method 選 **GitHub**（團隊成員已有帳號、零程式碼、免費 50 人） |
+| **開放付費客戶（未來）** | 換上 **Managed Auth**（Clerk／Supabase Auth／Auth0）或自建 OIDC，搭配自有 user/tenant/subscription 表；Access 退回只保護內部管理端點 |
+
+**現在就要做的一件事**：事件 schema（§3）以 `owner`（租戶識別）為主鍵維度，**不要把 Access 的 JWT `sub`/email 當成資料主鍵寫死**——把「誰登入」與「資料屬於誰」解耦，日後換 IdP 只是換登入層，不必遷資料。
+
+> 佐證（外部資料，僅供方向參考）：[Cloudflare Access 以 GitHub 登入的免程式碼設定](https://zenn.dev/seekseep/articles/cloudflare-access-nocode-auth)、[Cloudflare Zero Trust / Access 官方文件](https://developers.cloudflare.com/cloudflare-one/)、[Best Authentication Providers 2026](https://fromscratch.dev/best/authentication-providers)、[Clerk vs Auth0 vs Supabase Auth](https://dev.to/devtoolpicks/clerk-vs-auth0-vs-supabase-auth-for-indie-hackers-in-2026-which-one-should-you-use-k95)。
+
 ---
 
 ## 7. 風險與限制
@@ -205,7 +255,7 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 | 資料所有權/隱私 | 成本資料含 repo 名、issue 內容間接資訊；未來付費使用者資料 | 匯出 API；owner 隔離；隱私預設（Q22-5） |
 | costUsd 是估算 | 非供應商帳單（docs/04 §5.1） | schema 標明估算；日後可對齊正式帳單 |
 | 多租戶太晚做 | 若第一版無 owner 欄位，日後拆資料很痛 | §3 schema 內建 owner/event_id/schema_version |
-| 認證被小看 | 先「簡單 auth」後「付費」可能重寫 | MVP 就用 Access（免費）而非自製；收費時才接 IdP/Stripe |
+| 認證被小看 | 先「簡單 auth」後「付費」可能重寫 | §6.4 分兩層：MVP 用 Access（免費、零程式碼）而非自製；付費客戶出現時才換 Managed Auth＋Stripe。**事件不以登入身分為主鍵**（以 `owner` 解耦），換 IdP 不必遷資料 |
 
 ---
 
@@ -215,7 +265,7 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 |---|---|---|---|
 | **Q22-1** | 主平台：Cloudflare（A）vs Vercel（B）vs 其他 | **A. Cloudflare Workers+D1+Pages+Access**（§6.1） | 決定 MVP 技術棧 |
 | **Q22-2** | Scoreboard 程式 repo 位置 | 新 repo（如 `philipz/factory-scoreboard`）——與機制 repo 分離、權限獨立、產品化乾淨 | 部署、權限、CODEOWNERS |
-| **Q22-3** | 認證方案 | MVP：Cloudflare Access（免費 50 人）；收費前換正式 IdP | §6.1、§7 |
+| **Q22-3** | 認證方案 | **分兩層**（§6.4）：MVP 內部後台＝Cloudflare Access（login method 選 GitHub，免費 50 人）；開放付費客戶時改 Managed Auth（Clerk／Supabase Auth／Auth0）——Access 為 per-seat 內部信任模型，不適合當顧客身分系統 | §6.4、§7 |
 | **Q22-4** | 多租戶/收費啟用時機 | 第一版只留 `owner` 欄位＋匯出 API；billing 等付費使用者出現再實作 | §3、§7 |
 | **Q22-5** | 資料隱私預設 | 成本資料含 repo/issue 資訊：MVP 預設不公開、後台需登入；「未來開放付費查閱」的公開範圍待裁 | §2、§7 |
 
@@ -230,6 +280,7 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 - [x] CI/Backstage 推送契約草案（§4）
 - [x] ≥6 平台比較矩陣＋來源與查證日期（§5）
 - [x] 明確建議＋替代觸發條件（§6）
+- [x] 認證選型三層比較與分階段建議（§6.4）
 - [x] 風險清單（§7）
 - [x] Q22-1~5（§8，收攏至 docs/10）
 
@@ -240,3 +291,4 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 | 日期 | 變動 |
 |---|---|
 | 2026-09-02 | 建立：平台評估（Cloudflare vs Vercel vs 其他），資料源接 PR #248 |
+| 2026-09-02 | 新增 §6.4 認證選型：釐清 IdP／IAP／Managed Auth 三層，Access 與 GitHub/Google 是「一起用」而非二選一；分階段建議（內部後台用 Access+GitHub；付費客戶改 Managed Auth）；schema 以 `owner` 與登入層解耦 |
