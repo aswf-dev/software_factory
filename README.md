@@ -32,6 +32,9 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/12-repo-settings-guide.md`](docs/12-repo-settings-guide.md) | GitHub repo 設定指引（分支保護、required checks） |
 | [`docs/16-rescore-multirepo.md`](docs/16-rescore-multirepo.md) | 跨 repo 二次判定操作（rescore dispatch） |
 | [`docs/17-backstage-rebuild.md`](docs/17-backstage-rebuild.md) | Backstage 重建手冊（新機器 / 雲端 VM 重新安裝） |
+| [`docs/20-work-items.md`](docs/20-work-items.md) | SDLC 改善工項清單（含狀態追蹤） |
+| [`docs/21-candidate-work-item-types.md`](docs/21-candidate-work-item-types.md) | 候選工作類型清單（活文件） |
+| [`docs/22-scoreboard-platform-evaluation.md`](docs/22-scoreboard-platform-evaluation.md) | Scoreboard 雲端平台評估（Vercel / Cloudflare / 其他 SaaS） |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
 | [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
 
