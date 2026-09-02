@@ -1,0 +1,68 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 453-471,506-509,546-554,564-569,571,592-601
+config/dsh/pricing.yaml
+  h_1b119f25eaf333 1-34
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 438,444-446,450-455
+docs/08-metrics-kpi.md
+  h_1b119f25eaf333 62,66-71
+docs/10-open-questions.md
+  h_1b119f25eaf333 75
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 35-38
+src/cli/apply-judge-labels.test.ts
+  h_1b119f25eaf333 1,61-71,104-123
+src/cli/apply-judge-labels.ts
+  h_1b119f25eaf333 32,35-37,56,66-75,83
+src/cli/dry-run-agent.test.ts
+  h_1b119f25eaf333 70-78
+src/cli/dry-run-agent.ts
+  h_1b119f25eaf333 10-11,64-98,122-127
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 176-225
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 20,69-76
+src/cli/factory-usage-mutation.test.ts
+  h_1b119f25eaf333 1-120
+src/cli/factory-usage.test.ts
+  h_1b119f25eaf333 1-224
+src/cli/factory-usage.ts
+  h_1b119f25eaf333 1-150
+src/usage/aggregate.test.ts
+  h_1b119f25eaf333 1-157
+src/usage/aggregate.ts
+  h_1b119f25eaf333 1-235
+src/usage/pricing.test.ts
+  h_1b119f25eaf333 1-120
+src/usage/pricing.ts
+  h_1b119f25eaf333 1-97
+src/usage/render.test.ts
+  h_1b119f25eaf333 1-176
+src/usage/render.ts
+  h_1b119f25eaf333 1-112
+src/usage/report-schema.ts
+  h_1b119f25eaf333 1-43
+src/usage/session-log.test.ts
+  h_1b119f25eaf333 1-91
+src/usage/session-log.ts
+  h_1b119f25eaf333 1-94
+src/usage/types.ts
+  h_1b119f25eaf333 1-42
+src/usage/zstd.test.ts
+  h_1b119f25eaf333 1-85
+src/usage/zstd.ts
+  h_1b119f25eaf333 1-102
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 775-841
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "11fbf651de05c1fc8e23061056ba90f530cd52de",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
