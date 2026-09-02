@@ -196,9 +196,12 @@ describe('factory-run.yml 具備必要結構', () => {
   it('guardrail patch 與鎖版 DSH', () => {
     expect(content).toContain('config/dsh/factory-guardrail.patch.yml')
     // DSH 鎖版：devDependency（package.json 精確 pin）→ npm ci（lockfile）安裝
-    // 0.1.1-rc.2：credentials 檔改為 version:1 + refs: 格式（與執行中 harness 同步；
-    // 0.1.0-rc.8 的解析器只認舊 flat layout，讀新格式會 boot 失敗）。
-    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.1\.1-rc\.\d+"/)
+    // 2026-09 起鎖 0.1.2-alpha 系列（本機 Web GUI 與 CI 共用）：DSH 0.1.2-alpha 起
+    // web 有 launch-token 瀏覽器認證（start.sh 依賴）；credentials/session 格式隨
+    // 版本演進（0.1.0-rc.8 的解析器只認舊 flat layout，讀新格式會 boot 失敗），
+    // 故必須精確鎖版並與執行中的 harness 同步。Regex 只鎖 alpha 系列、允許
+    // patch 號浮動（0.1.2-alpha.4 等），避免升 alpha patch 時誤紅。
+    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.1\.2-alpha\.\d+"/)
     expect(content).toContain('npm ci')
   })
 })
