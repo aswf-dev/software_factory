@@ -7,6 +7,8 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { renderUsageMarkdown } from '../usage/render.js'
+import type { UsageReport } from '../usage/types.js'
 import { CliError, runCli } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 
@@ -59,6 +61,41 @@ export function dryRunReport(input: DryRunInput): DryRunReport {
   return { ...base, scenario: 'blocked' }
 }
 
+/**
+ * dry-run 用的固定 usage 值（docs/04 §5 接線驗證：無 LLM 也能測 usage 留言）。
+ * 與 DRY_RUN tokensUsed=15_000 對齊；接線測試只看「存在、形狀正確」。
+ */
+export const DRY_RUN_USAGE: UsageReport = {
+  source: 'dsh-session-log',
+  totals: {
+    inputTokens: 9_000,
+    outputTokens: 6_000,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 15_000,
+    costUsd: 0.001, // 9k×0.14/1e6 + 6k×0.28/1e6（deepseek-v4-flash 價）
+    unpricedModels: [],
+    cacheReadUnpriced: false,
+  },
+  routes: [
+    {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      inputTokens: 9_000,
+      outputTokens: 6_000,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 0.001,
+      cacheReadUnpriced: false,
+    },
+  ],
+  pricingRef: 'config/dsh/pricing.yaml',
+  measuredAt: '2026-09-02T00:00:00.000Z',
+  sessionCount: 1,
+}
+
 /** 解析位置參數：`<scenario> <issueNumber>`。 */
 export function parseArgs(argv: string[]): DryRunInput {
   const extra = argv[2]
@@ -82,6 +119,12 @@ export function main(argv: string[], cwd = process.cwd()): DryRunReport {
   const target = join(input.cwd, '.factory/run/report.json')
   mkdirSync(dirname(target), { recursive: true })
   writeFileSync(target, JSON.stringify(report, null, 2))
+  // 固定 usage：讓 apply-judge-labels 在無 LLM 的 dry-run 也能附加用量段落
+  // （docs/04 §5 接線驗證；真實 run 由 factory-usage CLI 覆寫同路徑檔案）
+  const usageJson = join(input.cwd, '.factory/run/usage.json')
+  const usageMd = join(input.cwd, '.factory/run/usage.md')
+  writeFileSync(usageJson, `${JSON.stringify(DRY_RUN_USAGE, null, 2)}\n`)
+  writeFileSync(usageMd, renderUsageMarkdown(DRY_RUN_USAGE))
   return report
 }
 

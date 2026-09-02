@@ -772,3 +772,70 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(src).toContain('resolveModelTier')
   })
 })
+
+describe('用量與成本契約（docs/04 §5、docs/08 §2.3、docs/ADR/011）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  interface TierShape {
+    primary: { provider: string; model: string }
+    fallback: { provider: string; model: string }[]
+  }
+  const tiers = (
+    load(read('config/dsh/model-tiers.yaml')) as {
+      tiers: Record<string, TierShape>
+    }
+  ).tiers
+  const pricing = (
+    load(read('config/dsh/pricing.yaml')) as {
+      pricing: Record<string, { inputUsdPerMTok: number; outputUsdPerMTok: number }>
+    }
+  ).pricing
+
+  it('pricing.yaml 存在且每個 model id 都有 input/output 價（新增 model 漏定價即紅燈）', () => {
+    const modelIds = new Set<string>()
+    for (const t of Object.values(tiers)) {
+      modelIds.add(t.primary.model)
+      for (const f of t.fallback) modelIds.add(f.model)
+    }
+    expect(modelIds.size).toBeGreaterThan(0)
+    for (const id of modelIds) {
+      const p = pricing[id]
+      expect(p, `pricing.yaml 缺 model ${id}`).toBeDefined()
+      expect(p?.inputUsdPerMTok, `${id} input`).toBeGreaterThan(0)
+      expect(p?.outputUsdPerMTok, `${id} output`).toBeGreaterThan(0)
+    }
+  })
+
+  it('定價數值與 ADR-011 表一致（qwen3.8-flash $0.15/0.47 等）', () => {
+    expect(pricing['qwen3.8-flash']?.inputUsdPerMTok).toBe(0.15)
+    expect(pricing['qwen3.8-flash']?.outputUsdPerMTok).toBe(0.47)
+    expect(pricing['deepseek-v4-pro']?.inputUsdPerMTok).toBe(0.435)
+    expect(pricing['deepseek-v4-pro']?.outputUsdPerMTok).toBe(0.87)
+    expect(pricing['claude-opus-5']?.inputUsdPerMTok).toBe(5)
+    expect(pricing['claude-opus-5']?.outputUsdPerMTok).toBe(25)
+  })
+
+  it('factory-run.yml 含 Measure usage 步驟（讀 DSH session log + 定價表）', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('Measure usage & cost')
+    expect(c).toContain('dist/cli/factory-usage.js')
+    expect(c).toContain('--sessions-root')
+    expect(c).toContain('--pricing')
+  })
+
+  it('factory-run.yml 把 usage.md 傳給 apply-judge-labels（終態留言附用量段落）', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('apply-judge-labels.js')
+    expect(c).toContain('usage.md')
+  })
+
+  it('apply-judge-labels 的 buildJudgeComment 支援 usage 參數（留言可附用量）', () => {
+    const src = read('src/cli/apply-judge-labels.ts')
+    expect(src).toContain('usageMarkdown')
+  })
+
+  it('factory-judge ReportSchema 接受 usage 欄位（執行報告留底）', () => {
+    const src = read('src/cli/factory-judge.ts')
+    expect(src).toContain('UsageReportSchema')
+    expect(src).toContain('usage:')
+  })
+})

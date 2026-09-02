@@ -59,10 +59,16 @@
 | **執行成功率** | exit 0 的比例 | agent 可靠性基線（`05` §6.1） |
 | **`needs-human` 率** | 停手交還的比例 | 過高 → 任務範圍設定不當 |
 | **停手原因分布** | 依 `factory-stop-rules` 各條分類 | 指出最常見的阻塞點 |
-| **每工作項成本** | token 消耗（`dsh-token-meter`） | ⭐ 設定中止門檻的依據（Q02-5） |
+| **每工作項成本** | token 消耗（DSH session log 回放，`factory-usage` → Issue 留言＋`report.json` 的 `usage` 區塊）＋ 定價表（`config/dsh/pricing.yaml`）換算 USD | ⭐ 設定中止門檻的依據（Q02-5） |
 | **每工作項耗時** | Actions run 時長 | 容量規劃 |
 
 > **注意**：`needs-human` 率**不應**以「越低越好」為目標。設為 KPI 會誘使 agent 在不確定時硬做而非停手——這與 `04` §3.3 的停手規則直接衝突。**這個指標用於診斷，不用於考核。**
+>
+> **每工作項成本的量測方式**（2026-09 落地）：CI 於 agent 結束後以 `factory-usage` CLI 回放
+> 本次 run 的 DSH session log（provider 回報的 usage 事件，與 DSH Web UI 的「Turn usage」
+> 同一套 fold 語意），乘上 `config/dsh/pricing.yaml` 定價表換算成 USD，附於 Issue 終態
+> 留言與執行報告（`report.json` 的 `usage` 區塊）。**金額是估算**（定價表來源見 `ADR/011`），
+> 非供應商帳單；用量是 CI 實測，非 agent 自報。
 
 ### 2.4 品質指標（最重要的安全網）
 

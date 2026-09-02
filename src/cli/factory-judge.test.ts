@@ -173,6 +173,56 @@ describe('loadReport', () => {
     expect(() => loadReport(path)).toThrow(/is not valid JSON/)
   })
 
+  it('讀出 usage 欄位（CI 實測 token 用量與成本，docs/04 §5）', () => {
+    const path = report('with-usage.json', {
+      issueNumber: 42,
+      invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+      usage: {
+        source: 'dsh-session-log',
+        totals: {
+          inputTokens: 1000,
+          outputTokens: 200,
+          cacheReadTokens: 50,
+          cacheWriteTokens: 0,
+          reasoningTokens: 30,
+          totalTokens: 1250,
+          costUsd: 0.0042,
+          unpricedModels: [],
+          cacheReadUnpriced: false,
+        },
+        routes: [
+          {
+            provider: 'deepseek',
+            model: 'deepseek-v4-flash',
+            inputTokens: 1000,
+            outputTokens: 200,
+            cacheReadTokens: 50,
+            cacheWriteTokens: 0,
+            reasoningTokens: 30,
+            costUsd: 0.0042,
+            cacheReadUnpriced: false,
+          },
+        ],
+        pricingRef: 'config/dsh/pricing.yaml',
+        measuredAt: '2026-09-02T00:00:00.000Z',
+        sessionCount: 1,
+      },
+    })
+    const r = loadReport(path)
+    expect(r.usage?.totals.totalTokens).toBe(1250)
+    expect(r.usage?.routes[0]?.model).toBe('deepseek-v4-flash')
+  })
+
+  it('usage 欄位形狀錯誤 → CliError（fail-loud，不接受破格式的執行報告）', () => {
+    const path = report('bad-usage.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      usage: { source: 'dsh-session-log', totals: { inputTokens: -1 } },
+    })
+    expect(() => loadReport(path)).toThrow(CliError)
+    expect(() => loadReport(path)).toThrow(/usage/)
+  })
+
   it('JSON 頂層不是物件（陣列 / 純量）→ CliError', () => {
     expect(() => loadReport(report('list.json', [1, 2]))).toThrow(CliError)
     expect(() => loadReport(report('scalar.json', '"hi"'))).toThrow(CliError)

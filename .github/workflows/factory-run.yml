@@ -450,6 +450,25 @@ jobs:
             "${{ inputs.issue_number }}" "$code" \
             .factory/run/stdout.txt .factory/run/stderr.txt
 
+      # Step 3.5 — 量測 token 用量與成本（docs/04 §5、docs/08 §2.3）。
+      # 真實 run 才有 DSH session log；dry_run 由 stub 產固定 usage（同路徑）。
+      # 量測是「附註」不是 gate：session log 找不到時 factory-usage exit 0 且
+      # unavailableReason 非空，留言照貼但不偽造數字；此步驟失敗不擋 run。
+      # agent 失敗（exit≠0）通常仍已 flush session（headless 在 exit 前 flush），
+      # 故 failure 也量（逾時被 kill 例外，log 缺失時自然回 unavailable）。
+      - name: Measure usage & cost
+        if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
+        continue-on-error: true
+        run: |
+          node "$GITHUB_WORKSPACE/dist/cli/factory-usage.js" \
+            --sessions-root "$HOME/.dsh/sessions" \
+            --pricing "$GITHUB_WORKSPACE/config/dsh/pricing.yaml" \
+            --usage-md "$GITHUB_WORKSPACE/target/.factory/run/usage.md" \
+            --report "$GITHUB_WORKSPACE/target/.factory/run/report.json" \
+            > "$GITHUB_WORKSPACE/target/.factory/run/usage.json" \
+            || echo "::warning::usage 量測失敗（不擋 run；Issue 留言將不含用量段落）"
+          ls -la target/.factory/run/usage.md 2>/dev/null || true
+
       # Step 4 — 交叉驗證（G3，docs/18 §2.3）：把 agent 自報的 report.json 與目標
       # repo 的實際 git diff 比對。report 是 agent 自報（不可信），judge 只驗形狀；
       # mismatch（假完成 / 隱藏變更 / 行數缺失）在此 fail-loud → 貼 needs-human，
@@ -484,6 +503,10 @@ jobs:
               echo ""
               jq -r '[.mismatches[] | "- \(.kind)：\(.detail)"] | join("\n")' .factory/crosscheck.json 2>/dev/null \
                 || echo "- （crosscheck 執行失敗，無 mismatch 明細；請查看 run logs）"
+              if [ -f target/.factory/run/usage.md ]; then
+                echo ""
+                cat target/.factory/run/usage.md
+              fi
             } > .factory/crosscheck-comment.txt
             gh issue comment "${{ inputs.issue_number }}" --body-file .factory/crosscheck-comment.txt
             gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
@@ -520,8 +543,15 @@ jobs:
           node "$GITHUB_WORKSPACE/dist/cli/write-report.js" \
             "${{ inputs.issue_number }}" 1 \
             .factory/run/stdout.txt .factory/run/stderr.txt --timed-out || true
-          gh issue comment "${{ inputs.issue_number }}" \
-            --body "⏱️ factory agent 未在時限內完成（逾時或失敗）——已轉交人類接手。請查看 run ${{ github.run_id }} 的 logs。"
+          USAGE_MD=".factory/run/usage.md"
+          if [ -f "$USAGE_MD" ]; then
+            { echo "⏱️ factory agent 未在時限內完成（逾時或失敗）——已轉交人類接手。請查看 run ${{ github.run_id }} 的 logs。"; cat "$USAGE_MD"; } \
+              > .factory/run/handover.md
+            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/run/handover.md
+          else
+            gh issue comment "${{ inputs.issue_number }}" \
+              --body "⏱️ factory agent 未在時限內完成（逾時或失敗）——已轉交人類接手。請查看 run ${{ github.run_id }} 的 logs。"
+          fi
           gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
 
       - name: Apply judge labels and comment
@@ -531,8 +561,14 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
         run: |
+          # 第三參數 = usage markdown（存在才傳；apply-judge-labels 對缺檔容錯，
+          # 量測是附註不是 gate）
+          USAGE_ARG=""
+          if [ -f target/.factory/run/usage.md ]; then
+            USAGE_ARG=" target/.factory/run/usage.md"
+          fi
           node dist/cli/apply-judge-labels.js \
-            "${{ inputs.issue_number }}" .factory/judge.json
+            "${{ inputs.issue_number }}" .factory/judge.json${USAGE_ARG}
 
       # 終態守衛（G1，docs/18 §2.1）——堵住「失敗未進入控制流」的靜默路徑：
       # agent 已啟動但 job 失敗（judge/apply-labels 步驟 crash、gh API 錯誤等）時，
@@ -553,8 +589,16 @@ jobs:
             echo "terminal state already posted for run ${{ github.run_id }}; guard idle"
           else
             echo "::warning::run ${{ github.run_id }} 未留下終態留言——補貼 needs-human（G1 終態守衛）"
-            gh issue comment "${{ inputs.issue_number }}" \
-              --body "⚠️ 工廠執行未正常完成（run: ${{ github.run_id }}）——agent 已啟動但未收到終態判定（可能 judge/labels 步驟失敗）。已交還人類，請查看 Actions run logs。"
+            if [ -f target/.factory/run/usage.md ]; then
+              { echo "⚠️ 工廠執行未正常完成（run: ${{ github.run_id }}）——agent 已啟動但未收到終態判定（可能 judge/labels 步驟失敗）。已交還人類，請查看 Actions run logs。"
+                echo ""
+                cat target/.factory/run/usage.md
+              } > .factory/guard-comment.txt
+              gh issue comment "${{ inputs.issue_number }}" --body-file .factory/guard-comment.txt
+            else
+              gh issue comment "${{ inputs.issue_number }}" \
+                --body "⚠️ 工廠執行未正常完成（run: ${{ github.run_id }}）——agent 已啟動但未收到終態判定（可能 judge/labels 步驟失敗）。已交還人類，請查看 Actions run logs。"
+            fi
             gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
           fi
 

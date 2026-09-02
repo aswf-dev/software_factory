@@ -29,9 +29,12 @@ export function computeJudgeLabels(judge: JudgeLike): { labels: string[]; requir
   return { labels, requiresHuman }
 }
 
-export function buildJudgeComment(outcome: string, summary: string): string {
+export function buildJudgeComment(outcome: string, summary: string, usageMarkdown?: string | undefined): string {
   const lines = [`## 工廠執行結果：${outcome}`, '', summary]
   if (outcome === 'ready-to-automerge') lines.push('', PHASE1_HUMAN_REVIEW_NOTE)
+  if (usageMarkdown !== undefined && usageMarkdown.trim() !== '') {
+    lines.push('', '---', '', usageMarkdown.trim())
+  }
   return lines.join('\n')
 }
 
@@ -50,7 +53,7 @@ export interface JudgeLabelsOutput {
 }
 
 export function main(argv: string[], gh: GhRunner = realGh): JudgeLabelsOutput {
-  const [issueNumber, judgePath] = argv
+  const [issueNumber, judgePath, usageMarkdownPath] = argv
   if (issueNumber === undefined) throw new CliError('issueNumber is required')
   if (judgePath === undefined) throw new CliError('judgePath is required')
 
@@ -60,6 +63,16 @@ export function main(argv: string[], gh: GhRunner = realGh): JudgeLabelsOutput {
     throw new CliError(`judge (${judgePath}) is invalid: ${detail}`)
   }
 
+  // 用量段落是選用附註：usage markdown 檔不存在時不附（量測失敗不擋終態）
+  let usageMarkdown: string | undefined
+  if (usageMarkdownPath !== undefined) {
+    try {
+      usageMarkdown = readFileSync(usageMarkdownPath, 'utf8')
+    } catch {
+      usageMarkdown = undefined
+    }
+  }
+
   const { labels } = computeJudgeLabels(parsed.data.result)
   gh(['issue', 'edit', issueNumber, '--add-label', labels.join(',')])
   gh([
@@ -67,7 +80,7 @@ export function main(argv: string[], gh: GhRunner = realGh): JudgeLabelsOutput {
     'comment',
     issueNumber,
     '--body',
-    buildJudgeComment(parsed.data.result.outcome, parsed.data.result.summary),
+    buildJudgeComment(parsed.data.result.outcome, parsed.data.result.summary, usageMarkdown),
   ])
   return { labels }
 }
