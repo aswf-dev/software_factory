@@ -97,8 +97,6 @@ jobs:
           echo "guard ok: repo=${{ inputs.repo }} base_branch=${{ inputs.base_branch }}"
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - uses: actions/setup-node@v7
         with:
