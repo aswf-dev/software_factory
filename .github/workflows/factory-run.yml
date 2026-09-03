@@ -96,10 +96,14 @@ jobs:
           fi
           echo "guard ok: repo=${{ inputs.repo }} base_branch=${{ inputs.base_branch }}"
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
       - uses: actions/setup-node@v7
         with:
           node-version: '22.21.1'
-          cache: npm
+          cache: pnpm
 
       # D6：以 GitHub App 身分換發短效 installation token。
       # App 權限最小化（Contents/PRs/Issues RW、Actions/Metadata R），
@@ -161,13 +165,9 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Install and build
-        env:
-          # dsh 已為 devDependency（lockfile 鎖定）；npm ci 含它，rc.8 依賴樹較大，
-          # 加大 heap 避免 OOM（2026-08-20 實測）
-          NODE_OPTIONS: --max-old-space-size=4096
         run: |
-          npm ci
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # 標籤必須預先存在（gh issue edit --add-label 不會自動建立）。
       # 冪等：--force 在已存在時更新顏色而不報錯。
@@ -387,7 +387,7 @@ jobs:
               > .factory/run/dry.txt 2>&1
             code=0
           else
-            # dsh 已為 devDependency（Install and build 的 npm ci 已安裝，lockfile 鎖定）
+            # dsh 已為 devDependency（Install and build 的 pnpm install 已安裝，lockfile 鎖定）
             # 再進入目標 repo 工作目錄（其餘路徑以 $GITHUB_WORKSPACE 絕對引用）
             cd target
             mkdir -p "$HOME/.dsh"

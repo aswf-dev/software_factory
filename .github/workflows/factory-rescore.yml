@@ -42,15 +42,19 @@ jobs:
       # 機制 repo（本 workflow 所在 = software_factory：CLI/dist 在此）
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
       - uses: actions/setup-node@v7
         with:
           node-version: '22.21.1'
-          cache: npm
+          cache: pnpm
 
       - name: Install and build
         run: |
-          npm ci
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # D6：以 App 身分留言/貼標籤（比照 factory-run 的 token 橋接）。
       # repositories 限定目標 repo（最小權限）；App 需已安裝於目標 repo。

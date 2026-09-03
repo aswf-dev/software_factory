@@ -195,14 +195,14 @@ describe('factory-run.yml 具備必要結構', () => {
   })
   it('guardrail patch 與鎖版 DSH', () => {
     expect(content).toContain('config/dsh/factory-guardrail.patch.yml')
-    // DSH 鎖版：devDependency（package.json 精確 pin）→ npm ci（lockfile）安裝
-    // 2026-09 起鎖 0.1.2-alpha 系列（本機 Web GUI 與 CI 共用）：DSH 0.1.2-alpha 起
+    // DSH 鎖版：devDependency（package.json 精確 pin）→ pnpm install（lockfile）安裝
+    // 2026-09 起鎖 0.1.2 系列（本機 Web GUI 與 CI 共用）：DSH 0.1.2 起
     // web 有 launch-token 瀏覽器認證（start.sh 依賴）；credentials/session 格式隨
     // 版本演進（0.1.0-rc.8 的解析器只認舊 flat layout，讀新格式會 boot 失敗），
-    // 故必須精確鎖版並與執行中的 harness 同步。Regex 只鎖 alpha 系列、允許
-    // patch 號浮動（0.1.2-alpha.4 等），避免升 alpha patch 時誤紅。
-    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.1\.2-alpha\.\d+"/)
-    expect(content).toContain('npm ci')
+    // 故必須精確鎖版並與執行中的 harness 同步。Regex 鎖 0.1.2 alpha/rc 系列、允許
+    // patch 號浮動，避免升級時誤紅。
+    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.1\.2-(alpha|rc)\.\d+"/)
+    expect(content).toContain('pnpm install')
   })
 })
 
@@ -588,9 +588,9 @@ describe('Security 第一層資產（免費、不依賴 GHAS，2026-08-20）', (
     expect(c).toContain('package-ecosystem: npm')
     expect(c).toContain('package-ecosystem: github-actions')
   })
-  it('test.yml 含 npm audit gate（high 以上紅燈）', () => {
+  it('test.yml 含 pnpm audit gate（high 以上紅燈）', () => {
     const c = read('.github/workflows/test.yml')
-    expect(c).toContain('npm audit --audit-level=high')
+    expect(c).toContain('pnpm audit --audit-level=high')
   })
   it('security-scan.yml 存在且含 gitleaks + Semgrep（免費替代 GHAS）', () => {
     const c = read('.github/workflows/security-scan.yml')

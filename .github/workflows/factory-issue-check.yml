@@ -26,14 +26,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
       - uses: actions/setup-node@v7
         with:
           node-version: '22.21.1'
-          cache: npm
+          cache: pnpm
       - name: Install and build
         run: |
-          npm ci
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: Check issue format (opened/edited)
         if: ${{ github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'edited') }}
