@@ -29,10 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v7
         with:
           node-version: '22.21.1'
-          cache: npm
+          cache: pnpm
 
       # Quint Rust evaluator 二進位快取（~/.quint/rust-evaluator-<version>）：
       # 首次執行由 npm 套件從 GitHub Releases 下載；並行 run 多時會撞 rate limit
@@ -42,41 +44,41 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.quint
-          key: quint-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: quint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             quint-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
-      # 依賴漏洞 gate（第一層 security，2026-08-20）：npm audit 直接查 npm 已知
+      # 依賴漏洞 gate（第一層 security，2026-08-20）：pnpm audit 直接查已知
       # CVE；high 以上即紅燈（配合 Dependabot alerts 自動開修復 PR）。
-      - name: npm audit (known vulnerabilities)
-        run: npm audit --audit-level=high
+      - name: pnpm audit (known vulnerabilities)
+        run: pnpm audit --audit-level=high
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Unit tests
-        run: npm run test:unit
+        run: pnpm run test:unit
 
       - name: Integration tests
-        run: npm run test:integration
+        run: pnpm run test:integration
 
       # Verifies the guardrails actually BLOCK, not merely that features work.
       # docs/11 §7.1 requires this to be a required check: if it can be skipped,
       # the dual-layer defence in D4 silently becomes optional.
       - name: Adversarial tests
-        run: npm run test:adversarial
+        run: pnpm run test:adversarial
 
       # Full work-item flow with a stub agent (docs/11 §4.3). A stub keeps this
       # deterministic, so a failure means the wiring broke — not that a model
       # had an off day.
       - name: E2E tests
-        run: npm run test:e2e
+        run: pnpm run test:e2e
 
       # Coverage thresholds are a gate, not a report: scoring and stop-rule code
       # must hold 100% branch coverage because an untested branch there is an
       # unverified permission path (docs/11 §6).
       - name: Coverage thresholds
-        run: npm run coverage
+        run: pnpm run coverage

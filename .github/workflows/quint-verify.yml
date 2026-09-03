@@ -19,10 +19,12 @@ jobs:
         with:
           fetch-depth: 0   # 需要 origin/main 以計算變更路徑
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v7
         with:
           node-version: '22.21.1'
-          cache: npm
+          cache: pnpm
 
       # Quint Rust evaluator 二進位快取（~/.quint）——同 test.yml：並行 run 撞
       # GitHub rate limit（2026-09-01 實測）；lockfile hash 標定版本。
@@ -30,12 +32,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.quint
-          key: quint-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: quint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             quint-${{ runner.os }}-
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # 觸發判定：變更是否觸及 quint-paths.yml 宣告的路徑
       - name: Determine if Quint gate applies

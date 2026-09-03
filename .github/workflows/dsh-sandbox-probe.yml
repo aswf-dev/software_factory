@@ -38,9 +38,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v7
         with:
           node-version: '22.21.1'
+          cache: pnpm
 
       - name: Report platform
         run: |
@@ -54,11 +57,7 @@ jobs:
           fi
 
       - name: Install dependencies (dsh is a devDependency)
-        env:
-          # dsh 已為 devDependency（lockfile 鎖定，setup-node cache 生效）；npm ci 含它，
-          # rc.8 依賴樹較大，加大 heap 避免 OOM（2026-08-20 實測）
-          NODE_OPTIONS: --max-old-space-size=4096
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # A clean DSH_HOME routes to the DEFAULT provider and fails with
       # MISSING_CREDENTIAL. Local runs hide this, because ~/.dsh/settings.yaml
