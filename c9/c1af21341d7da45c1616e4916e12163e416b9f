@@ -1,0 +1,32 @@
+.github/workflows/dsh-sandbox-probe.yml
+  h_1b119f25eaf333 41-44,48,62
+.github/workflows/factory-issue-check.yml
+  h_1b119f25eaf333 29-31,35,38-39
+.github/workflows/factory-rescore.yml
+  h_1b119f25eaf333 45-48,52,56-57
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 99-102,106,169-170,390
+.github/workflows/quint-verify.yml
+  h_1b119f25eaf333 22-25,29,37,42
+.github/workflows/test.yml
+  h_1b119f25eaf333 32-35,39,49,54,56,58-59,62,65,68,74,80,86
+package.json
+  h_1b119f25eaf333 10,23,38
+pnpm-lock.yaml
+  h_1b119f25eaf333 1-8771
+pnpm-workspace.yaml
+  h_1b119f25eaf333 1-223
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 198-199,202-205,591,593
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c9c1af21341d7da45c1616e4916e12163e416b9f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
