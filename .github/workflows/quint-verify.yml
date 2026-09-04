@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0   # 需要 origin/main 以計算變更路徑
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v7
         with:
@@ -29,7 +29,7 @@ jobs:
       # Quint Rust evaluator 二進位快取（~/.quint）——同 test.yml：並行 run 撞
       # GitHub rate limit（2026-09-01 實測）；lockfile hash 標定版本。
       - name: Cache Quint evaluator binary
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.quint
           key: quint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}

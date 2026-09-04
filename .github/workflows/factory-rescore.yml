@@ -42,7 +42,7 @@ jobs:
       # 機制 repo（本 workflow 所在 = software_factory：CLI/dist 在此）
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v7
         with:
