@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0   # 需要 origin/main 以計算變更路徑
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v7
         with:
