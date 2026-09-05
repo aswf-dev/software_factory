@@ -96,6 +96,23 @@ describe('parseArgs', () => {
     // The event still has value without a run link; losing it entirely would be worse.
     expect(parseArgs(['--repo', 'a/b', '--issue', '1', '--task-type', 't', '--run-id', 'nope']).runId).toBeNull()
   })
+
+  it('treats an empty --run-id as null', () => {
+    // `github.run_id` interpolates to an empty string in some contexts.
+    expect(parseArgs(['--repo', 'a/b', '--issue', '1', '--task-type', 't', '--run-id', '']).runId).toBeNull()
+  })
+
+  it('rejects a negative --issue', () => {
+    expect(() => parseArgs(['--repo', 'a/b', '--issue', '-1', '--task-type', 't'])).toThrow(CliError)
+  })
+
+  it('rejects a flag used without its value', () => {
+    expect(() => parseArgs(['--repo', '--issue'])).toThrow(CliError)
+  })
+
+  it('rejects a missing --task-type', () => {
+    expect(() => parseArgs(['--repo', 'a/b', '--issue', '1'])).toThrow(CliError)
+  })
 })
 
 describe('splitRepo', () => {
@@ -230,6 +247,68 @@ describe('buildEvent — 純資料搬運（docs/26 §2.3）', () => {
     const crosscheck = writeJson('crosscheck.json', { mismatches: [{ detail: 'x' }, { kind: 'no-trace' }] })
     expect(buildEvent(parseArgs(baseArgv(['--crosscheck', crosscheck])), fixedNow).crosscheck_mismatches).toEqual(['no-trace'])
   })
+
+  it('ignores a JSON file whose root is not an object', () => {
+    // A top-level array or scalar is not a valid artifact; treat it as absent
+    // rather than reading fields off it.
+    const arr = writeJson('arr.json', [1, 2, 3])
+    const scalar = writeJson('scalar.json', 'nope')
+    const event = buildEvent(parseArgs(baseArgv(['--report', arr, '--judge', scalar])), fixedNow)
+
+    expect(event.usage).toBeNull()
+    expect(event.outcome).toBeNull()
+  })
+
+  it('ignores violations entries that are not objects', () => {
+    const judge = writeJson('judge.json', {
+      result: { outcome: 'needs-human', stopDecision: { violations: ['SR4', null, { rule: 'SR6-weakened-tests' }] } },
+    })
+    expect(buildEvent(parseArgs(baseArgv(['--judge', judge])), fixedNow).stop_reason).toBe('SR6-weakened-tests')
+  })
+
+  it('returns null stop_reason when violations is not an array', () => {
+    const judge = writeJson('judge.json', { result: { stopDecision: { violations: 'SR4' } } })
+    expect(buildEvent(parseArgs(baseArgv(['--judge', judge])), fixedNow).stop_reason).toBeNull()
+  })
+
+  it('returns null stop_reason when no violation carries a string rule', () => {
+    const judge = writeJson('judge.json', { result: { stopDecision: { violations: [{ reason: 'x' }] } } })
+    expect(buildEvent(parseArgs(baseArgv(['--judge', judge])), fixedNow).stop_reason).toBeNull()
+  })
+
+  it('ignores a non-array mismatches field', () => {
+    const crosscheck = writeJson('crosscheck.json', { mismatches: 'unreported-changes' })
+    expect(buildEvent(parseArgs(baseArgv(['--crosscheck', crosscheck])), fixedNow).crosscheck_mismatches).toEqual([])
+  })
+
+  it('forwards skillsDigest when present and null when not a string', () => {
+    const withDigest = writeJson('r1.json', { skillsDigest: 'sha256:abc' })
+    expect(buildEvent(parseArgs(baseArgv(['--report', withDigest])), fixedNow).skills_digest).toBe('sha256:abc')
+
+    const badDigest = writeJson('r2.json', { skillsDigest: 42 })
+    expect(buildEvent(parseArgs(baseArgv(['--report', badDigest])), fixedNow).skills_digest).toBeNull()
+  })
+
+  it('ignores a non-string model tier', () => {
+    const model = writeJson('model.json', { tier: 7 })
+    expect(buildEvent(parseArgs(baseArgv(['--model', model])), fixedNow).model_tier).toBeNull()
+  })
+
+  it('ignores a non-string outcome', () => {
+    const judge = writeJson('judge.json', { result: { outcome: 42 } })
+    expect(buildEvent(parseArgs(baseArgv(['--judge', judge])), fixedNow).outcome).toBeNull()
+  })
+
+  it('uses the real clock when no clock is injected', () => {
+    // Exercises the default `now` parameter: every other test injects a fixed
+    // clock, which would otherwise leave the production default unrun.
+    const before = Date.now()
+    const event = buildEvent(parseArgs(baseArgv()))
+    const at = Date.parse(event.occurred_at)
+
+    expect(Number.isNaN(at)).toBe(false)
+    expect(at).toBeGreaterThanOrEqual(before - 1000)
+  })
 })
 
 describe('pushEvent — 收集面永不影響執行面', () => {
@@ -319,5 +398,34 @@ describe('main', () => {
     const outcome = await main(baseArgv(), {}, fetchMock as unknown as typeof fetch, fixedNow)
     expect(outcome.pushed).toBe(false)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to process.env and the real clock when not injected', async () => {
+    // Covers main()'s default parameters. SCOREBOARD_URL is unset in the test
+    // environment, so this must skip without any network call.
+    const prevUrl = process.env['SCOREBOARD_URL']
+    const prevToken = process.env['SCOREBOARD_TOKEN']
+    delete process.env['SCOREBOARD_URL']
+    delete process.env['SCOREBOARD_TOKEN']
+    try {
+      const outcome = await main(baseArgv())
+      expect(outcome.pushed).toBe(false)
+      expect(outcome.skippedReason).toContain('SCOREBOARD_URL')
+    } finally {
+      if (prevUrl !== undefined) process.env['SCOREBOARD_URL'] = prevUrl
+      if (prevToken !== undefined) process.env['SCOREBOARD_TOKEN'] = prevToken
+    }
+  })
+
+  it('uses the real fetch default when a backend is configured but unreachable', async () => {
+    // Covers the `fetchImpl = fetch` default. Pointed at a closed port so the
+    // network path runs and fails fast, without contacting anything real.
+    const outcome = await main(
+      baseArgv(),
+      { SCOREBOARD_URL: 'http://127.0.0.1:1', SCOREBOARD_TOKEN: 'tok' },
+      undefined as unknown as typeof fetch,
+    )
+    expect(outcome.pushed).toBe(false)
+    expect(outcome.skippedReason).toContain('網路錯誤')
   })
 })
