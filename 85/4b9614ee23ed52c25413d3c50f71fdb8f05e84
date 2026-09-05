@@ -1,0 +1,40 @@
+.gitignore
+  h_1b119f25eaf333 58-60
+docs/10-open-questions.md
+  h_1b119f25eaf333 6-9,21,36-37,103,130-131
+docs/14-observation-period.md
+  h_1b119f25eaf333 36-47,71-81
+docs/20-work-items.md
+  h_1b119f25eaf333 39-53
+docs/22-scoreboard-platform-evaluation.md
+  h_1b119f25eaf333 4,7-8,97-114,194-199,287,289-301,315,325
+docs/24-q05-5-multi-agent-composite-risk.md
+  h_1b119f25eaf333 1-174
+docs/25-skill-authoring-loop.md
+  h_1b119f25eaf333 1-269
+docs/26-scoreboard-integration.md
+  h_1b119f25eaf333 1-204
+docs/ADR/010-agent-team-tools-deferred.md
+  h_1b119f25eaf333 55-74
+docs/ADR/015-factory-scoreboard-platform.md
+  h_1b119f25eaf333 1-163
+docs/ADR/016-agent-authored-skills-propose-only.md
+  h_1b119f25eaf333 1-125
+docs/ADR/README.md
+  h_1b119f25eaf333 47-48
+docs/research/230-warp-deepwiki-adoption-analysis.md
+  h_1b119f25eaf333 1-202
+mkdocs.yml
+  h_1b119f25eaf333 26-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "854b9614ee23ed52c25413d3c50f71fdb8f05e84",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
