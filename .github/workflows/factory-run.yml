@@ -613,6 +613,34 @@ jobs:
             echo "⚠️ 工廠執行未正常完成（job_status=$JOB_STATUS）——終態以 Issue 上的 needs-human 標籤為準，詳情見 run log。"
           fi
 
+      # Step 6.5 — 推送事件至 Scoreboard（ADR-015、docs/26 §2.2）。
+      # 位置在 judge/crosscheck 之後：此時 judge.json 與 crosscheck.json 已產出，
+      # 事件才完整。artifacts ~90 天過期，而 skill-gap 的重複可能跨越數月，故需
+      # 永久儲存（ADR-015 脈絡）。
+      #
+      # 收集面永不影響執行面（docs/26 設計原則）：
+      #   - continue-on-error: true ＋ CLI 自身永遠 exit 0（雙重保險，同 usage 量測）
+      #   - if: always()——失敗與逾時的 run 也要記錄，否則統計只剩成功案例（幸存者偏差）
+      #   - 未設定 SCOREBOARD_URL/TOKEN 時 CLI 靜默跳過，不報錯
+      - name: Push event to scoreboard
+        if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
+        continue-on-error: true
+        env:
+          SCOREBOARD_URL: ${{ vars.SCOREBOARD_URL }}
+          SCOREBOARD_TOKEN: ${{ secrets.SCOREBOARD_TOKEN }}
+        run: |
+          node "$GITHUB_WORKSPACE/dist/cli/factory-push-event.js" \
+            --repo "${{ inputs.repo }}" \
+            --issue "${{ inputs.issue_number }}" \
+            --run-id "${{ github.run_id }}" \
+            --task-type "${{ inputs.task_type }}" \
+            --report "$GITHUB_WORKSPACE/target/.factory/run/report.json" \
+            --judge "$GITHUB_WORKSPACE/.factory/judge.json" \
+            --crosscheck "$GITHUB_WORKSPACE/.factory/crosscheck.json" \
+            --model "$GITHUB_WORKSPACE/.factory/model.json" \
+            > "$GITHUB_WORKSPACE/.factory/scoreboard-event.json" \
+            || echo "::warning::scoreboard 推送失敗（不擋 run）"
+
       # 診斷：agent 的 stdout/stderr/report 上傳成 artifact（失敗也要，否則無從查）
       - name: Upload run artifacts
         if: always()
@@ -624,4 +652,5 @@ jobs:
             target/.factory/run/
             .factory/model.json
             .factory/issue.json
+            .factory/scoreboard-event.json
           if-no-files-found: ignore
