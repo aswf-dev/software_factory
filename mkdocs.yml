@@ -23,6 +23,9 @@ nav:
   - SDLC 改善工項清單: 20-work-items.md
   - 候選工作類型清單: 21-candidate-work-item-types.md
   - Scoreboard 平台評估: 22-scoreboard-platform-evaluation.md
+  - 多 agent 複合風險治理（Q05-5）: 24-q05-5-multi-agent-composite-risk.md
+  - 技能撰寫迴圈: 25-skill-authoring-loop.md
+  - Scoreboard 事件契約: 26-scoreboard-integration.md
   - 架構決策記錄（ADR）: ADR/README.md
   - 詞彙表: GLOSSARY.md
 plugins:

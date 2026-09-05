@@ -36,6 +36,21 @@
 | C1 | 新增 `agent-analyze` 類型 | 綜合（最大項） | 10 | 七處接線＋試點 | H5→審查 | #201 | ✅ 完成（PR #227＋試點 T1/T2/T3＋4 衍生修正） |
 | D1 | docs/19 共識修正＋合併 | agent-write-docs | 11 | `docs/19`＋`docs/10` | 低 | #202 | ✅ 完成（PR #224 已合併；PDF 另以 PR 補入） |
 
+### 1.1 批次 E — Scoreboard 與技能撰寫迴圈（2026-09-05 新增，待開 Issue）
+
+來源：`ADR-015`（Scoreboard 裁決）、`ADR-016`（技能提案）、`docs/25`／`docs/26`。**批次 E1 為純文件已完成；E2–E4 待排程。**
+
+| # | 工項 | 類型 | 主要檔案 | 監督 | 狀態 |
+|---|---|---|---|---|---|
+| E1 | 裁決與規格文件（ADR-015/016、docs/24/25/26、docs/22 v2、索引） | 人類撰寫 | `docs/**` | 低 | ✅ **完成（2026-09-05）** |
+| E2 | Scoreboard MVP（Astro + Workers + D1 + Access） | 人類／新 repo | `philipz/factory-scoreboard` | 獨立 repo | ⏳ 待排程 |
+| E3 | 機制 repo 接線：`factory-push-event` CLI ＋ workflow 推送步驟 | agent-fix-bug | `src/cli/factory-push-event.ts`＋`factory-run.yml` | H5→審查 | ⏳ 待排程 |
+| E4 | skill-gap 通道：`ReportSchema.skillGap`＋留言段落＋`factory-workflow` SKILL 附加節 | agent-fix-bug | `src/cli/factory-judge.ts`／`apply-judge-labels.ts`／SKILL | H5→審查 | ⏳ 待排程 |
+| E5 | `skills-lock` 完整性校驗＋`--promote` | agent-fix-bug | `src/cli/factory-skills-lock.ts`＋`config/factory/skills-lock.json` | H5→審查 | ⏳ 待排程 |
+| E6 | `agent-propose-skill` 任務型別（五處接線＋crosscheck `--propose-skill-only`） | 綜合 | workflow／template／skill／crosscheck／對抗性測試 | H5→審查 | ⏳ 待排程 |
+
+> **依賴序**：E1（契約）→ E2（接收端）→ E3（推送）→ E4（訊號）→ E5（鎖與放行）→ E6（提案型別）。E3–E6 之間無強依賴，但 E6 的價值依賴 E4 的訊號累積。
+
 > **監督欄說明**：改 `.github/**`、`.dsh/skills/**`、`catalog-info.yaml` 觸發 H5 → risk=2 → 人類審查（預期行為，非阻礙）。
 >
 > **A 批狀態（2026-09-01）**：7/7 已合併進 software-factory（PR #203–#209）並隨 PR #210 同步至 **main**；Issues #192–#198 已人工關閉（docs/07 §3.5）。

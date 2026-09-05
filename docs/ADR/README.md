@@ -44,6 +44,8 @@
 | [ADR-012](012-guardrail-reference-architecture.md) | Guardrail 集中化架構（消除目標 repo 副本漂移） | 已接受 | `04` §3.2、`factory-issue-check.yml`、`factory-run.yml` |
 | [ADR-013](013-trunk-unification-software-factory.md) | factory trunk 統一——機制 repo 也採 software-factory 分支 | 已接受 | `09` §2.2、Q-P2-1、`factory-run.yml` |
 | [ADR-014](014-sdlc-tailoring.md) | SDLC 生命週期模型與裁適宣告 | 已接受 | `00` §2、SWEBOK Ch10 §2.8 |
+| [ADR-015](015-factory-scoreboard-platform.md) | Factory Scoreboard 管理平台（平台／Astro 前端／設計風格） | 已接受 | `22`、`26`、Q22-1～9 |
+| [ADR-016](016-agent-authored-skills-propose-only.md) | agent 撰寫技能——「產出」與「生效」分離 | 已接受 | `25`、`04` §3.2、`05` §1.1、`06` §4.3 |
 
 ## 何時該寫新的 ADR
 

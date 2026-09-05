@@ -1,8 +1,10 @@
 # 22 — Factory Scoreboard 雲端平台評估（Vercel / Cloudflare / 其他 SaaS）
 
 > **用途**：評估「收集 factory 費用與效益資料的產品網站」該用哪個雲端平台，並畫出「私人 → 小團隊 → 付費產品」的演進路徑。
-> **狀態**：**評估文件（未裁決）**——本文件是決策輸入，不是已接受的架構。裁決後另寫 `ADR-015`、開 `docs/20` 工項與 MVP Issue。
+> **狀態**：✅ **已裁決（2026-09-05）**——Q22-1～9 全數裁決，見 **`ADR-015`**。本文件保留為**評估與比較的來源記錄**；裁決結果、事件 schema v2 與設計規範以 `ADR-015`、`docs/26` 為準。
 > **讀者**：決定平台選型與 Scoreboard 產品走向的人。
+>
+> **裁決摘要**：平台＝Cloudflare Workers+D1+Access；repo＝`philipz/factory-scoreboard`（已建立）；前端＝**Astro**（Q22-8）；視覺＝仿 warp.dev 終端美學（Q22-9）；定位＝**管理平台，持續運作，無放棄條件**（Q22-7）。事件 schema 升 **v2**（見 §3.6 與 `docs/26`）。
 >
 > **前置**：`PR #248` 已合併——每次 factory-run 的 token 用量與成本現已落在 Issue 留言與執行報告（`report.json` 的 `usage` 區塊／`usage.json`），是「費用收集」的資料源。本文件引用的欄位以合併後為準。
 >
@@ -92,6 +94,24 @@
 
 > **誠實揭露**：`costUsd` 是估算（依 `config/dsh/pricing.yaml`，非供應商帳單）——事件 schema 標 `costUsd` 為估算值，避免日後被誤當帳單依據（`docs/04 §5.1` 已聲明）。
 
+### 3.6 schema v2（2026-09-05 裁決，取代上方 v1 草案）
+
+v1 草案**只有成本欄位**。裁決後新增 **skill-gap 與品質訊號**，使後台同時成為 `docs/25` 技能提案的證據來源。**完整定義以 `docs/26` §1 為準**，此處僅列差異：
+
+| v2 新增欄位 | 型別 | 用途 |
+|---|---|---|
+| `outcome` | 4 值列舉 | pipeline 終態（`blocked-in-loop`／`ready-to-automerge`／`ready-for-review`／`needs-human`） |
+| `skill_gap` | nullable 物件 | `{category, needed, context}`——技能缺口聚類鍵（`docs/25` §2.1） |
+| `stop_reason` | nullable 字串 | 停手規則編號（如 `SR4`） |
+| `crosscheck_mismatches` | 字串陣列 | **僅 `kind`，不含 `detail`**（隱私，Q22-5） |
+| `skills_digest` | 字串 | 本次 run 載入的 skills 版本 hash——使 promote 效果可驗證 |
+
+**另兩項結構調整**：
+1. `usage` 改為**直接透傳** `src/usage/report-schema.ts` 的 `UsageReportSchema` 形狀（v1 草案的 `totals`／`provider`／`model` 攤平寫法改為巢狀），使兩 repo **共用同一份契約**，不製造第二套定義。
+2. **`usage.unavailableReason` 必須透傳**——非空時看板顯示「無資料」**而非 `$0`**（`docs/04` §5.1：量測失敗不偽造數字）。設計系統為此保留專屬灰階 `--no-data`（`ADR-015` §9）。
+
+> **為何要三項資料保存的實測**（決定聚類資料源）：run artifacts **~90 天過期**（實測 run 33891806331 的 `factory-run-23`，`expires_at: 2026-12-03`），而 Issue 留言與 D1 事件為**永久**。故 skill-gap 聚類以**事件與 Issue 留言**為主源，artifacts 僅作近期補充。
+
 ---
 
 ## 4. 收集管道設計（契約草案，實作在裁決後）
@@ -171,7 +191,12 @@ body: { event_id, occurred_at, source: "factory-ci", repo, issue_number,
 1. **免費層涵蓋 MVP～小團隊**：Workers 100k req/day、D1 5GB、Access 免費 50 人——正好對齊「短期後台給小團隊」。
 2. **$5/mo 後用量近乎無上限**（Workers Paid）：對齊「長期開放給付費使用者」的擴充需求，不需遷移平台。
 3. **單一供應商、低維運**：收 POST（Worker）＋儲存（D1）＋前端（Pages/Assets）＋認證（Access）一個 dashboard，與本 repo「凍結 Backstage、延後 OTel」的低維運先例一致。
-4. **TypeScript/JS 生態一致**：本 repo 已是 TS；Worker 以 TS 開發，前端可用 Astro/Remix/Hono 等輕框架（不必綁 Next.js）。
+4. **TypeScript/JS 生態一致**：本 repo 已是 TS；Worker 以 TS 開發，前端可選 Astro／Remix／Hono 等輕框架。
+
+> **⚠️ 本項原措辭「（不必綁 Next.js）」未附理由，2026-09-05 補正**（詳見 `ADR-015` Q22-8）：
+> - **Next.js 在 Cloudflare Workers 上為官方支援**——framework guides 同時列有 Astro、Next.js、OpenNext adapter，`npm create cloudflare@latest -- --framework=next --platform=workers` 為官方指令。**「Next.js 上不了 Workers」是錯的**。
+> - 真正的差異是**體積**：Worker 上限為免費層 **3 MiB**／付費層 10 MiB；[OpenNext](https://opennext.js.org/cloudflare) 官方範例壓縮後 **2295.89 KiB ≈ 免費層 75%**。Astro SSR 輸出低一個數量級。
+> - 裁決結果為 **Astro**（Q22-8），並附「改用 Next.js 的觸發條件」於 `ADR-015`——其中**維護者熟悉度**為最正當的改用理由。
 5. **多租戶收費路徑清楚**：schema 第一版就有 `owner`；Access 免費 50 人 → 付費後升級 Access/正式 IdP；Stripe 接 Worker 是常見做法。
 
 ### 6.2 換 Vercel 的觸發條件（誠實清單）
@@ -259,17 +284,21 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 
 ---
 
-## 8. 需裁決事項（Q22）
+## 8. 裁決事項（Q22）——✅ 全數已裁決（2026-09-05，見 `ADR-015`）
 
-| 編號 | 事項 | 建議 | 影響 |
-|---|---|---|---|
-| **Q22-1** | 主平台：Cloudflare（A）vs Vercel（B）vs 其他 | **A. Cloudflare Workers+D1+Pages+Access**（§6.1） | 決定 MVP 技術棧 |
-| **Q22-2** | Scoreboard 程式 repo 位置 | 新 repo（如 `philipz/factory-scoreboard`）——與機制 repo 分離、權限獨立、產品化乾淨 | 部署、權限、CODEOWNERS |
-| **Q22-3** | 認證方案 | **分兩層**（§6.4）：MVP 內部後台＝Cloudflare Access（login method 選 GitHub，免費 50 人）；開放付費客戶時改 Managed Auth（Clerk／Supabase Auth／Auth0）——Access 為 per-seat 內部信任模型，不適合當顧客身分系統 | §6.4、§7 |
-| **Q22-4** | 多租戶/收費啟用時機 | 第一版只留 `owner` 欄位＋匯出 API；billing 等付費使用者出現再實作 | §3、§7 |
-| **Q22-5** | 資料隱私預設 | 成本資料含 repo/issue 資訊：MVP 預設不公開、後台需登入；「未來開放付費查閱」的公開範圍待裁 | §2、§7 |
+| 編號 | 事項 | 裁決 |
+|---|---|---|
+| ~~Q22-1~~ | 主平台 | ✅ **Cloudflare Workers + D1 + Astro(Assets) + Access**（§6.1） |
+| ~~Q22-2~~ | Scoreboard 程式 repo | ✅ **`philipz/factory-scoreboard`**（2026-09-05 已建立：private、`main`、1 commit） |
+| ~~Q22-3~~ | 認證方案 | ✅ **分兩層**（§6.4）：MVP＝Access+GitHub；付費客戶時改 Managed Auth。**事件不以登入身分為主鍵**（以 `owner` 解耦） |
+| ~~Q22-4~~ | 多租戶/收費啟用時機 | ✅ 第一版只留 `owner` ＋匯出 API；billing 待付費使用者出現 |
+| ~~Q22-5~~ | 資料隱私預設 | ✅ MVP 需登入；事件**不含 issue 內文**，`crosscheck_mismatches` **僅 `kind` 不含 `detail`**（`docs/26` §6） |
+| ~~Q22-6~~ | 與 `weekly-metrics.sh` 關係（新） | ✅ **並存**：後台為主要介面，週檢腳本為離線輔助（**非退場方案**） |
+| ~~Q22-7~~ | 平台定位（新） | ✅ **管理平台，持續運作，無放棄條件**；以營運健康度指標取代退場門檻。**不類比 Backstage／OTel**（那是觀察工具，此為營運介面） |
+| ~~Q22-8~~ | 前端框架（新） | ✅ **Astro**；依據為 Worker 體積上限（免費 3 MiB）vs OpenNext 範例 2295.89 KiB。**Next.js 官方支援 Workers**，改用觸發條件見 `ADR-015` |
+| ~~Q22-9~~ | 視覺風格（新） | ✅ **仿 warp.dev 終端美學**；tokens 自其 CSS 實測擷取；**不使用其 logo／商標／matter 字體／原始 CSS／文案** |
 
-> 裁決後：寫 `ADR-015`、`docs/20` 加工項、開 MVP Issue（平台程式碼、收集契約實作）。
+> **後續**：`ADR-015`（裁決）、`docs/26`（事件契約）已完成；`docs/20` 加工項與 MVP Issue 為下一步。
 
 ---
 
@@ -283,6 +312,7 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 - [x] 認證選型三層比較與分階段建議（§6.4）
 - [x] 風險清單（§7）
 - [x] Q22-1~5（§8，收攏至 docs/10）
+- [x] **Q22-1~9 全數裁決（2026-09-05，`ADR-015`）；schema v2（§3.6）；框架措辭補正（§6.1）**
 
 ---
 
@@ -292,3 +322,4 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 |---|---|
 | 2026-09-02 | 建立：平台評估（Cloudflare vs Vercel vs 其他），資料源接 PR #248 |
 | 2026-09-02 | 新增 §6.4 認證選型：釐清 IdP／IAP／Managed Auth 三層，Access 與 GitHub/Google 是「一起用」而非二選一；分階段建議（內部後台用 Access+GitHub；付費客戶改 Managed Auth）；schema 以 `owner` 與登入層解耦 |
+| 2026-09-05 | **裁決落地**：狀態改為已裁決（`ADR-015`）；新增 §3.6 schema v2（skill_gap／outcome／stop_reason／crosscheck_mismatches／skills_digest ＋ usage 透傳 `UsageReportSchema`）；§6.1 第 4 點補正無依據的框架措辭（附 Worker 體積硬數字，並記載 Next.js 為官方支援）；§8 擴充為 Q22-1~9 全數裁決 |

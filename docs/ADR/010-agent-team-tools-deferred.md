@@ -52,6 +52,23 @@ factory 的 skills（`.dsh/skills/factory-*`）與 GitHub Actions templates（`f
 
 ## 觸發條件（全部滿足才重新評估）
 
-1. Q05-5 複合風險治理細則已補齊（審查者 agent 產出僅為附加意見、人類審查永不移除、缺陷歸因與棘輪延伸到團隊、token 分帳與 report 聚合格式、stop-rules 由隊長繼承/轉交）。
-2. DSH 升級至插件目標 API 世代，且插件在 headless + factory guardrail overlay 下實測通過（沿用 `dsh-sandbox-probe` 模式）。
-3. 出現單 agent 無法勝任的工作項型別，或 roadmap 明示的 Phase 3 之後階段明確要求角色分工。
+1. ~~Q05-5 複合風險治理細則已補齊~~ → ✅ **已補齊（2026-09-05，`docs/24`）**：五項細則（spawn 需人類確認、審查者產出僅附加意見、缺陷歸因與棘輪延伸到團隊、token 分帳與 report 聚合格式、stop-rules 由隊長繼承/轉交）。
+2. DSH 升級至插件目標 API 世代，且插件在 headless + factory guardrail overlay 下實測通過（沿用 `dsh-sandbox-probe` 模式）。 → ❌ **未驗證**
+3. 出現單 agent 無法勝任的工作項型別，或 roadmap 明示的 Phase 3 之後階段明確要求角色分工。 → ❌ **未滿足**（現行工作項刻意小，≤100–300 行）
+
+**現況：1/3 滿足 → 維持不採用。**
+
+## 補記：2026-09-05 DeepWiki 複查（維持不採用，並新增實證）
+
+以 Warp 客戶端原始碼文件（`warpdotdev-warp-DeepWiki.md`，commit `0e075a07`）複查本 ADR 的結論。**該文件記載的是 Warp 桌面客戶端，非 Warp Factories**——`Foreman`／`Triage Agent`／`Scorer`／`LLM Judge` 全數 **0 次命中**。分析全文見 `docs/research/230`。
+
+複查產生兩項**支持維持不採用**的新實證：
+
+| 證據 | 內容 | 意涵 |
+|---|---|---|
+| **D** | `RunAgentsCardView` 渲染「**Can I start additional agents?**」確認卡，讓使用者**在執行前審核與修改編排計畫**（plan／model／environment）（行 2897、2372） | Warp 的多代理人**不是自主調度**，而是「agent 提計畫 → 人類確認 → 才 spawn」——與本 ADR 及 `docs/05` §6.1 立場一致，已納為 `docs/24` §2.1 細則 1 的藍本 |
+| **E** | 跨代理人交接需 `ResumePayload`／`SavePoint`、`fetch_transcript_envelope`、`rehydrate_codex_transcript`、Parent Bridge、End-of-Run Snapshots（行 2046–2050、2921–2926） | 安全交接需**整套狀態重建基礎設施**。缺此設施而拆分，是把「上下文遺失」偽裝成「隔離」 |
+
+**對「以 stacked PR 三層做多 agent 物理隔離」提案的具體反對**：`docs/07` §2.2 要求 fix-bug 的 01-test 紅燈驗證**在同一 agent 沙箱內完成**；拆給兩個無狀態 agent 後，第二個**沒見過紅燈**，無法確認測試真能捕捉該缺陷——而 `docs/07` §2.1 明列 01-test 置底正是為了「防堵 agent 為了讓測試通過而弱化測試」。**這是靜默失效**。
+
+此外，該提案欲解決的「Gate 2.5 截斷」另有成因：`run-work-item.ts:131-152` 記載 issue #35 實測為「agent 停在 Let me re-run a few times 卻仍 exit 0」，已由 `task-template-*.txt` 的輸出紀律與「完成後立即停止」處理；平行化亦已由 Actions 層「每 issue 一個獨立 run」達成。
