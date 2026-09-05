@@ -36,7 +36,35 @@
 | C1 | 新增 `agent-analyze` 類型 | 綜合（最大項） | 10 | 七處接線＋試點 | H5→審查 | #201 | ✅ 完成（PR #227＋試點 T1/T2/T3＋4 衍生修正） |
 | D1 | docs/19 共識修正＋合併 | agent-write-docs | 11 | `docs/19`＋`docs/10` | 低 | #202 | ✅ 完成（PR #224 已合併；PDF 另以 PR 補入） |
 
+### 1.1 批次 E — Scoreboard 與技能撰寫迴圈（2026-09-05 新增，待開 Issue）
+
+來源：`ADR-015`（Scoreboard 裁決）、`ADR-016`（技能提案）、`docs/25`／`docs/26`。**E1–E3 已完成；E4–E6 待排程。**
+
+| # | 工項 | 類型 | 主要檔案 | 監督 | 狀態 |
+|---|---|---|---|---|---|
+| E1 | 裁決與規格文件（ADR-015/016、docs/24/25/26、docs/22 v2、索引） | 人類撰寫 | `docs/**` | 低 | ✅ **完成（2026-09-05）** |
+| E2 | Scoreboard MVP（Astro + Workers + D1 + Access） | 人類／新 repo | `philipz/factory-scoreboard` | 獨立 repo | ✅ **完成（2026-09-05）** |
+| E3 | 機制 repo 接線：`factory-push-event` CLI ＋ workflow 推送步驟 | agent-fix-bug | `src/cli/factory-push-event.ts`＋`factory-run.yml` | H5→審查 | ✅ **完成（2026-09-05）** |
+| E4 | skill-gap 通道：`ReportSchema.skillGap`＋留言段落＋`factory-workflow` SKILL 附加節 | agent-fix-bug | `src/cli/factory-judge.ts`／`apply-judge-labels.ts`／SKILL | H5→審查 | ⏳ 待排程 |
+| E5 | `skills-lock` 完整性校驗＋`--promote` | agent-fix-bug | `src/cli/factory-skills-lock.ts`＋`config/factory/skills-lock.json` | H5→審查 | ⏳ 待排程 |
+| E6 | `agent-propose-skill` 任務型別（五處接線＋crosscheck `--propose-skill-only`） | 綜合 | workflow／template／skill／crosscheck／對抗性測試 | H5→審查 | ⏳ 待排程 |
+
+> **依賴序**：E1（契約）→ E2（接收端）→ E3（推送）→ E4（訊號）→ E5（鎖與放行）→ E6（提案型別）。E3–E6 之間無強依賴，但 E6 的價值依賴 E4 的訊號累積。
+
 > **監督欄說明**：改 `.github/**`、`.dsh/skills/**`、`catalog-info.yaml` 觸發 H5 → risk=2 → 人類審查（預期行為，非阻礙）。
+
+> **E2／E3 完成註記（2026-09-05）**
+>
+> - **E2**：`philipz/factory-scoreboard` 已部署至 https://factory-scoreboard.philipz.workers.dev。
+>   71 tests（真實 workerd + D1）、Worker 壓縮後 172 KiB（預算 16.8%）。
+>   **尚待人工**：Cloudflare Access 與 GitHub `SCOREBOARD_URL`／`SCOREBOARD_TOKEN`
+>   （見該 repo 的 `scripts/setup-wizard.sh`）。
+> - **E3**：`src/cli/factory-push-event.ts`（31 tests）＋ `factory-run.yml` 新增
+>   「Push event to scoreboard」步驟（位於 Summary 之後、artifact 上傳之前）。
+>   已實測推送至線上 Scoreboard 成功，且 5 種失敗情境（後台離線、無 env、401、
+>   參數錯誤、缺檔）**全部 exit 0**，不影響工廠終態。
+> - **未設定 secret 時的行為**：CLI 靜默跳過並印出原因；工廠一切照常。
+>   因此 E3 可先合併，Access／secret 設定完成後自動開始收資料。
 >
 > **A 批狀態（2026-09-01）**：7/7 已合併進 software-factory（PR #203–#209）並隨 PR #210 同步至 **main**；Issues #192–#198 已人工關閉（docs/07 §3.5）。
 

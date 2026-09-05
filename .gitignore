@@ -55,3 +55,6 @@ _apalache-out/
 
 # Backstage 本機 dev 橋接（見 backstage/plugins/README.md wiring）
 backstage/plugins/node_modules
+
+# pnpm
+.pnpm-store/
