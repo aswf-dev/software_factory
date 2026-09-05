@@ -1,0 +1,14 @@
+src/cli/factory-push-event.test.ts
+  h_1b119f25eaf333 99-115,250-311,402-430
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "15f39a31aa6711428f404bc683be0d043f3f9fb9",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
