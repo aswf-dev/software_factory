@@ -73,3 +73,50 @@ gh workflow run factory-rescore.yml --repo philipz/software_factory \
 - ❌ **agent 不接手人類 PR**：不自動補測試、不改人類的設計。需要 agent 介入時，開**新的 factory 工作項**（用表單）→ 檢查器驗證 → dispatch。
 - ❌ 監督 ≠ 審查核准：rescore 只確認「變更的監督層級與風險」，審查/合併決策仍屬人類。
 - ✅ 人類 PR 的正常閉環：開發 → CI 綠 → （可選）rescore 監督 → 人類審查合併 → 合併後缺陷追蹤。
+
+---
+
+## 5. 已納管 repo 一覽
+
+| repo | 工廠 trunk | 三軸（B/R/C） | 基準分 | automerge | 納管日 |
+|---|---|---|---|---|---|
+| `philipz/software_factory` | `main` | tactical / high / medium = 0+2+1 | 3 → review | ❌（dogfooding，docs/11 §1.2） | — |
+| `philipz/fubon-tradingbot` | `software-factory` | strategic / high / low = 2+2+0 | 4 → review | ❌ | 2026-08-18（T8 試點） |
+| `philipz/factory-scoreboard` | `software-factory` | tactical / medium / low = 0+1+0 | 1 → on-loop | ❌（資料正確性影響 promote 裁決） | 2026-09-06 |
+
+> **基準分**＝未觸發硬規則時的計分。實際監督層級隨變更路徑浮動：命中任一硬規則即強制 `risk=2`，總分隨之上升。
+
+### 5.1 factory-scoreboard 的評級理由（2026-09-06）
+
+- **tactical (0)**：內部管理工具。推送端為 `continue-on-error` 且 CLI 永遠 exit 0，後台故障時**工廠照常運作**，影響僅止於暫時收不到成本與 skill-gap 資料。
+- **medium (1)**：持有 ingest 認證邏輯與 `SCOREBOARD_TOKEN`。關鍵在於 **Cloudflare Access 保護不了 `/api/v1/events`**——Access 以路徑比對、不分 HTTP 方法，而該路徑必須 Bypass 才能讓 CI 推送，保護責任因此完全落在應用層程式碼。2026-09-06 實測曾發現 `GET` 匿名可讀（已修補），證明此處疏失會直接外洩資料，故不宜評為 `low`；但無金流、無 PII、資料可自 GitHub 與 Actions 重建，故非 `high`。
+- **low (0)**：15 個原始檔、單一資料表、6 個端點、無跨服務協調。
+
+### 5.2 納管驗證方法（建議新 repo 比照）
+
+僅有設定檔不代表工廠讀得到。開一個 `factory/*` 探測 PR，用 `factory-rescore` 跨 repo 實測**兩個方向**：
+
+```bash
+gh workflow run factory-rescore.yml --repo philipz/software_factory \
+  -f repo=<owner/name> -f base_branch=<trunk> -f pr_number=<PR>
+```
+
+| 探測內容 | 預期 |
+|---|---|
+| 只改一般檔案 | 基準分、`triggeredHardRules: []`、`escalated: false` |
+| 改一個硬規則路徑（如 `migrations/`） | 分數上升、對應規則出現、`escalated: true` |
+
+**兩個方向都要驗**：只驗前者無法區分「硬規則正確」與「硬規則根本沒載入」。
+
+factory-scoreboard 的實測結果（run 34006539807 / 34006596084）：
+
+```
+一般檔案      → total 1, hardRules [],     escalated false, tier on-loop
+migrations/  → total 2, hardRules [H6],   escalated true,  tier review
+```
+
+### 5.3 硬規則誤報的代價（實例）
+
+factory-scoreboard 初版 H3 沿用 `**/*token*`，實測**誤中 `src/styles/tokens.css`**（設計 tokens，與憑證無關）——每次改樣式都會被強制人類審查。已改為 `**/*.token`、`.dev.vars` 等精確樣式。
+
+> **原則**：硬規則若經常誤報，會訓練審查者略過警訊，反而**削弱**防護。新 repo 的 risk-paths **應依實際目錄結構撰寫，而非複製範本**。
