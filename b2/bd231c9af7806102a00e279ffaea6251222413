@@ -1,0 +1,16 @@
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 4-6,12-13,16,405-589
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 26-28,196-325,334-335,368,383-384,420-422,441-442,461,468-469,477,492-496
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b2bd231c9af7806102a00e279ffaea6251222413",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
