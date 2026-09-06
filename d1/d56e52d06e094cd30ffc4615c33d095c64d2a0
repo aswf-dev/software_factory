@@ -1,0 +1,14 @@
+docs/16-rescore-multirepo.md
+  h_1b119f25eaf333 76-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d1d56e52d06e094cd30ffc4615c33d095c64d2a0",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
