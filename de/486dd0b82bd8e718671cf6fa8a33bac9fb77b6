@@ -1,0 +1,18 @@
+docs/20-work-items.md
+  h_1b119f25eaf333 58-59,61
+docs/22-scoreboard-platform-evaluation.md
+  h_1b119f25eaf333 124,136,142-150,284
+docs/26-scoreboard-integration.md
+  h_1b119f25eaf333 87,92-95,157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "de486dd0b82bd8e718671cf6fa8a33bac9fb77b6",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
