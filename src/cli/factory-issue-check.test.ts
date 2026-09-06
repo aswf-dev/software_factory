@@ -1,13 +1,19 @@
 /**
  * factory-issue-check 測試（Issue 格式檢查器，零 LLM 成本）。
  */
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildCheckComment,
   checkDodSpecificity,
   checkIssue,
+  checkRiskPaths,
+  extractDeclaredPaths,
   extractField,
   hasCheckedAcceptance,
+  loadHardRules,
   main,
   parseCheckArgs,
 } from './factory-issue-check.js'
@@ -394,5 +400,190 @@ describe('main — 具體性提示接進留言', () => {
     const gh = (): string => JSON.stringify({ body: withDodExtras(['- 盡量優化']) })
     const out = main(['200'], gh)
     expect(out.comment).toContain('💡 **DoD 具體性提示**')
+  })
+})
+
+/**
+ * 事前風險路徑檢查（路徑 3）：從 PRD 的「目標模組 / 檔案」段落抽出宣告路徑，
+ * 比對 risk-paths.yml 的 H1–H7 glob。
+ *
+ * 動機（factory-scoreboard#3 實證）：初始計分收不到 changedPaths
+ * （factory-run.yml 只傳 --catalog/--risk-paths，score.ts 預設 []），
+ * 故 agent 啟動前**沒有任何風險訊號**——#3 的 PRD 白紙黑字寫著要改
+ * `.github/workflows/ci.yml`（H5），卻一路放行到燒掉 156k tokens 才由
+ * agent 依 SR3 停手。本檢查把該訊號提前到開單當下，零 LLM 成本。
+ *
+ * 效力：**advisory**（人類裁決）——不改 ok/missing、不動 oversight/* 標籤、
+ * 不讓 PRD 自由文字成為計分輸入（docs/06 維持只讀 catalog + risk-paths）。
+ */
+const HARD_RULES = {
+  H1: ['src/auth/**'],
+  H5: ['.github/**', 'CODEOWNERS'],
+  H6: ['migrations/**', '**/*schema*'],
+} as const
+
+/** 以「目標模組 / 檔案」段落取代 COMPLIANT 的需求文字。 */
+function withTargets(lines: string[]): string {
+  return COMPLIANT.replace('為 X 補測試', ['目標模組 / 檔案：', ...lines].join('\n'))
+}
+
+describe('extractDeclaredPaths', () => {
+  it('抽出「目標模組 / 檔案」段落的 bullet 路徑（去括號註記）', () => {
+    const body = withTargets(['  - .github/workflows/ci.yml（新增 coverage 步驟）', '  - src/a.ts'])
+    expect(extractDeclaredPaths(body)).toEqual(['.github/workflows/ci.yml', 'src/a.ts'])
+  })
+  it('段落標題變體（目標檔案／目標模組）皆可辨識', () => {
+    expect(extractDeclaredPaths(COMPLIANT.replace('為 X 補測試', '目標檔案：\n  - src/a.ts'))).toEqual([
+      'src/a.ts',
+    ])
+  })
+  it('單行冒號形式：目標模組 / 檔案：src/a.ts', () => {
+    expect(extractDeclaredPaths(COMPLIANT.replace('為 X 補測試', '目標模組 / 檔案：src/a.ts'))).toEqual([
+      'src/a.ts',
+    ])
+  })
+  it('遇到非 bullet 行即停止（不吞噬後續段落）', () => {
+    const body = withTargets(['  - src/a.ts', '', '做什麼（一句話）：', '  - 這不是路徑'])
+    expect(extractDeclaredPaths(body)).toEqual(['src/a.ts'])
+  })
+  it('無該段落 → 空陣列（fail-safe 由呼叫端處理）', () => {
+    expect(extractDeclaredPaths(COMPLIANT)).toEqual([])
+  })
+  it('無 requirement 欄位 → 空陣列', () => {
+    expect(extractDeclaredPaths('### 任務類型\n\nx\n')).toEqual([])
+  })
+})
+
+describe('checkRiskPaths', () => {
+  it('命中 H5（#3 真實情境：.github/workflows/ci.yml）', () => {
+    const r = checkRiskPaths(withTargets(['  - .github/workflows/ci.yml（新增 coverage 步驟）']), HARD_RULES)
+    expect(r.declared).toEqual(['.github/workflows/ci.yml'])
+    expect(r.hits).toEqual([{ rule: 'H5', path: '.github/workflows/ci.yml', pattern: '.github/**' }])
+  })
+  it('未命中任何硬規則 → hits 空', () => {
+    const r = checkRiskPaths(withTargets(['  - src/util/format.ts']), HARD_RULES)
+    expect(r.hits).toEqual([])
+    expect(r.declared).toEqual(['src/util/format.ts'])
+  })
+  it('多路徑多規則 → 逐一列出', () => {
+    const r = checkRiskPaths(withTargets(['  - CODEOWNERS', '  - migrations/001.sql']), HARD_RULES)
+    expect(r.hits.map((h) => h.rule)).toEqual(['H5', 'H6'])
+  })
+  it('未宣告目標檔案 → declared 空（觸發 fail-safe 提示）', () => {
+    expect(checkRiskPaths(COMPLIANT, HARD_RULES).declared).toEqual([])
+  })
+  it('無 hardRules（設定缺失）→ 不誤報', () => {
+    expect(checkRiskPaths(withTargets(['  - .github/x.yml']), {}).hits).toEqual([])
+  })
+  it('hardRules 為 undefined（?? {} 的 nullish 分支）→ 不誤報', () => {
+    expect(checkRiskPaths(withTargets(['  - .github/x.yml']), undefined).hits).toEqual([])
+  })
+  it('bullet 只有括號註記（清理後為空）→ 該項略過，不產生空字串路徑', () => {
+    // `- （僅說明，非路徑）` → clean() 後為空；若未過濾會變成 '' 並可能誤匹配 glob
+    expect(extractDeclaredPaths(withTargets(['  - （僅說明，非路徑）', '  - src/a.ts']))).toEqual([
+      'src/a.ts',
+    ])
+  })
+})
+
+describe('buildCheckComment — ⚠️ 事前風險路徑提示（advisory）', () => {
+  const hitBody = withTargets(['  - .github/workflows/ci.yml（新增 coverage 步驟）'])
+
+  it('命中硬規則 → ⚠️ 行列出規則、路徑與 pattern', () => {
+    const c = buildCheckComment(checkIssue(hitBody, HARD_RULES))
+    expect(c).toContain('⚠️ **事前風險路徑提示**')
+    expect(c).toContain('H5')
+    expect(c).toContain('.github/workflows/ci.yml')
+  })
+  it('提示為 advisory：不改 ok、不含「格式不合規」（避免誤觸 workflow grep）', () => {
+    const r = checkIssue(hitBody, HARD_RULES)
+    expect(r.ok).toBe(true)
+    expect(buildCheckComment(r)).not.toContain('格式不合規')
+  })
+  it('未命中 → 不出 ⚠️ 行', () => {
+    expect(buildCheckComment(checkIssue(withTargets(['  - src/util/a.ts']), HARD_RULES))).not.toContain(
+      '⚠️ **事前風險路徑提示**',
+    )
+  })
+  it('未宣告目標檔案 → fail-safe 提示（不阻擋）', () => {
+    const c = buildCheckComment(checkIssue(COMPLIANT, HARD_RULES))
+    expect(c).toContain('PRD 未宣告目標檔案')
+  })
+  it('未傳 hardRules → 完全不輸出風險段落（向後相容）', () => {
+    const c = buildCheckComment(checkIssue(hitBody))
+    expect(c).not.toContain('⚠️ **事前風險路徑提示**')
+    expect(c).not.toContain('PRD 未宣告目標檔案')
+  })
+  it('宣告路徑但未命中 → 既不出 ⚠️ 也不出 fail-safe 提示', () => {
+    const c = buildCheckComment(checkIssue(withTargets(['  - src/util/a.ts']), HARD_RULES))
+    expect(c).not.toContain('⚠️ **事前風險路徑提示**')
+    expect(c).not.toContain('PRD 未宣告目標檔案')
+  })
+})
+
+describe('loadHardRules（設定載入；fail-safe 為「不誤報」）', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'risk-paths-'))
+  const write = (name: string, content: string): string => {
+    const p = join(tmp, name)
+    writeFileSync(p, content)
+    return p
+  }
+
+  it('讀出 hard_rules（rule id → glob 陣列）', () => {
+    const p = write('ok.yml', 'hard_rules:\n  H5:\n    - ".github/**"\n  H1:\n    - "src/auth/**"\n')
+    expect(loadHardRules(p)).toEqual({ H5: ['.github/**'], H1: ['src/auth/**'] })
+  })
+  it('檔案不存在 → undefined（設定缺失不得使檢查器爆掉）', () => {
+    expect(loadHardRules(join(tmp, 'nope.yml'))).toBeUndefined()
+  })
+  it('YAML 語法錯誤 → undefined', () => {
+    expect(loadHardRules(write('bad.yml', 'hard_rules:\n  - [unclosed\n'))).toBeUndefined()
+  })
+  it('缺 hard_rules 鍵 → undefined', () => {
+    expect(loadHardRules(write('empty.yml', 'other: 1\n'))).toBeUndefined()
+  })
+  it('hard_rules 非物件（純量）→ undefined', () => {
+    expect(loadHardRules(write('scalar.yml', 'hard_rules: 42\n'))).toBeUndefined()
+  })
+  it('空檔（load 回 undefined）→ undefined', () => {
+    expect(loadHardRules(write('nil.yml', ''))).toBeUndefined()
+  })
+  it('非字串陣列的規則值被略過（不致誤報）', () => {
+    const p = write('mixed.yml', 'hard_rules:\n  H5:\n    - ".github/**"\n  H9: 3\n  H8:\n    - 7\n')
+    expect(loadHardRules(p)).toEqual({ H5: ['.github/**'] })
+  })
+  it('真實 risk-paths.yml 可載入且含 H5', () => {
+    const rules = loadHardRules('.github/factory/risk-paths.yml')
+    expect(rules?.H5).toContain('.github/**')
+  })
+})
+
+describe('main — --risk-paths 接線（advisory，不改紅綠燈）', () => {
+  const hitBody = withTargets(['  - .github/workflows/ci.yml（新增 coverage 步驟）'])
+
+  it('傳 --risk-paths → 留言含 ⚠️ 事前風險路徑提示，且 ok 不變', () => {
+    const gh = (): string => JSON.stringify({ body: hitBody })
+    const out = main(['3', '--risk-paths', '.github/factory/risk-paths.yml'], gh)
+    expect(out.comment).toContain('⚠️ **事前風險路徑提示**')
+    expect(out.comment).toContain('H5')
+    expect(out.result.ok).toBe(true)
+    expect(out.comment).not.toContain('格式不合規')
+  })
+  it('不傳 --risk-paths → 無風險段落（向後相容）', () => {
+    const gh = (): string => JSON.stringify({ body: hitBody })
+    expect(main(['3'], gh).comment).not.toContain('⚠️ **事前風險路徑提示**')
+  })
+  it('--risk-paths 指向不存在的檔 → 靜默略過，不影響判定', () => {
+    const gh = (): string => JSON.stringify({ body: hitBody })
+    const out = main(['3', '--risk-paths', 'no/such/file.yml'], gh)
+    expect(out.result.ok).toBe(true)
+    expect(out.comment).not.toContain('⚠️ **事前風險路徑提示**')
+  })
+  it('parseCheckArgs 支援 --risk-paths；預設 undefined', () => {
+    expect(parseCheckArgs(['1', '--risk-paths', 'r.yml']).paths.riskPathsPath).toBe('r.yml')
+    expect(parseCheckArgs(['1']).paths.riskPathsPath).toBeUndefined()
+  })
+  it('--risk-paths 缺值 → CliError', () => {
+    expect(() => parseCheckArgs(['1', '--risk-paths'])).toThrow()
   })
 })

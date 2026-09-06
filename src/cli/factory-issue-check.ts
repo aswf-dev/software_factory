@@ -23,6 +23,9 @@
  * 合規判定與計分邏輯。
  */
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { load } from 'js-yaml'
+import { minimatch } from 'minimatch'
 import { analyzeComplexity, type ComplexityAnalysis } from '../issue-analysis/complexity.js'
 import {
   loadDeclaredProviders,
@@ -190,6 +193,136 @@ export function buildDodSpecificityHint(dod: DodReview): string[] {
   ]
 }
 
+/* ── 事前風險路徑檢查（路徑 3）───────────────────────────────────────────
+ *
+ * 動機（factory-scoreboard#3 實證）：初始計分**收不到 changedPaths**——
+ * factory-run.yml 的 Initial score 只傳 --catalog/--risk-paths，
+ * src/scoring/score.ts 的 changedPaths 預設 []，故 matchHardRules 恆為空。
+ * H 規則要到 PR 之後的 factory-rescore（會傳 pr.files）才可能命中。
+ * 結果：agent 啟動前**沒有任何風險訊號**。#3 的 PRD 明寫要改
+ * `.github/workflows/ci.yml`（H5），仍一路放行，直到燒掉 156,018 tokens
+ * 才由 agent 依 SR3 停手。
+ *
+ * 本檢查把該訊號提前到開單當下（零 LLM 成本）：解析 PRD 的
+ * 「目標模組 / 檔案」段落，比對 risk-paths.yml 的 H1–H7 glob。
+ *
+ * **效力：advisory**（使用者裁決 2026-09）——只留言提示，不改 ok/missing、
+ * 不貼 oversight/* 標籤。理由：PRD 是自由文字，若讓它成為計分輸入，會破壞
+ * docs/06「計分只讀 catalog + risk-paths 客觀來源」的邊界。人類仍握有
+ * dispatch 決定權；真正的強制判定留給 factory-rescore 的 changedPaths。
+ */
+
+/** risk-paths.yml 的 hard_rules 結構（rule id → glob 陣列）。 */
+export type HardRulePatterns = Readonly<Record<string, readonly string[]>>
+
+/** 單一命中：哪條規則、哪個宣告路徑、命中哪個 pattern。 */
+export interface RiskPathHit {
+  rule: string
+  path: string
+  pattern: string
+}
+
+export interface RiskPathReview {
+  /** PRD 宣告的目標路徑；空陣列代表未宣告（觸發 fail-safe 提示）。 */
+  declared: string[]
+  /** 命中的硬規則；空陣列代表未命中（或未提供 hardRules）。 */
+  hits: RiskPathHit[]
+}
+
+/** 「目標模組 / 檔案」段落的標題變體（容忍全半形與有無空格）。 */
+const TARGET_SECTION_RE = /目標(模組|檔案|模組\s*[／/]\s*檔案)/
+
+/**
+ * 由 PRD 抽出宣告的目標路徑：支援「標題：\n  - 路徑」與「標題：路徑」兩式。
+ * 括號註記（全形或半形）與尾隨空白會被剝除——`a.yml（新增步驟）` → `a.yml`。
+ */
+export function extractDeclaredPaths(body: string): string[] {
+  const requirement = extractField(body, 'requirement')
+  if (requirement === undefined) return []
+  const lines = requirement.split('\n')
+  const idx = lines.findIndex((l) => TARGET_SECTION_RE.test(l))
+  if (idx === -1) return []
+  const clean = (s: string): string => (s.split(/[（(]/)[0] as string).trim()
+  // 單行形式：冒號後直接寫路徑
+  const inline = (lines[idx] as string).split(/[：:]/).slice(1).join('：').trim()
+  if (inline.length > 0) return [clean(inline)].filter((p) => p.length > 0)
+  // 清單形式：連續 bullet，遇非 bullet 行即停（不吞噬後續段落）
+  const out: string[] = []
+  for (const line of lines.slice(idx + 1)) {
+    const t = line.trim()
+    if (t.length === 0) continue
+    const m = t.match(/^[-*]\s+(.+)$/)
+    if (m === null) break
+    const p = clean(m[1] as string)
+    if (p.length > 0) out.push(p)
+  }
+  return out
+}
+
+/** 比對 PRD 宣告路徑與 risk-paths 硬規則（glob 語意與 src/scoring 一致）。 */
+export function checkRiskPaths(body: string, hardRules?: HardRulePatterns): RiskPathReview {
+  const declared = extractDeclaredPaths(body)
+  const hits: RiskPathHit[] = []
+  for (const [rule, globs] of Object.entries(hardRules ?? {})) {
+    for (const pattern of globs) {
+      const path = declared.find((p) => minimatch(p, pattern, { dot: true }))
+      if (path !== undefined) {
+        hits.push({ rule, path, pattern })
+        break
+      }
+    }
+  }
+  return { declared, hits }
+}
+
+/** 讀 risk-paths.yml 的 hard_rules；檔案缺失或格式不符 → undefined（不誤報）。 */
+export function loadHardRules(path: string): HardRulePatterns | undefined {
+  let raw: unknown
+  try {
+    raw = load(readFileSync(path, 'utf8'))
+  } catch {
+    return undefined
+  }
+  const rules = (raw as { hard_rules?: unknown } | null)?.hard_rules
+  if (typeof rules !== 'object' || rules === null) return undefined
+  const out: Record<string, readonly string[]> = {}
+  for (const [id, globs] of Object.entries(rules as Record<string, unknown>)) {
+    if (Array.isArray(globs) && globs.every((g) => typeof g === 'string')) {
+      out[id] = globs as string[]
+    }
+  }
+  return out
+}
+
+/**
+ * ⚠️ 事前風險路徑提示（advisory）。兩類輸出：
+ * - 命中硬規則：逐條列出 rule／路徑／pattern，提醒此工作項將觸發強制人類審查；
+ * - 未宣告目標檔案：fail-safe 提示（呼應 SR4「驗收條件不明確」的精神）。
+ * 措辭刻意不含「格式不合規」——workflow 以該字串 grep 決定是否紅燈停派。
+ */
+export function buildRiskPathHint(risk: RiskPathReview): string[] {
+  if (risk.hits.length > 0) {
+    const details = risk.hits.map(
+      (h) => `- \`${h.path}\` → **${h.rule}**（pattern：\`${h.pattern}\`）`,
+    )
+    return [
+      '⚠️ **事前風險路徑提示**（形式檢查，不影響合規判定與計分）：PRD 宣告的目標檔案' +
+        '命中 `risk-paths.yml` 的硬性規則——此工作項預期會**強制 risk=2 → 人類審查**，' +
+        'agent 亦可能依 `factory-stop-rules` SR2/SR3 停手：',
+      ...details,
+      '若此為預期行為，請於 dispatch 前確認由人類接手；若非預期，請調整 PRD 範圍。',
+    ]
+  }
+  if (risk.declared.length === 0) {
+    return [
+      '💡 **PRD 未宣告目標檔案**（形式檢查，不影響合規判定與計分）：需求描述沒有' +
+        '「目標模組 / 檔案：」段落，無法在開跑前比對高風險路徑。建議補上具體檔案路徑，' +
+        '讓風險在花費 LLM 成本前就能被判斷。',
+    ]
+  }
+  return []
+}
+
 export interface CheckResult {
   ok: boolean
   missing: RequiredField[]
@@ -198,6 +331,8 @@ export interface CheckResult {
   analysis: ComplexityAnalysis
   /** DoD 具體性審查（advisory；不影響 ok，docs/18 §4 G5）。 */
   dod: DodReview
+  /** 事前風險路徑審查（advisory）；未提供 hardRules 時為 undefined。 */
+  risk?: RiskPathReview | undefined
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -230,7 +365,7 @@ export function hasCheckedAcceptance(body: string): boolean {
   return DOD_LABELS.every((label) => value.includes(`- [x] ${label}`))
 }
 
-export function checkIssue(body: string): CheckResult {
+export function checkIssue(body: string, hardRules?: HardRulePatterns): CheckResult {
   const missing: RequiredField[] = []
   if (extractField(body, 'task_type') === undefined) missing.push('task_type')
   if (extractField(body, 'requirement') === undefined) missing.push('requirement')
@@ -245,6 +380,8 @@ export function checkIssue(body: string): CheckResult {
       requirement: extractField(body, 'requirement'),
     }),
     dod: checkDodSpecificity(body),
+    // 未提供 hardRules（既有呼叫端／設定缺失）→ undefined，留言完全不提風險段落
+    risk: hardRules === undefined ? undefined : checkRiskPaths(body, hardRules),
   }
 }
 
@@ -280,6 +417,9 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
   if (!r.dod.specific) {
     lines.push(...buildDodSpecificityHint(r.dod))
   }
+  if (r.risk !== undefined) {
+    lines.push(...buildRiskPathHint(r.risk))
+  }
   if (r.ok) {
     lines.push(
       '可 dispatch（software_factory → Actions → Factory Run，或貼 `factory/approved` label 由同 repo 自動觸發）。',
@@ -298,6 +438,8 @@ const realGh: GhRunner = (args) => execFileSync('gh', args, { encoding: 'utf8' }
 export interface IssueCheckPaths {
   tiersPath: string
   providersPath: string
+  /** risk-paths.yml；未指定 → 不做事前風險比對（向後相容）。 */
+  riskPathsPath?: string | undefined
 }
 
 const DEFAULT_TIERS_PATH = 'config/dsh/model-tiers.yaml'
@@ -316,12 +458,15 @@ export function parseCheckArgs(argv: string[]): { issueNumber: string; paths: Is
   let issueNumber: string | undefined
   let tiersPath = DEFAULT_TIERS_PATH
   let providersPath = DEFAULT_PROVIDERS_PATH
+  let riskPathsPath: string | undefined
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--tiers') {
       tiersPath = requireValue(argv, ++i, '--tiers')
     } else if (arg === '--providers') {
       providersPath = requireValue(argv, ++i, '--providers')
+    } else if (arg === '--risk-paths') {
+      riskPathsPath = requireValue(argv, ++i, '--risk-paths')
     } else if (issueNumber === undefined) {
       issueNumber = arg
     } else {
@@ -329,7 +474,7 @@ export function parseCheckArgs(argv: string[]): { issueNumber: string; paths: Is
     }
   }
   if (issueNumber === undefined) throw new CliError('issueNumber is required')
-  return { issueNumber, paths: { tiersPath, providersPath } }
+  return { issueNumber, paths: { tiersPath, providersPath, riskPathsPath } }
 }
 
 export function main(
@@ -344,7 +489,11 @@ export function main(
   } catch {
     throw new CliError(`issue view JSON invalid: ${json.slice(0, 80)}`)
   }
-  const result = checkIssue(body)
+  // 事前風險比對（advisory）：未指定 --risk-paths 或檔案不可讀 → undefined，
+  // 留言完全不提風險段落（不因設定缺失而誤報，也不因此紅燈）。
+  const hardRules =
+    paths.riskPathsPath === undefined ? undefined : loadHardRules(paths.riskPathsPath)
+  const result = checkIssue(body, hardRules)
 
   // 建議模型：與 factory-run 共用的解析核心。設定檔損壞 → fail-loud（CliError），
   // 絕不靜默讓建議消失（guardrail 設定錯誤必須紅燈，docs/05）。
