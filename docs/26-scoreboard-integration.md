@@ -84,10 +84,14 @@
 ### 2.1 端點
 
 ```
-POST https://<scoreboard>/v1/events
+POST https://<scoreboard>/api/v1/events
 Authorization: Bearer ${{ secrets.SCOREBOARD_TOKEN }}
 Content-Type: application/json
 ```
+
+> **路徑前綴是 `/api`**，與 `src/cli/factory-push-event.ts` 的實作一致。
+> 實測 `POST /v1/events` 回 `404`、`POST /api/v1/events` 回 `401`（未帶 token），
+> 可據此確認路由是否存在。
 
 ### 2.2 CI 接線（機制 repo 唯一改動）
 
@@ -150,7 +154,7 @@ Content-Type: application/json
 gh run list --workflow=factory-run.yml --limit 50 --json databaseId,conclusion
 
 # 對照 Scoreboard
-curl -s "$SCOREBOARD_URL/v1/events?from=<date>" | jq '[.[].run_id]'
+curl -s "$SCOREBOARD_URL/api/v1/events?from=<date>" | jq '[.[].run_id]'
 ```
 
 **差異處置**：
