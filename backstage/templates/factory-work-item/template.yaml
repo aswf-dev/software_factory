@@ -29,7 +29,7 @@ spec:
   type: service
   parameters:
     - title: 工作項資訊
-      required: [oneLiner, taskType, requirement, dodTest, dodRisk, dodRun, targetRepo]
+      required: [oneLiner, taskType, requirement, targetRepo]
       properties:
         oneLiner:
           title: 一句話需求（Issue 標題）
@@ -51,18 +51,22 @@ spec:
           type: string
           ui:field: FactoryWorkItemDraftField
           description: 做什麼、為什麼、範圍（可先按「✨ 一次生成」讓 LLM 產生草稿再逐欄審改）
-        dodTest:
-          title: 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）
-          type: boolean
-          description: 驗收標準（DoD）必勾項 1/3
-        dodRisk:
-          title: 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）
-          type: boolean
-          description: 驗收標準（DoD）必勾項 2/3
-        dodRun:
-          title: 跑測試確認綠燈（不跑需外部服務的 E2E）
-          type: boolean
-          description: 驗收標準（DoD）必勾項 3/3
+        # ⚠️ 2026-09 移除 dodTest/dodRisk/dodRun 三個 boolean 欄位（假選擇）。
+        #
+        # 原因（factory-scoreboard#3 實證）：這三個參數從未被任何 step 消費——
+        # 下方 body 的三行 DoD 是**寫死的 `- [x]`**，勾或不勾都輸出相同文字。
+        # 且 JSON Schema 的 `required` 對 boolean 無效（rjsf 未勾送 false，
+        # key 仍存在），故它們既擋不住任何東西，也不影響輸出：純 UI 裝飾，
+        # 反而讓人誤以為已做出選擇。
+        #
+        # 「三項必勾」的語意不變、也未被放寬：DoD 是對 agent 的固定作業承諾，
+        # 對所有工作項恆成立，故直接以固定文字寫入 body（與 GitHub 原生入口
+        # .github/ISSUE_TEMPLATE/factory-work-item.yml 的 required:true 一致），
+        # factory-issue-check 的 hasCheckedAcceptance「3/3 全勾」契約完全不動。
+        #
+        # 「是否觸碰高風險路徑」改由 factory-issue-check 依 PRD 宣告路徑比對
+        # risk-paths.yml 客觀判定（advisory 提示），不再依賴人類自我申報——
+        # #3 的填單者其實在 PRD 內文誠實寫明會觸發 H5，只是沒有機器讀它。
         targetRepo:
           title: 目標 repo（agent 工作對象）
           type: string

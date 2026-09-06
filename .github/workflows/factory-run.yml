@@ -193,10 +193,14 @@ jobs:
           GH_REPO: ${{ inputs.repo }}
         run: |
           mkdir -p .factory
+          # --risk-paths 讀目標 repo（target/ 已於前一步 checkout）：事前風險路徑
+          # 比對為 advisory（只留言，不改紅綠燈）——初始計分收不到 changedPaths，
+          # 此提示是 agent 啟動前唯一的風險訊號（factory-scoreboard#3 實證）。
           node dist/cli/factory-issue-check.js \
             "${{ inputs.issue_number }}" \
             --tiers config/dsh/model-tiers.yaml \
             --providers config/dsh/settings.providers.yaml \
+            --risk-paths target/.github/factory/risk-paths.yml \
             > .factory/issue-check.txt 2>&1 || true
           cat .factory/issue-check.txt
           gh issue comment "${{ inputs.issue_number }}" --body-file .factory/issue-check.txt
