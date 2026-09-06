@@ -1,0 +1,14 @@
+.github/workflows/verify-scoreboard-token.yml
+  h_1b119f25eaf333 1-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "760f0c608622e178ef660f0cf3aff650c938a916",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
