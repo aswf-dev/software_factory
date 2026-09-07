@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "name": "factory-pr-stacking",
+      "sha256": "45331d17c5d90a8dc2c1089208df1cafa56e52e36fe4c4bec4b09805e15e1f47"
+    },
+    {
+      "name": "factory-self-review",
+      "sha256": "9e93c1b8c23d00f2b60c7628f943cb7846a226e89daf170305577131fed67113"
+    },
+    {
+      "name": "factory-stop-rules",
+      "sha256": "0fbc87cd0edbb4bc816e838ba4569db1fe5aa89ab29f8664e8b230afaac2a34c"
+    },
+    {
+      "name": "factory-workflow",
+      "sha256": "f2d88671c39c749bb960447a06d0a7932bf1cc2f821882804d58416c41051df8"
+    },
+    {
+      "name": "quint-lang",
+      "sha256": "2b4436d7db1a4d33e1fa0b92a403862ed273409f0399b7e225298dd310668613"
+    },
+    {
+      "name": "quint-modeling",
+      "sha256": "77fe492adc3bcefd0f554a0fdb7ffd5b02e7d3f6e4f9abe6e7df1d82ddb4db61"
+    }
+  ]
+}
