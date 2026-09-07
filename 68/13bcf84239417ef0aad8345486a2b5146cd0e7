@@ -1,0 +1,46 @@
+src/cli/apply-judge-labels-mutation.test.ts
+  h_1b119f25eaf333 26-27,98-141
+src/cli/apply-judge-labels.test.ts
+  h_1b119f25eaf333 72-126,179-259
+src/cli/apply-judge-labels.ts
+  h_1b119f25eaf333 12-13,23-28,32-42,45,51-56,62-65,104-108,115-120
+src/cli/apply-score-labels.test.ts
+  h_1b119f25eaf333 45,55-84
+src/cli/apply-score-labels.ts
+  h_1b119f25eaf333 25-36,42-43,54-64,105
+src/cli/factory-crosscheck-mutation.test.ts
+  h_1b119f25eaf333 1-113
+src/cli/factory-crosscheck.test.ts
+  h_1b119f25eaf333 16,178-234,452-493,495,501-502,512-513,517-538,583-616
+src/cli/factory-crosscheck.ts
+  h_1b119f25eaf333 52-60,150,170-192,259-299,352-355,361-362,368-369,382-389,396-400,407-414,418-419,422-424,431
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 10-11,592-642
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 196-243,384-385,424,433,436,475
+src/cli/factory-judge-mutation.test.ts
+  h_1b119f25eaf333 5,9-11,22-41,240-331
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 230-297
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 46-65,97-105
+src/cli/factory-push-event.test.ts
+  h_1b119f25eaf333 432-470
+src/cli/factory-push-event.ts
+  h_1b119f25eaf333 207-212,216-245
+src/skill-gap/render.test.ts
+  h_1b119f25eaf333 1-53
+src/skill-gap/render.ts
+  h_1b119f25eaf333 1-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6813bcf84239417ef0aad8345486a2b5146cd0e7",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
