@@ -1,0 +1,107 @@
+name: Factory Onboard Repo（納管新 repo）
+description: 把一個新 repo 納入軟體工廠。agent 會分析程式碼結構，產出 catalog-info.yaml 與 risk-paths.yml 的**建議草稿**（提案 PR），三軸由你裁定。
+title: "[factory-onboard] <owner/repo>"
+labels: ["meta/observation", "factory/onboard"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 納管流程（5 步）
+
+        | # | 步驟 | 誰做 |
+        |---|---|---|
+        | 1 | 安裝 GitHub App 到目標 repo | **你**（GitHub 限制，無法自動化）|
+        | 2 | 建立 `software-factory` 分支 | **你**（一行指令，見下）|
+        | 3 | 送出本表單 → agent 分析 → 提案 PR | 自動 |
+        | 4 | 審核 PR、裁定三軸、搬檔到正位、合併 | **你** |
+        | 5 | 開始使用工廠 | — |
+
+        ### 步驟 2 的指令（若分支尚未建立）
+
+        ```bash
+        gh api repos/<owner>/<repo>/git/refs -f ref='refs/heads/software-factory' \
+          -f sha="$(gh api repos/<owner>/<repo> --jq '.default_branch' \
+            | xargs -I{} gh api repos/<owner>/<repo>/git/ref/heads/{} --jq '.object.sha')"
+        ```
+
+        > **為什麼 agent 不直接把檔案寫到正位？**
+        > `catalog-info.yaml` 與 `.github/factory/risk-paths.yml` 是 guardrail 本身。
+        > `docs/05` §1.1 的核心不變量規定 **agent 不得修改約束自己的規則**——
+        > 納管當下還沒有任何人審過這個 repo 的風險評級，若 agent 能直接落檔，
+        > 等於自己宣告自己的監督等級。agent 負責分析與草擬（省掉 90% 的功夫），
+        > **三軸的裁定權留在你手上**。
+
+  # ⚠️ factory-issue-check 要求 `### 任務類型` 段落存在（REQUIRED_FIELDS）。
+  # 納管只有一種類型，故以唯讀的 dropdown 固定值呈現（使用者無須選擇）。
+  - type: dropdown
+    id: task_type
+    attributes:
+      label: 任務類型
+      description: 納管固定為 agent-onboard（唯讀分析 → 提案 PR）
+      options:
+        - agent-onboard
+      default: 0
+    validations:
+      required: true
+
+  - type: input
+    id: target_repo
+    attributes:
+      label: 目標 repo
+      description: owner/name。App 必須**已安裝**於此 repo，且已有 software-factory 分支。
+      placeholder: philipz/my-new-repo
+    validations:
+      required: true
+
+  # ⚠️ label 必須是「需求描述（PRD）」：factory-issue-check 以 FIELD_TITLES
+  # 的 `### 需求描述（PRD）` 標題定位此欄位，改名會被判為欄位缺失。
+  - type: textarea
+    id: requirement
+    attributes:
+      label: 需求描述（PRD）
+      description: |
+        **重點是「這個 repo 是做什麼的」**——這是三軸評級的主要輸入。
+        agent 能從程式碼看出結構，但看不出商業重要性
+        （「內部工具」與「對外營收系統」的目錄結構可能長得一樣）。
+      value: |
+        目標模組 / 檔案：proposals/onboarding/catalog-info.yaml、proposals/onboarding/risk-paths.yml
+        做什麼（一句話）：分析本 repo 結構，產出工廠設定的建議草稿供人類裁定。
+        範圍（不碰什麼）：唯讀分析；不修改任何既有檔案，不寫入 catalog-info.yaml 與 .github/。
+
+        用途：
+        使用者是誰（內部團隊／外部客戶）：
+        壞掉的話會怎樣：
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: 前置條件（步驟 1、2）
+      description: 兩項都完成才送出——否則 workflow 會在 fast-fail 階段擋下。
+      options:
+        - label: GitHub App 已安裝到目標 repo
+          required: true
+        - label: 目標 repo 已有 `software-factory` 分支
+          required: true
+
+  # ⚠️ 這三個 label 必須與 factory-work-item.yml **逐字一致**。
+  # factory-issue-check 的 hasCheckedAcceptance 硬編碼比對 DOD_LABELS
+  #（src/cli/factory-issue-check.ts），任何客製措辭都會被判為 missing:['acceptance']
+  # → 留言「格式不合規」→ workflow 紅燈停派。
+  # 納管專屬的產出要求寫在上方 requirement 欄位，不改動這三行。
+  - type: checkboxes
+    id: acceptance
+    attributes:
+      label: 驗收標準（DoD）
+      description: |
+        三項全勾才算可驗證的工作項（與 factory-issue-check 的固定契約對齊）。
+        納管情境的對應：驗證方式＝合併後跑 factory-rescore 雙向探測；
+        唯讀分析不觸碰高風險路徑；無測試可跑時以 crosscheck 綠燈為準。
+      options:
+        - label: 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）
+          required: true
+        - label: 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）
+          required: true
+        - label: 跑測試確認綠燈（不跑需外部服務的 E2E）
+          required: true

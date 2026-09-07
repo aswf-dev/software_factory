@@ -232,6 +232,88 @@ describe('compareReportToActual', () => {
     expect(m.some((x) => x.kind === 'propose-skill-scope')).toBe(false)
   })
 
+  // --- onboard-only（納管分析：安全樞紐，賭注高於 ADR-016）---
+
+  /** 建一個 onboard 情境的 actual（分支＋指定路徑）。 */
+  function onboardActual(paths: string[]): CrosscheckActual {
+    return { branches: ['factory/12-01-onboard'], paths, added: 40, deleted: 0, uncommitted: [] }
+  }
+
+  it('onboard-only + 純 proposals/onboarding 變更 → 無 onboard-scope', () => {
+    const paths = ['proposals/onboarding/catalog-info.yaml', 'proposals/onboarding/risk-paths.yml']
+    const m = compareReportToActual(
+      { changedPaths: paths, changedLines: 40, requirements: [{ id: 'R1', status: 'passed' }] },
+      onboardActual(paths),
+      false,
+      false,
+      true,
+    )
+    expect(m.some((x) => x.kind === 'onboard-scope')).toBe(false)
+  })
+
+  it('onboard-only + docs 併同變更 → 允許（可附納管說明）', () => {
+    const paths = ['proposals/onboarding/catalog-info.yaml', 'docs/16-rescore-multirepo.md']
+    const m = compareReportToActual(
+      { changedPaths: paths, changedLines: 40, requirements: [{ id: 'R1', status: 'passed' }] },
+      onboardActual(paths),
+      false,
+      false,
+      true,
+    )
+    expect(m.some((x) => x.kind === 'onboard-scope')).toBe(false)
+  })
+
+  /**
+   * 納管情境的安全樞紐。這兩個路徑正是 agent 要分析並提出建議的**對象**，
+   * 而納管當下**尚無任何人審過該 repo 的風險評級**——agent 若能直接寫入正位，
+   * 等於自己宣告自己的監督等級，docs/05 §1.1 的核心不變量當場失效。
+   *
+   * 「有人類審 PR」不足以補償：審查者面對一份填好的 YAML，預設反應是按 merge，
+   * 真正需要動腦的三軸裁定會被包裝成一個看起來已完成的東西
+   * （docs/16 §5.3 的 factory-scoreboard 事故正是這個模式）。
+   */
+  it('onboard-only + 寫入 guardrail 正位 → onboard-scope（絕不可直接落檔）', () => {
+    for (const bad of [
+      'catalog-info.yaml',
+      '.github/factory/risk-paths.yml',
+      '.github/workflows/factory-run.yml',
+      'CODEOWNERS',
+      '.dsh/skills/evil/SKILL.md',
+      'src/cli/factory-score.ts',
+    ]) {
+      const m = compareReportToActual(
+        { changedPaths: [bad], changedLines: 10 },
+        onboardActual([bad]),
+        false,
+        false,
+        true,
+      )
+      expect(m.some((x) => x.kind === 'onboard-scope'), `${bad} 應被擋`).toBe(true)
+    }
+  })
+
+  /**
+   * proposals/skills/ 與 proposals/onboarding/ 是兩個不同型別的提案通道，
+   * 不可互穿——否則 onboard 工作項可藉此產出技能提案，型別契約失效。
+   */
+  it('onboard-only + proposals/skills 變更 → onboard-scope（通道不可互穿）', () => {
+    const paths = ['proposals/skills/x/SKILL.md']
+    const m = compareReportToActual(
+      { changedPaths: paths, changedLines: 10 },
+      onboardActual(paths),
+      false,
+      false,
+      true,
+    )
+    expect(m.some((x) => x.kind === 'onboard-scope')).toBe(true)
+  })
+
+  it('非 onboard-only（預設）→ 不做 onboarding 限制', () => {
+    const paths = ['src/a.ts']
+    const m = compareReportToActual({ changedPaths: paths, changedLines: 20 }, onboardActual(paths))
+    expect(m.some((x) => x.kind === 'onboard-scope')).toBe(false)
+  })
+
   it('宣稱變更但無分支、無 diff、無未提交 → no-trace（假完成）', () => {
     const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 30 }, emptyActual)
     expect(m.some((x) => x.kind === 'no-trace')).toBe(true)
@@ -492,13 +574,14 @@ describe('compareRequirementIds（REQ id 錨定，advisory）', () => {
 })
 
 describe('parseArgs', () => {
-  it('預設值：base=software-factory、target=target、兩個僅產出模式皆 false', () => {
+  it('預設值：base=software-factory、target=target、三個僅產出模式皆 false', () => {
     expect(parseArgs(['12', 'report.json'])).toEqual({
       issueNumber: 12,
       reportPath: 'report.json',
       paths: { base: 'software-factory', target: 'target' },
       analyzeOnly: false,
       proposeSkillOnly: false,
+      onboardOnly: false,
       requirementAnchors: [],
     })
   })
@@ -510,12 +593,26 @@ describe('parseArgs', () => {
       paths: { base: 'main', target: 't2' },
       analyzeOnly: false,
       proposeSkillOnly: false,
+      onboardOnly: false,
       requirementAnchors: [],
     })
   })
 
   it('--propose-skill-only → proposeSkillOnly=true（E6）', () => {
     expect(parseArgs(['12', 'r.json', '--propose-skill-only']).proposeSkillOnly).toBe(true)
+  })
+
+  it('--onboard-only → onboardOnly=true（納管）', () => {
+    expect(parseArgs(['12', 'r.json', '--onboard-only']).onboardOnly).toBe(true)
+  })
+
+  /**
+   * 三個「僅產出」模式的允許清單互不相同，同時指定會讓實際生效的規則變得含糊。
+   * 沿用既有立場：寧可紅燈，也不要讓寬鬆的那一套悄悄成為實際規則。
+   */
+  it('--onboard-only 與其他僅產出模式併用 → CliError（規則不可含糊）', () => {
+    expect(() => parseArgs(['12', 'r.json', '--onboard-only', '--analyze-only'])).toThrow()
+    expect(() => parseArgs(['12', 'r.json', '--onboard-only', '--propose-skill-only'])).toThrow()
   })
 
   it('--requirement-anchors 解析為 id 清單（去空白、濾空項）', () => {
