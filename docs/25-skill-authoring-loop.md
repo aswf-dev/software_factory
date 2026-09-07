@@ -79,7 +79,13 @@
 
 ## 2. 迴圈 A：偵測（三層）
 
-### 2.1 T1：即時（每次 run，零額外操作）
+### 2.1 T1：即時（每次 run，零額外操作） ✅ **已落地（2026-09-06，E4）**
+
+> **實作狀態**：`ReportSchema.skillGap`（`src/cli/factory-judge.ts`）、
+> `renderSkillGapMarkdown`（`src/skill-gap/render.ts`）、`skill-gap` 標籤與留言段落
+> （`src/cli/apply-judge-labels.ts`）、SKILL 指示（`.dsh/skills/factory-workflow/SKILL.md`）
+> 均已完成，並以 dist/ 實機驗證全鏈。`category` 的 kebab-case 為 **fail-loud 強制**
+> （見 §7「同義異名」風險的緩解）。**尚待真實 run 驗證 agent 的填寫紀律。**
 
 **agent 端**：在**已經要停手或繞路**時額外填一個欄位——不新增決策負擔。
 
@@ -244,7 +250,7 @@ node dist/cli/factory-skills-lock.js --promote monorepo-test-path
 
 | 風險 | 說明 | 緩解 |
 |---|---|---|
-| **紀律失效**（最高） | 本迴圈可能重蹈 `defect/*` 覆轍——機制建好、紀律不執行、訊號恆為空（實測：180 顆合併 PR 累計 0 筆 defect 標記） | T1 掛在必看留言上（非主動查詢）；T3 不依賴人工標記；Scoreboard 永久累積可隨時補查。**但若無人查看，T2 仍會失效——本文件不宣稱免疫** |
+| **紀律失效**（最高） | 本迴圈可能重蹈 `defect/*` 覆轍——機制建好、紀律不執行、訊號恆為空（實測：180 顆合併 PR 累計 0 筆 defect 標記） | T1 掛在必看留言上（非主動查詢）；T3 不依賴人工標記；Scoreboard 永久累積可隨時補查。**但若無人查看，T2 仍會失效——本文件不宣稱免疫**。<br>**2026-09-06 部分緩解證據**：以真實 DSH 呼叫實測，agent **主動且格式合法地**填寫了 `skillGap`（`trimmed-fixture-dev-deps`）——T1 的填寫者是 agent 而非人類，故**不依賴人工紀律**。惟樣本數 1 且情境為刻意製造，真實填寫率待累積。**T2（人類查看聚類）仍純靠紀律，風險不變。** |
 | `category` 同義異名 | agent 自訂分類可能分散計數（`monorepo-test-path` vs `pnpm-workspace-test`） | Scoreboard 列「相似 category」提示由人合併；**不做自動語意合併**（需 LLM，違背確定性原則） |
 | 門檻未校準 | 3 次可能過鬆或過嚴 | Q23-1 標為待校準 |
 | 技能膨脹 | 技能數量增加稀釋 agent 注意力 | promote 需明確人工動作，天然節流；§4.2 第 4 項要求可執行性 |
@@ -256,7 +262,7 @@ node dist/cli/factory-skills-lock.js --promote monorepo-test-path
 
 | 編號 | 事項 | 處置 |
 |---|---|---|
-| Q25-1 | `proposals/` 不在 DSH 探索 rank 上為推論（依 `docs/04` §3.2 五個 rank） | 實作第一步以實機驗證；不成立則改用 `.factory/proposals/` |
+| ~~Q25-1~~ | ~~`proposals/` 不在 DSH 探索 rank 上為推論~~ | ✅ **已實機驗證（2026-09-06）**：真實 `dsh` 探測——`.dsh/skills/` 對照組被發現、`proposals/` 探針未被發現。見 ADR-016 Q16-1。 |
 | Q25-2 | 提案門檻 3 次未校準 | 同 Q23-1，累積數據後調整 |
 | Q25-3 | 技能總數上限（何時該合併或淘汰舊 skill） | 待技能數 >10 時再議 |
 
@@ -267,3 +273,5 @@ node dist/cli/factory-skills-lock.js --promote monorepo-test-path
 | 日期 | 變動 |
 |---|---|
 | 2026-09-05 | 建立：定義 A/B 語意分離、T1–T3 三層偵測、四項提案門檻、六項 promote 清單、生效驗證與回退；記載 artifacts 90 天過期／Issue 留言永久的實測依據 |
+| 2026-09-06 | **T1 落地（E4）**：`skillGap` schema／留言段落／標籤／SKILL 指示完成；`category` 改為 kebab-case fail-loud（§7 同義異名風險的機械緩解）；補記 `skillGap` 不進入 pipeline 判定的設計決策 |
+| 2026-09-06 | **迴圈 C 落地（E5＋E6）**：`factory-skills-lock`（verify/update/promote，verify 恆 exit 0）＋`agent-propose-skill` 型別（crosscheck `--propose-skill-only` 白名單）。**Q25-1 實機驗證通過**（`proposals/` 確實不在探索 rank 上）。**紀律實證**：真實 DSH 呼叫確認 agent 會主動且格式合法地填寫 `skillGap`（§7 風險欄已更新） |

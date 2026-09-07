@@ -49,6 +49,15 @@ export interface CrosscheckOutput {
   report: { changedPaths: string[] | undefined; changedLines: number | undefined }
   actual: CrosscheckActual
   mismatches: CrosscheckMismatch[]
+  /**
+   * Advisory 發現：**不影響 `ok`、不擋 run**（REQ id 錨定第一階段）。
+   *
+   * 與 mismatches 分開存放是刻意的：DoD 條目由自由文字解析而來，解析規則與
+   * agent 的理解可能有正當落差，直接 fail-loud 會製造大量假陽性，重蹈
+   * `defect/*` 標記「機制存在但被繞過」的覆轍（docs/14 §1、docs/25 §7）。
+   * 先觀察真實落差率，再由人類裁決是否升為紅燈。
+   */
+  advisories: CrosscheckMismatch[]
 }
 /** git 命令注入點（測試以 fake 取代）；cwd 為目標 repo checkout。 */
 export type GitRunner = (args: string[], cwd?: string) => string
@@ -138,6 +147,7 @@ export function compareReportToActual(
   },
   actual: CrosscheckActual,
   analyzeOnly = false,
+  proposeSkillOnly = false,
 ): CrosscheckMismatch[] {
   const mismatches: CrosscheckMismatch[] = []
   const reported = collectReportedPaths(report.changedPaths)
@@ -153,6 +163,29 @@ export function compareReportToActual(
       mismatches.push({
         kind: 'analyze-code-change',
         detail: `analyze 模式（僅分析不實作）只允許 docs/ 下的報告檔，實際 diff 含非文件變更：${forbidden.join('、')}`,
+      })
+    }
+  }
+
+  // agent-propose-skill（E6、ADR-016 §3 閘門 1）：只允許 proposals/skills/** 與 docs/**。
+  //
+  // **這是 ADR-016 的安全樞紐**。提案之所以安全，是因為 proposals/ 不在任何 DSH
+  // 探索 rank 上（rank 100=.dsh/skills、200=.agents/skills、300=custom、
+  // 400=user-dsh、500=user-agents），因此**誤合併也不會生效**——此推論已於
+  // 2026-09-06 以真實 dsh headless 呼叫實測確認（對照組 .dsh/skills 下的探針被
+  // 發現、proposals/ 下的探針未被發現）。
+  //
+  // 若 agent 能繞道寫進 .dsh/skills/**，它就能自訂自己的行為準則並自我放行，
+  // 直接推翻 docs/05 §1.1「agent 不得鬆綁自身約束」與 docs/06 §4.3。
+  // 因此這裡是 allowlist（白名單）而非 blocklist：未明列者一律拒絕。
+  if (proposeSkillOnly) {
+    const forbidden = actualPaths.filter(
+      (p) => !p.startsWith('proposals/skills/') && !p.startsWith('docs/'),
+    )
+    if (forbidden.length > 0) {
+      mismatches.push({
+        kind: 'propose-skill-scope',
+        detail: `propose-skill 模式只允許 proposals/skills/ 與 docs/ 下的變更，實際 diff 含越界變更：${forbidden.join('、')}`,
       })
     }
   }
@@ -223,6 +256,47 @@ export function compareReportToActual(
   return mismatches
 }
 
+/**
+ * REQ id 錨定比對（**advisory，不影響 ok**）。
+ *
+ * G8 只驗 `requirements` 存在且非空，不驗 id 是否對應真實驗收條件——agent 可回報
+ * `{id:"req-1"}` 而該 id 不指向任何 DoD 條目，形式通過但語意落空。本函式比對
+ * `factory-issue-check` 回寫 Issue 的 `REQ-n` 錨點。
+ *
+ * 回傳 advisory 而非 mismatch 的理由見 `CrosscheckOutput.advisories`。
+ *
+ * @param anchors Issue 留言宣告的合法 id；**空陣列代表無錨點可比**（Issue 未經
+ *                新版 issue-check 檢查過），此時不發話——沒有基準就不該指控。
+ */
+export function compareRequirementIds(
+  reported: readonly { id: string; status: string }[] | undefined,
+  anchors: readonly string[],
+): CrosscheckMismatch[] {
+  if (anchors.length === 0) return []
+  const reqs = reported ?? []
+  if (reqs.length === 0) return []
+
+  const known = new Set(anchors)
+  const unknown = reqs.map((r) => r.id).filter((id) => !known.has(id))
+  const covered = new Set(reqs.map((r) => r.id))
+  const uncovered = anchors.filter((id) => !covered.has(id))
+
+  const out: CrosscheckMismatch[] = []
+  if (unknown.length > 0) {
+    out.push({
+      kind: 'requirements-unknown-id',
+      detail: `report 回報了未出現在 Issue 錨點的 id：${unknown.join('、')}（合法錨點：${anchors.join('、')}）`,
+    })
+  }
+  if (uncovered.length > 0) {
+    out.push({
+      kind: 'requirements-uncovered',
+      detail: `Issue 的驗收條件未被 report 涵蓋：${uncovered.join('、')}`,
+    })
+  }
+  return out
+}
+
 /** 從目標 repo checkout 收集 git 事實。 */
 export function collectActualDiff(
   git: GitRunner,
@@ -275,17 +349,24 @@ export interface CrosscheckCliPaths {
   target: string
 }
 
-/** 解析位置參數：`<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]`。 */
+/**
+ * 解析位置參數：
+ * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only] [--propose-skill-only]`。
+ */
 export function parseArgs(argv: string[]): {
   issueNumber: number
   reportPath: string
   paths: CrosscheckCliPaths
   analyzeOnly: boolean
+  proposeSkillOnly: boolean
+  requirementAnchors: string[]
 } {
   const positional: string[] = []
   let base = 'software-factory'
   let target = 'target'
   let analyzeOnly = false
+  let proposeSkillOnly = false
+  let requirementAnchors: string[] = []
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--base') {
@@ -298,11 +379,24 @@ export function parseArgs(argv: string[]): {
       target = v
     } else if (arg === '--analyze-only') {
       analyzeOnly = true
+    } else if (arg === '--propose-skill-only') {
+      proposeSkillOnly = true
+    } else if (arg === '--requirement-anchors') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) {
+        throw new CliError('--requirement-anchors requires a comma-separated id list')
+      }
+      requirementAnchors = v.split(',').map((s) => s.trim()).filter((s) => s !== '')
     } else if (!arg.startsWith('--')) {
       positional.push(arg)
     } else {
       throw new CliError(`unknown argument: ${arg}`)
     }
+  }
+  // 兩個「僅產出」模式的允許清單不同，同時指定會讓實際生效的規則變得含糊
+  // ——寧可紅燈，也不要讓寬鬆的那一套悄悄成為實際規則（同 factory-judge 的立場）。
+  if (analyzeOnly && proposeSkillOnly) {
+    throw new CliError('--analyze-only 與 --propose-skill-only 不可同時指定')
   }
   const issueNumber = Number(positional[0])
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
@@ -310,20 +404,31 @@ export function parseArgs(argv: string[]): {
   }
   const reportPath = positional[1]
   if (reportPath === undefined) throw new CliError('reportPath is required')
-  return { issueNumber, reportPath, paths: { base, target }, analyzeOnly }
+  return {
+    issueNumber,
+    reportPath,
+    paths: { base, target },
+    analyzeOnly,
+    proposeSkillOnly,
+    requirementAnchors,
+  }
 }
 
 export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput {
-  const { issueNumber, reportPath, paths, analyzeOnly } = parseArgs(argv)
+  const { issueNumber, reportPath, paths, analyzeOnly, proposeSkillOnly, requirementAnchors } =
+    parseArgs(argv)
   const report = loadReport(reportPath)
   const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
-  const mismatches = compareReportToActual(report, actual, analyzeOnly)
+  const mismatches = compareReportToActual(report, actual, analyzeOnly, proposeSkillOnly)
+  // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
+  const advisories = compareRequirementIds(report.requirements, requirementAnchors)
   return {
     issueNumber,
     ok: mismatches.length === 0,
     report: { changedPaths: report.changedPaths, changedLines: report.changedLines },
     actual,
     mismatches,
+    advisories,
   }
 }
 

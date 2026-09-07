@@ -120,6 +120,6 @@ crosscheck 邊界 → PR 審查 → 人工 promote → CODEOWNERS
 
 | 編號 | 事項 | 處置 |
 |---|---|---|
-| Q16-1 | `proposals/` 不在 DSH 探索 rank 上為推論（依 `docs/04` §3.2 五個 rank） | **實作第一步須實機驗證**；不成立則改用 `.factory/proposals/` |
+| ~~Q16-1~~ | ~~`proposals/` 不在 DSH 探索 rank 上為推論~~ | ✅ **已實機驗證（2026-09-06）**：以真實 `dsh --profile headless` 兩次獨立探測——對照組 `.dsh/skills/probe-visible` **被發現**（證明探測法有效）、`proposals/skills/probe-canary` **未被發現**。推論成立，維持 `proposals/skills/`。 |
 | Q16-2 | `skills-lock` 校驗何時由 warning 升為紅燈 | 觀察穩定後由人類裁決 |
 | Q16-3 | 提案門檻「≥3 次」未校準 | 見 `docs/25` §3、Q23-1 |

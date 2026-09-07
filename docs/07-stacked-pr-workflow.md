@@ -80,6 +80,7 @@ trunk (software-factory)
 - 變更本身 < 100 行且單一關注點（如修正一個 typo）；
 - 純機械式全域替換（如相依套件版本更新）——拆開反而增加噪音；
 - **`agent-analyze`（docs/20 C1）**：分析報告固定**單層 PR**（`docs/research/` 下報告檔）——不拆疊；其「建議下一步」由人類據以另開工作項，而非在同一疊內實作。
+- **`agent-propose-skill`（docs/20 E6、ADR-016）**：技能草案固定**單層 PR**（`proposals/skills/<name>/SKILL.md`）——不拆疊。合併**不等於生效**：草案不在任何 DSH 探索路徑上，須由人類另行執行 `factory-skills-lock --promote` 並經 CODEOWNERS 審查（`.dsh/skills/` 受 H5 保護）才生效。**這一段「合併後仍需人工放行」是刻意的第二道閘門**，不是流程冗餘。
 
 > **判準**：拆分的目的是降低審查成本。若拆分後的總審查成本高於單一 PR，就不該拆。**規則服務目的，不是目的本身。**
 

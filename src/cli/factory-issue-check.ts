@@ -193,6 +193,54 @@ export function buildDodSpecificityHint(dod: DodReview): string[] {
   ]
 }
 
+/* ── REQ id 錨定（RTM 語意補實）─────────────────────────────────────────
+ *
+ * 動機：G8（docs/20 B1）要求 agent 在 report.json 回報
+ * `requirements: [{id, status}]`，crosscheck 驗證其「存在且非空」。但 **id 由
+ * agent 自行命名**，不對應任何真實驗收條件——agent 可回報 `{id:"req-1"}` 而該
+ * id 不指向 Issue 的任何一條 DoD，G8 仍然通過。RTM 於是形式存在、語意落空。
+ *
+ * 本節把驗收條目**編號並回寫 Issue 留言**（REQ-1…REQ-n），成為該工作項的穩定
+ * 契約錨點。錨定之後才可能統計「哪一類驗收條件最常 failed」——那是不依賴 agent
+ * 自報的技能缺口訊號（docs/25 §2.3 T3）。
+ *
+ * **刻意不改變 ok/missing 合規判定**：與 G5 具體性提示同為 advisory。
+ */
+
+/** 一條被編號的驗收條件（REQ-n ↔ 原文）。 */
+export interface RequirementAnchor {
+  id: string
+  text: string
+}
+
+/**
+ * 由 DoD 審查結果產生穩定編號。
+ *
+ * 順序即編號來源，因此編號的穩定性取決於 Issue body 不被改寫——這正是
+ * 「Issue 是工作項契約」的既有前提（docs/02 §3.2）。
+ */
+export function buildRequirementAnchors(dod: DodReview): RequirementAnchor[] {
+  return dod.items.map((item, i) => ({ id: `REQ-${i + 1}`, text: item.text }))
+}
+
+/**
+ * REQ 清單留言列（advisory）。
+ *
+ * 空清單時不發話——該情況已由 `buildDodSpecificityHint` 的「只有表單固定 3 項」
+ * 提示涵蓋，重複提醒只會稀釋訊號。
+ */
+export function buildRequirementAnchorLines(anchors: RequirementAnchor[]): string[] {
+  if (anchors.length === 0) return []
+  return [
+    '🔖 **需求追蹤編號（REQ id）**：agent 於 `report.json` 的 `requirements[].id` ' +
+      '請**沿用下列編號**，以便逐條對應驗收條件（G8 需求追蹤）：',
+    ...anchors.map((a) => {
+      const shown = a.text.length > 60 ? `${a.text.slice(0, 60)}…` : a.text
+      return `- \`${a.id}\`：${shown}`
+    }),
+  ]
+}
+
 /* ── 事前風險路徑檢查（路徑 3）───────────────────────────────────────────
  *
  * 動機（factory-scoreboard#3 實證）：初始計分**收不到 changedPaths**——
@@ -333,6 +381,8 @@ export interface CheckResult {
   dod: DodReview
   /** 事前風險路徑審查（advisory）；未提供 hardRules 時為 undefined。 */
   risk?: RiskPathReview | undefined
+  /** 驗收條件的穩定編號（advisory；RTM 錨點，供 report.requirements[].id 沿用）。 */
+  requirements: RequirementAnchor[]
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -371,6 +421,7 @@ export function checkIssue(body: string, hardRules?: HardRulePatterns): CheckRes
   if (extractField(body, 'requirement') === undefined) missing.push('requirement')
   if (!hasCheckedAcceptance(body)) missing.push('acceptance')
   const taskType = extractField(body, 'task_type')
+  const dod = checkDodSpecificity(body)
   return {
     ok: missing.length === 0,
     missing,
@@ -379,9 +430,10 @@ export function checkIssue(body: string, hardRules?: HardRulePatterns): CheckRes
       taskType,
       requirement: extractField(body, 'requirement'),
     }),
-    dod: checkDodSpecificity(body),
+    dod,
     // 未提供 hardRules（既有呼叫端／設定缺失）→ undefined，留言完全不提風險段落
     risk: hardRules === undefined ? undefined : checkRiskPaths(body, hardRules),
+    requirements: buildRequirementAnchors(dod),
   }
 }
 
@@ -420,6 +472,7 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
   if (r.risk !== undefined) {
     lines.push(...buildRiskPathHint(r.risk))
   }
+  lines.push(...buildRequirementAnchorLines(r.requirements))
   if (r.ok) {
     lines.push(
       '可 dispatch（software_factory → Actions → Factory Run，或貼 `factory/approved` label 由同 repo 自動觸發）。',
