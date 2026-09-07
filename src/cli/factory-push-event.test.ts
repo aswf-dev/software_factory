@@ -429,3 +429,42 @@ describe('main', () => {
     expect(outcome.skippedReason).toContain('網路錯誤')
   })
 })
+
+describe('requirements 訊號（REQ 錨定 → extra 槽）', () => {
+  it('failed 條目 → extra.requirements_failed 只含 id（不含條文，隱私）', () => {
+    const report = writeJson('r-failed.json', {
+      requirements: [
+        { id: 'REQ-1', status: 'passed' },
+        { id: 'REQ-2', status: 'failed' },
+        { id: 'REQ-3', status: 'failed' },
+      ],
+    })
+    const e = buildEvent(parseArgs([...baseArgv(), '--report', report]))
+    expect(e.extra['requirements_failed']).toEqual(['REQ-2', 'REQ-3'])
+    expect(e.extra['requirements_total']).toBe(3)
+  })
+
+  it('全部 passed → 不產生 requirements_failed 欄位（不製造空欄位噪音）', () => {
+    const report = writeJson('r-pass.json', { requirements: [{ id: 'REQ-1', status: 'passed' }] })
+    const e = buildEvent(parseArgs([...baseArgv(), '--report', report]))
+    expect(e.extra['requirements_failed']).toBeUndefined()
+    expect(e.extra['requirements_total']).toBe(1)
+  })
+
+  it('crosscheck 有 advisories → extra.requirement_advisories 帶 kind', () => {
+    const report = writeJson('r-adv.json', { requirements: [{ id: 'X', status: 'passed' }] })
+    const cc = writeJson('cc-adv.json', {
+      mismatches: [],
+      advisories: [{ kind: 'requirements-unknown-id', detail: '不應外流的細節' }],
+    })
+    const e = buildEvent(parseArgs([...baseArgv(), '--report', report, '--crosscheck', cc]))
+    expect(e.extra['requirement_advisories']).toEqual(['requirements-unknown-id'])
+    // detail 含 Issue 內容，絕不外送（docs/26 §1.1 約束 3）
+    expect(JSON.stringify(e)).not.toContain('不應外流的細節')
+  })
+
+  it('無 report／無 crosscheck → extra 為空物件（向後相容）', () => {
+    const e = buildEvent(parseArgs(baseArgv()))
+    expect(e.extra).toEqual({})
+  })
+})

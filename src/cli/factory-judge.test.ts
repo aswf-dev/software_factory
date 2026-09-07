@@ -227,6 +227,74 @@ describe('loadReport', () => {
     expect(() => loadReport(report('list.json', [1, 2]))).toThrow(CliError)
     expect(() => loadReport(report('scalar.json', '"hi"'))).toThrow(CliError)
   })
+
+  // --- skillGap（docs/25 §2.1、docs/20 E4）---
+
+  it('skillGap 三欄齊全 → 讀出', () => {
+    const path = report('gap-full.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      skillGap: { category: 'monorepo-test-path', needed: 'vitest 路徑解析 SOP', context: 'issue #201' },
+    })
+    expect(loadReport(path).skillGap).toEqual({
+      category: 'monorepo-test-path',
+      needed: 'vitest 路徑解析 SOP',
+      context: 'issue #201',
+    })
+  })
+
+  it('skillGap 省略 context → 通過（context 為選填）', () => {
+    const path = report('gap-min.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      skillGap: { category: 'java-multimodule-mvn', needed: '多模組測試路徑' },
+    })
+    expect(loadReport(path).skillGap?.context).toBeUndefined()
+  })
+
+  it('skillGap 缺席 → 通過且為 undefined（容錯，不擋終態）', () => {
+    const path = report('gap-absent.json', { issueNumber: 1, invocation: { exitCode: 0 } })
+    expect(loadReport(path).skillGap).toBeUndefined()
+  })
+
+  it('category 非 kebab-case → CliError（聚類鍵不得劣化，docs/25 §7 同義異名風險）', () => {
+    const bads = ['MonorepoTestPath', 'monorepo_test_path', 'monorepo test path', '-lead', 'trail-', 'a--b', '']
+    bads.forEach((bad, i) => {
+      const path = report(`gap-bad-${i}.json`, {
+        issueNumber: 1,
+        invocation: { exitCode: 0 },
+        skillGap: { category: bad, needed: 'x' },
+      })
+      expect(() => loadReport(path), `category=${JSON.stringify(bad)} 應被拒`).toThrow(CliError)
+    })
+  })
+
+  it('needed 為空字串 → CliError（空缺口等於沒回報，不接受佔位）', () => {
+    const path = report('gap-empty-needed.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      skillGap: { category: 'a-b', needed: '' },
+    })
+    expect(() => loadReport(path)).toThrow(CliError)
+  })
+
+  it('context 給了就必須有內容（空字串 → CliError）', () => {
+    const path = report('gap-empty-ctx.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      skillGap: { category: 'a-b', needed: 'x', context: '' },
+    })
+    expect(() => loadReport(path)).toThrow(CliError)
+  })
+
+  it('skillGap 缺 needed → CliError', () => {
+    const path = report('gap-no-needed.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      skillGap: { category: 'a-b' },
+    })
+    expect(() => loadReport(path)).toThrow(CliError)
+  })
 })
 
 describe('main', () => {

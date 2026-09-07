@@ -13,6 +13,7 @@ import {
   collectActualDiff,
   collectReportedPaths,
   compareReportToActual,
+  compareRequirementIds,
   isFactoryInternal,
   main,
   normalizePath,
@@ -172,6 +173,63 @@ describe('compareReportToActual', () => {
     }
     const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 20 }, actual, false)
     expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(false)
+  })
+
+  // --- propose-skill-only（E6／ADR-016 §3 閘門 1：安全樞紐）---
+
+  /** 建一個 propose-skill 情境的 actual（分支＋指定路徑）。 */
+  function proposeActual(paths: string[]): CrosscheckActual {
+    return { branches: ['factory/12-01-propose'], paths, added: 30, deleted: 0, uncommitted: [] }
+  }
+
+  it('propose-skill-only + 純 proposals/skills 變更 → 無 propose-skill-scope', () => {
+    const paths = ['proposals/skills/monorepo-test-path/SKILL.md']
+    const m = compareReportToActual(
+      { changedPaths: paths, changedLines: 30, requirements: [{ id: 'R1', status: 'passed' }] },
+      proposeActual(paths),
+      false,
+      true,
+    )
+    expect(m.some((x) => x.kind === 'propose-skill-scope')).toBe(false)
+  })
+
+  it('propose-skill-only + docs 併同變更 → 允許（可附說明文件）', () => {
+    const paths = ['proposals/skills/x-y/SKILL.md', 'docs/25-skill-authoring-loop.md']
+    const m = compareReportToActual(
+      { changedPaths: paths, changedLines: 30, requirements: [{ id: 'R1', status: 'passed' }] },
+      proposeActual(paths),
+      false,
+      true,
+    )
+    expect(m.some((x) => x.kind === 'propose-skill-scope')).toBe(false)
+  })
+
+  /**
+   * 這是整個 ADR-016 的安全樞紐：若 agent 能寫進 .dsh/skills/，它就能自訂
+   * 自己的行為準則並自我放行——docs/05 §1.1 的核心不變量當場失效。
+   */
+  it('propose-skill-only + .dsh/skills 變更 → propose-skill-scope（絕不可繞道生效）', () => {
+    const paths = ['.dsh/skills/evil/SKILL.md']
+    const m = compareReportToActual({ changedPaths: paths, changedLines: 30 }, proposeActual(paths), false, true)
+    expect(m.some((x) => x.kind === 'propose-skill-scope')).toBe(true)
+  })
+
+  it('propose-skill-only + src/ 或 .github/ 變更 → propose-skill-scope', () => {
+    for (const bad of ['src/cli/x.ts', '.github/workflows/factory-run.yml', 'catalog-info.yaml']) {
+      const m = compareReportToActual(
+        { changedPaths: [bad], changedLines: 10 },
+        proposeActual([bad]),
+        false,
+        true,
+      )
+      expect(m.some((x) => x.kind === 'propose-skill-scope'), `${bad} 應被擋`).toBe(true)
+    }
+  })
+
+  it('非 propose-skill-only（預設）→ 不做 proposals 限制', () => {
+    const paths = ['src/a.ts']
+    const m = compareReportToActual({ changedPaths: paths, changedLines: 20 }, proposeActual(paths))
+    expect(m.some((x) => x.kind === 'propose-skill-scope')).toBe(false)
   })
 
   it('宣稱變更但無分支、無 diff、無未提交 → no-trace（假完成）', () => {
@@ -391,13 +449,57 @@ describe('collectActualDiff', () => {
   })
 })
 
+describe('compareRequirementIds（REQ id 錨定，advisory）', () => {
+  it('id 全部對應錨點且涵蓋完整 → 無 advisory', () => {
+    const out = compareRequirementIds(
+      [
+        { id: 'REQ-1', status: 'passed' },
+        { id: 'REQ-2', status: 'skipped' },
+      ],
+      ['REQ-1', 'REQ-2'],
+    )
+    expect(out).toEqual([])
+  })
+
+  /** 這正是 G8 目前漏掉的語意缺口：id 存在但不指向任何驗收條件。 */
+  it('回報未知 id → requirements-unknown-id', () => {
+    const out = compareRequirementIds([{ id: 'req-1', status: 'passed' }], ['REQ-1'])
+    expect(out.map((m) => m.kind)).toContain('requirements-unknown-id')
+  })
+
+  it('錨點未被涵蓋 → requirements-uncovered', () => {
+    const out = compareRequirementIds([{ id: 'REQ-1', status: 'passed' }], ['REQ-1', 'REQ-2'])
+    expect(out.map((m) => m.kind)).toContain('requirements-uncovered')
+    expect(out.find((m) => m.kind === 'requirements-uncovered')?.detail).toContain('REQ-2')
+  })
+
+  it('同時有未知 id 與未涵蓋 → 兩則都回報', () => {
+    const out = compareRequirementIds([{ id: 'BOGUS', status: 'passed' }], ['REQ-1'])
+    expect(out.map((m) => m.kind).sort()).toEqual(['requirements-uncovered', 'requirements-unknown-id'])
+  })
+
+  /**
+   * 沒有錨點就沒有基準——對舊 Issue（未經新版 issue-check）不該指控。
+   */
+  it('錨點為空 → 完全不發話（無基準不指控，避免假陽性）', () => {
+    expect(compareRequirementIds([{ id: 'anything', status: 'passed' }], [])).toEqual([])
+  })
+
+  it('report 未回報 requirements → 不發話（該情況由 G8 fail-loud 處理）', () => {
+    expect(compareRequirementIds(undefined, ['REQ-1'])).toEqual([])
+    expect(compareRequirementIds([], ['REQ-1'])).toEqual([])
+  })
+})
+
 describe('parseArgs', () => {
-  it('預設值：base=software-factory、target=target、analyzeOnly=false', () => {
+  it('預設值：base=software-factory、target=target、兩個僅產出模式皆 false', () => {
     expect(parseArgs(['12', 'report.json'])).toEqual({
       issueNumber: 12,
       reportPath: 'report.json',
       paths: { base: 'software-factory', target: 'target' },
       analyzeOnly: false,
+      proposeSkillOnly: false,
+      requirementAnchors: [],
     })
   })
 
@@ -407,7 +509,31 @@ describe('parseArgs', () => {
       reportPath: 'r.json',
       paths: { base: 'main', target: 't2' },
       analyzeOnly: false,
+      proposeSkillOnly: false,
+      requirementAnchors: [],
     })
+  })
+
+  it('--propose-skill-only → proposeSkillOnly=true（E6）', () => {
+    expect(parseArgs(['12', 'r.json', '--propose-skill-only']).proposeSkillOnly).toBe(true)
+  })
+
+  it('--requirement-anchors 解析為 id 清單（去空白、濾空項）', () => {
+    expect(parseArgs(['12', 'r.json', '--requirement-anchors', 'REQ-1, REQ-2 ,,REQ-3']).requirementAnchors).toEqual([
+      'REQ-1',
+      'REQ-2',
+      'REQ-3',
+    ])
+  })
+
+  it('--requirement-anchors 缺值 → CliError', () => {
+    expect(() => parseArgs(['12', 'r.json', '--requirement-anchors'])).toThrow(/comma-separated/)
+  })
+
+  it('同時指定 --analyze-only 與 --propose-skill-only → CliError（允許清單不同，語意含糊）', () => {
+    expect(() => parseArgs(['12', 'r.json', '--analyze-only', '--propose-skill-only'])).toThrow(
+      /不可同時指定/,
+    )
   })
 
   it('--analyze-only 旗標', () => {
@@ -452,6 +578,40 @@ describe('main（fake git runner）', () => {
     const out = main(['12', reportPath, '--target', 'target'], fakeGit({}))
     expect(out.ok).toBe(false)
     expect(out.mismatches.some((m) => m.kind === 'no-trace')).toBe(true)
+  })
+
+  /**
+   * REQ 錨定第一階段是 advisory：即使 id 完全對不上，**ok 仍為 true、不擋 run**。
+   * 這條釘死「advisory 不得升級為 gate」的設計決策——若有人把 advisories 併進
+   * mismatches，本測試立刻變紅。
+   */
+  it('REQ id 對不上錨點 → advisories 有內容但 ok 仍為 true（不擋 run）', () => {
+    writeFileSync(reportPath, makeReport())
+    const git = fakeGit({
+      branches: 'factory/12-01-test\n',
+      diffNameOnly: () => 'src/a.ts\n',
+      shortStat: () => ' 1 file changed, 30 insertions(+)',
+    })
+    const out = main(['12', reportPath, '--target', 'target', '--requirement-anchors', 'REQ-1,REQ-2'], git)
+    expect(out.ok).toBe(true)
+    expect(out.mismatches).toEqual([])
+    expect(out.advisories.map((a) => a.kind).sort()).toEqual([
+      'requirements-uncovered',
+      'requirements-unknown-id',
+    ])
+  })
+
+  it('未傳 --requirement-anchors → advisories 為空（向後相容）', () => {
+    writeFileSync(reportPath, makeReport())
+    const out = main(
+      ['12', reportPath, '--target', 'target'],
+      fakeGit({
+        branches: 'factory/12-01-test\n',
+        diffNameOnly: () => 'src/a.ts\n',
+        shortStat: () => ' 1 file changed, 30 insertions(+)',
+      }),
+    )
+    expect(out.advisories).toEqual([])
   })
 
   it('report 不存在 → 拋錯（CLI 邊界由 formatCliError 轉成 file not found 單行）', () => {

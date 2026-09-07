@@ -22,14 +22,25 @@ const ScoreSchema = z.object({
 })
 export type ScoreLike = z.infer<typeof ScoreSchema>['score']
 
+/**
+ * in-loop 仍可執行的「僅產出、不實作」型別（docs/06 §4）。
+ *
+ * 兩者共用同一條理由：**產出物不具放行效力**，仍須人類審查。
+ *  - `agent-analyze`（docs/20 C1）：產出分析報告（docs/）
+ *  - `agent-propose-skill`（E6／ADR-016 §4）：產出技能草案（proposals/skills/）
+ *
+ * **這不是放寬監督層級**：tier 不變、標籤不變、automerge 不變（ADR-016 §4）。
+ * 各型別的實際可寫範圍由 crosscheck 的對應模式以白名單強制。
+ */
+export const OUTPUT_ONLY_TASK_TYPES = ['agent-analyze', 'agent-propose-skill'] as const
+
 export function computeScoreLabels(
   score: ScoreLike,
   taskType?: string,
 ): { labels: string[]; blocked: boolean; analyzeAllowed: boolean } {
   const inLoop = score.tier === 'in-loop'
-  // agent-analyze（docs/20 C1）：in-loop 工作項允許「僅分析不實作」——這是 docs/06 §4
-  // 「僅可產出分析與方案，不得實作」的實作，不是放寬監督層級。報告 PR 仍須人類審查。
-  const analyzeAllowed = inLoop && taskType === 'agent-analyze'
+  const analyzeAllowed =
+    inLoop && (OUTPUT_ONLY_TASK_TYPES as readonly string[]).includes(taskType ?? '')
   return { labels: [score.label], blocked: inLoop && !analyzeAllowed, analyzeAllowed }
 }
 
@@ -40,7 +51,17 @@ export function buildBlockComment(total: number): string {
   )
 }
 
-export function buildAnalyzeComment(total: number): string {
+export function buildAnalyzeComment(total: number, taskType?: string): string {
+  if (taskType === 'agent-propose-skill') {
+    return (
+      `⚠️ 初始計分 ${total} 分屬 human-in-the-loop（docs/06 §4.3），但本工作項為 ` +
+      '**agent-propose-skill**（僅提案不實作）——依 docs/06 §4「僅可產出分析與方案，不得實作」，' +
+      '允許 agent 產出技能草案 PR 供人類審查。**草案不具放行效力**：它寫入 `proposals/skills/`，' +
+      '不在任何 DSH 探索路徑上，**即使誤合併也不會生效**；須由人類執行 ' +
+      '`factory-skills-lock --promote` 並經 CODEOWNERS 審查後才生效（ADR-016）。' +
+      '提案不得觸碰 `src/`、`.dsh/`、`.github/`（crosscheck 以 propose-skill 模式驗證）。'
+    )
+  }
   return (
     `⚠️ 初始計分 ${total} 分屬 human-in-the-loop（docs/06 §4.3），但本工作項為 ` +
     '**agent-analyze**（僅分析不實作）——依 docs/06 §4「僅可產出分析與方案，不得實作」，' +
@@ -81,7 +102,7 @@ export function main(argv: string[], gh: GhRunner = realGh): ScoreLabelsOutput {
   if (blocked) {
     gh(['issue', 'comment', issueNumber, '--body', buildBlockComment(parsed.data.score.total)])
   } else if (analyzeAllowed) {
-    gh(['issue', 'comment', issueNumber, '--body', buildAnalyzeComment(parsed.data.score.total)])
+    gh(['issue', 'comment', issueNumber, '--body', buildAnalyzeComment(parsed.data.score.total, taskType)])
   }
   return { labels, blocked, analyzeAllowed }
 }

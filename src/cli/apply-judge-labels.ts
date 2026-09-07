@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
+import { SkillGapSchema } from './factory-judge.js'
+import { renderSkillGapMarkdown } from '../skill-gap/render.js'
 
 export const PHASE1_HUMAN_REVIEW_NOTE = '（第 1 期：不自動合併，等待人類審查）'
 
@@ -18,22 +20,48 @@ const JudgeSchema = z.object({
     labels: z.array(z.string()),
     summary: z.string(),
   }),
+  /**
+   * judge.json 頂層的 report（factory-judge 的 JudgeCliOutput = { report, result }）。
+   * 這裡只取 skillGap 一欄，其餘不重複驗證——report 已於 factory-judge 端經
+   * ReportSchema fail-loud 驗過，在此再收一次只會製造第二套可能分歧的規則。
+   */
+  report: z.object({ skillGap: SkillGapSchema.optional() }).optional(),
 })
 export type JudgeLike = z.infer<typeof JudgeSchema>['result']
 
-export function computeJudgeLabels(judge: JudgeLike): { labels: string[]; requiresHuman: boolean } {
+/**
+ * 計算標籤。
+ *
+ * `hasSkillGap` 只影響**標籤**，不影響 `requiresHuman`：技能缺口是分類訊號，
+ * 不是監督層級。讓它改變 requiresHuman 會使 agent 多一個影響終態的施力點
+ * （docs/25 §2.1「不擋終態」）。
+ */
+export function computeJudgeLabels(
+  judge: JudgeLike,
+  hasSkillGap = false,
+): { labels: string[]; requiresHuman: boolean } {
   const labels = [...judge.labels]
   if (judge.outcome === 'needs-human' && !labels.includes('needs-human')) labels.push('needs-human')
+  if (hasSkillGap && !labels.includes('skill-gap')) labels.push('skill-gap')
   // Phase 1：任何執行過的終點都要人審；blocked-in-loop 已在 apply-score-labels 留言
   const requiresHuman = judge.outcome !== 'blocked-in-loop'
   return { labels, requiresHuman }
 }
 
-export function buildJudgeComment(outcome: string, summary: string, usageMarkdown?: string | undefined): string {
+export function buildJudgeComment(
+  outcome: string,
+  summary: string,
+  usageMarkdown?: string | undefined,
+  skillGapMarkdown?: string | undefined,
+): string {
   const lines = [`## 工廠執行結果：${outcome}`, '', summary]
   if (outcome === 'ready-to-automerge') lines.push('', PHASE1_HUMAN_REVIEW_NOTE)
   if (usageMarkdown !== undefined && usageMarkdown.trim() !== '') {
     lines.push('', '---', '', usageMarkdown.trim())
+  }
+  // 技能缺口段落置於用量之後：兩者都是選用附註，缺席時輸出與現況逐字相同。
+  if (skillGapMarkdown !== undefined && skillGapMarkdown.trim() !== '') {
+    lines.push('', '---', '', skillGapMarkdown.trim())
   }
   return lines.join('\n')
 }
@@ -73,14 +101,23 @@ export function main(argv: string[], gh: GhRunner = realGh): JudgeLabelsOutput {
     }
   }
 
-  const { labels } = computeJudgeLabels(parsed.data.result)
+  // 技能缺口為選用訊號（docs/25 §2.1）：缺席時標籤與留言與現況逐字相同。
+  const skillGap = parsed.data.report?.skillGap
+  const skillGapMarkdown = skillGap === undefined ? undefined : renderSkillGapMarkdown(skillGap)
+
+  const { labels } = computeJudgeLabels(parsed.data.result, skillGap !== undefined)
   gh(['issue', 'edit', issueNumber, '--add-label', labels.join(',')])
   gh([
     'issue',
     'comment',
     issueNumber,
     '--body',
-    buildJudgeComment(parsed.data.result.outcome, parsed.data.result.summary, usageMarkdown),
+    buildJudgeComment(
+      parsed.data.result.outcome,
+      parsed.data.result.summary,
+      usageMarkdown,
+      skillGapMarkdown,
+    ),
   ])
   return { labels }
 }

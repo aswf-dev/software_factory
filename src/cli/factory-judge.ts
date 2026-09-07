@@ -43,6 +43,26 @@ const InvocationSchema = z.object({
  * @export 供 factory-crosscheck 等「以 report 為輸入的判定器」共用，確保只有
  * 一份 report 契約。
  */
+/**
+ * 技能缺口回報（docs/25 §2.1、docs/20 E4）。
+ *
+ * agent 在**已經要停手或繞路時**額外填寫，回報「我缺什麼 SOP」。這是
+ * `docs/25` 迴圈 A 的 T1 偵測層——把擴展需求從盲區變成可見訊號。
+ *
+ * `category` 是**聚類鍵**，強制 kebab-case：`docs/25` §7 已列「同義異名」
+ * 為已知風險（`monorepo-test-path` vs `pnpm-workspace-test` 會稀釋計數），
+ * 格式不一致會直接讓 §3 的「≥3 次」門檻失準，因此在入口就 fail-loud。
+ */
+export const SkillGapSchema = z.object({
+  category: z
+    .string()
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'category must be kebab-case (e.g. monorepo-test-path)'),
+  needed: z.string().min(1),
+  context: z.string().min(1).optional(),
+})
+
+export type SkillGap = z.infer<typeof SkillGapSchema>
+
 export const ReportSchema = z.object({
   issueNumber: z.number(),
   invocation: InvocationSchema,
@@ -74,6 +94,15 @@ export const ReportSchema = z.object({
    * 與執行報告留底；pipeline 判定不讀它（量測是附註不是 gate）。
    */
   usage: UsageReportSchema.optional(),
+  /**
+   * 技能缺口（docs/25 §2.1）。選填——缺席時留言與標籤行為與現況**逐字相同**
+   * （容錯，不擋終態）。
+   *
+   * **刻意不進入 pipeline 判定**（不出現在 toAgentRun）：若讓自報的技能缺口
+   * 影響終態，等於給 agent 一個「宣稱缺技能就改變判定」的施力點。與 usage
+   * 同立場——schema 收下以供留言與事件使用，判定不讀它。
+   */
+  skillGap: SkillGapSchema.optional(),
 })
 
 export type FactoryReport = z.infer<typeof ReportSchema>

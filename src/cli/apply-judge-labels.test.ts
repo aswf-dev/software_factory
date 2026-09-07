@@ -69,6 +69,61 @@ describe('computeJudgeLabels（純函式）', () => {
     expect(comment).not.toContain('---')
     expect(comment).toBe('## 工廠執行結果：ready-for-review\n\nok')
   })
+
+  // --- skill-gap（docs/25 §2.1、docs/20 E4）---
+
+  it('hasSkillGap → 貼 skill-gap 標籤，且不改變 requiresHuman（分類訊號≠監督層級）', () => {
+    const out = computeJudgeLabels(RESULT('ready-for-review', ['oversight/review'], 'ok') as never, true)
+    expect(out.labels).toEqual(['oversight/review', 'skill-gap'])
+    // requiresHuman 必須僅由 outcome 決定
+    const noGap = computeJudgeLabels(RESULT('ready-for-review', ['oversight/review'], 'ok') as never, false)
+    expect(out.requiresHuman).toBe(noGap.requiresHuman)
+  })
+
+  it('blocked-in-loop + skillGap → requiresHuman 仍為 false（skillGap 不得提升監督層級）', () => {
+    const out = computeJudgeLabels(RESULT('blocked-in-loop', ['oversight/in-loop'], 'x') as never, true)
+    expect(out.requiresHuman).toBe(false)
+    expect(out.labels).toContain('skill-gap')
+  })
+
+  it('labels 已含 skill-gap → 不重複貼', () => {
+    const out = computeJudgeLabels(RESULT('ready-for-review', ['skill-gap'], 'x') as never, true)
+    expect(out.labels.filter((l) => l === 'skill-gap')).toHaveLength(1)
+  })
+
+  it('hasSkillGap 預設 false → 標籤與現況相同（既有呼叫端不受影響）', () => {
+    const out = computeJudgeLabels(RESULT('ready-for-review', ['oversight/review'], 'x') as never)
+    expect(out.labels).toEqual(['oversight/review'])
+  })
+
+  it('提供 skillGap markdown → 附加於 usage 之後', () => {
+    const comment = buildJudgeComment('ready-for-review', 'ok', '## 用量', '### 🧩 技能缺口回報\n- **分類**：`a-b`')
+    expect(comment.indexOf('## 用量')).toBeLessThan(comment.indexOf('### 🧩 技能缺口回報'))
+  })
+
+  it('無 usage 但有 skillGap → 仍以 --- 分隔附加', () => {
+    const comment = buildJudgeComment('ready-for-review', 'ok', undefined, '### 🧩 技能缺口回報')
+    expect(comment).toBe('## 工廠執行結果：ready-for-review\n\nok\n\n---\n\n### 🧩 技能缺口回報')
+  })
+
+  it('skillGap markdown 為空白 → 不附加空段落', () => {
+    const comment = buildJudgeComment('ready-for-review', 'ok', undefined, '   ')
+    expect(comment).toBe('## 工廠執行結果：ready-for-review\n\nok')
+  })
+
+  /**
+   * D-1 回歸釘死：未回報 skillGap 時，留言必須與「本功能加入前」**逐字相同**。
+   * docs/25 §2.1 明訂「skillGap 缺席 → 留言與現況逐字相同（容錯，不擋終態）」。
+   */
+  it('未回報 skillGap → 留言逐字等同現況（byte-identical 回歸）', () => {
+    expect(buildJudgeComment('ready-for-review', 'ok')).toBe('## 工廠執行結果：ready-for-review\n\nok')
+    expect(buildJudgeComment('ready-to-automerge', 'ok')).toBe(
+      `## 工廠執行結果：ready-to-automerge\n\nok\n\n${PHASE1_HUMAN_REVIEW_NOTE}`,
+    )
+    expect(buildJudgeComment('ready-for-review', 'ok', '## 用量')).toBe(
+      '## 工廠執行結果：ready-for-review\n\nok\n\n---\n\n## 用量',
+    )
+  })
 })
 
 describe('main（注入 fake gh）', () => {
@@ -120,5 +175,86 @@ describe('main（注入 fake gh）', () => {
     const gh = vi.fn()
     main([String(201), writeJudge(RESULT('ready-for-review', ['oversight/review'], 'ok'), 'empty-usage.json'), ''], gh)
     expect(gh).toHaveBeenCalledWith(['issue', 'comment', '201', '--body', expect.not.stringContaining('Token 用量')])
+  })
+
+  // --- skill-gap 端到端（judge.json 的 report.skillGap → 標籤 + 留言段落）---
+
+  /** 寫一份含 report 區塊的 judge.json（factory-judge 的 JudgeCliOutput 形狀）。 */
+  function writeJudgeWithReport(result: unknown, report: unknown, name: string): string {
+    const p = join(tmp, name)
+    writeFileSync(p, JSON.stringify({ result, report }))
+    return p
+  }
+
+  it('judge.json 含 report.skillGap → 貼 skill-gap 標籤且留言含技能缺口段落', () => {
+    const gh = vi.fn()
+    const p = writeJudgeWithReport(
+      RESULT('ready-for-review', ['oversight/review'], 'ok'),
+      {
+        issueNumber: 201,
+        invocation: { exitCode: 0 },
+        skillGap: { category: 'monorepo-test-path', needed: 'vitest 路徑解析 SOP', context: 'issue #201' },
+      },
+      'gap.json',
+    )
+    const out = main([String(201), p], gh)
+    expect(out.labels).toContain('skill-gap')
+    expect(gh).toHaveBeenCalledWith(['issue', 'edit', '201', '--add-label', 'oversight/review,skill-gap'])
+    expect(gh).toHaveBeenCalledWith([
+      'issue',
+      'comment',
+      '201',
+      '--body',
+      expect.stringContaining('### 🧩 技能缺口回報'),
+    ])
+    expect(gh).toHaveBeenCalledWith([
+      'issue',
+      'comment',
+      '201',
+      '--body',
+      expect.stringContaining('- **分類**：`monorepo-test-path`'),
+    ])
+  })
+
+  it('judge.json 無 report 區塊 → 行為與現況相同（向後相容：舊 judge.json 仍可讀）', () => {
+    const gh = vi.fn()
+    const out = main([String(201), writeJudge(RESULT('ready-for-review', ['oversight/review'], 'ok'), 'no-report.json')], gh)
+    expect(out.labels).toEqual(['oversight/review'])
+    expect(gh).toHaveBeenCalledWith(['issue', 'comment', '201', '--body', '## 工廠執行結果：ready-for-review\n\nok'])
+  })
+
+  it('report 存在但無 skillGap → 不貼標籤、不附段落', () => {
+    const gh = vi.fn()
+    const p = writeJudgeWithReport(
+      RESULT('ready-for-review', ['oversight/review'], 'ok'),
+      { issueNumber: 201, invocation: { exitCode: 0 } },
+      'report-no-gap.json',
+    )
+    const out = main([String(201), p], gh)
+    expect(out.labels).toEqual(['oversight/review'])
+    expect(gh).toHaveBeenCalledWith(['issue', 'comment', '201', '--body', '## 工廠執行結果：ready-for-review\n\nok'])
+  })
+
+  it('report.skillGap 格式非法（category 非 kebab-case）→ CliError（fail-loud，不靜默丟棄）', () => {
+    const p = writeJudgeWithReport(
+      RESULT('ready-for-review', ['oversight/review'], 'ok'),
+      { issueNumber: 201, invocation: { exitCode: 0 }, skillGap: { category: 'BadCase', needed: 'x' } },
+      'bad-gap.json',
+    )
+    expect(() => main([String(201), p], vi.fn())).toThrow(CliError)
+  })
+
+  it('usage 與 skillGap 同時存在 → 兩段皆附加，順序為 usage 在前', () => {
+    const gh = vi.fn()
+    const usagePath = join(tmp, 'usage2.md')
+    writeFileSync(usagePath, '## 📊 Token 用量與成本\n\n- 總 token：100')
+    const p = writeJudgeWithReport(
+      RESULT('ready-for-review', ['oversight/review'], 'ok'),
+      { issueNumber: 201, invocation: { exitCode: 0 }, skillGap: { category: 'a-b', needed: 'x' } },
+      'both.json',
+    )
+    main([String(201), p, usagePath], gh)
+    const body = gh.mock.calls.find((c) => c[0][1] === 'comment')?.[0][4] as string
+    expect(body.indexOf('總 token：100')).toBeLessThan(body.indexOf('### 🧩 技能缺口回報'))
   })
 })
