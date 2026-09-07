@@ -91,6 +91,22 @@ describe('factory-workflow 含 report.json 契約', () => {
       expect(content).toContain(field)
     }
   })
+
+  /**
+   * E4（docs/25 §2.1）：skillGap 的 SKILL 指示與 ReportSchema 必須一致。
+   *
+   * 防的是「schema 收了欄位但 agent 從不知道要填」——那會讓整條技能擴增迴圈
+   * 靜默失效（機制存在、訊號恆為空，正是 docs/25 §7 列為最高風險的「紀律失效」）。
+   */
+  it('含 skillGap 欄位、kebab-case 要求與「不得虛構」約束', () => {
+    expect(content).toContain('skillGap')
+    expect(content).toContain('category')
+    expect(content).toContain('needed')
+    // 聚類鍵格式是門檻能否成立的前提（docs/25 §3）
+    expect(content).toMatch(/kebab-case/)
+    // 誠實回報：沒遇到就省略，不得為填而填
+    expect(content).toMatch(/不得為了填而虛構缺口|虛構/)
+  })
 })
 
 describe('task-template 自足且指向 skills', () => {
@@ -300,7 +316,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       expect(c).toContain('export BASE_BRANCH=$(cat .factory/run/base-branch')
     }
   })
-  it('5 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
+  it('6 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
     const w = read('.github/workflows/factory-run.yml')
     const m = w.match(/^ {8}options: \[(.+)\]$/m)
     expect(m).not.toBeNull()
@@ -311,6 +327,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'agent-update-deps',
       'agent-write-docs',
       'agent-analyze',
+      'agent-propose-skill',
     ])
     // 檔名慣例：task-template-<type>.txt（type 無 agent- 前綴）——
     // 路由必須剝除前綴，否則專屬模板永遠拼不出檔名（2026-08-21 實測抓到的
@@ -492,7 +509,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     const labels = [...yml.matchAll(/^ {8}- label: (.+)$/gm)].map((m) => m[1])
     expect(labels).toEqual([...DOD_LABELS])
   })
-  it('ISSUE_TEMPLATE 的 task_type 5 種選項齊全', () => {
+  it('ISSUE_TEMPLATE 的 task_type 6 種選項齊全', () => {
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     for (const t of [
       'agent-add-tests',
@@ -500,9 +517,25 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-update-deps',
       'agent-write-docs',
       'agent-analyze',
+      'agent-propose-skill',
     ]) {
       expect(yml).toContain(t)
     }
+  })
+
+  /**
+   * #238 漂移教訓（docs/21 §1 接線 6）：Backstage template 是凍結工件，
+   * 但仍是宣告入口——新增 task_type 時漏改它，表單就永遠開不出該型別。
+   * 三處 enum（workflow options／ISSUE_TEMPLATE／Backstage）必須一致。
+   */
+  it('Backstage template enum 與 workflow options 完全一致（防 #238 漂移）', () => {
+    const w = read('.github/workflows/factory-run.yml')
+    const options = w.match(/^ {8}options: \[(.+)\]$/m)![1]!.split(',').map((s) => s.trim())
+    const bs = read('backstage/templates/factory-work-item/template.yaml')
+    const enumBlock = bs.match(/enum:\n((?: {12}- agent-[\w-]+\n)+)/)
+    expect(enumBlock, 'Backstage template 找不到 taskType enum 區塊').not.toBeNull()
+    const enumTypes = [...enumBlock![1]!.matchAll(/- (agent-[\w-]+)/g)].map((m) => m[1])
+    expect(enumTypes).toEqual(options)
   })
   it('Backstage factory-work-item 模板存在且含建 Issue + dispatch 結構', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
@@ -543,6 +576,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-update-deps',
       'agent-write-docs',
       'agent-analyze',
+      'agent-propose-skill',
     ]
     for (const ty of expected) {
       expect(t).toContain(ty)
