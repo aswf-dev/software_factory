@@ -38,16 +38,16 @@
 
 ### 1.1 批次 E — Scoreboard 與技能撰寫迴圈（2026-09-05 新增，待開 Issue）
 
-來源：`ADR-015`（Scoreboard 裁決）、`ADR-016`（技能提案）、`docs/25`／`docs/26`。**E1–E3 已完成；E4–E6 待排程。**
+來源：`ADR-015`（Scoreboard 裁決）、`ADR-016`（技能提案）、`docs/25`／`docs/26`。**E1–E6 全部完成（2026-09-06）。**
 
 | # | 工項 | 類型 | 主要檔案 | 監督 | 狀態 |
 |---|---|---|---|---|---|
 | E1 | 裁決與規格文件（ADR-015/016、docs/24/25/26、docs/22 v2、索引） | 人類撰寫 | `docs/**` | 低 | ✅ **完成（2026-09-05）** |
 | E2 | Scoreboard MVP（Astro + Workers + D1 + Access） | 人類／新 repo | `philipz/factory-scoreboard` | 獨立 repo | ✅ **完成（2026-09-05）** |
 | E3 | 機制 repo 接線：`factory-push-event` CLI ＋ workflow 推送步驟 | agent-fix-bug | `src/cli/factory-push-event.ts`＋`factory-run.yml` | H5→審查 | ✅ **完成（2026-09-05）** |
-| E4 | skill-gap 通道：`ReportSchema.skillGap`＋留言段落＋`factory-workflow` SKILL 附加節 | agent-fix-bug | `src/cli/factory-judge.ts`／`apply-judge-labels.ts`／SKILL | H5→審查 | ⏳ 待排程 |
-| E5 | `skills-lock` 完整性校驗＋`--promote` | agent-fix-bug | `src/cli/factory-skills-lock.ts`＋`config/factory/skills-lock.json` | H5→審查 | ⏳ 待排程 |
-| E6 | `agent-propose-skill` 任務型別（五處接線＋crosscheck `--propose-skill-only`） | 綜合 | workflow／template／skill／crosscheck／對抗性測試 | H5→審查 | ⏳ 待排程 |
+| E4 | skill-gap 通道：`ReportSchema.skillGap`＋留言段落＋`factory-workflow` SKILL 附加節 | agent-fix-bug | `src/cli/factory-judge.ts`／`apply-judge-labels.ts`／SKILL | H5→審查 | ✅ **完成（2026-09-06）** |
+| E5 | `skills-lock` 完整性校驗＋`--promote` | agent-fix-bug | `src/cli/factory-skills-lock.ts`＋`config/factory/skills-lock.json` | H5→審查 | ✅ **完成（2026-09-06）** |
+| E6 | `agent-propose-skill` 任務型別（八處接線＋crosscheck `--propose-skill-only`） | 綜合 | workflow／template／skill／crosscheck／對抗性測試 | H5→審查 | ✅ **完成（2026-09-06）** |
 
 > **依賴序**：E1（契約）→ E2（接收端）→ E3（推送）→ E4（訊號）→ E5（鎖與放行）→ E6（提案型別）。E3–E6 之間無強依賴，但 E6 的價值依賴 E4 的訊號累積。
 
@@ -55,9 +55,10 @@
 
 > **E2／E3 完成註記（2026-09-05）**
 >
-> - **E2**：`philipz/factory-scoreboard` 已部署至 https://factory-scoreboard.philipz.workers.dev。
+> - **E2**：`philipz/factory-scoreboard` 已部署，正式站台為 https://aswf.dev
+>   （原 `https://factory-scoreboard.philipz.workers.dev` 仍指向同一個 Worker）。
 >   71 tests（真實 workerd + D1）、Worker 壓縮後 172 KiB（預算 16.8%）。
->   **尚待人工**：Cloudflare Access 與 GitHub `SCOREBOARD_URL`／`SCOREBOARD_TOKEN`
+>   Cloudflare Access 與 GitHub `SCOREBOARD_URL`／`SCOREBOARD_TOKEN` **均已設定完成**
 >   （見該 repo 的 `scripts/setup-wizard.sh`）。
 > - **E3**：`src/cli/factory-push-event.ts`（31 tests）＋ `factory-run.yml` 新增
 >   「Push event to scoreboard」步驟（位於 Summary 之後、artifact 上傳之前）。
@@ -65,6 +66,69 @@
 >   參數錯誤、缺檔）**全部 exit 0**，不影響工廠終態。
 > - **未設定 secret 時的行為**：CLI 靜默跳過並印出原因；工廠一切照常。
 >   因此 E3 可先合併，Access／secret 設定完成後自動開始收資料。
+
+> **E4 完成註記（2026-09-06）**
+>
+> - **落地範圍**：`ReportSchema.skillGap`（`factory-judge.ts`）＋`src/skill-gap/render.ts`（新模組）
+>   ＋`apply-judge-labels.ts` 的 `skill-gap` 標籤與留言段落＋`factory-workflow` SKILL 指示。
+> - **修補一個既存的靜默不一致**：`factory-push-event.ts:199` 早已讀 `report.skillGap`，
+>   但 `ReportSchema` 無此欄位而 zod 預設 strip——推送端拿得到、Issue 留言拿不到。
+>   E4 之前若 agent 回報缺口，兩個消費端會**各說各話**；本次補 schema 後兩端一致。
+> - **三項設計決策**：①`skillGap` **不進入 pipeline 判定**（不在 `toAgentRun`）——否則 agent
+>   多一個「宣稱缺技能即改變終態」的施力點；②`category` 強制 kebab-case fail-loud——
+>   聚類鍵劣化會讓 docs/25 §3 的「≥3 次」門檻永遠達不到；③缺席時留言與標籤**逐字等同現況**。
+> - **驗證**：924 tests 全綠、`src/cli/**` 與 `src/skill-gap/**` 維持 100% 分支；
+>   新增 4 個變異（M4 去重守衛、M5 `requiresHuman` 洩漏、M6 kebab-case 放寬、
+>   M7 skillGap 洩漏進 pipeline）**均實測「變異→紅、還原→綠」**；
+>   並以 dist/ 實機跑通「report → judge.json → 標籤＋留言 → 推送事件」全鏈，
+>   含「無 skillGap 時輸出與 E4 前逐字相同」的回歸驗證。
+> - ~~**尚未驗證**：真實 run 中 agent 是否會主動填寫此欄位~~
+>   → ✅ **已於 2026-09-06 以真實 DSH 呼叫驗證，見下方 E5/E6 註記的「紀律實證」。**
+
+> **E5／E6／REQ 錨定 完成註記（2026-09-06）**
+>
+> **Q16-1／Q25-1 實機驗證（先做，因為它決定目錄名）**：ADR-016 原將
+> 「`proposals/` 不在 DSH 探索 rank 上」列為**推論**。以真實 `dsh --profile headless`
+> 兩次獨立探測確認：對照組 `.dsh/skills/probe-visible` **被發現**（證明探測法有效）、
+> `proposals/skills/probe-canary` **未被發現**。→ **推論成立**，維持 `proposals/skills/`，
+> 不需改用 `.factory/proposals/`。**ADR-016 的安全樞紐（誤合併也不生效）成立。**
+>
+> - **E5**：`src/cli/factory-skills-lock.ts`（`--verify`／`--update`／`--promote`）＋
+>   `config/factory/skills-lock.json`（6 個 skill）＋`factory-run.yml` 於 `cp -r` 後校驗。
+>   **`--verify` 恆 exit 0**（ADR-016 §5 第一階段僅警告；Q16-2 待人類裁決升紅燈）——
+>   校驗不得成為新的失敗來源。實測模擬「cp 掉了 factory-stop-rules」→ 正確回報
+>   `missing` 且仍 exit 0。**本次實作中它真的抓到一次**：我改了 factory-workflow SKILL.md
+>   卻未跑 `--update`，verify 回報 `changed`（同 `pnpm-lock` 過期的性質）。
+> - **E6**：新增 `agent-propose-skill`（**八處接線全做**，docs/21 §1）。crosscheck 新增
+>   `--propose-skill-only`（**白名單**：只允許 `proposals/skills/**` 與 `docs/**`）。
+>   兩個「僅產出」旗標互斥（同時指定→ CliError，避免寬鬆的那套悄悄生效）。
+>   `apply-score-labels` 的 in-loop 放行清單擴為 `OUTPUT_ONLY_TASK_TYPES`（analyze＋propose-skill），
+>   **tier／標籤／automerge 均不變**（ADR-016 §4，非放寬監督層級）。
+>   模型路由（接線 7）經查證為**複雜度導向、與 task_type 正交**，故為 no-op。
+> - **REQ id 錨定**：`factory-issue-check` 將驗收條目編號為 `REQ-n` 並回寫 Issue 留言；
+>   `factory-crosscheck --requirement-anchors` 比對 `report.requirements[].id`。
+>   **第一階段為 advisory**（獨立 `advisories` 欄位，**不影響 `ok`、不擋 run`**）——
+>   DoD 由自由文字解析，直接 fail-loud 會製造假陽性而重蹈 `defect/*` 失效覆轍。
+>   訊號經 `extra` 槽送 Scoreboard（`requirements_failed`／`requirements_total`／
+>   `requirement_advisories`），**不改 schema v2，接收端零改動**。
+>
+> **紀律實證（docs/25 §7 最高風險的直接檢驗，2026-09-06）**
+>
+> 無法用 CI 驗（本 repo `risk-profile: high`＋改 `.dsh/skills/**` 觸 H5 → 必然 in-loop 被擋），
+> 也無法用 dry_run 驗（stub agent 固定輸出）。故以**本機真實 DSH 呼叫**執行：
+> 建一個 pnpm workspace fixture（`vitest.config.mts` 位於非慣例路徑、devDeps 被裁掉），
+> 以隔離的 `DSH_HOME` 載入工廠 skills，跑真實 LLM。
+>
+> **結果：agent 主動填寫了 `skillGap`，且格式完全合法**——
+> `category: "trimmed-fixture-dev-deps"`（合法 kebab-case）、`needed`／`context` 具體且誠實，
+> 並正確沿用了驗收條件的 `REQ-1`／`REQ-2` 編號。
+> 全鏈以 dist/ 實測貫通：report → judge（schema 收下）→ `skill-gap` 標籤＋留言段落 →
+> Scoreboard 事件 `skill_gap` 非 null。
+>
+> **這一項的意義**：docs/25 §7 把「紀律失效」列為最高風險（前例：180 顆 PR 累計 0 筆
+> `defect/*` 標記）。本次實證顯示 **T1 偵測層不依賴人工紀律即可產生訊號**——
+> 因為填寫者是 agent 而非人類，且 SKILL 指示已足以驅動該行為。
+> **但樣本數為 1**，且情境是刻意製造的缺口；真實工作項的填寫率仍需累積觀察。
 >
 > **A 批狀態（2026-09-01）**：7/7 已合併進 software-factory（PR #203–#209）並隨 PR #210 同步至 **main**；Issues #192–#198 已人工關閉（docs/07 §3.5）。
 

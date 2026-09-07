@@ -25,7 +25,7 @@ on:
         description: 任務類型（決定 task-template 與 skill 分支）
         required: false
         type: choice
-        options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze]
+        options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze, agent-propose-skill]
         default: agent-add-tests
       repo:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
@@ -399,6 +399,17 @@ jobs:
             mkdir -p "$HOME/.dsh/skills"
             cp -r "$GITHUB_WORKSPACE/.dsh/skills/." "$HOME/.dsh/skills/"
             echo "skills synced: $(ls "$HOME/.dsh/skills" | tr '\n' ' ')"
+            # 技能傳輸完整性校驗（E5／ADR-016 §5）：上面的 cp 若不完整，agent 會
+            # 安靜地在缺少 factory-stop-rules 的情況下執行。CLI 恆 exit 0（第一階段
+            # 僅警告不擋 run，Q16-2 待人類裁決是否升紅燈），故此處不需 || true。
+            SKILLS_LOCK_OUT=$(node "$GITHUB_WORKSPACE/dist/cli/factory-skills-lock.js" \
+              --verify \
+              --lock "$GITHUB_WORKSPACE/config/factory/skills-lock.json" \
+              --skills-dir "$HOME/.dsh/skills")
+            echo "$SKILLS_LOCK_OUT"
+            if [ "$(printf '%s' "$SKILLS_LOCK_OUT" | jq -r .ok)" != "true" ]; then
+              echo "::warning::skills-lock 校驗未通過——技能可能未完整送達 agent（詳見上方 mismatches）"
+            fi
             # 模型 tier 路由（ADR-011）：chain 來自「Select model tier」步驟的
             # model.json（primary + fallback）。每項重寫 agent-default-model 後跑 dsh；
             # provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback。
@@ -487,15 +498,46 @@ jobs:
           if [ "${{ inputs.task_type }}" = "agent-analyze" ]; then
             # analyze 模式：crosscheck 驗證「僅分析不實作」（非 docs/ 變更 → fail-loud）
             ANALYZE_FLAG="--analyze-only"
+          elif [ "${{ inputs.task_type }}" = "agent-propose-skill" ]; then
+            # propose-skill 模式（E6／ADR-016 §3 閘門 1）：只允許 proposals/skills/ 與
+            # docs/；任何 .dsh/、src/、.github/ 變更 → fail-loud → needs-human。
+            # 兩個旗標互斥（CLI 會拒絕同時指定），故此處用 elif 而非各自獨立判斷。
+            ANALYZE_FLAG="--propose-skill-only"
+          fi
+          # REQ id 錨定（RTM）：由 Issue body 的驗收條目重建 REQ-n 清單，交給
+          # crosscheck 比對 report.requirements[].id。**advisory**——對不上不擋 run
+          # （第一階段觀察落差率，避免自由文字解析的假陽性擋住工廠）。
+          ANCHOR_FLAG=""
+          if ISSUE_BODY=$(gh issue view "${{ inputs.issue_number }}" --json body -q .body 2>/dev/null); then
+            N=$(printf '%s' "$ISSUE_BODY" | awk '
+              /^### 驗收標準/ { inDod=1; next }
+              /^### / { inDod=0 }
+              inDod && /^[-*] / {
+                line=$0
+                sub(/^[-*] +(\[[ xX]\] *)?/, "", line)
+                if (line ~ /有可驗證的測試\/驗證方式/) next
+                if (line ~ /不觸碰高風險路徑/) next
+                if (line ~ /跑測試確認綠燈/) next
+                if (line != "") c++
+              }
+              END { print c+0 }')
+            if [ "$N" -gt 0 ]; then
+              ANCHORS=$(seq 1 "$N" | sed 's/^/REQ-/' | paste -sd, -)
+              ANCHOR_FLAG="--requirement-anchors $ANCHORS"
+            fi
           fi
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e
           cat .factory/crosscheck.json
+          # advisory 單獨提示（不影響 code，不擋 run）
+          if [ "$(jq -r '.advisories | length' .factory/crosscheck.json 2>/dev/null || echo 0)" -gt 0 ]; then
+            echo "::warning::REQ id 錨定 advisory（不擋 run）：$(jq -r '[.advisories[].kind] | join(", ")' .factory/crosscheck.json)"
+          fi
           if [ "$code" -ne 0 ]; then
             echo "::error::report 與實際 git diff 不一致（詳見 .factory/crosscheck.json）"
             {

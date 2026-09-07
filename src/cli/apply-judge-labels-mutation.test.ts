@@ -23,6 +23,8 @@ import {
  *  | M1 | 去除 needs-human 去重守衛（`&& !labels.includes(...)` 移除，一律 push）| GREEN  | RED   |
  *  | M2 | 純函式失效：`const labels = [...judge.labels]` 改為直接參考 `judge.labels`（push 污染輸入陣列） | GREEN  | RED   |
  *  | M3 | 留言標頭 `## 工廠執行結果：` 被改寫/抽換                                    | GREEN  | RED   |
+ *  | M4 | 去除 skill-gap 去重守衛（E4 新增分支，一律 push）                            | GREEN  | RED   |
+ *  | M5 | `hasSkillGap` 併入 `requiresHuman`（`|| hasSkillGap`）——自報訊號影響監督層級 | GREEN  | RED   |
  *
  * M1/M2 對應 Issue 標題的「純函式」價值：`computeJudgeLabels` 必須回傳新陣列
  * 且不得重複貼 `needs-human`——既有的 4 則純函式斷言全部使用 `toContain(..)`，
@@ -91,5 +93,49 @@ describe('M3 變異：留言標頭 `## 工廠執行結果：` 被改寫', () => 
     const comment = buildJudgeComment('ready-to-automerge', 'ok')
     expect(comment).toMatch(/^## 工廠執行結果：ready-to-automerge/)
     expect(comment).toContain(PHASE1_HUMAN_REVIEW_NOTE)
+  })
+})
+
+/**
+ * M4 變異：去除 `skill-gap` 去重守衛（`&& !labels.includes('skill-gap')` 移除）。
+ *
+ * 與 M1 同性質，但施加在 E4 新增的分支上。judge.labels 已含 `skill-gap`
+ * （例如二次判定 rescore 後重貼）時若一律 push，`gh issue edit --add-label`
+ * 會收到 `skill-gap,skill-gap`。此變異在只用 toContain 的斷言下完全存活。
+ */
+describe('M4 變異：去除 skill-gap 去重守衛', () => {
+  it('labels 已含 skill-gap 且 hasSkillGap → 不產生重複', () => {
+    const out = computeJudgeLabels(RESULT('ready-for-review', ['skill-gap'], 'x') as never, true)
+    expect(out.labels).toEqual(['skill-gap'])
+  })
+
+  it('hasSkillGap=false → 不推入 skill-gap（錨定，避免無條件貼標）', () => {
+    const out = computeJudgeLabels(RESULT('ready-for-review', ['oversight/review'], 'x') as never, false)
+    expect(out.labels).toEqual(['oversight/review'])
+  })
+})
+
+/**
+ * M5 變異：`hasSkillGap` 被接進 `requiresHuman` 的計算。
+ *
+ * 這是 E4 的監督層級契約（docs/25 §2.1「不擋終態」）：技能缺口是**分類訊號**，
+ * 不是監督層級。若有人把它寫成
+ *   `const requiresHuman = judge.outcome !== 'blocked-in-loop' || hasSkillGap`
+ * 一個 blocked-in-loop（agent 從未執行）的工作項會因自報缺口而被要求人審，
+ * 等於讓 agent 的自報影響流程。既有斷言多用 toContain 檢查標籤，抓不到
+ * requiresHuman 的極性變化，本段將其釘死。
+ */
+describe('M5 變異：skillGap 洩漏進 requiresHuman', () => {
+  it('blocked-in-loop + hasSkillGap → requiresHuman 仍為 false', () => {
+    const out = computeJudgeLabels(RESULT('blocked-in-loop', ['oversight/in-loop'], 'x') as never, true)
+    expect(out.requiresHuman).toBe(false)
+  })
+
+  it('requiresHuman 僅由 outcome 決定：同 outcome 下 hasSkillGap 不改變其值', () => {
+    for (const outcome of ['blocked-in-loop', 'ready-to-automerge', 'ready-for-review', 'needs-human']) {
+      const withGap = computeJudgeLabels(RESULT(outcome, [], 'x') as never, true)
+      const without = computeJudgeLabels(RESULT(outcome, [], 'x') as never, false)
+      expect(withGap.requiresHuman, `outcome=${outcome}`).toBe(without.requiresHuman)
+    }
   })
 })

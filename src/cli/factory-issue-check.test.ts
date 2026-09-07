@@ -7,6 +7,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildCheckComment,
+  buildRequirementAnchorLines,
+  buildRequirementAnchors,
   checkDodSpecificity,
   checkIssue,
   checkRiskPaths,
@@ -585,5 +587,56 @@ describe('main — --risk-paths 接線（advisory，不改紅綠燈）', () => {
   })
   it('--risk-paths 缺值 → CliError', () => {
     expect(() => parseCheckArgs(['1', '--risk-paths'])).toThrow()
+  })
+})
+
+describe('REQ id 錨定（RTM 語意補實）', () => {
+  /** 含自訂驗收條目的 Issue body（DoD 三項固定 + 兩條自訂）。 */
+  const WITH_CUSTOM_DOD = [
+    '### 任務類型',
+    '',
+    'agent-fix-bug',
+    '',
+    '### 需求描述（PRD）',
+    '',
+    '修復 X',
+    '',
+    '### 驗收標準（DoD）',
+    '',
+    '- [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）',
+    '- [x] 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）',
+    '- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）',
+    '- 執行 `npm test` 全綠',
+    '- `parse()` 對空字串回傳 undefined',
+    '',
+  ].join('\n')
+
+  it('依驗收條目順序產生 REQ-1…REQ-n', () => {
+    const anchors = buildRequirementAnchors(checkDodSpecificity(WITH_CUSTOM_DOD))
+    expect(anchors.map((a) => a.id)).toEqual(['REQ-1', 'REQ-2'])
+    expect(anchors[0]?.text).toContain('npm test')
+  })
+
+  it('checkIssue 輸出 requirements 錨點', () => {
+    expect(checkIssue(WITH_CUSTOM_DOD).requirements.map((a) => a.id)).toEqual(['REQ-1', 'REQ-2'])
+  })
+
+  it('留言含 REQ 清單並指示 agent 沿用編號', () => {
+    const comment = buildCheckComment(checkIssue(WITH_CUSTOM_DOD))
+    expect(comment).toContain('🔖 **需求追蹤編號（REQ id）**')
+    expect(comment).toContain('`REQ-1`')
+    expect(comment).toContain('`REQ-2`')
+  })
+
+  it('無自訂驗收條目 → 不輸出 REQ 區塊（避免與 G5 提示重複發話）', () => {
+    expect(buildRequirementAnchorLines([])).toEqual([])
+    expect(buildCheckComment(checkIssue(COMPLIANT))).not.toContain('需求追蹤編號')
+  })
+
+  it('過長條目在留言中截斷（留言可讀性）', () => {
+    const long = 'x'.repeat(100)
+    const lines = buildRequirementAnchorLines([{ id: 'REQ-1', text: long }])
+    expect(lines.join('\n')).toContain('…')
+    expect(lines.join('\n')).not.toContain(long)
   })
 })

@@ -2,10 +2,13 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { loadReport } from './factory-judge.js'
+import { loadReport, main } from './factory-judge.js'
 import { CliError } from './run-cli.js'
 
 let tmp: string
+/** M7 需要跑完整 main()，故備妥最小 catalog / risk-paths fixture。 */
+let catalog: string
+let riskPaths: string
 
 /** 寫一個暫存 report.json 並回傳路徑；`content` 為字串時原樣寫入（用於壞格式）。 */
 function report(name: string, content: unknown): string {
@@ -16,6 +19,26 @@ function report(name: string, content: unknown): string {
 
 beforeAll(() => {
   tmp = mkdtempSync(join(tmpdir(), 'factory-judge-mutation-'))
+  catalog = join(tmp, 'catalog-info.yaml')
+  writeFileSync(
+    catalog,
+    [
+      'apiVersion: backstage.io/v1alpha1',
+      'kind: Component',
+      'metadata:',
+      '  name: demo',
+      '  annotations:',
+      '    factory.io/business-criticality: tactical',
+      '    factory.io/risk-profile: low',
+      '    factory.io/complexity: low',
+      '',
+    ].join('\n'),
+  )
+  riskPaths = join(tmp, 'risk-paths.yml')
+  writeFileSync(
+    riskPaths,
+    ['hard_rules:', '  H1: ["src/auth/**"]', '  H5: [".github/**", ".dsh/skills/**"]', ''].join('\n'),
+  )
 })
 
 afterAll(() => {
@@ -212,5 +235,97 @@ describe('M5 變異：requirements 條目的 status 型別被放寬成 string', 
       }),
     )
     expect(r.requirements?.map((x) => x.status)).toEqual(['passed', 'failed', 'skipped'])
+  })
+})
+
+/**
+ * M6 變異：`skillGap.category` 的 kebab-case regex 被放寬成任意字串。
+ *
+ * category 是 docs/25 §2.2 的**聚類鍵**，而 §3 的提案門檻是「同 category
+ * ≥3 次」。若 regex 被放寬，`MonorepoTestPath`／`monorepo_test_path`／
+ * `monorepo test path` 會各自成為獨立分類——同一個缺口被拆成三份計數，
+ * 永遠達不到門檻，整條技能擴增迴圈靜默失效（docs/25 §7 已列此為已知風險）。
+ * 這種劣化不會讓任何行為測試變紅，只有型別/格式變異測得出。
+ */
+describe('M6 變異：skillGap.category 的 kebab-case 看守被放寬', () => {
+  it('大駝峰 category → CliError', () => {
+    expect(() =>
+      loadReport(
+        report('m6-camel.json', {
+          issueNumber: 1,
+          invocation: { exitCode: 0 },
+          skillGap: { category: 'MonorepoTestPath', needed: 'x' },
+        }),
+      ),
+    ).toThrow(CliError)
+  })
+
+  it('底線與空白 category → CliError', () => {
+    for (const [i, bad] of ['monorepo_test_path', 'monorepo test path'].entries()) {
+      expect(() =>
+        loadReport(
+          report(`m6-sep-${i}.json`, {
+            issueNumber: 1,
+            invocation: { exitCode: 0 },
+            skillGap: { category: bad, needed: 'x' },
+          }),
+        ),
+      ).toThrow(CliError)
+    }
+  })
+
+  it('合法 kebab-case 仍被接受（錨定，避免過度收緊）', () => {
+    const r = loadReport(
+      report('m6-ok.json', {
+        issueNumber: 1,
+        invocation: { exitCode: 0 },
+        skillGap: { category: 'monorepo-test-path', needed: 'x' },
+      }),
+    )
+    expect(r.skillGap?.category).toBe('monorepo-test-path')
+  })
+})
+
+/**
+ * M7 變異：`skillGap` 被接進 pipeline 判定（例如在 toAgentRun 中傳遞）。
+ *
+ * 這是本欄位最重要的安全契約（docs/20 E4 設計決策 D-2）：skillGap 是 agent
+ * **自報**的訊號，若它能影響終態，agent 就多了一個「宣稱缺技能即改變判定」
+ * 的施力點——與 docs/06 §5.1「agent 無權參與判定」直接牴觸。
+ *
+ * 釘法：同一份 report 加不加 skillGap，`main()` 的判定結果必須**逐欄相同**。
+ * 若有人日後把 skillGap 接進 AgentRun 或計分，本測試立刻變紅。
+ */
+describe('M7 變異：skillGap 洩漏進 pipeline 判定', () => {
+  it('加上 skillGap 不改變任何終態判定（outcome / labels / stopDecision）', () => {
+    const base = {
+      issueNumber: 201,
+      invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+      changedPaths: ['src/util/format.test.ts'],
+      changedLines: 40,
+      assertionDelta: 6,
+      hasAcceptanceCriteria: true,
+    }
+    const without = main([report('m7-without.json', base), catalog, riskPaths])
+    const withGap = main([
+      report('m7-with.json', { ...base, skillGap: { category: 'a-b', needed: 'x', context: 'y' } }),
+      catalog,
+      riskPaths,
+    ])
+    expect(withGap.result).toEqual(without.result)
+  })
+
+  it('needs-human 情境下加 skillGap 同樣不改變判定', () => {
+    const base = {
+      issueNumber: 202,
+      invocation: { exitCode: 1, stdout: '', stderr: 'boom' },
+    }
+    const without = main([report('m7-nh-without.json', base), catalog, riskPaths])
+    const withGap = main([
+      report('m7-nh-with.json', { ...base, skillGap: { category: 'c-d', needed: 'z' } }),
+      catalog,
+      riskPaths,
+    ])
+    expect(withGap.result).toEqual(without.result)
   })
 })

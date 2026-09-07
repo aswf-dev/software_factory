@@ -204,8 +204,43 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
       .map((m) => asRecord(m)?.['kind'])
       .filter((k): k is string => typeof k === 'string'),
     skills_digest: typeof report?.['skillsDigest'] === 'string' ? report['skillsDigest'] : null,
-    extra: {},
+    // REQ id 錨定訊號（RTM）。放進 extra 而非新增頂層欄位，是為了不改動
+    // schema v2——接收端（factory-scoreboard）的 extra 為前向相容槽，零改動即可
+    // 收下（docs/26 §1）。累積後可統計「哪一類驗收條件最常 failed」，那是**不依賴
+    // agent 自報 skillGap** 的技能缺口訊號（docs/25 §2.3 T3）。
+    // 只送 id，不送條文內容（隱私，docs/26 §1.1 約束 3）。
+    extra: buildRequirementExtra(report, crosscheck),
   }
+}
+
+/**
+ * 由 report 與 crosscheck 萃取需求追蹤訊號。
+ *
+ * 兩者皆缺時回傳空物件——`extra` 是選用槽，不製造空欄位噪音。
+ */
+export function buildRequirementExtra(
+  report: Record<string, unknown> | undefined,
+  crosscheck: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const extra: Record<string, unknown> = {}
+
+  const reqs = report?.['requirements']
+  if (Array.isArray(reqs)) {
+    const failed = reqs
+      .filter((r) => asRecord(r)?.['status'] === 'failed')
+      .map((r) => asRecord(r)?.['id'])
+      .filter((id): id is string => typeof id === 'string')
+    if (failed.length > 0) extra['requirements_failed'] = failed
+    extra['requirements_total'] = reqs.length
+  }
+
+  const advisories = crosscheck?.['advisories']
+  if (Array.isArray(advisories) && advisories.length > 0) {
+    extra['requirement_advisories'] = advisories
+      .map((a) => asRecord(a)?.['kind'])
+      .filter((k): k is string => typeof k === 'string')
+  }
+  return extra
 }
 
 export interface PushOutcome {

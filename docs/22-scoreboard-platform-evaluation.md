@@ -121,7 +121,7 @@ v1 草案**只有成本欄位**。裁決後新增 **skill-gap 與品質訊號**�
 `factory-run.yml` 在「Measure usage & cost」步驟後加一步：
 
 ```
-POST https://<scoreboard>/v1/events
+POST https://<scoreboard>/api/v1/events
 Authorization: Bearer ${{ secrets.SCOREBOARD_TOKEN }}
 body: { event_id, occurred_at, source: "factory-ci", repo, issue_number,
         run_id, task_type, totals: <usage.totals>, routes: <usage.routes> }
@@ -133,16 +133,21 @@ body: { event_id, occurred_at, source: "factory-ci", repo, issue_number,
 
 ### 4.2 Backstage 表單推送
 
-「開立 Factory 工作項」template 的 action 或 webhook → 同一個 `POST /v1/events`（`source: "backstage-form"`）。開單當下先記一筆「已建立、成本未發生」的事件；factory-run 結束後以 `issue_number` 補 `totals`。
+「開立 Factory 工作項」template 的 action 或 webhook → 同一個 `POST /api/v1/events`（`source: "backstage-form"`）。開單當下先記一筆「已建立、成本未發生」的事件；factory-run 結束後以 `issue_number` 補 `totals`。
 
 ### 4.3 端點契約草案
 
 | 端點 | 用途 | 認證 |
 |---|---|---|
-| `POST /v1/events` | 接收事件（CI/Backstage/未來來源） | 共享 secret（內部）→ 未來 per-owner token |
-| `GET /v1/events?owner=&repo=&from=&to=` | 後台查詢 | 登入後授權（owner 範圍） |
-| `GET /v1/summary?…` | 看板聚合（成本/月、token/工作項、task_type/model 分佈） | 登入後授權 |
-| `POST /v1/export` | raw JSON 匯出（資料所有權） | 登入＋owner 驗證 |
+| `POST /api/v1/events` | 接收事件（CI/Backstage/未來來源） | 共享 secret（內部）→ 未來 per-owner token |
+| `GET /api/v1/events?owner=&repo=&from=&to=` | 後台查詢 | 登入後授權（owner 範圍） |
+| `GET /api/v1/summary?…` | 看板聚合（成本/月、token/工作項、task_type/model 分佈） | 登入後授權 |
+| `POST /api/v1/export` | raw JSON 匯出（資料所有權） | 登入＋owner 驗證 |
+
+> **前綴一律 `/api`**。2026-09-06 實測：`/api/v1/events` 回 `401`（應用層認證，
+> Access 已 Bypass 讓 CI 可推送）、`/api/v1/summary` 與 `/api/v1/export` 回 `302`
+> （Cloudflare Access 登入轉址）；對應的無前綴路徑 `/v1/*` 一律 `404`。
+> `events` 與其餘端點的認證層不同，正是 `docs/16` §5.1 判定該 repo 為 medium 的原因。
 
 ---
 
@@ -276,7 +281,7 @@ A 的 D1（SQLite 系）在「事件量大＋複雜 analytics＋多租戶計費�
 | 風險 | 說明 | 緩解 |
 |---|---|---|
 | 免費層數字會變 | Workers/D1/Access 免費額度官方會調整 | 文件標查證日期；選型當下重查官方頁面 |
-| Vendor lock-in | Worker runtime 與 D1 綁 Cloudflare | 收發契約（§4）平台中立；事件可 `GET /v1/export` 匯出 raw JSON；SQL 語法標準化 |
+| Vendor lock-in | Worker runtime 與 D1 綁 Cloudflare | 收發契約（§4）平台中立；事件可 `POST /api/v1/export` 匯出 raw JSON；SQL 語法標準化 |
 | 資料所有權/隱私 | 成本資料含 repo 名、issue 內容間接資訊；未來付費使用者資料 | 匯出 API；owner 隔離；隱私預設（Q22-5） |
 | costUsd 是估算 | 非供應商帳單（docs/04 §5.1） | schema 標明估算；日後可對齊正式帳單 |
 | 多租戶太晚做 | 若第一版無 owner 欄位，日後拆資料很痛 | §3 schema 內建 owner/event_id/schema_version |
