@@ -55,9 +55,10 @@
 
 > **E2／E3 完成註記（2026-09-05）**
 >
-> - **E2**：`philipz/factory-scoreboard` 已部署至 https://factory-scoreboard.philipz.workers.dev。
+> - **E2**：`philipz/factory-scoreboard` 已部署，正式站台為 https://aswf.dev
+>   （原 `https://factory-scoreboard.philipz.workers.dev` 仍指向同一個 Worker）。
 >   71 tests（真實 workerd + D1）、Worker 壓縮後 172 KiB（預算 16.8%）。
->   **尚待人工**：Cloudflare Access 與 GitHub `SCOREBOARD_URL`／`SCOREBOARD_TOKEN`
+>   Cloudflare Access 與 GitHub `SCOREBOARD_URL`／`SCOREBOARD_TOKEN` **均已設定完成**
 >   （見該 repo 的 `scripts/setup-wizard.sh`）。
 > - **E3**：`src/cli/factory-push-event.ts`（31 tests）＋ `factory-run.yml` 新增
 >   「Push event to scoreboard」步驟（位於 Summary 之後、artifact 上傳之前）。
