@@ -317,9 +317,12 @@ jobs:
         run: |
           # 第三參數 = task_type：agent-analyze 允許 in-loop 以「僅分析」模式執行
           # （docs/06 §4「僅可產出分析與方案」的實作，docs/20 C1）
+          # 第四參數 = run_id：閘門留言內嵌 run id，讓終態守衛（G1／G2）能以
+          # 「留言是否含此 run id」去重，不會把 gate 阻斷誤判為缺終態而補貼假訊息。
           node dist/cli/apply-score-labels.js \
             "${{ inputs.issue_number }}" .factory/score.json \
-            "${{ inputs.task_type }}"
+            "${{ inputs.task_type }}" \
+            "${{ github.run_id }}"
 
       # 被擋下（in-loop）時說明並結束；agent 步驟會被 if: success() 跳過
       - name: Stop when in-loop

@@ -44,9 +44,16 @@ export function computeScoreLabels(
   return { labels: [score.label], blocked: inLoop && !analyzeAllowed, analyzeAllowed }
 }
 
-export function buildBlockComment(total: number): string {
+/**
+ * 閘門留言。`runId` 存在時內嵌 `（run: <id>）`——終態守衛
+ * （factory-run.yml G1、factory-run-cleanup.yml G2）以「Issue 留言是否含該
+ * run id」判定本 run 是否已留下終態紀錄。缺了它，去重失效，cleanup 會在
+ * agent 從未啟動的情況下補貼「agent 已啟動但未留下終態判定」的矛盾訊息。
+ */
+export function buildBlockComment(total: number, runId?: string): string {
+  const run = runId ? `（run: ${runId}）` : ''
   return (
-    `工廠執行未啟動：初始計分 ${total} 分屬 human-in-the-loop（docs/06 §4.3）。` +
+    `工廠執行未啟動${run}：初始計分 ${total} 分屬 human-in-the-loop（docs/06 §4.3）。` +
     '設計與實作須由人類主導。'
   )
 }
@@ -87,7 +94,7 @@ export interface ScoreLabelsOutput {
 }
 
 export function main(argv: string[], gh: GhRunner = realGh): ScoreLabelsOutput {
-  const [issueNumber, scorePath, taskType] = argv
+  const [issueNumber, scorePath, taskType, runId] = argv
   if (issueNumber === undefined) throw new CliError('issueNumber is required')
   if (scorePath === undefined) throw new CliError('scorePath is required')
 
@@ -100,7 +107,7 @@ export function main(argv: string[], gh: GhRunner = realGh): ScoreLabelsOutput {
   const { labels, blocked, analyzeAllowed } = computeScoreLabels(parsed.data.score, taskType)
   gh(['issue', 'edit', issueNumber, '--add-label', labels.join(',')])
   if (blocked) {
-    gh(['issue', 'comment', issueNumber, '--body', buildBlockComment(parsed.data.score.total)])
+    gh(['issue', 'comment', issueNumber, '--body', buildBlockComment(parsed.data.score.total, runId)])
   } else if (analyzeAllowed) {
     gh(['issue', 'comment', issueNumber, '--body', buildAnalyzeComment(parsed.data.score.total, taskType)])
   }
