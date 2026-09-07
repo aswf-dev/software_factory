@@ -36,6 +36,20 @@ describe('computeScoreLabels（純函式）', () => {
     expect(out.blocked).toBe(true)
     expect(buildBlockComment(6)).toContain('human-in-the-loop')
   })
+
+  /**
+   * 閘門留言必須內嵌 run id：factory-run-cleanup.yml 與 factory-run.yml 的
+   * 終態守衛都以「留言是否含 run id」判定該 run 是否已留下終態紀錄。留言不含
+   * run id 時去重失效，cleanup 會補貼「agent 已啟動但未留下終態判定」的假訊息
+   * （2026-09-07 run 34132998252 實例）。
+   */
+  it('in-loop 閘門留言內嵌 run id（供終態守衛去重）', () => {
+    expect(buildBlockComment(6, '34132998252')).toContain('34132998252')
+  })
+
+  it('未提供 run id → 留言不含 run 標記（向後相容，不輸出空的 run:）', () => {
+    expect(buildBlockComment(6)).not.toContain('run:')
+  })
   it('in-loop + agent-analyze → 不擋（僅分析模式），analyzeAllowed=true', () => {
     const out = computeScoreLabels({ total: 6, tier: 'in-loop', label: 'oversight/in-loop' }, 'agent-analyze')
     expect(out.blocked).toBe(false)
@@ -113,6 +127,29 @@ describe('main（注入 fake gh）', () => {
     expect(out.blocked).toBe(false)
     expect(out.analyzeAllowed).toBe(true)
     expect(gh).toHaveBeenCalledWith(['issue', 'comment', '106', '--body', expect.stringContaining('僅分析不實作')])
+  })
+
+  /**
+   * 第四參數 runId 必須被帶進閘門留言——這是終態守衛去重的唯一依據。
+   */
+  it('in-loop + runId → 留言含該 run id', () => {
+    const gh = vi.fn()
+    main(
+      [
+        String(107),
+        writeScore({ score: { total: 6, tier: 'in-loop', label: 'oversight/in-loop' } }),
+        'agent-add-tests',
+        '34132998252',
+      ],
+      gh,
+    )
+    expect(gh).toHaveBeenCalledWith([
+      'issue',
+      'comment',
+      '107',
+      '--body',
+      expect.stringContaining('34132998252'),
+    ])
   })
 
   it('score.json 格式錯誤 → CliError（fail-loud）', () => {

@@ -59,9 +59,15 @@ jobs:
             echo "issue=" >> "$GITHUB_OUTPUT"
           fi
 
-      # 確認該 run 是否已進入 agent 階段：jobs API 中「Run factory agent」step
-      # 出現即代表啟動過（結論 null = 執行中被終止，也算）。agent 啟動前的
-      # 失敗不在此處理，避免在 guard/issue-check 紅燈時誤貼 needs-human。
+      # 確認該 run 是否已進入 agent 階段。agent 啟動前的失敗不在此處理，
+      # 避免在 guard/issue-check/score gate 紅燈時誤貼 needs-human。
+      #
+      # ⚠️ jobs API 會連同**未執行**的 step 一併列出（conclusion="skipped"），
+      # 所以不能只數 step 筆數——那樣 REACHED 恆 ≥1，此守衛形同虛設
+      # （2026-09-07 run 34132998252：score gate 擋下、agent skipped，卻仍被
+      # 判為已啟動而貼出「agent 已啟動但未留下終態判定」的矛盾留言）。
+      # 必須排除 skipped；conclusion=null（執行中被 job 級 timeout/cancel 硬
+      # 終止）仍算啟動過——那正是本 workflow 要補救的 G2 場景。
       - name: Check agent stage reached
         id: stage
         if: steps.resolve.outputs.issue != ''
@@ -69,7 +75,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           REACHED=$(gh api "repos/${{ github.repository }}/actions/runs/${{ steps.resolve.outputs.run_id }}/jobs" \
-            --jq '[.jobs[].steps[] | select(.name == "Run factory agent")] | length')
+            --jq '[.jobs[].steps[]
+                   | select(.name == "Run factory agent")
+                   | select(.conclusion != "skipped")] | length')
           echo "agent_step_entries=$REACHED"
           if [ "$REACHED" -gt 0 ]; then
             echo "reached=true" >> "$GITHUB_OUTPUT"
