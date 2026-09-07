@@ -1,0 +1,358 @@
+# Factory Onboard — 納管新 repo（產出工廠設定的建議草稿）。
+#
+# 為什麼不重用 factory-run.yml：
+#   factory-run 的 Initial score（Step 2）與 Judge（Step 5）都硬性讀取
+#   target/catalog-info.yaml 與 target/.github/factory/risk-paths.yml，
+#   缺檔即 exit 1（實測確認）。而納管的**前提就是這兩個檔案不存在**——
+#   要讓 factory-run 支援納管，得在計分與判定各加一個 skip 條件，
+#   那兩個條件一旦存在就成了「合法跳過計分」的路徑，之後可能被誤用或濫用。
+#   故獨立一支：納管的安全性不靠計分，而靠**更硬的輸出白名單**（見下）。
+#
+# 安全模型（無計分下的替代保證）：
+#   - agent 的輸出限定 proposals/onboarding/** 與 docs/**，由
+#     factory-crosscheck --onboard-only 強制（越界即紅燈交還人類）。
+#   - proposals/onboarding/ **不是任何機制的讀取路徑**：factory-score 讀
+#     catalog-info.yaml、factory-run 讀 .github/factory/risk-paths.yml，
+#     兩者都不看 proposals/。因此誤合併也不改變任何評級——
+#     三軸必須由人類親手搬檔才生效（docs/05 §1.1 核心不變量）。
+#   - App 本身也無 Workflows 權限，寫 .github/ 會被 GitHub 直接拒絕（D6）。
+name: Factory Onboard
+
+run-name: "Factory Onboard (${{ inputs.repo }} #${{ inputs.issue_number }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 納管 Issue 編號（用 factory-onboard 表單建立）
+        required: true
+        type: number
+      repo:
+        description: 要納管的目標 repo（owner/name）
+        required: true
+        type: string
+      base_branch:
+        description: 目標 repo 的工廠 trunk（統一為 software-factory，ADR-013）
+        required: false
+        type: string
+        default: software-factory
+      model_tier:
+        description: 模型 tier（納管以分析為主，預設 high 以求評級理由的品質）
+        required: false
+        type: choice
+        options: [auto, low, medium, high, critical]
+        default: high
+
+concurrency:
+  group: factory-onboard-${{ inputs.repo }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  onboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      # 與 factory-run 同一條安全約束（Q-P2-1／ADR-013）：main 絕不觸碰。
+      - name: Guard base_branch safety
+        run: |
+          if [ "${{ inputs.base_branch }}" == "main" ]; then
+            echo "::error::base_branch 不得為 main（Q-P2-1：所有 repo 的 main 絕不觸碰）"
+            exit 1
+          fi
+          echo "guard ok: repo=${{ inputs.repo }} base_branch=${{ inputs.base_branch }}"
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: pnpm
+
+      # owner 與純 repo 名須拆開傳給 create-github-app-token（跨 owner 實測坑，
+      # 見 factory-run.yml 同名步驟的註解）。
+      - name: Resolve target owner/name
+        id: target
+        env:
+          TARGET_REPO: ${{ inputs.repo }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_REPO" in
+            */*) ;;
+            *) echo "::error::inputs.repo 必須為 owner/name 格式，實得：$TARGET_REPO"; exit 1 ;;
+          esac
+          echo "owner=${TARGET_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${TARGET_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
+
+      # 步驟 2 的產物必須存在（表單已要求勾選，此處是機器驗證）。
+      - name: Verify trunk branch exists
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if ! gh api "repos/${{ inputs.repo }}/git/ref/heads/${{ inputs.base_branch }}" >/dev/null 2>&1; then
+            echo "::error::目標 repo 尚無 ${{ inputs.base_branch }} 分支。請先建立（納管流程步驟 2）："
+            echo "::error::gh api repos/${{ inputs.repo }}/git/refs -f ref='refs/heads/${{ inputs.base_branch }}' -f sha=<default branch sha>"
+            exit 1
+          fi
+          echo "trunk exists: ${{ inputs.repo }}@${{ inputs.base_branch }}"
+
+      - name: Checkout target repo
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.base_branch }}
+          path: target
+          token: ${{ steps.app-token.outputs.token }}
+
+      # 納管是**一次性**動作。已有 catalog-info.yaml 表示人類先前已裁定過三軸，
+      # 再跑一次等於用 agent 的分析覆蓋既有裁定——拒絕，改由人類手動編輯。
+      - name: Guard already-onboarded
+        run: |
+          if [ -f target/catalog-info.yaml ]; then
+            echo "::error::${{ inputs.repo }} 已有 catalog-info.yaml（已納管）。"
+            echo "::error::納管為一次性動作；要調整三軸請直接編輯該檔並經人類審查，不由 agent 重新產生。"
+            exit 1
+          fi
+          echo "not yet onboarded: no catalog-info.yaml in target"
+
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Ensure factory labels exist
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          gh label create "needs-human" --color "b60205" --force
+          gh label create "factory/onboard" --color "0e8a16" --force
+          echo "labels ensured ($GH_REPO)"
+
+      # 刻意**不傳 --risk-paths**：目標 repo 還沒有該檔（這正是納管的目的）。
+      # factory-issue-check 對缺檔的設計是靜默略過（loadHardRules → undefined），
+      # 不誤報也不紅燈；格式檢查本身仍然執行。
+      - name: Check issue format
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          mkdir -p .factory
+          node dist/cli/factory-issue-check.js \
+            "${{ inputs.issue_number }}" \
+            --tiers config/dsh/model-tiers.yaml \
+            --providers config/dsh/settings.providers.yaml \
+            > .factory/issue-check.txt 2>&1 || true
+          cat .factory/issue-check.txt
+          gh issue comment "${{ inputs.issue_number }}" --body-file .factory/issue-check.txt
+          if grep -q '格式不合規' .factory/issue-check.txt; then
+            echo "::error::Issue 格式不合規——請依留言修正後重新 dispatch"
+            exit 1
+          fi
+          echo "格式合規"
+
+      # ⚠️ 此處**沒有 Initial score**：目標 repo 尚無 catalog/risk-paths，無從計分。
+      # 這不是遺漏，而是納管的定義。替代保證見檔頭「安全模型」。
+
+      - name: Select model tier
+        run: |
+          mkdir -p .factory
+          node dist/cli/factory-model.js \
+            --tier "${{ inputs.model_tier }}" \
+            --tiers config/dsh/model-tiers.yaml \
+            --providers config/dsh/settings.providers.yaml \
+            > .factory/model.json
+          cat .factory/model.json
+
+      - name: Write agent run env (token / base / repo)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          mkdir -p target/.factory/run
+          printf '%s' "$GH_TOKEN" > target/.factory/run/gh-token
+          printf '%s' "${{ inputs.base_branch }}" > target/.factory/run/base-branch
+          printf '%s' "${{ inputs.repo }}" > target/.factory/run/repo
+          echo "run env written"
+
+      - name: Exclude .factory from target repo (token safety)
+        run: |
+          cd target
+          grep -qxF '.factory/' .git/info/exclude || printf '\n.factory/\n' >> .git/info/exclude
+          echo "target .git/info/exclude ignores .factory/"
+
+      - name: Configure agent git auth (target repo)
+        run: |
+          cd target
+          git config --local --get-regexp '^includeIf\.gitdir:' 2>/dev/null | while read -r key _; do
+            git config --local --unset-all "$key"
+          done || true
+          git config --global --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          TOKEN=$(cat .factory/run/gh-token)
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ inputs.repo }}.git"
+          echo "origin authenticates with app token"
+
+      - name: Configure agent git identity (target repo)
+        run: |
+          cd target
+          git config --local user.name "software-factory-worker[bot]"
+          git config --local user.email "software-factory-worker[bot]@users.noreply.github.com"
+          echo "git identity: software-factory-worker[bot]"
+
+      - name: Ensure base branch checked out in target
+        run: |
+          cd target
+          git checkout -B "${{ inputs.base_branch }}" "origin/${{ inputs.base_branch }}" 2>/dev/null || \
+            git checkout "${{ inputs.base_branch }}"
+          echo "HEAD on: $(git rev-parse --abbrev-ref HEAD)"
+
+      - name: Run onboarding agent
+        id: agent
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+        run: |
+          set +e
+          cd target
+          mkdir -p "$HOME/.dsh/skills"
+          cp -r "$GITHUB_WORKSPACE/.dsh/skills/." "$HOME/.dsh/skills/"
+          echo "skills synced: $(ls "$HOME/.dsh/skills" | tr '\n' ' ')"
+          TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template-onboard.txt"
+          if [ ! -f "$TEMPLATE" ]; then
+            echo "::error::缺少 task-template-onboard.txt"
+            exit 1
+          fi
+          while IFS= read -r ENTRY; do
+            [ -z "$ENTRY" ] && continue
+            P=$(printf '%s' "$ENTRY" | jq -r .provider)
+            MODEL=$(printf '%s' "$ENTRY" | jq -r .model)
+            EFFORT=$(printf '%s' "$ENTRY" | jq -r '.reasoningEffort // empty')
+            cp "$GITHUB_WORKSPACE/config/dsh/settings.providers.yaml" "$HOME/.dsh/settings.yaml"
+            {
+              printf 'agent-default-model:\n  provider: %s\n  model: %s\n' "$P" "$MODEL"
+              [ -n "$EFFORT" ] && printf '  reasoningEffort: %s\n' "$EFFORT"
+            } >> "$HOME/.dsh/settings.yaml"
+            echo "trying model routing: $P/$MODEL"
+            "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
+              --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
+              "$(sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
+                      -e "s|<REPO>|${{ inputs.repo }}|" \
+                      -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" "$TEMPLATE")" \
+              > .factory/run/stdout.txt 2> .factory/run/stderr.txt
+            code=$?
+            echo "provider=$P exit=$code"
+            if [ "$code" -eq 0 ]; then break; fi
+            if ! grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL|AUTH|401|INVALID_CREDENTIAL|invalid_api_key" .factory/run/stderr.txt; then
+              break
+            fi
+          done < <(jq -c '.chain[]' "$GITHUB_WORKSPACE/.factory/model.json")
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          node "$GITHUB_WORKSPACE/dist/cli/write-report.js" \
+            "${{ inputs.issue_number }}" "$code" \
+            .factory/run/stdout.txt .factory/run/stderr.txt
+
+      # **這是納管的安全樞紐**（取代了計分的位置）。
+      # --onboard-only 白名單：只允許 proposals/onboarding/** 與 docs/**。
+      # agent 若試圖寫入 catalog-info.yaml、.github/**、CODEOWNERS 等 guardrail 正位，
+      # 這裡 fail-loud → 貼 needs-human → 交還人類。
+      - name: Crosscheck (onboard scope enforcement)
+        id: crosscheck
+        if: steps.agent.outputs.exit_code == '0'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          set +e
+          node dist/cli/factory-crosscheck.js \
+            "${{ inputs.issue_number }}" \
+            target/.factory/run/report.json \
+            --base "${{ inputs.base_branch }}" \
+            --target target \
+            --onboard-only \
+            > .factory/crosscheck.json 2>.factory/crosscheck.err
+          code=$?
+          set -e
+          cat .factory/crosscheck.json || cat .factory/crosscheck.err
+          if [ "$code" -ne 0 ]; then
+            {
+              echo "## 納管越界（crosscheck --onboard-only）"
+              echo ""
+              echo "agent 的變更超出 \`proposals/onboarding/\` 與 \`docs/\` 範圍。"
+              echo "\`catalog-info.yaml\` 與 \`.github/factory/risk-paths.yml\` 是 guardrail 本身，"
+              echo "必須由人類審核後親手搬檔至正位（docs/05 §1.1）。"
+              echo ""
+              echo '```json'
+              jq -r '.mismatches' .factory/crosscheck.json 2>/dev/null || cat .factory/crosscheck.err
+              echo '```'
+            } > .factory/crosscheck-comment.txt
+            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/crosscheck-comment.txt
+            gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
+          fi
+          exit $code
+
+      # ⚠️ 此處**沒有 judge**：唯讀分析無終點風險可判，且 judge 同樣需要
+      # catalog/risk-paths（尚不存在）。安全由上一步的白名單保證。
+
+      - name: Handle agent failure
+        if: always() && steps.agent.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          {
+            echo "## 納管執行失敗"
+            echo ""
+            echo "agent 未正常結束（exit=${{ steps.agent.outputs.exit_code }}）。"
+            echo "最後 30 行 stderr："
+            echo '```'
+            tail -30 target/.factory/run/stderr.txt 2>/dev/null || echo "(no stderr)"
+            echo '```'
+          } > .factory/fail.txt
+          gh issue comment "${{ inputs.issue_number }}" --body-file .factory/fail.txt
+          gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
+
+      - name: Post next steps
+        if: steps.crosscheck.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          {
+            echo "## 納管提案已產出 ✅"
+            echo ""
+            echo "agent 已完成唯讀分析，產出 \`proposals/onboarding/\` 下的建議草稿。"
+            echo ""
+            echo "### 接下來由你決定（三軸裁定權不在 agent）"
+            echo ""
+            echo "1. **審查 PR**：確認 risk-paths 的每條 glob 是否誤中無關檔案"
+            echo "   （docs/16 §5.3：硬規則若經常誤報，會訓練審查者略過警訊，反而削弱防護）。"
+            echo "2. **裁定三軸**：把 catalog-info.yaml 中的 3 個 \`TODO\` 換成實際值。"
+            echo "3. **搬檔到正位**："
+            echo '   ```bash'
+            echo "   git mv proposals/onboarding/catalog-info.yaml ."
+            echo "   mkdir -p .github/factory"
+            echo "   git mv proposals/onboarding/risk-paths.yml .github/factory/risk-paths.yml"
+            echo "   git rm -r proposals/onboarding"
+            echo '   ```'
+            echo "4. **合併後驗證**（docs/16 §5.2，**兩個方向都要驗**——"
+            echo "   只驗一般檔案無法區分「硬規則正確」與「硬規則根本沒載入」）："
+            echo '   ```bash'
+            echo "   gh workflow run factory-rescore.yml --repo philipz/software_factory \\"
+            echo "     -f repo=${{ inputs.repo }} -f base_branch=${{ inputs.base_branch }} -f pr_number=<PR>"
+            echo '   ```'
+          } > .factory/next.txt
+          gh issue comment "${{ inputs.issue_number }}" --body-file .factory/next.txt

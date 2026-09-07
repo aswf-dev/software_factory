@@ -1,0 +1,81 @@
+處理 GitHub Issue #<ISSUE>（repo: <REPO>，工廠 trunk 分支: <BASE_BRANCH>）。
+
+這是**納管工作項**（agent-onboard）：分析目標 repo，產出工廠設定的**建議草稿**。
+
+1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules。
+   **輸出紀律（重要）**：分析推導過程**不要輸出到 stdout**——直接寫入目標檔案；
+   stdout 只用於簡短進度與最終摘要。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
+2. 若環境變數 GH_TOKEN 不存在，先執行：
+   export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)
+   export GH_REPO=$(cat .factory/run/repo 2>/dev/null)
+   export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)
+3. 讀取該 Issue，取得「這個 repo 是做什麼的」——這是三軸評級的主要輸入。
+
+4. **唯讀分析**：不修改任何既有檔案。變更只允許 proposals/onboarding/ 與 docs/。
+   （crosscheck --onboard-only 會驗證；越界即紅燈交還人類。）
+
+   實際掃描目標 repo，至少確認：
+   - 語言／建置工具／測試框架（package.json、pom.xml、go.mod、requirements.txt…）
+   - 目錄結構（哪些目錄真的存在，不要臆測）
+   - 是否有 migrations/、schema 定義、API 定義（openapi、proto）
+   - 是否有認證授權、金流、加密、PII 相關程式碼
+   - 服務數量與跨服務協調的複雜度
+
+5. 產出 `proposals/onboarding/catalog-info.yaml`：
+   - 格式對齊機制 repo 的 catalog-info.yaml（annotations 三軸 + spec）
+   - **三軸的值一律填 `TODO`**，不要自己決定：
+       factory.io/business-criticality: TODO  # strategic | tactical | supporting
+       factory.io/risk-profile: TODO          # high | medium | low
+       factory.io/complexity: TODO            # high | medium | low
+   - 每一軸下方以註解寫出**建議值 + 理由 + 證據**，格式參考 docs/16 §5.1
+     （factory-scoreboard 的評級理由是好範例：每軸一段，講清楚為什麼不是更高也不是更低）。
+   - 理由必須引用**你實際看到的檔案**，不要寫通則。
+   - factory.io/agent-automerge 一律先填 "false"（新納管 repo 不預設開放自動合併）。
+   - factory.io/stack、test-framework 依實際掃描結果填寫（這兩項可直接填，非風險裁定）。
+
+6. 產出 `proposals/onboarding/risk-paths.yml`：
+   - **依實際目錄結構撰寫，絕不複製範本**。這是 docs/16 §5.3 的實證教訓：
+     factory-scoreboard 初版 H3 沿用 `**/*token*`，誤中 `src/styles/tokens.css`
+     （設計 tokens，與憑證無關）——每次改樣式都被強制人類審查。
+     **硬規則若經常誤報，會訓練審查者略過警訊，反而削弱防護。**
+   - H1–H4、H6–H7：**只在目標 repo 真的有對應路徑時才寫入**。
+     沒有對應結構的規則，保留該規則 id 但留空陣列，並以註解說明「掃描未發現，待人類確認」。
+   - H5（guardrail 自我保護）**無條件寫入**，與 repo 結構無關：
+       H5:
+         - ".github/**"
+         - "CODEOWNERS"
+         - "catalog-info.yaml"
+         - ".dsh/skills/**"
+   - 每條 glob 後面以註解標明**命中的實際檔案**（證明不是臆測）。
+   - 若某個 glob 會誤中無關檔案，改用更精確的樣式，並在註解說明取捨。
+
+7. 產出 `proposals/onboarding/README.md`：給審核者的一頁說明，必須包含
+   - 掃描摘要（語言／結構／關鍵發現）
+   - 三軸建議值與理由
+   - **搬檔指令**（人類審核後執行）：
+       git mv proposals/onboarding/catalog-info.yaml .
+       mkdir -p .github/factory
+       git mv proposals/onboarding/risk-paths.yml .github/factory/risk-paths.yml
+       git rm -r proposals/onboarding
+   - **合併後的驗證步驟**（docs/16 §5.2 雙向探測，兩個方向都要驗——
+     只驗一般檔案無法區分「硬規則正確」與「硬規則根本沒載入」）：
+       gh workflow run factory-rescore.yml --repo philipz/software_factory \
+         -f repo=<REPO> -f base_branch=<BASE_BRANCH> -f pr_number=<PR>
+
+8. 以**單層 PR** 提交（base 為 $BASE_BRANCH，絕不 push 到 main）。
+   PR 描述須包含 §7 的搬檔指令與驗證步驟——審核者要能直接照做。
+
+9. 完成後在 Issue 留言回報 PR 編號與三軸建議，並依 factory-workflow 寫出
+   .factory/run/report.json（changedPaths 應只含 proposals/onboarding/ 與 docs/ 下的檔案）。
+   **requirements 必填（G8 crosscheck 會驗證）**：依 Issue 每條驗收條件填寫 {id, status}。
+
+10. **完成後立即停止**：report.json 寫完即為工作項終點——不要繼續任何額外工作。
+    DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到 timeout。
+
+**絕不做的事**：
+- 不修改目標 repo 的 catalog-info.yaml 或 .github/factory/risk-paths.yml（即使它們不存在）。
+  這兩個檔案是 guardrail 本身，agent 不得寫入——docs/05 §1.1 核心不變量。
+  你的產出是**提案**，人類審核後親手搬檔才生效。
+- 不自行決定三軸的值。你提供理由與證據，人類裁定。
+
+若觸發任何停手規則，依該規則處理後結束。

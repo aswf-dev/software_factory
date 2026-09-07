@@ -148,6 +148,7 @@ export function compareReportToActual(
   actual: CrosscheckActual,
   analyzeOnly = false,
   proposeSkillOnly = false,
+  onboardOnly = false,
 ): CrosscheckMismatch[] {
   const mismatches: CrosscheckMismatch[] = []
   const reported = collectReportedPaths(report.changedPaths)
@@ -186,6 +187,36 @@ export function compareReportToActual(
       mismatches.push({
         kind: 'propose-skill-scope',
         detail: `propose-skill 模式只允許 proposals/skills/ 與 docs/ 下的變更，實際 diff 含越界變更：${forbidden.join('、')}`,
+      })
+    }
+  }
+
+  // agent-onboard（納管分析）：只允許 proposals/onboarding/** 與 docs/**。
+  //
+  // **賭注高於 ADR-016**。納管當下目標 repo 尚無 catalog-info.yaml 與
+  // risk-paths.yml——也就是說**還沒有任何人審過這個 repo 的風險評級**。
+  // 若 agent 能把分析結果直接寫進正位，它就是在自己宣告自己的監督等級，
+  // 之後所有工作項的計分都建立在這份未經裁定的自我宣告上，
+  // docs/05 §1.1 的核心不變量（agent 不得修改 guardrail 本身）當場失效。
+  //
+  // proposals/onboarding/ 之所以安全，理由與 ADR-016 同構但更直接：
+  // 它**不是任何機制的讀取路徑**——factory-score 讀 catalog-info.yaml、
+  // factory-run 讀 .github/factory/risk-paths.yml，兩者都不會看 proposals/。
+  // 因此誤合併也不改變任何評級；三軸必須由人類親手搬檔才會生效，
+  // 而搬檔的人必然看過內容（這正是監督模型賴以成立的那個動作）。
+  //
+  // 同樣是 allowlist：未明列者一律拒絕，且不與 proposals/skills/ 互穿
+  //（兩者是不同型別的提案通道，互穿等於型別契約失效）。
+  if (onboardOnly) {
+    const forbidden = actualPaths.filter(
+      (p) => !p.startsWith('proposals/onboarding/') && !p.startsWith('docs/'),
+    )
+    if (forbidden.length > 0) {
+      mismatches.push({
+        kind: 'onboard-scope',
+        detail:
+          `onboard 模式只允許 proposals/onboarding/ 與 docs/ 下的變更，實際 diff 含越界變更：${forbidden.join('、')}` +
+          '。catalog-info.yaml 與 .github/factory/risk-paths.yml 必須由人類審核後親手搬檔至正位',
       })
     }
   }
@@ -351,7 +382,8 @@ export interface CrosscheckCliPaths {
 
 /**
  * 解析位置參數：
- * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only] [--propose-skill-only]`。
+ * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
+ *  [--propose-skill-only] [--onboard-only]`。
  */
 export function parseArgs(argv: string[]): {
   issueNumber: number
@@ -359,6 +391,7 @@ export function parseArgs(argv: string[]): {
   paths: CrosscheckCliPaths
   analyzeOnly: boolean
   proposeSkillOnly: boolean
+  onboardOnly: boolean
   requirementAnchors: string[]
 } {
   const positional: string[] = []
@@ -366,6 +399,7 @@ export function parseArgs(argv: string[]): {
   let target = 'target'
   let analyzeOnly = false
   let proposeSkillOnly = false
+  let onboardOnly = false
   let requirementAnchors: string[] = []
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
@@ -381,6 +415,8 @@ export function parseArgs(argv: string[]): {
       analyzeOnly = true
     } else if (arg === '--propose-skill-only') {
       proposeSkillOnly = true
+    } else if (arg === '--onboard-only') {
+      onboardOnly = true
     } else if (arg === '--requirement-anchors') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) {
@@ -393,10 +429,20 @@ export function parseArgs(argv: string[]): {
       throw new CliError(`unknown argument: ${arg}`)
     }
   }
-  // 兩個「僅產出」模式的允許清單不同，同時指定會讓實際生效的規則變得含糊
+  // 各「僅產出」模式的允許清單互不相同，同時指定會讓實際生效的規則變得含糊
   // ——寧可紅燈，也不要讓寬鬆的那一套悄悄成為實際規則（同 factory-judge 的立場）。
-  if (analyzeOnly && proposeSkillOnly) {
-    throw new CliError('--analyze-only 與 --propose-skill-only 不可同時指定')
+  // 以清單列舉而非兩兩比對：新增第四個模式時不會漏掉任何組合。
+  const exclusive = (
+    [
+      ['--analyze-only', analyzeOnly],
+      ['--propose-skill-only', proposeSkillOnly],
+      ['--onboard-only', onboardOnly],
+    ] as const
+  )
+    .filter(([, on]) => on)
+    .map(([flag]) => flag)
+  if (exclusive.length > 1) {
+    throw new CliError(`${exclusive.join(' 與 ')} 不可同時指定`)
   }
   const issueNumber = Number(positional[0])
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
@@ -410,16 +456,30 @@ export function parseArgs(argv: string[]): {
     paths: { base, target },
     analyzeOnly,
     proposeSkillOnly,
+    onboardOnly,
     requirementAnchors,
   }
 }
 
 export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput {
-  const { issueNumber, reportPath, paths, analyzeOnly, proposeSkillOnly, requirementAnchors } =
-    parseArgs(argv)
+  const {
+    issueNumber,
+    reportPath,
+    paths,
+    analyzeOnly,
+    proposeSkillOnly,
+    onboardOnly,
+    requirementAnchors,
+  } = parseArgs(argv)
   const report = loadReport(reportPath)
   const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
-  const mismatches = compareReportToActual(report, actual, analyzeOnly, proposeSkillOnly)
+  const mismatches = compareReportToActual(
+    report,
+    actual,
+    analyzeOnly,
+    proposeSkillOnly,
+    onboardOnly,
+  )
   // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
   const advisories = compareRequirementIds(report.requirements, requirementAnchors)
   return {
