@@ -1,0 +1,22 @@
+.github/workflows/factory-run-cleanup.yml
+  h_1b119f25eaf333 62-70,78-80
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 320-321,324-325
+docs/27-repo-onboarding.md
+  h_1b119f25eaf333 1-325
+src/cli/apply-score-labels.test.ts
+  h_1b119f25eaf333 39-52,132-154
+src/cli/apply-score-labels.ts
+  h_1b119f25eaf333 47-54,56,97,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "006cfbe331cbd77dcaa2ca892ce708cc26007162",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
