@@ -16,11 +16,24 @@ import { join } from 'node:path'
 import { decodeZstdLog } from './zstd.js'
 import type { SessionLogInput } from './aggregate.js'
 
-/** session log 檔名（zstd 與純文字皆接受）。 */
-const SESSION_LOG_NAMES = ['session.jsonl.zstd', 'session.jsonl'] as const
+/**
+ * session log 檔名（zstd 與純文字皆接受）。
+ *
+ * 兩種世代並存：
+ *  - DSH ≤ 0.1.2：`session.jsonl(.zstd)`；
+ *  - DSH ≥ 0.1.5：`session.v<generation>.jsonl(.zstd)`——session-persistence-jsonl
+ *    改以 `session.v${generation}.jsonl` 命名（實測 0.1.5-rc.1 產出
+ *    `session.v3.jsonl.zstd`，對應 release note「會話資料格式升級至 V3」）。
+ *
+ * generation 以 `\d+` 浮動比對而非寫死 `v3`：升到 v4 時不該再壞一次。
+ * 只認舊字面名會讓 factory-usage 在升級後**一個 session 都找不到**——量測靜默
+ * 回報 unavailable、成本追蹤歸零，而 usage 是「附註不是 gate」，失效不會讓任何
+ * run 變紅，屬無聲失效（docs/18）。故在此以規則式放寬，並保留舊名相容。
+ */
+const SESSION_LOG_NAME_RE = /^session(?:\.v\d+)?\.jsonl(?:\.zstd)?$/
 
 function isSessionLogName(name: string): boolean {
-  return (SESSION_LOG_NAMES as readonly string[]).includes(name)
+  return SESSION_LOG_NAME_RE.test(name)
 }
 
 /** 遞迴收集 sessionsRoot 下所有 session log 檔路徑。 */

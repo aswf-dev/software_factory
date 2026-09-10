@@ -38,6 +38,42 @@ describe('collectSessionLogPaths', () => {
   it('不存在或空的 root → 空陣列', () => {
     expect(collectSessionLogPaths(join(tmp, 'missing'))).toEqual([])
   })
+
+  /**
+   * 迴歸（DSH 0.1.5-rc.1 升級）：session log 檔名加入了 format generation。
+   *
+   * 0.1.2 寫 `session.jsonl(.zstd)`；0.1.5 的 session-persistence-jsonl 改以
+   * `session.v${generation}.jsonl(.zstd)` 命名（實測產出 `session.v3.jsonl.zstd`，
+   * 對應 release note 的「會話資料格式升級至 V3」）。
+   *
+   * 只認舊字面名會讓 factory-usage 在升級後**一個 session 都找不到**——量測
+   * 靜默回報 unavailable、成本追蹤全歸零，且因為 usage 是「附註不是 gate」
+   * 不會讓任何 run 變紅，屬於無聲失效。故以 generation 為浮動段比對。
+   */
+  it('辨識帶 format generation 的檔名 session.v3.jsonl(.zstd)（DSH 0.1.5 升級迴歸）', () => {
+    const d = join(tmp, 'gen')
+    mkdirSync(join(d, 's1'), { recursive: true })
+    writeFileSync(join(d, 's1', 'session.v3.jsonl.zstd'), 'x')
+    mkdirSync(join(d, 's2'), { recursive: true })
+    writeFileSync(join(d, 's2', 'session.v3.jsonl'), 'x')
+    // 未來的 generation 也不該再壞一次
+    mkdirSync(join(d, 's3'), { recursive: true })
+    writeFileSync(join(d, 's3', 'session.v10.jsonl.zstd'), 'x')
+    expect(collectSessionLogPaths(d)).toEqual([
+      join(d, 's1', 'session.v3.jsonl.zstd'),
+      join(d, 's2', 'session.v3.jsonl'),
+      join(d, 's3', 'session.v10.jsonl.zstd'),
+    ])
+  })
+
+  it('不誤收近似檔名（session.lock / session.header / 非 session 前綴）', () => {
+    const d = join(tmp, 'near')
+    mkdirSync(d, { recursive: true })
+    for (const n of ['session.lock', 'session.header', 'session.v3.json', 'notsession.jsonl']) {
+      writeFileSync(join(d, n), 'x')
+    }
+    expect(collectSessionLogPaths(d)).toEqual([])
+  })
 })
 
 describe('discoverSessions', () => {
