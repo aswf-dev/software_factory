@@ -1,0 +1,18 @@
+src/usage/session-log.test.ts
+  h_1b119f25eaf333 41-76
+src/usage/session-log.ts
+  h_1b119f25eaf333 19-33,36
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 215,218,220-226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3303e047b707fd6c95c607e54061445c78763667",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
