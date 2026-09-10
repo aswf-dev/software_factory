@@ -1,0 +1,18 @@
+src/work-item-history/issue-url.ts
+  h_1b119f25eaf333 13-16,18-21
+src/work-item-history/task-record.ts
+  h_1b119f25eaf333 13-16,18-34
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 730-759
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0fe77241b05809b77e394ad8a1633bb315f4482f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
