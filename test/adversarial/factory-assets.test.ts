@@ -622,6 +622,36 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
   })
 })
 
+describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
+  it('template 以 output.links 輸出 Issue 連結（歷史查閱的結構化來源）', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    expect(t).toContain('links:')
+    expect(t).toContain("steps['create-issue'].output.issueUrl")
+  })
+
+  /**
+   * 上面那條是字串比對，兩個字串「同時出現在檔案某處」就會綠——實測把它們搬進
+   * 一行 YAML 註解（`# TODO: 未來也許加 links:，屆時用 steps[...]。output.issueUrl`）
+   * 仍然通過，而 Backstage 解析出來的 spec.output 根本沒有 links。那正是這個工件
+   * 最容易發生的無聲失效：template 照樣載入、表單照樣送出，只有歷史查閱頁默默
+   * 退回 log 字串解析。故補一條以 YAML 解析後的結構為準的斷言。
+   */
+  it('output.links 是 spec.output 下與 text 並存的真欄位，url 取自 create-issue 的 issueUrl', () => {
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const spec = (
+      load(read('backstage/templates/factory-work-item/template.yaml')) as {
+        spec: { output: { links?: { title?: string; url?: string }[]; text?: unknown[] } }
+      }
+    ).spec
+    expect(spec.output.links, 'spec.output 缺 links 欄位').toBeDefined()
+    expect(spec.output.links).toHaveLength(1)
+    expect(spec.output.links![0]!.url).toBe("${{ steps['create-issue'].output.issueUrl }}")
+    expect(spec.output.links![0]!.title).toBeTruthy()
+    // 純新增：既有的 output.text 必須原封不動地並存（ADR-009 局部解凍的前提）
+    expect(spec.output.text, 'output.text 不得被 links 取代').toHaveLength(1)
+  })
+})
+
 describe('Security 第一層資產（免費、不依賴 GHAS，2026-08-20）', () => {
   it('dependabot.yml 存在且涵蓋 npm + github-actions', () => {
     const c = read('.github/dependabot.yml')
