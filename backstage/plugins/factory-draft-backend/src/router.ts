@@ -29,7 +29,7 @@ export async function createRouter(options: RouterOptions): Promise<express.Rout
   const { config, logger } = options
   const apiKey = config.getOptionalString('factoryDraft.apiKey')
   const baseUrl = config.getOptionalString('factoryDraft.baseUrl') ?? 'https://api.deepseek.com'
-  const model = config.getOptionalString('factoryDraft.model') ?? 'deepseek-v4-flash'
+  const model = config.getOptionalString('factoryDraft.model') ?? 'deepseek-v4.1-flash'
 
   const router = express.Router()
   router.use(express.json())

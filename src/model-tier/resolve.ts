@@ -248,7 +248,7 @@ export function resolveModelTier(input: ModelResolutionInput): ModelResolution {
     complexity = 'high'
     complexitySource = 'fail-safe'
     evidence = ['無 Issue 分析且 catalog 未標註/非法 → fail-safe 採最高複雜度']
-    reason = 'fail-safe：未宣告複雜度 → high（deepseek-v4-pro，不誤燒旗艦成本）'
+    reason = 'fail-safe：未宣告複雜度 → high（deepseek-v4.1-flash，不誤燒旗艦成本）'
   }
 
   let tier: ModelTier = complexity === 'low' ? 'low' : complexity === 'medium' ? 'medium' : 'high'

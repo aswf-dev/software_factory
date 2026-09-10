@@ -12,18 +12,27 @@
 #                       不單獨計價（僅列 tokens、不計入金額，render 會註明）。
 #
 # 誠實揭露：cacheRead 價格為估算——anthropic 依供應商「cache read = input × 0.1」
-# 慣例設定並註明；qwen/deepseek 未查得官方 cache read 價，故缺欄（不單獨計價）。
+# 慣例設定並註明；qwen 未查得官方 cache read 價，故缺欄（不單獨計價）。
 # 本表是估算用，非供應商帳單。
+#
+# deepseek-v4.1-flash（2026-09-10 起生效的官方公告價，人民幣計價）：
+#   百萬 tokens 輸入（快取命中）  空閒 0.02 元 / 高峰 0.04 元
+#   百萬 tokens 輸入（快取未命中）空閒 1 元    / 高峰 2 元
+#   百萬 tokens 輸出              空閒 4 元    / 高峰 8 元
+#   高峰時段＝週一至週五 09:00–12:00、14:00–18:00（北京時間），其餘為空閒時段。
+# 本表為單一價格欄位、無時段維度，故 2026-09-11 用戶裁決採 **高峰時段價**
+# （保守估算，成本不低估），匯率假設 1 USD = 7.1 CNY：
+#   input(未命中) 2 元 → $0.282、output 8 元 → $1.127、cacheRead 0.04 元 → $0.0056。
+# 誠實揭露：實際帳單依請求落在哪個時段而定，空閒時段實付約為此表的一半；
+# 匯率為固定假設值，非即時匯率。
 pricing:
   qwen3.8-flash:
     inputUsdPerMTok: 0.15
     outputUsdPerMTok: 0.47
-  deepseek-v4-flash:
-    inputUsdPerMTok: 0.14
-    outputUsdPerMTok: 0.28
-  deepseek-v4-pro:
-    inputUsdPerMTok: 0.435
-    outputUsdPerMTok: 0.87
+  deepseek-v4.1-flash:
+    inputUsdPerMTok: 0.282
+    outputUsdPerMTok: 1.127
+    cacheReadUsdPerMTok: 0.0056
   claude-sonnet-5:
     inputUsdPerMTok: 2
     outputUsdPerMTok: 10
