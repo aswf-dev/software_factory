@@ -1,0 +1,20 @@
+backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx
+  h_1b119f25eaf333 1-81
+backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx
+  h_1b119f25eaf333 1-85
+backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx
+  h_1b119f25eaf333 1-34
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 10-11,659-715
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ca5ae414a350b4dd962a40677219e37ade32f819",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
