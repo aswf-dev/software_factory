@@ -27,8 +27,10 @@
 
 | 檔案 | 職責 |
 |---|---|
-| `src/work-item-history/task-record.ts`（建立） | 純函式：任務辨識、parameters 轉紀錄與整批轉換、repo 正規化、Issue URL 抽取、時間格式化、摘要 |
-| `src/work-item-history/task-record.test.ts`（建立） | 上述純函式的單元測試 |
+| `src/work-item-history/narrow.ts`（Task 3 建立） | 不可信 JSON 的收窄工具（`asRecord` / `asString`），供本目錄各模組共用 |
+| `src/work-item-history/task-record.ts`（建立） | 純函式：任務辨識、parameters 轉紀錄與整批轉換、repo 正規化、時間格式化、摘要 |
+| `src/work-item-history/issue-url.ts`（Task 3 建立） | 純函式：從 `output.links` 或 log 行取出 Issue URL（輸入形態與失敗模式皆與 task-record 不同，故獨立） |
+| 上述三者的 `*.test.ts`（建立） | 單元測試；本目錄受 100% 覆蓋率門檻約束 |
 | `backstage/plugins/factory-draft/src/index.tsx`（改寫） | 只做 module 組裝與擴充註冊 |
 | `backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx`（自 index.tsx 搬移） | 既有 LLM 草稿欄位元件 |
 | `backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx`（建立） | 分頁路由：index → 清單、`:taskId` → 詳情 |
@@ -410,11 +412,16 @@ git commit -m "feat(work-item-history): task → WorkItemRecord 轉換與顯示�
 
 ---
 
-### Task 3: `extractIssueUrl`（新任務讀 output.links、舊任務退回解析 log）
+### Task 3: `extractIssueUrl`（獨立模組；新任務讀 output.links、舊任務退回解析 log）
 
 **Files:**
-- Modify: `src/work-item-history/task-record.ts`
-- Test: `src/work-item-history/task-record.test.ts`
+- Create: `src/work-item-history/narrow.ts`（把 `asRecord` / `asString` 抽成共用）
+- Create: `src/work-item-history/narrow.test.ts`
+- Create: `src/work-item-history/issue-url.ts`
+- Create: `src/work-item-history/issue-url.test.ts`
+- Modify: `src/work-item-history/task-record.ts`（改為 import 共用 narrow helper）
+
+> **為什麼獨立成檔（Task 2 code review 裁決）**：`extractIssueUrl` 吃的輸入完全不同（ANSI 著色的 log 行與 `output.links`，不是 task JSON）、失敗模式也不同（少一個連結是設計上可接受的退化，不是少一個欄位），而且會帶進 regex／ANSI 處理。塞進 `task-record.ts` 會讓那個檔案的職責一句話講不完。現在拆比 Task 4 再搬便宜。
 
 **背景**：DB 內既有 38 筆 factory-work-item 任務建立於 template 加上 `output.links` 之前，它們的 Issue URL 只存在於 log 事件字串中，實測長相為：
 
@@ -424,25 +431,53 @@ git commit -m "feat(work-item-history): task → WorkItemRecord 轉換與顯示�
 
 比對時**不依賴 "Successfully created issue" 這串字**（它屬於 `github:issues:create` 的實作細節，升版可能改），只認 GitHub issue URL 的形狀。
 
-- [ ] **Step 1: 寫失敗測試**
+- [ ] **Step 1: 先抽出共用 narrow helper（純搬移，行為不變）**
 
-把 import 行改為（追加 `extractIssueUrl`）：
+建立 `src/work-item-history/narrow.ts`：
 
 ```ts
-import {
-  extractIssueUrl,
-  formatTimestamp,
-  isFactoryWorkItemSpec,
-  normalizeRepo,
-  summarize,
-  toWorkItemRecord,
-  toWorkItemRecords,
-} from './task-record.js'
+/**
+ * 不可信 JSON 的收窄工具（純函式）。
+ *
+ * 本目錄的兩個模組（task-record、issue-url）都吃 scaffolder API 回傳的
+ * JSON，欄位可能缺失或型別不符。收窄一律走這裡，避免各自長出不同寫法。
+ */
+
+/** 物件才回傳其本身，其餘（含 null、陣列以外的原始型別）回傳 null。 */
+export const asRecord = (v: unknown): Record<string, unknown> | null =>
+  typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
+
+/** 字串才回傳其本身，其餘一律回傳空字串。 */
+export const asString = (v: unknown): string => (typeof v === 'string' ? v : '')
 ```
 
-並在檔尾追加：
+建立 `src/work-item-history/narrow.test.ts`，直接測這兩個函式的邊界（物件／陣列／null／undefined／數字／字串），確保 100% 覆蓋。
+
+接著把 `src/work-item-history/task-record.ts` 內原本的兩個私有 helper 刪除，改為在檔首 import：
 
 ```ts
+import { asRecord, asString } from './narrow.js'
+```
+
+- [ ] **Step 2: 執行測試確認未破壞既有行為**
+
+Run: `CI=true pnpm exec vitest run src/work-item-history`
+Expected: PASS，既有測試全綠（純搬移，數量不變）
+
+- [ ] **Step 3: 寫失敗測試**
+
+建立 `src/work-item-history/issue-url.test.ts`：
+
+```ts
+/**
+ * Issue URL 抽取測試。
+ *
+ * 兩條來源刻意分開測：新任務走 template 的 output.links（結構化），
+ * 舊任務只能從 log 字串撈——後者是退化路徑，失效只該少一個連結。
+ */
+import { describe, expect, it } from 'vitest'
+import { extractIssueUrl } from './issue-url.js'
+
 describe('extractIssueUrl', () => {
   const ISSUE = 'https://github.com/philipz/camunda_hazelcast/issues/28'
 
@@ -464,7 +499,16 @@ describe('extractIssueUrl', () => {
     ).toBe(ISSUE)
   })
 
-  it('忽略 output.links 中的非 issue 連結（例如 Actions 頁面）', () => {
+  it('output.links 有但非 issue 連結時，仍會退回掃 log', () => {
+    expect(
+      extractIssueUrl({
+        output: { links: [{ url: 'https://github.com/philipz/software_factory/actions' }] },
+        logLines: [`Successfully created issue #28: ${ISSUE}`],
+      }),
+    ).toBe(ISSUE)
+  })
+
+  it('只有 Actions 連結、log 也沒有時回傳 undefined', () => {
     expect(
       extractIssueUrl({
         output: { links: [{ url: 'https://github.com/philipz/software_factory/actions' }] },
@@ -480,24 +524,18 @@ describe('extractIssueUrl', () => {
 })
 ```
 
-- [ ] **Step 2: 執行測試確認失敗**
+- [ ] **Step 4: 執行測試確認失敗**
 
-Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
-Expected: FAIL，`extractIssueUrl is not a function`
+Run: `CI=true pnpm exec vitest run src/work-item-history/issue-url.test.ts`
+Expected: FAIL，找不到模組 `./issue-url.js`
 
-- [ ] **Step 3: 寫最小實作**
+- [ ] **Step 5: 寫最小實作**
 
-在 `src/work-item-history/task-record.ts` 檔尾追加：
+建立 `src/work-item-history/issue-url.ts`：
 
 ```ts
 /**
- * GitHub issue URL 的形狀。刻意不比對 action 的 log 措辭
- * （"Successfully created issue #N:" 是 github:issues:create 的實作細節）。
- */
-const ISSUE_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/
-
-/**
- * 取出本次任務建立的 Issue URL。
+ * 從任務產物中取出「本次建立的 GitHub Issue」連結（純函式）。
  *
  * 兩條來源：
  * 1. template 的 output.links（2026-09-10 起的新任務，結構化、穩定）；
@@ -505,6 +543,15 @@ const ISSUE_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/
  *
  * 兩者皆無時回傳 undefined——呼叫端不顯示連結即可，不得假造。
  */
+import { asRecord, asString } from './narrow.js'
+
+/**
+ * GitHub issue URL 的形狀。刻意不比對 action 的 log 措辭
+ * （"Successfully created issue #N:" 是 github:issues:create 的實作細節，
+ * 升版即可能改），也不比對 Actions 頁面那類非 issue 連結。
+ */
+const ISSUE_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/
+
 export function extractIssueUrl(input: {
   output?: unknown
   logLines?: readonly string[] | undefined
@@ -524,24 +571,28 @@ export function extractIssueUrl(input: {
 }
 ```
 
-- [ ] **Step 4: 執行測試確認通過**
+- [ ] **Step 6: 執行測試確認通過**
 
-Run: `CI=true pnpm exec vitest run src/work-item-history/task-record.test.ts`
-Expected: PASS，全綠（含本 task 新增的 4 條 `extractIssueUrl` 測試）
+Run: `CI=true pnpm exec vitest run src/work-item-history`
+Expected: PASS，全綠
 
-- [ ] **Step 5: 確認覆蓋率門檻未被拉低**
+- [ ] **Step 7: 型別檢查與覆蓋率**
 
-Run: `pnpm coverage`
-Expected: PASS，且 `src/work-item-history/task-record.ts` 的 lines/branches 皆 ≥ 80%
+Run: `CI=true pnpm typecheck` 與 `CI=true pnpm coverage`
+Expected: typecheck 無輸出；coverage 通過，`src/work-item-history/**` 維持 100%（該目錄已在 100% 層級，不得調降門檻）
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/work-item-history/task-record.ts src/work-item-history/task-record.test.ts
-git commit -m "feat(work-item-history): Issue URL 抽取（output.links 優先，log 為舊任務退路）
+git add src/work-item-history/
+git commit -m "feat(work-item-history): Issue URL 抽取獨立成模組
 
 既有 38 筆任務的 Issue URL 只存在 log 字串中；比對只認 URL 形狀，
-不綁 github:issues:create 的 log 措辭。"
+不綁 github:issues:create 的 log 措辭。
+
+輸入形態與失敗模式都與 task-record 不同（ANSI log 行 vs task JSON、
+少一個連結 vs 少一個欄位），故獨立成檔；asRecord/asString 抽到
+narrow.ts 供兩者共用。"
 ```
 
 ---
@@ -903,9 +954,10 @@ export function HistoryList() {
   if (loading) return <Progress />
   if (error) return <ErrorPanel error={error} />
 
-  const fetched = value?.tasks ?? []
-  // 篩選、轉換、丟壞資料全在 src/ 的純函式裡完成——本元件不做任何判斷。
-  const rows: WorkItemRecord[] = toWorkItemRecords(fetched)
+  // 拆信封、篩選、轉換、丟壞資料全在 src/ 的純函式裡完成——本元件不做任何判斷。
+  // 連 `value?.tasks` 都不自己拆：回應形狀若改變，這裡會安靜地變成「查無資料」，
+  // 而那是歷史頁最難察覺的失敗模式。
+  const rows: WorkItemRecord[] = toWorkItemRecords(value)
 
   if (rows.length === 0) {
     return (
@@ -942,7 +994,7 @@ export function HistoryList() {
           { title: '建立者', field: 'createdBy' },
         ]}
       />
-      {fetched.length >= FETCH_LIMIT && (
+      {(value?.tasks?.length ?? 0) >= FETCH_LIMIT && (
         <Typography variant="caption">
           僅掃描最近 {FETCH_LIMIT} 筆 scaffolder 任務，更早的紀錄未載入。
         </Typography>
@@ -996,8 +1048,8 @@ import { useTaskEventStream } from '@backstage/plugin-scaffolder-react'
 import { ErrorPanel, InfoCard, Link, Progress } from '@backstage/core-components'
 import Box from '@material-ui/core/Box'
 import Typography from '@material-ui/core/Typography'
+import { extractIssueUrl } from '../../../../src/work-item-history/issue-url.ts'
 import {
-  extractIssueUrl,
   formatTimestamp,
   toWorkItemRecord,
 } from '../../../../src/work-item-history/task-record.ts'
@@ -1211,11 +1263,11 @@ cd ../backstage-app && set -a && . ./.env && set +a && yarn dev
 
 啟用 spec §12 的 fallback：
 
-1. 把 `src/work-item-history/task-record.ts` 與其測試複製到 `backstage/plugins/factory-draft/src/work-item-history/task-record.ts` / `.test.ts`，並刪除 `src/work-item-history/`；
-2. 在 `vitest.config.ts` 的 `test.include` 追加 `'backstage/plugins/**/*.test.ts'`；
+1. 把 `src/work-item-history/` 全部檔案（`narrow.ts`、`task-record.ts`、`issue-url.ts` 與各自的測試）搬到 `backstage/plugins/factory-draft/src/work-item-history/`，並刪除 `src/work-item-history/`；
+2. 在 `vitest.config.ts` 的 `test.include` 追加 `'backstage/plugins/**/*.test.ts'`，並把 100% 覆蓋率門檻的路徑改成新位置；
 3. 在 `tsconfig.json` 的 `include` 追加 `'backstage/plugins/**/*.ts'`；
-4. 更新 Task 7 那條契約測試的斷言字串為 `'./task-record.ts'`；
-5. 重跑 `pnpm test` 與 `pnpm typecheck`。
+4. 更新 Task 7 那條契約測試的斷言字串（改為 `'./task-record.ts'` 與 `'./issue-url.ts'`）；
+5. 重跑 `CI=true pnpm test`、`CI=true pnpm typecheck`、`CI=true pnpm coverage`。
 
 - [ ] **Step 4: 回寫驗證結果**
 
@@ -1224,7 +1276,7 @@ cd ../backstage-app && set -a && . ./.env && set +a && yarn dev
 ```markdown
 # 2026-09-10 工作項歷史查閱分頁驗證（ADR-017）
 # - SubPageBlueprint attachTo { id: 'page:scaffolder', input: 'pages' }：Create 頁 tab 是否出現
-# - 插件跨 root import repo 內 src/work-item-history/task-record.ts（rspack）：是否通過
+# - 插件跨 root import repo 內 src/work-item-history/*.ts（rspack）：是否通過
 # - useTaskEventStream 對已完成任務 replay 是否帶回 output（新任務的 Issue links）
 # - 舊任務 Issue 連結靠解析 stepLogs：是否成功
 ```

@@ -77,7 +77,9 @@ SubPageBlueprint.make({
 
 ## 5. 模組介面
 
-### 5.1 `src/work-item-history/task-record.ts`（純函式）
+### 5.1 `src/work-item-history/`（純函式）
+
+三個模組：`narrow.ts`（`asRecord` / `asString` 收窄工具，共用）、`task-record.ts`（任務辨識與紀錄轉換）、`issue-url.ts`（Issue URL 抽取）。`extractIssueUrl` 獨立成檔的理由：它吃的是 ANSI 著色的 log 行與 `output.links`（不是 task JSON），失敗模式是「少一個連結」（不是「少一個欄位」），且會帶進 regex／ANSI 處理。
 
 ```ts
 export type WorkItemRecord = {
