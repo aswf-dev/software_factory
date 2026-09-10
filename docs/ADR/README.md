@@ -46,6 +46,7 @@
 | [ADR-014](014-sdlc-tailoring.md) | SDLC 生命週期模型與裁適宣告 | 已接受 | `00` §2、SWEBOK Ch10 §2.8 |
 | [ADR-015](015-factory-scoreboard-platform.md) | Factory Scoreboard 管理平台（平台／Astro 前端／設計風格） | 已接受 | `22`、`26`、Q22-1～9 |
 | [ADR-016](016-agent-authored-skills-propose-only.md) | agent 撰寫技能——「產出」與「生效」分離 | 已接受 | `25`、`04` §3.2、`05` §1.1、`06` §4.3 |
+| [ADR-017](017-backstage-work-item-history.md) | Backstage 解凍擴大——工作項歷史唯讀查閱 | 已接受 | `ADR-009`、`03` §3.4 |
 
 ## 何時該寫新的 ADR
 

@@ -127,6 +127,11 @@ spec:
           base_branch: ${{ parameters.baseBranch }}
           task_type: ${{ parameters.taskType }}
   output:
+    # 歷史查閱分頁（ADR-017）以此結構化欄位取得 Issue 連結；在此之前建立的
+    # 任務只能從 log 字串解析，故新任務一律走這條。
+    links:
+      - title: 已建立的 Issue
+        url: ${{ steps['create-issue'].output.issueUrl }}
     text:
       - title: 建立與觸發完成
         content: |

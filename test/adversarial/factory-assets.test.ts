@@ -7,8 +7,8 @@
  *
  * 本檔定義「契約」：Task 5–8 與 Task 16–20 依此建立檔案後轉綠。
  */
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DOD_LABELS } from '../../src/cli/factory-issue-check.js'
 
@@ -622,6 +622,153 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
   })
 })
 
+describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
+  /**
+   * 這條刻意解析 YAML 而不做字串比對。原本這裡還有一條
+   * `expect(t).toContain('links:')` + `expect(t).toContain("steps['create-issue'].output.issueUrl")`，
+   * 實測證明它毫無價值：把真正的 links 區塊整段刪掉、只留一行註解
+   * `# TODO: 未來也許加 links:，屆時用 steps['create-issue'].output.issueUrl`，
+   * 該測試照樣綠，而 js-yaml 解析出的 spec.output 只剩 text、一條連結都沒有。
+   * 字串比對只問「這些字有沒有出現在檔案某處」，註解裡的字同樣算數；Backstage
+   * 讀的卻是解析後的樹。這正是本檔要防的無聲失效：template 照樣載入、表單照樣
+   * 送出，只有歷史查閱頁默默退回 log 字串解析，沒有任何功能徵兆。
+   *
+   * 一條「註解就能滿足」的測試比沒有測試更糟——後人會信它。故已刪除該條，
+   * 只留這條以解析後結構為準的斷言（它本來就涵蓋了那兩個字串的實質內容）。
+   *
+   * 連結刻意不加 `if` 守衛：output 只在所有 step 成功後才渲染（firstError 先 throw，
+   * create-issue 無 continueOnFailure），issueUrl 必然存在；且前端 LinkOutputs 與
+   * src/work-item-history/issue-url.ts 都會濾掉無 url 的連結，守衛不可能生效。
+   */
+  it('spec.output.links 為解析後的真欄位：與 text 並存、url 取自 create-issue 的 issueUrl', () => {
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const spec = (
+      load(read('backstage/templates/factory-work-item/template.yaml')) as {
+        spec: {
+          output: { links?: { title?: string; url?: string }[]; text?: unknown[] }
+        }
+      }
+    ).spec
+    expect(spec.output.links, 'spec.output 缺 links 欄位').toBeDefined()
+    expect(spec.output.links).toHaveLength(1)
+    expect(spec.output.links![0]!.url).toBe("${{ steps['create-issue'].output.issueUrl }}")
+    expect(spec.output.links![0]!.title).toBeTruthy()
+    // 純新增：既有的 output.text 必須原封不動地並存（ADR-009 局部解凍的前提）
+    expect(spec.output.text, 'output.text 不得被 links 取代').toHaveLength(1)
+  })
+
+  /**
+   * 以下三條是**字串比對**（外加一次真實的 import 解析），強度有限，理由與界線寫在此。
+   *
+   * 為什麼強度有限：同一個 describe 上一條的 docblock 已實測證明，`toContain` 只問
+   * 「這些字有沒有出現在檔案某處」——把真正的區塊整段刪掉、只留一行提及相同字串的
+   * 註解，斷言照樣綠。本檔開頭也記了 Task 4 的同款教訓。
+   *
+   * 為什麼仍用字串比對：對象是 `.tsx` 原始碼，而本 repo 沒有現成的 TS 結構化解析
+   * 工具；為此引入 TypeScript compiler API 屬於過度工程。故退而求其次。
+   *
+   * **限制（必須講明，不可當成行為保證）**：這些斷言只證明「該字串出現在檔案裡」，
+   * **不證明 SubPage 擴充真的掛進了 app tree，也不證明元件真的會被渲染**。
+   * `backstage/plugins/**` 不在 `tsconfig.json` 的 `include`、也不在
+   * `vitest.config.ts` 的 `test.include` 內，本 repo 沒有任何自動化檢查能證明那件事
+   * ——`pnpm typecheck` 綠燈對 `.tsx` 不構成證據。唯一的驗證是 Task 10 的瀏覽器實測
+   * （Create 頁是否真的出現「工作項歷史」分頁），該項是必要驗收項而非選項。
+   *
+   * 第三條比其餘兩條稍強：它把每個相對 import（`./` 與 `../`）真的 resolve 到磁碟再
+   * 斷言檔案存在，故能抓到層數寫錯（4 層與 5 層都含 `src/work-item-history/task-record.ts`
+   * 這個子字串，`toContain` 抓不到）——但「解析得到」仍不等於「語意正確」。
+   */
+  it('SubPage 擴充明寫 attachTo page:scaffolder（不依賴 relative 解析）', () => {
+    const idx = read('backstage/plugins/factory-draft/src/index.tsx')
+    expect(idx).toContain('SubPageBlueprint.make')
+    expect(idx).toContain("attachTo: { id: 'page:scaffolder', input: 'pages' }")
+    expect(idx).toContain("path: 'work-items'")
+  })
+
+  it('分頁標籤用英文，與同排的內建分頁一致', () => {
+    const idx = read('backstage/plugins/factory-draft/src/index.tsx')
+    // 內建分頁是 Templates / Tasks / Actions / Template Editor，全是英文；
+    // 導覽標籤若只有這個分頁是中文，同排看起來會像壞掉。
+    expect(idx).toContain("title: 'Task History'")
+    // 反向釘住：標籤不得再是中文。`title:` 在本檔只出現在 SubPageBlueprint 的
+    // params（其餘是註解），故這條能守住不退回中文標籤。
+    expect(idx).not.toMatch(/^\s*title: '[^']*[\u4e00-\u9fff]/m)
+  })
+
+  it('分頁有清單與詳情兩條路由，且各自渲染對應元件', () => {
+    const sub = read('backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx')
+    expect(sub).toContain('path=":taskId"')
+    // 用 regex 而非 toContain('<Route index')：後者假設 JSX 寫成單行，但 Prettier
+    // 標準是多行 `<Route\n  index`，那個字面根本不在檔案裡。測的是「有一條 index
+    // 路由」這個意圖，不是某種排版。
+    expect(sub).toMatch(/<Route\s+index/)
+    // 更實質的契約：兩條路由各自渲染對應元件——否則兩條空路由也會過上面的斷言。
+    expect(sub).toContain('<HistoryList />')
+    expect(sub).toContain('<HistoryDetail />')
+  })
+
+  it('歷史頁元件從 src/ 取用純函式，且相對路徑真的解析得到', () => {
+    // 純函式是這個功能唯一受 tsc 與 vitest 保護的程式碼；先釘住兩個消費端真的有取用。
+    for (const f of [
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx',
+    ]) {
+      expect(read(f)).toContain('src/work-item-history/task-record.ts')
+    }
+    // 關鍵：`toContain` 抓不到層數寫錯（4 層與 5 層都含 `src/work-item-history/task-record.ts`
+    // 這個子字串），但 backstage/plugins/** 不受 tsc 檢查，寫錯會一路安靜到瀏覽器才爆。
+    // 故把每個相對 import 真的解析出來，斷言目標檔存在。
+    //
+    // 範圍涵蓋 `./`（同目錄／子目錄）與 `../`（跨 root 取用 src/）兩種相對形式，
+    // 靜態 `from '...'` 與動態 `import('...')` 皆收：index.tsx → ./work-item-history/
+    // SubPage.tsx 與 SubPage.tsx → ./HistoryList.tsx 這些單點路徑沒有任何工具檢查得到。
+    // regex 要求 specifier 以 `.` 開頭，故 react / @backstage/* 這類裸套件 specifier
+    // 不會被當成檔案解析。
+    for (const f of [
+      'backstage/plugins/factory-draft/src/index.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx',
+    ]) {
+      const src = read(f)
+      for (const m of src.matchAll(/(?:from\s+|import\()'(\.[^']+)'/g)) {
+        const resolved = resolve(dirname(f), m[1]!)
+        expect(existsSync(resolved), `${f} 的 import ${m[1]} 解析不到（實際指向 ${resolved}）`).toBe(true)
+      }
+    }
+  })
+
+  /**
+   * 被前端 bundle 引入的模組必須自足——不得有任何相對 import。
+   *
+   * 根因（2026-09-11 實際踩到）：本 repo 的 `src/**` 慣例是用 `.js` 副檔名互相
+   * import（`tsconfig.build.json` 會把 `src/` emit 成給 Node 消費的 ESM，那裡
+   * 必須有副檔名），而 vitest 與 tsc 都會把 `./narrow.js` 自動對映到 `narrow.ts`，
+   * 所以本 repo 的測試**全綠**。但 Backstage CLI 的 rspack 設定沒有
+   * `extensionAlias`，解析不到 `./narrow.js`，於是整個前端 bundle 失敗，錯誤還
+   * 被報成 "Can't resolve '@software-factory/factory-draft'"——完全指不到真因。
+   * （已確認 CLI 未提供使用者覆寫 bundler 設定的途徑。）
+   *
+   * 這條測試把「前端引入的模組不得有相對 import」變成紅燈，否則這個約束只能靠
+   * 實際啟動 app 才發現，而那是最慢也最容易漏掉的一道。
+   */
+  it('前端 bundle 引入的 src/ 模組自足（無相對 import，避免 rspack 解析 .js 失敗）', () => {
+    for (const f of [
+      'src/work-item-history/task-record.ts',
+      'src/work-item-history/issue-url.ts',
+    ]) {
+      const src = read(f)
+      const relative = [...src.matchAll(/(?:from\s+|import\()\s*'(\.[^']+)'/g)].map((m) => m[1])
+      expect(
+        relative,
+        `${f} 有相對 import ${relative.join('、')}——前端 bundle 會解析失敗。` +
+          '這兩個檔案被 backstage/plugins/factory-draft 直接引入，必須自足；' +
+          '要共用邏輯請改為複製進各檔（見 task-record.ts 檔頭說明）。',
+      ).toEqual([])
+    }
+  })
+})
+
 describe('Security 第一層資產（免費、不依賴 GHAS，2026-08-20）', () => {
   it('dependabot.yml 存在且涵蓋 npm + github-actions', () => {
     const c = read('.github/dependabot.yml')
@@ -686,7 +833,10 @@ describe('run-name 與 cleanup 解析契約（docs/18 §2.2，G2）', () => {
 describe('factory-draft 防呆契約（2026-08-22：無限轉圈教訓）', () => {
   const router = read('backstage/plugins/factory-draft-backend/src/router.ts')
   const llm = read('backstage/plugins/factory-draft-backend/src/llm.ts')
-  const field = read('backstage/plugins/factory-draft/src/index.tsx')
+  // 草稿欄位實作已於 Task 5 搬到 draft-field/DraftFieldComponent.tsx
+  const field = read(
+    'backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx',
+  )
   it('router 的 async handler 有 try/catch 防護（Express 4 不捕 async 錯誤 → 無回應轉圈）', () => {
     expect(router).toContain('.catch(')
     expect(router).toContain('res.status(500)')
