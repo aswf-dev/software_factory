@@ -1,0 +1,18 @@
+backstage/plugins/factory-draft/src/index.tsx
+  h_1b119f25eaf333 2,4-6,8-14,17-19,21,23-27,31,33-35,37-39,41-43,49
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 725-728
+backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx
+  h_1b119f25eaf333 1-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0b686941b0fefeb06e924037d9658bcf23505f25",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
