@@ -1274,17 +1274,17 @@ git commit -m "docs(adr): ADR-017 Backstage 解凍擴大——工作項歷史唯
 - [ ] **Step 1: 啟動 Backstage**
 
 ```bash
-cd ../backstage-app && set -a && . ./.env && set +a && yarn dev
+cd ../backstage-app && set -a && . ./.env && set +a && yarn start
 ```
 
-> `yarn workspace backend start` 不會自動載入 `.env`（versions.md 已記載），故用 repo 級 `yarn dev`。
+> 指令是 **`yarn start`**（= `backstage-cli repo start`）。本計畫初稿誤寫成 `yarn dev`，該 script 不存在（實測 `Usage Error: Couldn't find a script named "dev"`）。`yarn workspace backend start` 不會自動載入 `.env`（versions.md 已記載），故用 repo 級 `yarn start`。
 
 - [ ] **Step 2: 逐項驗收**
 
 以 GitHub OAuth 登入後，逐項確認：
 
 1. Create 頁出現「工作項歷史」tab（驗證項 1：`attachTo: page:scaffolder` 生效）
-2. 清單列出 38 筆 factory-work-item 任務，**不含** 5 筆 agent-add-tests
+2. 清單列出 factory-work-item 任務（筆數以當下 DB 為準，2026-09-10 快照是 38 筆），**不含** agent-add-tests
 3. 清單顯示建立時間、一句話需求、任務類型、目標 repo、狀態、建立者
 4. 點一句話需求進入詳情，網址為 `/create/work-items/<taskId>`；重新整理後仍正確渲染
 5. 詳情顯示完整 PRD 全文（不截斷）——驗證項 2、3：跨 root import 的 `src/work-item-history/task-record.ts` 在 rspack 下可用，且 `useTaskEventStream` replay 帶回 `output`
@@ -1292,9 +1292,13 @@ cd ../backstage-app && set -a && . ./.env && set +a && yarn dev
 7. 用「開立 Factory 工作項」新開一張單，其詳情頁顯示由 `output.links` 來的 Issue 連結
 8. 「查看執行 log」正確連到 `/create/tasks/<taskId>`
 
-- [ ] **Step 3: 若驗證項 2 失敗（rspack 擋跨 root import）**
+- [x] **Step 3: 驗證項 2 失敗了——但計畫猜錯了失敗方式，已用更小的修法解決（2026-09-11）**
 
-啟用 spec §12 的 fallback：
+實測失敗訊息是 `Can't resolve '@software-factory/factory-draft'`，看起來像套件本身找不到，**實際上不是**。真因是 plugin 依賴鏈裡的 `src/work-item-history/{task-record,issue-url}.ts` 用 `'./narrow.js'` 互相 import：本 repo `src/**` 的 `.js` 慣例是為了 `tsconfig.build.json` 要把 `src/` emit 給 Node 消費，vitest 與 tsc 都會自動對映到 `.ts`，所以**本 repo 測試全綠**；但 Backstage CLI 的 rspack 沒有 `extensionAlias`，解析不到 `./narrow.js`。
+
+**因此沒有採用下面的 fallback**（把邏輯搬進插件）：那需要動 `tsconfig.json` / `vitest.config.ts` 的 include 與 `allowImportingTsExtensions`，而 `tsconfig.build.json` 的 `noEmit:false` 與該旗標衝突（TS5096），改動半徑大得多。實際修法是讓被前端引入的兩個模組**自足**（收窄工具各複製一份、刪除 `narrow.ts`），並新增對抗性測試把「前端引入的模組不得有相對 import」釘成紅燈——否則這個約束只能靠實際開 app 才發現。詳見 commit `0fe7724`。
+
+**若日後仍需要啟用 fallback**（例如前端確定要引入更多 `src/` 邏輯），步驟如下：
 
 1. 把 `src/work-item-history/` 全部檔案（`narrow.ts`、`task-record.ts`、`issue-url.ts` 與各自的測試）搬到 `backstage/plugins/factory-draft/src/work-item-history/`，並刪除 `src/work-item-history/`；
 2. 在 `vitest.config.ts` 的 `test.include` 追加 `'backstage/plugins/**/*.test.ts'`，並把 100% 覆蓋率門檻的路徑改成新位置；

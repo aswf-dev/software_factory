@@ -238,8 +238,11 @@ log regex 是舊資料的退化路徑，其失效後果是「少一個連結」�
 ## 12. 部署時驗證項（Q03-2 模式）
 
 1. `SubPageBlueprint` 的 `attachTo: { id: 'page:scaffolder', input: 'pages' }` 在 Backstage 1.53.0 實跑是否正確掛出 tab。
-2. 前端跨 root import `../../../../src/work-item-history/task-record.ts` 是否通過 rspack（前端打包器為 rspack/webpack，非 Vite，故無 `fs.allow` 限制；backend 已有同模式先例，但前端未驗）。
-   **Fallback**：純邏輯改置於插件內，並將 `backstage/plugins/**/*.test.ts` 納入 vitest `include`。
+2. 前端跨 root import `src/work-item-history/*.ts` 是否通過 rspack（前端打包器為 rspack/webpack，非 Vite，故無 `fs.allow` 限制；backend 已有同模式先例，但前端未驗）。
+   **實測結果（2026-09-11）：失敗**，但失敗方式與此處預期不同，且已用更小的修法解決——故此 fallback **未採用**。
+   實際症狀是 `Can't resolve '@software-factory/factory-draft'`（指向進入點，容易查錯方向），真因是 plugin 依賴鏈裡的 `src/work-item-history/{task-record,issue-url}.ts` 用 `'./narrow.js'` 互相 import：`src/**` 的 `.js` 慣例是為了 `tsconfig.build.json` 要把 `src/` emit 給 Node 消費，而 vitest 與 tsc 都會自動對映到 `.ts`，所以**本 repo 測試全綠**；Backstage CLI 的 rspack 沒有 `extensionAlias`，解析不到 `./narrow.js`。已確認 CLI 未提供使用者覆寫 bundler 設定的途徑。
+   **實際修法**：讓被前端引入的兩個模組自足（收窄工具各複製一份、刪除 `narrow.ts`），並加對抗性測試把「前端引入的模組不得有相對 import」釘成紅燈。未採用原 fallback 的理由：它需要動 `tsconfig.json` / `vitest.config.ts` 的 include 與 `allowImportingTsExtensions`，而 `tsconfig.build.json` 的 `noEmit:false` 與該旗標衝突（TS5096），改動半徑大得多。
+   **驗證方式**：用 Backstage 實際安裝的 rspack resolver（`enhanced-resolve`，套用 CLI 的 `resolve` 設定）從 `packages/app/src` 走訪整個前端 import 圖，確認 0 筆解析失敗。
 3. `useTaskEventStream` 對已完成任務 replay 時是否完整帶回 `output`（內建 `OngoingTask` 的同用法佐證，但未在瀏覽器實測）。
 
 驗證結果一律回寫 `backstage/versions.md`。

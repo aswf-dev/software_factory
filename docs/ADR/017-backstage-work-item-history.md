@@ -41,6 +41,7 @@ ADR-009 解凍的最小路徑是「factory-work-item 模板 + LLM 草稿 + direc
 - 舊任務的 Issue 連結依賴 log 字串解析，屬於已知的脆弱點（退化後果僅為少一個連結，不是頁面損壞）。
 - **`backstage/plugins/**` 不在本 repo 的任何自動化防護內**：React 元件（`SubPage.tsx` / `HistoryList.tsx` / `HistoryDetail.tsx`）既不在 `tsconfig.json` 的 include，也不在 `vitest.config.ts` 的 test scope，因此 `pnpm typecheck` 與 `pnpm test` 綠燈**對它們不構成證據**。唯一驗證是 Task 10 的瀏覽器實測（Create 頁是否真的掛出「工作項歷史」分頁），該項是必要驗收項而非選項。這也是解析與轉換邏輯刻意留在 `src/work-item-history/`、由 100% 門檻釘住的原因。
 - 套件名 `factory-draft` 現在同時裝著草稿欄位與歷史頁，名實不符；日後若再增擴充應考慮更名。
+- **前端 bundle 無法消化 repo 根 `src/` 的 `.js` import 慣例**：`src/work-item-history/{task-record,issue-url}.ts` 被前端 plugin 引入，而 `src/**` 慣例是用 `.js` 副檔名互相 import（`tsconfig.build.json` 要把 `src/` emit 成給 Node 消費的 ESM，必須有副檔名）。vitest 與 tsc 都會把 `./narrow.js` 對映到 `narrow.ts`，所以本 repo 測試全綠；但 Backstage CLI 的 rspack **沒有 `extensionAlias`**，解析不到 `./narrow.js`，整個前端 bundle 失敗，且錯誤被報成 `Can't resolve '@software-factory/factory-draft'`——完全指不到真因。已確認 CLI 未提供使用者覆寫 bundler 設定的途徑，故改為讓這兩個模組**自足**（無任何相對 import），並加對抗性測試把此約束釘成紅燈。**任何日後被前端引入的 `src/` 模組都受同一約束。**
 - **插件反向 import repo 根的 `src/`，跨越了套件邊界**：兩個元件（`HistoryList.tsx` / `HistoryDetail.tsx`；`SubPage.tsx` 只組路由，不取用 `src/`）以 `../../../../../src/work-item-history/*.ts` 取用純函式（backend 插件早有同模式先例）。目前可行——Backstage CLI 的 TS/TSX loader 規則沒有 `include` 限制，且 specifier 帶明確副檔名。但它依賴兩個未被任何測試釘住的消費端性質：(a) 若 CLI 收緊 loader 規則，或改用 Vite（`server.fs.allow` 以 workspace root 為界，會擋掉 repo 外的 `software_factory/src`），就會在 dev 直接壞掉；(b) 這個套件因此永遠無法獨立建置或發佈，也無法被其他 app 消費。**取捨理由**：把邏輯移進插件會讓它離開 `tsconfig` 與 vitest 的防護範圍（見上一條），而本功能的整個架構決定就是把邏輯放在受測處、元件保持笨。fallback 見 `docs/superpowers/plans/2026-09-10-backstage-work-item-history.md` Task 10 Step 3。
 
 ### 中性
@@ -57,6 +58,9 @@ ADR-009 解凍的最小路徑是「factory-work-item 模板 + LLM 草稿 + direc
 守衛與其誤導性註解已移除（UI 端本來就受保護：前端 `LinkOutputs` 濾掉無 `url`/`entityRef` 的連結，`src/work-item-history/issue-url.ts` 也先收窄再比對）。**教訓：型別存在 ≠ 行為存在。查證到 `ScaffolderOutputLink.if` 這個欄位在型別宣告中存在，不構成「這個守衛會生效」的證據。**
 
 **二、一條斷言被刪除，因為一行註解就能讓它通過。** template 的契約測試原本用 `expect(t).toContain('links:')` 與 `expect(t).toContain("steps['create-issue'].output.issueUrl")`。實測：把真正的 `links:` 區塊整段換成一行同時含這兩個字串的 YAML 註解，測試照樣綠，而 `js-yaml` 解析出的 `spec.output` 只剩 `text`——整個功能被刪掉，測試仍會通過。該斷言已改為對**解析後的 YAML 樹**斷言：`spec.output.links` 存在、長度為 1、`url` 逐字等於該表達式，且與 `output.text` 並存。**教訓：對設定檔做字串比對，只證明「這些字出現在檔案某處」，註解裡的字同樣算數；要斷言的是解析後的結構。**
+
+**三、前端 bundle 看不到 `src/**` 的 `.js` 慣例，而本 repo 的所有測試都看不到這個事實。** 前端 plugin 以 `../../../../../src/work-item-history/task-record.ts` 取用純函式（明確 `.ts`，rspack 解析得到），但那個檔案用 `'./narrow.js'` 引入共用工具。本 repo 的 vitest 與 tsc 都會把 `.js` 自動對映到 `.ts`，因此**1091 條測試全綠、typecheck 乾淨、覆蓋率 100%**——同時前端 bundle 完全編不起來。更糟的是錯誤訊息指向進入點（`Can't resolve '@software-factory/factory-draft'`），而不是真正失敗的那一行，容易查錯方向。**教訓：測試綠燈的範圍就是測試執行的範圍；跨出那個範圍的整合（這裡是 bundler）需要自己的驗證，而「用真實 bundler 的 resolver 走訪一次 import 圖」是最便宜的那一道。** 這個約束已由對抗性測試釘住：`src/work-item-history/{task-record,issue-url}.ts` 不得有任何相對 import。
+
 
 ## 未採用的替代方案
 
