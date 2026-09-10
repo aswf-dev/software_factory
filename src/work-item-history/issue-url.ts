@@ -10,8 +10,15 @@
  * 與 task-record.ts 同一套邊界規則：參數以 unknown 收、逐欄 narrow、絕不丟例外。
  * 詳細理由見該檔頭部；此處只重申結論——links 元素是 null 或 logLines 混入非字串
  * 都只能少一個連結，不得讓詳情頁整頁掛掉。
+ *
+ * ⚠️ 同 task-record.ts：本檔**不得有任何相對 import**。收窄工具刻意複製一份在
+ * 此，理由是 rspack 無法解析 `src/**` 慣用的 `.js` 副檔名 import（完整說明見
+ * task-record.ts 檔頭的註解）。
  */
-import { asObject, asString } from './narrow.js'
+const asObject = (v: unknown): Record<string, unknown> | null =>
+  typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
+
+const asString = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 /**
  * GitHub issue URL 的形狀。刻意不比對 action 的 log 措辭

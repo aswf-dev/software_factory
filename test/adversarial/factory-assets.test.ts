@@ -727,6 +727,36 @@ describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
       }
     }
   })
+
+  /**
+   * 被前端 bundle 引入的模組必須自足——不得有任何相對 import。
+   *
+   * 根因（2026-09-11 實際踩到）：本 repo 的 `src/**` 慣例是用 `.js` 副檔名互相
+   * import（`tsconfig.build.json` 會把 `src/` emit 成給 Node 消費的 ESM，那裡
+   * 必須有副檔名），而 vitest 與 tsc 都會把 `./narrow.js` 自動對映到 `narrow.ts`，
+   * 所以本 repo 的測試**全綠**。但 Backstage CLI 的 rspack 設定沒有
+   * `extensionAlias`，解析不到 `./narrow.js`，於是整個前端 bundle 失敗，錯誤還
+   * 被報成 "Can't resolve '@software-factory/factory-draft'"——完全指不到真因。
+   * （已確認 CLI 未提供使用者覆寫 bundler 設定的途徑。）
+   *
+   * 這條測試把「前端引入的模組不得有相對 import」變成紅燈，否則這個約束只能靠
+   * 實際啟動 app 才發現，而那是最慢也最容易漏掉的一道。
+   */
+  it('前端 bundle 引入的 src/ 模組自足（無相對 import，避免 rspack 解析 .js 失敗）', () => {
+    for (const f of [
+      'src/work-item-history/task-record.ts',
+      'src/work-item-history/issue-url.ts',
+    ]) {
+      const src = read(f)
+      const relative = [...src.matchAll(/(?:from\s+|import\()\s*'(\.[^']+)'/g)].map((m) => m[1])
+      expect(
+        relative,
+        `${f} 有相對 import ${relative.join('、')}——前端 bundle 會解析失敗。` +
+          '這兩個檔案被 backstage/plugins/factory-draft 直接引入，必須自足；' +
+          '要共用邏輯請改為複製進各檔（見 task-record.ts 檔頭說明）。',
+      ).toEqual([])
+    }
+  })
 })
 
 describe('Security 第一層資產（免費、不依賴 GHAS，2026-08-20）', () => {

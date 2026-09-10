@@ -10,8 +10,28 @@
  * 錯誤，所以型別收窄必須由這裡自己做。
  *
  * 使用者：backstage/plugins/factory-draft/src/work-item-history/*
+ *
+ * ⚠️ 本檔**不得有任何相對 import**（見下方收窄工具的說明）。加入相對 import 會
+ * 直接弄壞 Backstage 前端 bundle，而且只有實際啟動 app 才會發現——vitest 與 tsc
+ * 都不會有意見。`test/adversarial/factory-assets.test.ts` 有一條測試把這件事釘住。
  */
-import { asObject, asString } from './narrow.js'
+
+/**
+ * 收窄工具刻意複製一份在本檔內，而非抽成共用模組——這是被 bundler 逼出來的：
+ *
+ * 本檔會被 Backstage 前端 plugin 以 `../../../../../src/work-item-history/task-record.ts`
+ * 引入前端 bundle。本 repo 的 `src/**` 慣例是用 `.js` 副檔名互相 import（因為
+ * `tsconfig.build.json` 會把 `src/` emit 成給 Node 消費的 ESM，那裡必須有副檔名），
+ * 但 **Backstage CLI 的 rspack 設定沒有 `extensionAlias`**，無法把 `./narrow.js`
+ * 對映到 `narrow.ts`——於是整個前端 bundle 解析失敗。
+ *
+ * 已確認 CLI 沒有提供使用者覆寫 bundler 設定的途徑，所以只能讓被前端引入的模組
+ * 保持自足：沒有相對 import，就沒有 `.js` 解析問題（`narrow.ts` 因此已刪除）。
+ */
+const asObject = (v: unknown): Record<string, unknown> | null =>
+  typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
+
+const asString = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 /** template 名稱（entityRef 的最後一段），與 backstage/templates/factory-work-item/ 對齊。 */
 const FACTORY_WORK_ITEM_TEMPLATE = 'factory-work-item'
