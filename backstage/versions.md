@@ -73,3 +73,43 @@
 # - backstage-app 已入版控（獨立 repo，D1 不變：不入 software_factory repo）：
 #   https://github.com/philipz/backstage-app（main = 現況；不含 node_modules/.env/backstage-db/dsh）。
 # - 重建指引：docs/17-backstage-rebuild.md（路徑 B：clone；路徑 A：create-app 逐項套用）。
+
+# 2026-09-11 工作項歷史查閱分頁（ADR-017）部署驗證——實測結果
+#
+# 【啟動指令】`yarn dev` 不存在（Usage Error: Couldn't find a script named "dev"）。
+#   正確為 repo 級 `yarn start`（= backstage-cli repo start），且需先載入 .env：
+#     cd ../backstage-app && set -a && . ./.env && set +a && yarn start
+#
+# ✅ 驗證項 1：SubPageBlueprint 的 `attachTo: { id: 'page:scaffolder', input: 'pages' }`
+#   生效——Create 頁出現第六個分頁「工作項歷史」。
+# ✅ 驗證項 3：useTaskEventStream 對已完成任務 replay 時完整帶回 output 與 stepLogs。
+# ✅ 瀏覽器驗收 8/8 通過（使用者確認，2026-09-11）：
+#   分頁出現／清單只列 factory-work-item（不含 agent-add-tests）／清單六欄正確／
+#   點入詳情且網址 /create/work-items/<taskId> 重整後仍正確／PRD 全文不截斷／
+#   舊任務顯示由 log 解析出的 Issue 連結／新單顯示由 output.links 來的連結／
+#   「查看執行 log」正確連到 /create/tasks/<taskId>。
+#   ⚠️ 分頁請從 Create 落地頁（/create/templates）點：PageLayout 的分頁是相對
+#   href，從詳情頁點會變成 /create/work-items/work-items。此為上游既有行為，
+#   內建 Templates / Tasks 分頁完全相同。
+#
+# ⚠️ 驗證項 2 以另一種方式失敗並修正（原以為會是 rspack 擋跨 root import）：
+#   症狀是 `Can't resolve '@software-factory/factory-draft' in packages/app/src`，
+#   看似套件找不到，實際上套件一直在、也解析得到——真因在它的依賴鏈。
+#   本 repo `src/**` 用 `.js` 副檔名互相 import（tsconfig.build.json 要把 src/
+#   emit 成給 Node 消費的 ESM，必須有副檔名），vitest 與 tsc 都會自動對映到
+#   `.ts`，所以 1091 條測試全綠、typecheck 乾淨、覆蓋率 100%——同時前端 bundle
+#   完全編不起來。Backstage CLI 的 rspack **沒有 extensionAlias**（已 grep
+#   cli-module-build 確認），無法解析 `./narrow.js`；CLI 也未提供使用者覆寫
+#   bundler 設定的途徑。
+#   修法（commit 0fe7724）：讓被前端引入的模組自足——task-record.ts 與
+#   issue-url.ts 各複製一份收窄工具，刪除 narrow.ts。未採用「把邏輯搬進插件」
+#   的 fallback，因其需動 tsconfig/vitest 的 include 與 allowImportingTsExtensions，
+#   而 tsconfig.build.json 的 noEmit:false 與該旗標衝突（TS5096）。
+#   ✅ 已加對抗性測試釘住「前端引入的 src/ 模組不得有相對 import」（mutation 驗證過）。
+#   ✅ 驗證方式：以 Backstage 實際安裝的 rspack resolver（enhanced-resolve，
+#      套用 CLI 的 resolve 設定）從 packages/app/src 走訪整個前端 import 圖
+#      → 本 repo 7 個檔案、0 筆解析失敗（修正前 2 筆失敗）。
+#
+# ⚠️ 教訓（同 ADR-017 第三條）：測試綠燈的範圍就是測試執行的範圍。跨出測試
+#   範圍的整合（bundler）需要自己的驗證，而「用真實 bundler 的 resolver 走訪
+#   一次 import 圖」是最便宜的那一道。
