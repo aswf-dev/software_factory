@@ -1,0 +1,16 @@
+backstage/templates/factory-work-item/template.yaml
+  h_1b119f25eaf333 133
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 638-641,643,648
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "61af6b2bd30f26756313f7e4253b4337eedd0d1b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
