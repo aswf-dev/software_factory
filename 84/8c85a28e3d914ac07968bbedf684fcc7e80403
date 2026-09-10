@@ -1,0 +1,16 @@
+src/work-item-history/task-record.test.ts
+  h_1b119f25eaf333 41-47,155-165,184-194,197-198,210-212,216-234,249-274
+src/work-item-history/task-record.ts
+  h_1b119f25eaf333 57-61,73,94-97,120-121,123,125-126,128-129,140-151,154-155,160-177,179-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "848c85a28e3d914ac07968bbedf684fcc7e80403",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
