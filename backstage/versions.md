@@ -19,6 +19,9 @@
 # - DeepSeek API key 有效（GET /models → HTTP 200）；帳號可用模型為
 #   deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-flash-vision-exp——無 deepseek-chat；
 #   factory-draft 預設 model 已定為 deepseek-v4-flash（app-config 可覆寫）。
+# - 2026-09-11 更新：DeepSeek 官方公告 V4.1 Flash 於 2026-09-10 12:00（北京時間）發布，
+#   V4.1 Pro 上線前 V4 Pro 請求全部路由至 V4.1 Flash 並按其單價計費 → factory-draft
+#   預設 model 改為 deepseek-v4.1-flash（app-config 可覆寫）。
 
 # Q09-1 部署驗證紀錄（2026-08-21，實際於 ../backstage-app v1.53.0 實跑 backend 驗證）：
 # - ✅ github:issues:create 存在於 plugin-scaffolder-backend-module-github@0.9.11

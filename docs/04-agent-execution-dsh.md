@@ -452,6 +452,7 @@ concurrency:
 - **做法**：agent 步驟結束後，CI 執行 `factory-usage` CLI——回放本次 run 的 DSH session log（鏡射 DSH 自己的 fold：逐 `(turn,step)` 累加 provider 回報的 usage，同一 step 的重複樣本以後到者取代、不重複計），乘上 `config/dsh/pricing.yaml` 定價表（USD/MTok，數值同 `ADR/011`）換算成本。
 - **呈現**：終態留言（`apply-judge-labels`）與執行報告（`report.json` 的 `usage` 區塊）附上「總 token（input/output/cache-read/reasoning 細分）＋ 估算 USD」；`usage.json` 上傳 artifacts。dry-run 以 stub 產固定 usage，接線可在無 LLM 下驗證。
 - **誠實邊界**：用量是 **CI 實測**（session log），不是 agent 自報（SR7 的 `tokensUsed` 語意不變，列 follow-up 再接通）；金額是**估算**（依 `pricing.yaml`），非供應商帳單；session log 找不到或壞檔（如逾時被 kill、flush 未完成）時留言標「無法量測」，**不偽造、不擋 run**。reasoning ⊆ output（DSH disjoint 慣例），換算時不再加總一次。
+- **時段價差（2026-09-11 起）**：`deepseek-v4.1-flash` 官方採分時段計價（高峰為空閒的 2×，高峰＝週一至週五 09:00–12:00、14:00–18:00 北京時間），但 `pricing.yaml` 只有單一價格欄位。本 repo **一律以高峰價估算**（保守，不低估）；因此空閒時段執行的 run，留言金額會**高於**實付。人民幣→USD 以固定假設匯率 1 USD = 7.1 CNY 換算，非即時匯率。
 
 ---
 
@@ -480,11 +481,13 @@ ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
 
 | tier | primary（用戶優先序） | fallback（品質擔保，正常不走） |
 |---|---|---|
-| low / medium | **qwen3.8-flash**（2026-08-27 起為預設） | deepseek-v4-flash |
-| high | deepseek-v4-pro | claude-sonnet-5 → qwen3.8-flash |
-| critical | **claude-opus-5**（最高 tier；fable-5 需額外 credit 已移除，2026-08-28） | deepseek-v4-pro → qwen3.8-flash |
+| low / medium | **qwen3.8-flash**（2026-08-27 起為預設） | deepseek-v4.1-flash |
+| high | deepseek-v4.1-flash（2026-09-11 起；原 deepseek-v4-pro） | claude-sonnet-5 → qwen3.8-flash |
+| critical | **claude-opus-5**（最高 tier；fable-5 需額外 credit 已移除，2026-08-28） | deepseek-v4.1-flash → qwen3.8-flash |
 
 模型 id 來自 pi-ai catalog（定價見 `docs/ADR/011`）；tier→chain 政策宣告於 `config/dsh/model-tiers.yaml`（版控、CODEOWNERS 保護、可調校）。
+
+> **2026-09-11 汰換**：DeepSeek 官方公告 `V4.1 Flash` 於 2026-09-10 發布，且在 `V4.1 Pro` 上線前將 **V4 Pro 請求全部路由至 V4.1 Flash 並按其單價計費**——故 `deepseek-v4-flash` 與 `deepseek-v4-pro` 一律改為 `deepseek-v4.1-flash`。副作用：low/medium 的 deepseek fallback 與 high 的 primary 現為同一顆模型（反映官方實際路由，非設定錯誤）。
 
 ### 7.2 複雜度訊號（零 LLM 成本）
 
@@ -494,7 +497,7 @@ ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
 手動 --tier ＞ Issue 需求分析 ＞ catalog（factory.io/complexity）＞ fail-safe high
 ```
 
-critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動）。**fail-safe 方向為 high**（deepseek-v4-pro）：不可知 ⇒ 不降級，也不誤燒旗艦成本。
+critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動）。**fail-safe 方向為 high**（deepseek-v4.1-flash）：不可知 ⇒ 不降級，也不誤燒旗艦成本。
 
 ### 7.3 接線（factory-run.yml）
 
@@ -507,7 +510,7 @@ critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（rev
 - `model_tier`（auto/low/medium/high/critical，預設 auto）：直接指定 tier；
 - `model_provider`（auto/deepseek/qwen/anthropic，預設 auto）：偏好 provider，chain 內該 provider 置前、其餘依序，失敗仍沿 chain fallback。
 
-> **誠實揭露**：啟發式分析是粗略近似（Q06-2 已知）；誤判由「留言展示判據給人看＋`model_tier` 覆寫」緩解。`deepseek-v4-pro ≈ opus/sonnet 等級` 為待 A/B 驗證假設。
+> **誠實揭露**：啟發式分析是粗略近似（Q06-2 已知）；誤判由「留言展示判據給人看＋`model_tier` 覆寫」緩解。`deepseek high tier ≈ opus/sonnet 等級` 為待 A/B 驗證假設；「V4.1 Flash 全面超越 V4 Pro」為 DeepSeek 官方公告說法，本 repo 未獨立驗證。
 
 ---
 

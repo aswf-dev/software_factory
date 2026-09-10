@@ -1,22 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import { buildChain, resolveModelTier, CRITICAL_MIN_TOTAL, type TierPolicies } from '../model-tier/resolve.js'
 
+// 各 tier 刻意用不同 model id：選錯 tier 必然被斷言抓到
+// （真實政策見 config/dsh/model-tiers.yaml，由對抗性測試釘住）。
 const TIERS: TierPolicies = {
   low: {
-    primary: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    primary: { provider: 'deepseek', model: 'tier-low-model' },
     fallback: [{ provider: 'qwen', model: 'qwen3.7-flash' }],
   },
   medium: {
-    primary: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    primary: { provider: 'deepseek', model: 'tier-medium-model' },
     fallback: [{ provider: 'qwen', model: 'qwen3.7-flash' }],
   },
   high: {
-    primary: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+    primary: { provider: 'deepseek', model: 'deepseek-v4.1-flash' },
     fallback: [{ provider: 'anthropic', model: 'claude-sonnet-5' }],
   },
   critical: {
     primary: { provider: 'anthropic', model: 'claude-opus-5' },
-    fallback: [{ provider: 'deepseek', model: 'deepseek-v4-pro' }],
+    fallback: [{ provider: 'deepseek', model: 'deepseek-v4.1-flash' }],
   },
 }
 
@@ -93,11 +95,11 @@ describe('M2 變異：critical 門檻放寬（total=4 不升級）', () => {
 })
 
 describe('M3 變異：fail-safe 預設被放寬成 low', () => {
-  /** 未宣告 → 必須最強適用（high/deepseek-v4-pro），不可知 ⇒ 不降級（docs/06 同方向）。 */
+  /** 未宣告 → 必須最強適用（high/deepseek-v4.1-flash），不可知 ⇒ 不降級（docs/06 同方向）。 */
   it('無分析、無 catalog → high', () => {
     const r = resolveModelTier({ tiers: TIERS, declaredProviders: PROVIDERS })
     expect(r.tier).toBe('high')
-    expect(r.selected.model).toBe('deepseek-v4-pro')
+    expect(r.selected.model).toBe('deepseek-v4.1-flash')
   })
 })
 
@@ -109,7 +111,7 @@ describe('M4 變異：偏好 provider 被誤改成置後', () => {
   })
   it('偏好 deepseek → deepseek 在 chain[0]（維持 tier 的 primary 優先）', () => {
     const chain = buildChain(TIERS.high, 'deepseek', PROVIDERS)
-    expect(chain[0]).toEqual({ provider: 'deepseek', model: 'deepseek-v4-pro' })
+    expect(chain[0]).toEqual({ provider: 'deepseek', model: 'deepseek-v4.1-flash' })
   })
 })
 
@@ -145,6 +147,6 @@ describe('M6 變異：manual tier 誤把 auto 當作實際 tier', () => {
       declaredProviders: PROVIDERS,
       manualTier: 'low',
     })
-    expect(r.selected).toEqual({ provider: 'deepseek', model: 'deepseek-v4-flash' })
+    expect(r.selected).toEqual({ provider: 'deepseek', model: 'tier-low-model' })
   })
 })
