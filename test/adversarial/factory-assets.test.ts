@@ -7,8 +7,8 @@
  *
  * 本檔定義「契約」：Task 5–8 與 Task 16–20 依此建立檔案後轉綠。
  */
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DOD_LABELS } from '../../src/cli/factory-issue-check.js'
 
@@ -655,6 +655,63 @@ describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
     expect(spec.output.links![0]!.title).toBeTruthy()
     // 純新增：既有的 output.text 必須原封不動地並存（ADR-009 局部解凍的前提）
     expect(spec.output.text, 'output.text 不得被 links 取代').toHaveLength(1)
+  })
+
+  /**
+   * 以下三條是**字串比對**（外加一次真實的 import 解析），強度有限，理由與界線寫在此。
+   *
+   * 為什麼強度有限：同一個 describe 上一條的 docblock 已實測證明，`toContain` 只問
+   * 「這些字有沒有出現在檔案某處」——把真正的區塊整段刪掉、只留一行提及相同字串的
+   * 註解，斷言照樣綠。本檔開頭也記了 Task 4 的同款教訓。
+   *
+   * 為什麼仍用字串比對：對象是 `.tsx` 原始碼，而本 repo 沒有現成的 TS 結構化解析
+   * 工具；為此引入 TypeScript compiler API 屬於過度工程。故退而求其次。
+   *
+   * **限制（必須講明，不可當成行為保證）**：這些斷言只證明「該字串出現在檔案裡」，
+   * **不證明 SubPage 擴充真的掛進了 app tree，也不證明元件真的會被渲染**。
+   * `backstage/plugins/**` 不在 `tsconfig.json` 的 `include`、也不在
+   * `vitest.config.ts` 的 `test.include` 內，本 repo 沒有任何自動化檢查能證明那件事
+   * ——`pnpm typecheck` 綠燈對 `.tsx` 不構成證據。唯一的驗證是 Task 10 的瀏覽器實測
+   * （Create 頁是否真的出現「工作項歷史」分頁），該項是必要驗收項而非選項。
+   *
+   * 第三條比其餘兩條稍強：它把每個 `../` 相對 import 真的 resolve 到磁碟再斷言檔案
+   * 存在，故能抓到層數寫錯（4 層與 5 層都含 `src/work-item-history/task-record.ts`
+   * 這個子字串，`toContain` 抓不到）——但「解析得到」仍不等於「語意正確」。
+   */
+  it('SubPage 擴充明寫 attachTo page:scaffolder（不依賴 relative 解析）', () => {
+    const idx = read('backstage/plugins/factory-draft/src/index.tsx')
+    expect(idx).toContain('SubPageBlueprint.make')
+    expect(idx).toContain("attachTo: { id: 'page:scaffolder', input: 'pages' }")
+    expect(idx).toContain("path: 'work-items'")
+  })
+
+  it('分頁有清單與詳情兩條路由，且各自渲染對應元件', () => {
+    const sub = read('backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx')
+    expect(sub).toContain('path=":taskId"')
+    // 用 regex 而非 toContain('<Route index')：後者假設 JSX 寫成單行，但 Prettier
+    // 標準是多行 `<Route\n  index`，那個字面根本不在檔案裡。測的是「有一條 index
+    // 路由」這個意圖，不是某種排版。
+    expect(sub).toMatch(/<Route\s+index/)
+    // 更實質的契約：兩條路由各自渲染對應元件——否則兩條空路由也會過上面的斷言。
+    expect(sub).toContain('<HistoryList />')
+    expect(sub).toContain('<HistoryDetail />')
+  })
+
+  it('歷史頁元件從 src/ 取用純函式，且相對路徑真的解析得到', () => {
+    for (const f of [
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx',
+    ]) {
+      const src = read(f)
+      expect(src).toContain('src/work-item-history/task-record.ts')
+      // 關鍵：`toContain` 抓不到層數寫錯（4 層與 5 層都含這個子字串），
+      // 但 backstage/plugins/** 不受 tsc 檢查，寫錯會一路安靜到瀏覽器才爆。
+      // 故把每個相對 import 真的解析出來，斷言目標檔存在。
+      for (const m of src.matchAll(/from '(\.\.\/[^']+)'/g)) {
+        const resolved = resolve(dirname(f), m[1]!)
+        expect(existsSync(resolved), `${f} 的 import ${m[1]} 解析不到（實際指向 ${resolved}）`).toBe(true)
+      }
+    }
   })
 })
 
