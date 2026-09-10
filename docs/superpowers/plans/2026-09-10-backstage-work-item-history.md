@@ -1,0 +1,1196 @@
+# Backstage 工作項歷史查閱分頁 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 在 Backstage Create 頁新增唯讀的「工作項歷史」分頁，讓「開立 Factory 工作項」表單送出後可回溯當時填寫的完整內容與對應的 GitHub Issue。
+
+**Architecture:** 解析與轉換邏輯為純函式，放在 `src/work-item-history/`（受本 repo vitest 與 80% 覆蓋率門檻管束）；React 元件放在既有的 `backstage/plugins/factory-draft/`，只負責取資料與渲染。新分頁以 `SubPageBlueprint` 掛到 `page:scaffolder` 的 `pages` input，因此 `../backstage-app` 零改動。清單資料來自單次 `scaffolderApi.listTasks`（回傳已含完整 `spec.parameters`）；詳情頁用 `useTaskEventStream` 一次取得 parameters、output 與 log 行。
+
+**Tech Stack:** TypeScript 7、vitest 4、React 18、Backstage 1.53.0（`@backstage/plugin-scaffolder@1.38.1`、new frontend system）、Material-UI v4、pnpm。
+
+**Spec:** `docs/superpowers/specs/2026-09-10-backstage-work-item-history-design.md`
+
+---
+
+## 背景：實作者必須先知道的事
+
+1. **本 repo 不含 Backstage app**。app 在 repo 外的 `../backstage-app`（獨立 repo philipz/backstage-app），透過 `link:` 依賴引用本 repo 的 `backstage/plugins/factory-draft`。本計畫**不需要也不應該**修改 `../backstage-app` 的任何檔案。
+2. **`backstage/plugins/**` 不在本 repo 的 tsc 與 vitest 範圍內**（`tsconfig.json` 的 `include` 只有 `src/**/*.ts`、`test/**/*.ts`；`vitest.config.ts` 的 `include` 只有 `src/**/*.test.ts`、`test/**/*.test.ts`）。所以：
+   - 插件的 `.tsx` 不會被 `pnpm typecheck` 檢查——**邏輯一律放 `src/`**，元件只做渲染。
+   - 插件檔案的契約由 `test/adversarial/factory-assets.test.ts` 的字串斷言守住。
+3. **程式風格**：無分號、單引號、2 空格縮排。`src/` 內部互相 import 用 `.js` 副檔名；插件反向 import `src/` 用 `.ts`/`.tsx` 明確副檔名（既有先例：`backstage/plugins/factory-draft-backend/src/router.ts` import `../../../../src/factory-draft/prompts.ts`）。
+4. **tsconfig 嚴格度**：`strict`、`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`verbatimModuleSyntax`（型別 import 要寫 `import type`）。`lib` 只有 `ES2023`（**沒有 DOM**）——`src/` 的純函式不可使用任何 DOM 型別。
+5. **實測基準資料**（2026-09-10 查 `../backstage-app/packages/backend/backstage-db/scaffolder.sqlite`）：43 筆任務，其中 `template:default/factory-work-item` 38 筆、`template:default/agent-add-tests` 5 筆；`created_by` 值形如 `user:default/philipz`。
+
+## 檔案結構
+
+| 檔案 | 職責 |
+|---|---|
+| `src/work-item-history/task-record.ts`（建立） | 純函式：任務辨識、parameters 轉紀錄、repo 正規化、Issue URL 抽取、時間格式化、摘要 |
+| `src/work-item-history/task-record.test.ts`（建立） | 上述純函式的單元測試 |
+| `backstage/plugins/factory-draft/src/index.tsx`（改寫） | 只做 module 組裝與擴充註冊 |
+| `backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx`（自 index.tsx 搬移） | 既有 LLM 草稿欄位元件 |
+| `backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx`（建立） | 分頁路由：index → 清單、`:taskId` → 詳情 |
+| `backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx`（建立） | 清單表格 |
+| `backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx`（建立） | 唯讀詳情 |
+| `backstage/templates/factory-work-item/template.yaml`（修改） | 新增 `output.links` 輸出 Issue URL |
+| `test/adversarial/factory-assets.test.ts`（修改） | 新增 3 條契約測試 |
+| `docs/ADR/017-backstage-work-item-history.md`（建立） | 解凍範圍擴大的裁決紀錄 |
+| `docs/ADR/README.md`、`docs/03-idp-backstage.md`、`backstage/versions.md`（修改） | 索引與元件表更新、驗證結果回寫 |
+
+---
+
+### Task 1: 純函式基石——`normalizeRepo` 與 `isFactoryWorkItemTask`
+
+**Files:**
+- Create: `src/work-item-history/task-record.ts`
+- Test: `src/work-item-history/task-record.test.ts`
+
+- [ ] **Step 1: 寫失敗測試**
+
+建立 `src/work-item-history/task-record.test.ts`：
+
+```ts
+/**
+ * task-record 純函式測試。
+ *
+ * 輸入來自 scaffolder API 的 JSON，欄位可能缺失或型別不符（不同 Backstage
+ * 版本、不同 template、早期任務），故每個函式都必須在垃圾輸入下不丟例外。
+ */
+import { describe, expect, it } from 'vitest'
+import { isFactoryWorkItemTask, normalizeRepo } from './task-record.js'
+
+describe('normalizeRepo', () => {
+  it('把 RepoUrlPicker 格式轉成 owner/repo', () => {
+    expect(normalizeRepo('github.com?owner=philipz&repo=camunda_hazelcast')).toBe(
+      'philipz/camunda_hazelcast',
+    )
+  })
+  it('只有 owner（template 預設值）時回傳 owner', () => {
+    expect(normalizeRepo('github.com?owner=philipz')).toBe('philipz')
+  })
+  it('已是 owner/repo 時原樣返回', () => {
+    expect(normalizeRepo('philipz/software_factory')).toBe('philipz/software_factory')
+  })
+  it('空字串回傳空字串', () => {
+    expect(normalizeRepo('')).toBe('')
+  })
+})
+
+describe('isFactoryWorkItemTask', () => {
+  it('認得 factory-work-item 任務', () => {
+    expect(
+      isFactoryWorkItemTask({ templateInfo: { entityRef: 'template:default/factory-work-item' } }),
+    ).toBe(true)
+  })
+  it('排除其他 template（agent-add-tests 在同一個清單裡）', () => {
+    expect(
+      isFactoryWorkItemTask({ templateInfo: { entityRef: 'template:default/agent-add-tests' } }),
+    ).toBe(false)
+  })
+  it('templateInfo 缺失時為 false，不丟例外', () => {
+    expect(isFactoryWorkItemTask({})).toBe(false)
+    expect(isFactoryWorkItemTask(null)).toBe(false)
+    expect(isFactoryWorkItemTask('nonsense')).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 2: 執行測試確認失敗**
+
+Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
+Expected: FAIL，訊息為找不到模組 `./task-record.js`
+
+- [ ] **Step 3: 寫最小實作**
+
+建立 `src/work-item-history/task-record.ts`：
+
+```ts
+/**
+ * Backstage scaffolder task → 工作項歷史紀錄（純函式）。
+ *
+ * 資料來源不可信：task 來自 scaffolder API 的 JSON，欄位可能缺失或型別不符。
+ * 所有函式以 unknown 收、逐欄 narrow、絕不丟例外——歷史查閱頁寧可少顯示
+ * 一個欄位，也不能因一筆壞資料整頁掛掉。
+ *
+ * 使用者：backstage/plugins/factory-draft/src/work-item-history/*
+ */
+
+/** template 名稱（entityRef 的最後一段），與 backstage/templates/factory-work-item/ 對齊。 */
+export const FACTORY_WORK_ITEM_TEMPLATE = 'factory-work-item'
+
+const asRecord = (v: unknown): Record<string, unknown> | null =>
+  typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
+
+const asString = (v: unknown): string => (typeof v === 'string' ? v : '')
+
+/**
+ * 以 spec.templateInfo.entityRef 認出 factory-work-item 任務。
+ *
+ * 後端 list 端點只支援 createdBy/status 篩選，沒有 template 篩選
+ * （DatabaseTaskStore.list 已確認），故過濾必須在前端做。
+ */
+export function isFactoryWorkItemTask(spec: unknown): boolean {
+  const ref = asString(asRecord(asRecord(spec)?.templateInfo)?.entityRef)
+  if (ref.length === 0) return false
+  return ref.split('/').pop() === FACTORY_WORK_ITEM_TEMPLATE
+}
+
+/** RepoUrlPicker 的 `github.com?owner=X&repo=Y` → `X/Y`；其餘格式原樣返回。 */
+export function normalizeRepo(raw: string): string {
+  if (typeof raw !== 'string' || raw.length === 0) return ''
+  const owner = /[?&]owner=([^&]+)/.exec(raw)?.[1]
+  const repo = /[?&]repo=([^&]+)/.exec(raw)?.[1]
+  if (owner === undefined) return raw
+  const decodedOwner = decodeURIComponent(owner)
+  return repo === undefined ? decodedOwner : `${decodedOwner}/${decodeURIComponent(repo)}`
+}
+```
+
+- [ ] **Step 4: 執行測試確認通過**
+
+Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
+Expected: PASS，7 tests passed
+
+- [ ] **Step 5: 型別檢查**
+
+Run: `pnpm typecheck`
+Expected: 無輸出（成功）
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/work-item-history/task-record.ts src/work-item-history/task-record.test.ts
+git commit -m "feat(work-item-history): 任務辨識與 repo 正規化純函式
+
+後端 list 端點無 template 篩選，過濾只能在前端做；輸入來自
+scaffolder API 的 JSON，故一律以 unknown 收再逐欄 narrow。"
+```
+
+---
+
+### Task 2: `toWorkItemRecord`、`formatTimestamp`、`summarize`
+
+**Files:**
+- Modify: `src/work-item-history/task-record.ts`
+- Test: `src/work-item-history/task-record.test.ts`
+
+- [ ] **Step 1: 寫失敗測試**
+
+在 `src/work-item-history/task-record.test.ts` 的 import 行改為：
+
+```ts
+import {
+  formatTimestamp,
+  isFactoryWorkItemTask,
+  normalizeRepo,
+  summarize,
+  toWorkItemRecord,
+} from './task-record.js'
+```
+
+並在檔尾追加：
+
+```ts
+const fullTask = {
+  id: '80f332c5-01c3-4e8f-a7b5-9a829dc9dd96',
+  status: 'completed',
+  createdBy: 'user:default/philipz',
+  createdAt: '2026-09-10T08:47:18.000Z',
+  spec: {
+    templateInfo: { entityRef: 'template:default/factory-work-item' },
+    parameters: {
+      oneLiner: '將 Camunda 7.23.0 遷移至 Operaton 2.1.4',
+      taskType: 'agent-update-deps',
+      targetRepo: 'github.com?owner=philipz&repo=camunda_hazelcast',
+      baseBranch: 'software-factory',
+      requirement: '【做什麼】\n遷移。',
+    },
+  },
+}
+
+describe('toWorkItemRecord', () => {
+  it('抽出完整表單欄位並正規化 repo', () => {
+    expect(toWorkItemRecord(fullTask)).toEqual({
+      taskId: '80f332c5-01c3-4e8f-a7b5-9a829dc9dd96',
+      createdAt: '2026-09-10T08:47:18.000Z',
+      createdBy: 'user:default/philipz',
+      status: 'completed',
+      oneLiner: '將 Camunda 7.23.0 遷移至 Operaton 2.1.4',
+      taskType: 'agent-update-deps',
+      targetRepo: 'philipz/camunda_hazelcast',
+      baseBranch: 'software-factory',
+      requirement: '【做什麼】\n遷移。',
+    })
+  })
+
+  it('個別欄位缺失時補空字串，不丟例外', () => {
+    const record = toWorkItemRecord({ id: 'abc', spec: {} })
+    expect(record?.taskId).toBe('abc')
+    expect(record?.oneLiner).toBe('')
+    expect(record?.requirement).toBe('')
+    expect(record?.targetRepo).toBe('')
+  })
+
+  it('createdBy 缺失時退回 spec.user.ref', () => {
+    const record = toWorkItemRecord({
+      id: 'abc',
+      spec: { user: { ref: 'user:default/philipz' } },
+    })
+    expect(record?.createdBy).toBe('user:default/philipz')
+  })
+
+  it('連 id 都取不到時回傳 null', () => {
+    expect(toWorkItemRecord({ spec: {} })).toBeNull()
+    expect(toWorkItemRecord(null)).toBeNull()
+  })
+})
+
+describe('formatTimestamp', () => {
+  it('空字串顯示破折號', () => {
+    expect(formatTimestamp('')).toBe('—')
+  })
+  it('無法解析的字串原樣返回', () => {
+    expect(formatTimestamp('not-a-date')).toBe('not-a-date')
+  })
+  it('可解析的 ISO 時間轉成本地字串', () => {
+    expect(formatTimestamp('2026-09-10T08:47:18.000Z')).toContain('2026')
+  })
+})
+
+describe('summarize', () => {
+  it('短於上限時原樣返回（並壓平換行）', () => {
+    expect(summarize('a\nb', 10)).toBe('a b')
+  })
+  it('長於上限時截斷並加省略號', () => {
+    expect(summarize('abcdefghij', 5)).toBe('abcde…')
+  })
+  it('空字串回傳空字串', () => {
+    expect(summarize('', 5)).toBe('')
+  })
+})
+```
+
+- [ ] **Step 2: 執行測試確認失敗**
+
+Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
+Expected: FAIL，`toWorkItemRecord is not a function`（或 import 錯誤）
+
+- [ ] **Step 3: 寫最小實作**
+
+在 `src/work-item-history/task-record.ts` 檔尾追加：
+
+```ts
+/** 歷史清單與詳情頁共用的一筆紀錄。所有欄位皆為字串，缺值以空字串表示。 */
+export interface WorkItemRecord {
+  taskId: string
+  createdAt: string
+  createdBy: string
+  status: string
+  oneLiner: string
+  taskType: string
+  targetRepo: string
+  baseBranch: string
+  requirement: string
+}
+
+/**
+ * scaffolder task → WorkItemRecord。
+ *
+ * 個別欄位缺失一律補空字串；僅當連 id 都取不到（結構完全不可用）時回傳 null。
+ * createdBy 優先取 task.createdBy，缺失時退回 spec.user.ref——內建
+ * ListTasksPage 讀的是後者，兩者在實測資料中同值。
+ */
+export function toWorkItemRecord(task: unknown): WorkItemRecord | null {
+  const t = asRecord(task)
+  const taskId = asString(t?.id)
+  if (taskId.length === 0) return null
+  const spec = asRecord(t?.spec)
+  const parameters = asRecord(spec?.parameters)
+  const createdBy = asString(t?.createdBy) || asString(asRecord(spec?.user)?.ref)
+  return {
+    taskId,
+    createdAt: asString(t?.createdAt),
+    createdBy,
+    status: asString(t?.status),
+    oneLiner: asString(parameters?.oneLiner),
+    taskType: asString(parameters?.taskType),
+    targetRepo: normalizeRepo(asString(parameters?.targetRepo)),
+    baseBranch: asString(parameters?.baseBranch),
+    requirement: asString(parameters?.requirement),
+  }
+}
+
+/** ISO 時間 → 本地字串；空值顯示破折號，無法解析者原樣返回（不假造時間）。 */
+export function formatTimestamp(iso: string): string {
+  if (typeof iso !== 'string' || iso.length === 0) return '—'
+  const parsed = new Date(iso)
+  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString()
+}
+
+/** 清單用的摘要：壓平空白後截斷。詳情頁一律顯示原文，不經過本函式。 */
+export function summarize(text: string, maxChars: number): string {
+  const flat = asString(text).replace(/\s+/g, ' ').trim()
+  return flat.length <= maxChars ? flat : `${flat.slice(0, maxChars)}…`
+}
+```
+
+- [ ] **Step 4: 執行測試確認通過**
+
+Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
+Expected: PASS，17 tests passed
+
+- [ ] **Step 5: 型別檢查**
+
+Run: `pnpm typecheck`
+Expected: 無輸出
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/work-item-history/task-record.ts src/work-item-history/task-record.test.ts
+git commit -m "feat(work-item-history): task → WorkItemRecord 轉換與顯示格式化
+
+缺欄位補空字串、只有結構完全不可用才回 null——一筆壞資料不該
+讓整個歷史清單掛掉。"
+```
+
+---
+
+### Task 3: `extractIssueUrl`（新任務讀 output.links、舊任務退回解析 log）
+
+**Files:**
+- Modify: `src/work-item-history/task-record.ts`
+- Test: `src/work-item-history/task-record.test.ts`
+
+**背景**：DB 內既有 38 筆 factory-work-item 任務建立於 template 加上 `output.links` 之前，它們的 Issue URL 只存在於 log 事件字串中，實測長相為：
+
+```
+\u001b[32minfo\u001b[39m: Successfully created issue #28: https://github.com/philipz/camunda_hazelcast/issues/28
+```
+
+比對時**不依賴 "Successfully created issue" 這串字**（它屬於 `github:issues:create` 的實作細節，升版可能改），只認 GitHub issue URL 的形狀。
+
+- [ ] **Step 1: 寫失敗測試**
+
+把 import 行改為（追加 `extractIssueUrl`）：
+
+```ts
+import {
+  extractIssueUrl,
+  formatTimestamp,
+  isFactoryWorkItemTask,
+  normalizeRepo,
+  summarize,
+  toWorkItemRecord,
+} from './task-record.js'
+```
+
+並在檔尾追加：
+
+```ts
+describe('extractIssueUrl', () => {
+  const ISSUE = 'https://github.com/philipz/camunda_hazelcast/issues/28'
+
+  it('優先讀 output.links 的結構化 URL', () => {
+    expect(
+      extractIssueUrl({
+        output: { links: [{ title: '已建立的 Issue', url: ISSUE }] },
+        logLines: [],
+      }),
+    ).toBe(ISSUE)
+  })
+
+  it('沒有 output.links 時退回解析 log（容忍 ANSI 色碼）', () => {
+    expect(
+      extractIssueUrl({
+        output: undefined,
+        logLines: [`2026-09-10 \u001b[32minfo\u001b[39m: Successfully created issue #28: ${ISSUE}`],
+      }),
+    ).toBe(ISSUE)
+  })
+
+  it('忽略 output.links 中的非 issue 連結（例如 Actions 頁面）', () => {
+    expect(
+      extractIssueUrl({
+        output: { links: [{ url: 'https://github.com/philipz/software_factory/actions' }] },
+        logLines: [],
+      }),
+    ).toBeUndefined()
+  })
+
+  it('兩邊都沒有時回傳 undefined，不猜測', () => {
+    expect(extractIssueUrl({})).toBeUndefined()
+    expect(extractIssueUrl({ output: 'nonsense', logLines: ['no url here'] })).toBeUndefined()
+  })
+})
+```
+
+- [ ] **Step 2: 執行測試確認失敗**
+
+Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
+Expected: FAIL，`extractIssueUrl is not a function`
+
+- [ ] **Step 3: 寫最小實作**
+
+在 `src/work-item-history/task-record.ts` 檔尾追加：
+
+```ts
+/**
+ * GitHub issue URL 的形狀。刻意不比對 action 的 log 措辭
+ * （"Successfully created issue #N:" 是 github:issues:create 的實作細節）。
+ */
+const ISSUE_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/
+
+/**
+ * 取出本次任務建立的 Issue URL。
+ *
+ * 兩條來源：
+ * 1. template 的 output.links（2026-09-10 起的新任務，結構化、穩定）；
+ * 2. log 事件字串（更早的任務，唯一留有 URL 的地方）。
+ *
+ * 兩者皆無時回傳 undefined——呼叫端不顯示連結即可，不得假造。
+ */
+export function extractIssueUrl(input: {
+  output?: unknown
+  logLines?: readonly string[] | undefined
+}): string | undefined {
+  const links = asRecord(input.output)?.links
+  if (Array.isArray(links)) {
+    for (const link of links) {
+      const url = asString(asRecord(link)?.url)
+      if (ISSUE_URL.test(url)) return url
+    }
+  }
+  for (const line of input.logLines ?? []) {
+    const matched = ISSUE_URL.exec(asString(line))
+    if (matched !== null) return matched[0]
+  }
+  return undefined
+}
+```
+
+- [ ] **Step 4: 執行測試確認通過**
+
+Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
+Expected: PASS，21 tests passed
+
+- [ ] **Step 5: 確認覆蓋率門檻未被拉低**
+
+Run: `pnpm coverage`
+Expected: PASS，且 `src/work-item-history/task-record.ts` 的 lines/branches 皆 ≥ 80%
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/work-item-history/task-record.ts src/work-item-history/task-record.test.ts
+git commit -m "feat(work-item-history): Issue URL 抽取（output.links 優先，log 為舊任務退路）
+
+既有 38 筆任務的 Issue URL 只存在 log 字串中；比對只認 URL 形狀，
+不綁 github:issues:create 的 log 措辭。"
+```
+
+---
+
+### Task 4: template 新增 `output.links`
+
+**Files:**
+- Modify: `backstage/templates/factory-work-item/template.yaml:129-135`
+- Test: `test/adversarial/factory-assets.test.ts`
+
+- [ ] **Step 1: 寫失敗測試**
+
+在 `test/adversarial/factory-assets.test.ts` 的 `describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', ...)` 區塊**結束大括號之後**，新增：
+
+```ts
+describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
+  it('template 以 output.links 輸出 Issue 連結（歷史查閱的結構化來源）', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    expect(t).toContain('links:')
+    expect(t).toContain("steps['create-issue'].output.issueUrl")
+  })
+})
+```
+
+- [ ] **Step 2: 執行測試確認失敗**
+
+Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts -t '工作項歷史'`
+Expected: FAIL，`expected ... to contain "links:"`
+
+- [ ] **Step 3: 修改 template**
+
+把 `backstage/templates/factory-work-item/template.yaml` 的：
+
+```yaml
+  output:
+    text:
+```
+
+改為：
+
+```yaml
+  output:
+    # 歷史查閱分頁（ADR-017）以此結構化欄位取得 Issue 連結；在此之前建立的
+    # 任務只能從 log 字串解析，故新任務一律走這條。
+    links:
+      - title: 已建立的 Issue
+        url: ${{ steps['create-issue'].output.issueUrl }}
+    text:
+```
+
+`steps` 與既有的 `output.text` 一字不動。
+
+- [ ] **Step 4: 執行測試確認通過**
+
+Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts`
+Expected: PASS，該檔全數通過（既有 8 條模板契約測試不受影響）
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backstage/templates/factory-work-item/template.yaml test/adversarial/factory-assets.test.ts
+git commit -m "feat(template): output 加上已建立 Issue 的連結
+
+github:issues:create 的 issueUrl 原本只進 log；歷史查閱頁需要
+結構化來源。既有 steps 與 output.text 不動。"
+```
+
+---
+
+### Task 5: 拆出草稿欄位元件（純搬移，行為不變）
+
+**Files:**
+- Move: `backstage/plugins/factory-draft/src/index.tsx` → `backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx`
+- Create: `backstage/plugins/factory-draft/src/index.tsx`（新內容）
+
+現有 `index.tsx` 252 行，同時承擔「草稿欄位實作」與「module 組裝」。再塞一個歷史頁會失控，故先拆。本任務**不改變任何行為**。
+
+- [ ] **Step 1: 搬移檔案（保留 git 歷史）**
+
+```bash
+mkdir -p backstage/plugins/factory-draft/src/draft-field
+git mv backstage/plugins/factory-draft/src/index.tsx \
+       backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx
+```
+
+- [ ] **Step 2: 從搬移後的檔案移除 module 組裝段落**
+
+在 `backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx` 中，刪除從 `/**` 開頭、內容為「new frontend system 客製欄位擴充」的那段註解，一路到檔尾的 `export default factoryDraftModule`（即原 229–252 行整段）。刪除後檔案最後一段應為：
+
+```tsx
+export const FactoryWorkItemDraftField = createFormField({
+  name: 'FactoryWorkItemDraftField',
+  component: DraftFieldComponent,
+})
+```
+
+- [ ] **Step 3: 移除該檔已不再使用的 import**
+
+刪除這一行：
+
+```tsx
+import { createFrontendModule } from '@backstage/frontend-plugin-api'
+```
+
+並把：
+
+```tsx
+import {
+  createFormField,
+  FormFieldBlueprint,
+  type FieldExtensionComponentProps,
+} from '@backstage/plugin-scaffolder-react/alpha'
+```
+
+改為：
+
+```tsx
+import {
+  createFormField,
+  type FieldExtensionComponentProps,
+} from '@backstage/plugin-scaffolder-react/alpha'
+```
+
+- [ ] **Step 4: 建立新的 `index.tsx`**
+
+建立 `backstage/plugins/factory-draft/src/index.tsx`：
+
+```tsx
+/**
+ * factory-draft 前端 module：software_factory 對 Backstage scaffolder 的客製擴充。
+ *
+ * 兩個擴充：
+ * 1. FactoryWorkItemDraftField —— 開單表單的 LLM 草稿助手欄位（docs/ADR/009）；
+ * 2. work-item-history SubPage —— Create 頁的「工作項歷史」唯讀查閱分頁（docs/ADR/017）。
+ *
+ * 根因備忘（2026-08-21 實測，讀 frontend-app-api resolveAppNodeSpecs 原始碼確認）：
+ * `features` 只接受 FrontendPlugin 或 FrontendModule——**裸的 ExtensionDefinition
+ * 會被靜默丟棄**（不進 app tree，loadFormFields 永遠拿不到 → RJSF 退回預設欄位）。
+ * 正確做法：用 `createFrontendModule` 包裝，pluginId 對應宿主插件（scaffolder）
+ * 以取得 plugin 上下文與 attachTo 解析。
+ *
+ * 使用方式：features: [factoryDraftModule, ...]
+ */
+import React from 'react'
+import { createFrontendModule, SubPageBlueprint } from '@backstage/frontend-plugin-api'
+import { FormFieldBlueprint } from '@backstage/plugin-scaffolder-react/alpha'
+import { FactoryWorkItemDraftField } from './draft-field/DraftFieldComponent.tsx'
+
+export { FactoryWorkItemDraftField }
+
+const factoryWorkItemDraftField = FormFieldBlueprint.make({
+  name: 'factory-work-item-draft',
+  params: {
+    field: () => Promise.resolve(FactoryWorkItemDraftField),
+  },
+})
+
+/**
+ * Create 頁的新分頁（PageBlueprint 會把 pages input 逐一渲染成頁首 tab）。
+ *
+ * attachTo 明寫 page:scaffolder——SubPageBlueprint 的預設是
+ * { relative: { kind: 'page' }, input: 'pages' }，而本 module 自身沒有
+ * page 擴充，不能依賴 relative 解析。
+ */
+const workItemHistorySubPage = SubPageBlueprint.make({
+  name: 'work-item-history',
+  attachTo: { id: 'page:scaffolder', input: 'pages' },
+  params: {
+    path: 'work-items',
+    title: '工作項歷史',
+    loader: () => import('./work-item-history/SubPage.tsx').then((m) => <m.SubPage />),
+  },
+})
+
+const factoryDraftModule = createFrontendModule({
+  pluginId: 'scaffolder',
+  extensions: [factoryWorkItemDraftField, workItemHistorySubPage],
+})
+
+export default factoryDraftModule
+```
+
+> 此時 `./work-item-history/SubPage.tsx` 尚不存在——Task 6 建立。本 task 不需要 app 能啟動。
+
+- [ ] **Step 5: 確認既有契約測試仍綠**
+
+Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts`
+Expected: PASS。特別注意這條既有測試仍須通過：
+
+```
+factory-draft 客製 plugin 存在（backend 路由 + frontend 欄位）
+```
+
+它斷言 `backstage/plugins/factory-draft/src/index.tsx` 含 `FactoryWorkItemDraftField`——新 index.tsx 有 `export { FactoryWorkItemDraftField }`，故仍成立。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backstage/plugins/factory-draft/src/
+git commit -m "refactor(factory-draft): 拆開草稿欄位實作與 module 組裝
+
+index.tsx 原本 252 行身兼兩職，再加歷史頁會失控。純搬移，行為不變。"
+```
+
+---
+
+### Task 6: 分頁骨架 `SubPage.tsx`
+
+**Files:**
+- Create: `backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx`
+- Test: `test/adversarial/factory-assets.test.ts`
+
+- [ ] **Step 1: 寫失敗測試**
+
+在 Task 4 建立的 `describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', ...)` 內追加：
+
+```ts
+  it('SubPage 擴充明寫 attachTo page:scaffolder（不依賴 relative 解析）', () => {
+    const idx = read('backstage/plugins/factory-draft/src/index.tsx')
+    expect(idx).toContain('SubPageBlueprint.make')
+    expect(idx).toContain("attachTo: { id: 'page:scaffolder', input: 'pages' }")
+    expect(idx).toContain("path: 'work-items'")
+  })
+
+  it('分頁有清單與詳情兩條路由（詳情需可分享網址）', () => {
+    const sub = read('backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx')
+    expect(sub).toContain('<Route index')
+    expect(sub).toContain('path=":taskId"')
+  })
+```
+
+- [ ] **Step 2: 執行測試確認失敗**
+
+Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts -t '工作項歷史'`
+Expected: FAIL，第二條因找不到 `SubPage.tsx` 而丟 ENOENT
+
+- [ ] **Step 3: 建立 SubPage**
+
+建立 `backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx`：
+
+```tsx
+/**
+ * 「工作項歷史」分頁的路由（/create/work-items）。
+ *
+ * 結構刻意與內建的 TasksSubPage 一致：index 為清單、:taskId 為詳情，
+ * 讓詳情頁有可分享的網址（稽核情境需要）。
+ */
+import React from 'react'
+import { Route, Routes } from 'react-router-dom'
+import { Content } from '@backstage/core-components'
+import { HistoryList } from './HistoryList.tsx'
+import { HistoryDetail } from './HistoryDetail.tsx'
+
+export function SubPage() {
+  return (
+    <Routes>
+      <Route
+        index
+        element={
+          <Content>
+            <HistoryList />
+          </Content>
+        }
+      />
+      <Route
+        path=":taskId"
+        element={
+          <Content>
+            <HistoryDetail />
+          </Content>
+        }
+      />
+    </Routes>
+  )
+}
+```
+
+- [ ] **Step 4: 執行測試確認通過**
+
+Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx test/adversarial/factory-assets.test.ts
+git commit -m "feat(work-item-history): Create 頁新增工作項歷史分頁骨架
+
+清單與詳情兩條路由，詳情有獨立網址供稽核分享。"
+```
+
+---
+
+### Task 7: 清單 `HistoryList.tsx`
+
+**Files:**
+- Create: `backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx`
+- Test: `test/adversarial/factory-assets.test.ts`
+
+- [ ] **Step 1: 寫失敗測試**
+
+在同一個 describe 內追加：
+
+```ts
+  it('歷史頁元件從 src/ 取用純函式（邏輯受 vitest 與覆蓋率門檻管束）', () => {
+    for (const f of [
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx',
+    ]) {
+      expect(read(f)).toContain('src/work-item-history/task-record.ts')
+    }
+  })
+```
+
+- [ ] **Step 2: 執行測試確認失敗**
+
+Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts -t '工作項歷史'`
+Expected: FAIL，找不到 `HistoryList.tsx`（ENOENT）
+
+- [ ] **Step 3: 建立 HistoryList**
+
+建立 `backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx`：
+
+```tsx
+/**
+ * 工作項歷史清單。
+ *
+ * 一次 listTasks 即可顯示所有表單欄位——list 端點回傳完整 spec.parameters
+ * （secrets 不在 SELECT 範圍內）。但它**不回傳 output**，而舊任務的 Issue URL
+ * 只在 log 事件裡，故清單不放 Issue 連結欄位（要放就得每列各發一次請求）；
+ * 連結只出現在詳情頁。
+ */
+import React from 'react'
+import { useApi } from '@backstage/core-plugin-api'
+import { scaffolderApiRef } from '@backstage/plugin-scaffolder-react'
+import { EmptyState, ErrorPanel, Link, Progress, Table } from '@backstage/core-components'
+import Typography from '@material-ui/core/Typography'
+import useAsync from 'react-use/esm/useAsync'
+import {
+  formatTimestamp,
+  isFactoryWorkItemTask,
+  summarize,
+  toWorkItemRecord,
+  type WorkItemRecord,
+} from '../../../../src/work-item-history/task-record.ts'
+
+/**
+ * 後端 list 端點只支援 createdBy/status 篩選，沒有 template 篩選，
+ * 故一次取回上限筆數再於前端過濾。實測 DB 共 43 筆任務，200 綽綽有餘。
+ */
+const FETCH_LIMIT = 200
+
+export function HistoryList() {
+  const scaffolderApi = useApi(scaffolderApiRef)
+  const { value, loading, error } = useAsync(
+    async () => scaffolderApi.listTasks({ filterByOwnership: 'all', limit: FETCH_LIMIT }),
+    [scaffolderApi],
+  )
+
+  if (loading) return <Progress />
+  if (error) return <ErrorPanel error={error} />
+
+  const fetched = value?.tasks ?? []
+  const rows = fetched
+    .filter((task) => isFactoryWorkItemTask(task.spec))
+    .map((task) => toWorkItemRecord(task))
+    .filter((record): record is WorkItemRecord => record !== null)
+
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        missing="data"
+        title="尚無工作項歷史"
+        description="用「開立 Factory 工作項」送出一張單之後，這裡會列出當時填寫的內容。"
+      />
+    )
+  }
+
+  return (
+    <>
+      <Table<WorkItemRecord>
+        title={`工作項歷史（${rows.length} 筆）`}
+        options={{ pageSize: 10, emptyRowsWhenPaging: false, search: true }}
+        data={rows}
+        columns={[
+          {
+            title: '建立時間',
+            field: 'createdAt',
+            render: (row) => formatTimestamp(row.createdAt),
+          },
+          {
+            title: '一句話需求',
+            field: 'oneLiner',
+            render: (row) => (
+              <Link to={row.taskId}>{summarize(row.oneLiner, 60) || '（未填）'}</Link>
+            ),
+          },
+          { title: '任務類型', field: 'taskType' },
+          { title: '目標 repo', field: 'targetRepo' },
+          { title: '狀態', field: 'status' },
+          { title: '建立者', field: 'createdBy' },
+        ]}
+      />
+      {fetched.length >= FETCH_LIMIT && (
+        <Typography variant="caption">
+          僅掃描最近 {FETCH_LIMIT} 筆 scaffolder 任務，更早的紀錄未載入。
+        </Typography>
+      )}
+    </>
+  )
+}
+```
+
+> `<Link to={row.taskId}>` 是相對路徑，react-router v6 會解析為 `/create/work-items/<taskId>`。
+
+- [ ] **Step 4: 執行測試確認通過**
+
+Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts -t '工作項歷史'`
+Expected: 仍 FAIL——該測試同時要求 `HistoryDetail.tsx`，由 Task 8 建立。確認失敗訊息已從「找不到 HistoryList.tsx」變成「找不到 HistoryDetail.tsx」。
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx test/adversarial/factory-assets.test.ts
+git commit -m "feat(work-item-history): 清單頁
+
+一次 listTasks 取得完整 spec.parameters；template 過濾在前端做
+（後端無此篩選）。Issue 連結不放清單，避免每列一次請求。"
+```
+
+---
+
+### Task 8: 詳情 `HistoryDetail.tsx`
+
+**Files:**
+- Create: `backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx`
+
+- [ ] **Step 1: 建立 HistoryDetail**
+
+建立 `backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx`：
+
+```tsx
+/**
+ * 工作項歷史詳情（唯讀）。
+ *
+ * useTaskEventStream 一次給齊三樣東西：task.spec.parameters（表單原值）、
+ * output（新任務的 Issue links）、stepLogs（舊任務唯一留有 Issue URL 的地方）。
+ * 內建 OngoingTask 用的是同一個 hook，已完成任務會 replay 完整事件。
+ *
+ * 本頁不重造 log 檢視——底部連回內建任務頁。
+ */
+import React from 'react'
+import { useParams } from 'react-router-dom'
+import { useTaskEventStream } from '@backstage/plugin-scaffolder-react'
+import { ErrorPanel, InfoCard, Link, Progress } from '@backstage/core-components'
+import Box from '@material-ui/core/Box'
+import Typography from '@material-ui/core/Typography'
+import {
+  extractIssueUrl,
+  formatTimestamp,
+  toWorkItemRecord,
+} from '../../../../src/work-item-history/task-record.ts'
+
+function Field(props: { label: string; value: string }) {
+  return (
+    <Box marginBottom={1.5}>
+      <Typography variant="subtitle2" color="textSecondary">
+        {props.label}
+      </Typography>
+      <Typography variant="body2" component="pre" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+        {props.value.length > 0 ? props.value : '（無內容）'}
+      </Typography>
+    </Box>
+  )
+}
+
+export function HistoryDetail() {
+  const { taskId } = useParams()
+  const stream = useTaskEventStream(taskId ?? '')
+
+  if (stream.error) return <ErrorPanel error={stream.error} />
+  if (!stream.task) return <Progress />
+
+  const record = toWorkItemRecord(stream.task)
+  if (record === null) {
+    return <ErrorPanel error={new Error(`任務 ${taskId ?? ''} 的資料無法解析`)} />
+  }
+
+  const logLines = Object.values(stream.stepLogs ?? {}).flat()
+  const issueUrl = extractIssueUrl({ output: stream.output, logLines })
+
+  return (
+    <Box>
+      {issueUrl !== undefined && (
+        <Box marginBottom={2}>
+          <Typography variant="subtitle2" color="textSecondary">
+            已建立的 Issue
+          </Typography>
+          <Link to={issueUrl}>{issueUrl}</Link>
+        </Box>
+      )}
+
+      <Box marginBottom={2}>
+        <InfoCard title="表單內容（唯讀）" titleTypographyProps={{ component: 'h2' }}>
+          <Field label="一句話需求（Issue 標題）" value={record.oneLiner} />
+          <Field label="任務類型" value={record.taskType} />
+          <Field label="目標 repo" value={record.targetRepo} />
+          <Field label="目標分支" value={record.baseBranch} />
+          <Field label="需求描述（PRD）" value={record.requirement} />
+        </InfoCard>
+      </Box>
+
+      <InfoCard title="任務資訊" titleTypographyProps={{ component: 'h2' }}>
+        <Field label="Task ID" value={record.taskId} />
+        <Field label="建立者" value={record.createdBy} />
+        <Field label="建立時間" value={formatTimestamp(record.createdAt)} />
+        <Field label="狀態" value={record.status} />
+        {/* 內建任務頁的路徑；scaffolder 的 task routeRef 未公開匯出，故直接寫路徑。 */}
+        <Link to={`/create/tasks/${record.taskId}`}>查看執行 log</Link>
+      </InfoCard>
+    </Box>
+  )
+}
+```
+
+- [ ] **Step 2: 執行測試確認通過**
+
+Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts`
+Expected: PASS，含 Task 7 那條「歷史頁元件從 src/ 取用純函式」
+
+- [ ] **Step 3: 跑完整測試套件**
+
+Run: `pnpm test`
+Expected: 全綠
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx
+git commit -m "feat(work-item-history): 唯讀詳情頁
+
+useTaskEventStream 一次取得 parameters/output/log；Issue 連結
+新任務讀 output.links、舊任務退回解析 log，取不到就不顯示。"
+```
+
+---
+
+### Task 9: ADR-017 與文件更新
+
+**Files:**
+- Create: `docs/ADR/017-backstage-work-item-history.md`
+- Modify: `docs/ADR/README.md`
+- Modify: `docs/03-idp-backstage.md`（§3.4 元件表）
+
+- [ ] **Step 1: 建立 ADR-017**
+
+建立 `docs/ADR/017-backstage-work-item-history.md`：
+
+```markdown
+# ADR-017：Backstage 解凍擴大——工作項歷史唯讀查閱
+
+- **狀態**：已接受
+- **日期**：2026-09-10
+- **決定者**：使用者裁決（brainstorming 設計會談）
+- **對應**：`ADR-009`（局部解凍）、`14-observation-period.md` §1.7（#50 凍結裁決）、`03-idp-backstage.md` §3.4
+
+## 脈絡
+
+ADR-009 解凍的最小路徑是「factory-work-item 模板 + LLM 草稿 + direct dispatch」。實際使用後出現一個 ADR-009 未涵蓋的需求：**表單送出後無法回溯當時填了什麼**。
+
+現況（2026-09-10 查證 Backstage 1.53.0 / `@backstage/plugin-scaffolder@1.38.1`）：
+
+- 內建 `/create/tasks` 清單只有 Task ID / Template / Created / Owner / Status 五欄；
+- 任務詳情頁只顯示步驟、log 與本專案 template 的 `output.text`（僅含一句話需求與任務類型）；
+- 完整表單原值**一直存在** scaffolder DB 的 `spec.parameters`（實測 43 筆任務皆有），只是沒有查閱介面；
+- 內建「Start Over」讀得到完整原值，但它開的是一張新表單，不是唯讀檢視。
+
+稽核需求是「某次是誰、在何時、用什麼 PRD 內容、開了哪張 Issue」——資料齊備，缺的只是呈現。
+
+## 決策
+
+**解凍範圍擴大，新增一項**：Create 頁的「工作項歷史」唯讀查閱分頁（`/create/work-items`）。
+
+1. **唯讀**。不新增任何寫入路徑、不新增後端端點、不擴充憑證或權限範圍。資料一律來自現有的 scaffolder read API（`listTasks` / `getTask` / `streamLogs`）。
+2. **實作落在本 repo**：以 `SubPageBlueprint` 掛入既有的 `factory-draft` 前端 module，`../backstage-app` 零改動。解析邏輯放 `src/work-item-history/`，受本 repo 的 vitest 與覆蓋率門檻管束。
+3. **template 附帶一項純新增**：`output.links` 輸出 `github:issues:create` 的 `issueUrl`。在此之前建立的任務退回解析 log 取得同一資訊。
+
+**維持凍結的其餘範圍**：Backstage 其他 Template、Scoreboard、TechDocs 部署、catalog 探索、維運承諾——全部維持 #50 與 ADR-009 的凍結狀態。
+
+## 後果
+
+### 正面
+- 稽核閉環：工作項的「填了什麼」不再只能靠 GitHub Issue 反推或翻 DB。
+- 零擴權：唯讀、無新端點、無新憑證，安全邊界與 ADR-009 相同。
+- 可逆（D1 延續）：全部工件在本 repo 版控，移除擴充即完全退回 ADR-009 狀態。
+
+### 負面
+- Backstage 的維護面再擴大一塊 UI；升版時 `SubPageBlueprint` / `useTaskEventStream` 的簽章變動需重驗。
+- 舊任務的 Issue 連結依賴 log 字串解析，屬於已知的脆弱點（退化後果僅為少一個連結）。
+- 套件名 `factory-draft` 現在同時裝著草稿欄位與歷史頁，名實不符；日後若再增擴充應考慮更名。
+
+## 未採用的替代方案
+
+- **覆寫內建 Tasks 分頁**：等於 fork 官方頁面，其他 template 的任務歷史會被我們的實作取代，升版維護成本高。
+- **新開獨立插件包**：邊界較乾淨，但需修改 `../backstage-app` 的 `package.json` 與 `App.tsx`（另一個 repo），改動半徑大於收益。
+- **在清單頁顯示 Issue 連結**：`listTasks` 不回傳 `output`，舊任務的 URL 又只在 log 中，逐列取用會造成 N+1 請求；改為只在詳情頁顯示。
+```
+
+- [ ] **Step 2: 更新 ADR 索引**
+
+在 `docs/ADR/README.md` 的表格中，`ADR-016` 那一列之後追加：
+
+```markdown
+| [ADR-017](017-backstage-work-item-history.md) | Backstage 解凍擴大——工作項歷史唯讀查閱 | 已接受 | `ADR-009`、`03` §3.4 |
+```
+
+- [ ] **Step 3: 更新 docs/03 的元件表**
+
+在 `docs/03-idp-backstage.md` §3.4 的元件表（以 `| Frontend 欄位 |` 開頭那一列）之後追加：
+
+```markdown
+| 歷史查閱 | `backstage/plugins/factory-draft/src/work-item-history/`、`src/work-item-history/` | Create 頁的「工作項歷史」唯讀分頁（ADR-017）；解析邏輯為純函式並受 vitest 管束 |
+```
+
+- [ ] **Step 4: 確認文件測試仍綠**
+
+Run: `pnpm test`
+Expected: 全綠
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add docs/ADR/017-backstage-work-item-history.md docs/ADR/README.md docs/03-idp-backstage.md
+git commit -m "docs(adr): ADR-017 Backstage 解凍擴大——工作項歷史唯讀查閱
+
+唯讀、無新端點、無擴權；實作全在本 repo，backstage-app 零改動。"
+```
+
+---
+
+### Task 10: 瀏覽器實測與驗證結果回寫
+
+**Files:**
+- Modify: `backstage/versions.md`
+
+本 repo 沒有前端測試工具鏈，UI 以人工驗收。三個部署時驗證項見 spec §12。
+
+- [ ] **Step 1: 啟動 Backstage**
+
+```bash
+cd ../backstage-app && set -a && . ./.env && set +a && yarn dev
+```
+
+> `yarn workspace backend start` 不會自動載入 `.env`（versions.md 已記載），故用 repo 級 `yarn dev`。
+
+- [ ] **Step 2: 逐項驗收**
+
+以 GitHub OAuth 登入後，逐項確認：
+
+1. Create 頁出現「工作項歷史」tab（驗證項 1：`attachTo: page:scaffolder` 生效）
+2. 清單列出 38 筆 factory-work-item 任務，**不含** 5 筆 agent-add-tests
+3. 清單顯示建立時間、一句話需求、任務類型、目標 repo、狀態、建立者
+4. 點一句話需求進入詳情，網址為 `/create/work-items/<taskId>`；重新整理後仍正確渲染
+5. 詳情顯示完整 PRD 全文（不截斷）——驗證項 2、3：跨 root import 的 `src/work-item-history/task-record.ts` 在 rspack 下可用，且 `useTaskEventStream` replay 帶回 `output`
+6. 舊任務（本次變更前建立者）的詳情頁顯示由 log 解析出的 Issue 連結
+7. 用「開立 Factory 工作項」新開一張單，其詳情頁顯示由 `output.links` 來的 Issue 連結
+8. 「查看執行 log」正確連到 `/create/tasks/<taskId>`
+
+- [ ] **Step 3: 若驗證項 2 失敗（rspack 擋跨 root import）**
+
+啟用 spec §12 的 fallback：
+
+1. 把 `src/work-item-history/task-record.ts` 與其測試複製到 `backstage/plugins/factory-draft/src/work-item-history/task-record.ts` / `.test.ts`，並刪除 `src/work-item-history/`；
+2. 在 `vitest.config.ts` 的 `test.include` 追加 `'backstage/plugins/**/*.test.ts'`；
+3. 在 `tsconfig.json` 的 `include` 追加 `'backstage/plugins/**/*.ts'`；
+4. 更新 Task 7 那條契約測試的斷言字串為 `'./task-record.ts'`；
+5. 重跑 `pnpm test` 與 `pnpm typecheck`。
+
+- [ ] **Step 4: 回寫驗證結果**
+
+在 `backstage/versions.md` 檔尾追加（把 ✅／⚠️ 依實際結果填寫）：
+
+```markdown
+# 2026-09-10 工作項歷史查閱分頁驗證（ADR-017）
+# - SubPageBlueprint attachTo { id: 'page:scaffolder', input: 'pages' }：Create 頁 tab 是否出現
+# - 插件跨 root import repo 內 src/work-item-history/task-record.ts（rspack）：是否通過
+# - useTaskEventStream 對已完成任務 replay 是否帶回 output（新任務的 Issue links）
+# - 舊任務 Issue 連結靠解析 stepLogs：是否成功
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backstage/versions.md
+git commit -m "docs(backstage): 回寫工作項歷史分頁的部署時驗證結果"
+```
+
+---
+
+## 完成標準
+
+- `pnpm test` 全綠、`pnpm typecheck` 無輸出、`pnpm coverage` 門檻通過
+- Create 頁有「工作項歷史」tab，清單只列 factory-work-item 任務
+- 詳情頁顯示完整表單原值與（可取得時的）Issue 連結，網址可分享
+- ADR-017 與 docs/03、ADR/README、versions.md 已更新
+- `../backstage-app` 無任何改動（`cd ../backstage-app && git status` 應為 clean）
