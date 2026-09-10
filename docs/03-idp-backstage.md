@@ -174,7 +174,7 @@ spec:
 
 ### 3.4 factory-work-item：工作項的統一入口（ADR-009 局部解凍）
 
-> **狀態**：2026-08-21 對 #50 凍結裁決做局部解凍（`docs/ADR/009-backstage-partial-unfreeze.md`）——只解凍「factory-work-item 模板 + LLM 草稿 + direct dispatch」最小路徑（本機 `yarn dev`）；2026-09-10 再依 `docs/ADR/017-backstage-work-item-history.md` 擴大一次，新增「工作項歷史」唯讀分頁。其餘維持凍結。
+> **狀態**：2026-08-21 對 #50 凍結裁決做局部解凍（`docs/ADR/009-backstage-partial-unfreeze.md`）——只解凍「factory-work-item 模板 + LLM 草稿 + direct dispatch」最小路徑（本機 `yarn start`）；2026-09-10 再依 `docs/ADR/017-backstage-work-item-history.md` 擴大一次，新增唯讀分頁（頁籤 **Task History**，`/create/work-items`）。其餘維持凍結。
 
 **流程**：填寫制式欄位（可先用 LLM 草稿助手產生）→ 建立格式合規的 GitHub Issue → 直接 dispatch `factory-run.yml` 觸發 agent。**人類在 Backstage 點擊送出＝核准**，取代 `factory/approved` label 閘門（label 觸發保留給 GitHub 原生路徑）。
 
@@ -184,7 +184,7 @@ spec:
 | LLM 純邏輯 | `src/factory-draft/`（prompts / parse / issue-body） | grill-me 收斂版釐清 prompt、一次生成 prompt（結構化 JSON + 品質標示 notes）、issue body 格式參考實作——repo 工具鏈 typecheck + 單元測試 |
 | Backend 插件 | `backstage/plugins/factory-draft-backend/` | Express 路由 `/api/factory-draft/clarify`、`/generate`，呼叫 DeepSeek（key 存本機 app-config）——⚠️ 部署時驗證 |
 | Frontend 欄位 | `backstage/plugins/factory-draft/` | `FactoryWorkItemDraftField`（🎯 釐清 / ✨ 一次生成 / 品質標示區）——⚠️ 部署時驗證 |
-| 歷史查閱 | `backstage/plugins/factory-draft/src/work-item-history/`、`src/work-item-history/` | Create 頁的「工作項歷史」唯讀分頁（ADR-017）；解析邏輯為純函式並受 vitest 管束 |
+| 歷史查閱 | `backstage/plugins/factory-draft/src/work-item-history/`、`src/work-item-history/` | Create 頁的唯讀分頁 **Task History**（ADR-017，`/create/work-items`）；解析邏輯為純函式並受 vitest 管束 |
 
 **LLM 草稿的治理邊界**（docs/01 職責的機械化）：LLM 只產草稿與釐清，**不得自行決定要做什麼或優先順序**——最終送出權在使用者；品質標示（notes）只在表單審查畫面顯示，**不寫入 Issue body**；草稿產出是人類發起的動作，不影響 agent 稽核身分（ADR-006）。
 

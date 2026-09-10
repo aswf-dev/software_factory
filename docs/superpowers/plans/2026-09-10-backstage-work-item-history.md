@@ -1283,7 +1283,10 @@ cd ../backstage-app && set -a && . ./.env && set +a && yarn start
 
 以 GitHub OAuth 登入後，逐項確認：
 
-1. Create 頁出現「工作項歷史」tab（驗證項 1：`attachTo: page:scaffolder` 生效）
+1. Create 頁出現 **Task History** tab（驗證項 1：`attachTo: page:scaffolder` 生效）。
+   > 標籤於 2026-09-11 由「工作項歷史」改為 `Task History`——同排的內建分頁
+   > （Templates / Tasks / Actions / Template Editor）都是英文，只有這個是中文
+   > 會看起來像壞掉。頁面內容維持中文。此標籤由對抗性測試釘住。
 2. 清單列出 factory-work-item 任務（筆數以當下 DB 為準，2026-09-10 快照是 38 筆），**不含** agent-add-tests
 3. 清單顯示建立時間、一句話需求、任務類型、目標 repo、狀態、建立者
 4. 點一句話需求進入詳情，網址為 `/create/work-items/<taskId>`；重新整理後仍正確渲染

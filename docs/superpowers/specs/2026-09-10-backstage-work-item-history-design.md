@@ -41,7 +41,7 @@ Backstage「開立 Factory 工作項」表單送出後，使用者無法在 UI �
 
 ## 4. 架構
 
-Create 頁新增 tab「工作項歷史」，路徑 `/create/work-items`。
+Create 頁新增 tab，標籤 **Task History**（與同排內建分頁一致用英文），路徑 `/create/work-items`。
 
 ```
 backstage/plugins/factory-draft/src/
@@ -219,7 +219,7 @@ log regex 是舊資料的退化路徑，其失效後果是「少一個連結」�
 - plugin 存在 `work-item-history` SubPage 擴充，且 `attachTo` 指向 `page:scaffolder`
 
 **手動驗收清單**（本 repo 無前端測試工具鏈，UI 以人工驗收）：
-1. `yarn dev` 後 Create 頁出現「工作項歷史」tab
+1. `yarn start` 後 Create 頁出現 **Task History** tab
 2. 清單列出既有 factory-work-item 任務，不含其他 template 的任務
 3. 點一句話需求進入詳情，網址為 `/create/work-items/<taskId>`，重新整理仍正確
 4. 詳情顯示完整 PRD 全文

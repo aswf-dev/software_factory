@@ -685,6 +685,16 @@ describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
     expect(idx).toContain("path: 'work-items'")
   })
 
+  it('分頁標籤用英文，與同排的內建分頁一致', () => {
+    const idx = read('backstage/plugins/factory-draft/src/index.tsx')
+    // 內建分頁是 Templates / Tasks / Actions / Template Editor，全是英文；
+    // 導覽標籤若只有這個分頁是中文，同排看起來會像壞掉。
+    expect(idx).toContain("title: 'Task History'")
+    // 反向釘住：標籤不得再是中文。`title:` 在本檔只出現在 SubPageBlueprint 的
+    // params（其餘是註解），故這條能守住不退回中文標籤。
+    expect(idx).not.toMatch(/^\s*title: '[^']*[\u4e00-\u9fff]/m)
+  })
+
   it('分頁有清單與詳情兩條路由，且各自渲染對應元件', () => {
     const sub = read('backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx')
     expect(sub).toContain('path=":taskId"')

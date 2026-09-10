@@ -39,7 +39,10 @@ const workItemHistorySubPage = SubPageBlueprint.make({
   attachTo: { id: 'page:scaffolder', input: 'pages' },
   params: {
     path: 'work-items',
-    title: '工作項歷史',
+    // 標籤用英文以與同排的內建分頁一致（Templates / Tasks / Actions /
+    // Template Editor 都是英文）。頁面內容維持中文——那些是操作語彙，
+    // 不是導覽標籤。
+    title: 'Task History',
     loader: () => import('./work-item-history/SubPage.tsx').then((m) => <m.SubPage />),
   },
 })

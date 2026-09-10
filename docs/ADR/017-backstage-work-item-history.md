@@ -20,7 +20,7 @@ ADR-009 解凍的最小路徑是「factory-work-item 模板 + LLM 草稿 + direc
 
 ## 決策
 
-**解凍範圍擴大，新增一項**：Create 頁的「工作項歷史」唯讀查閱分頁（`/create/work-items`）。
+**解凍範圍擴大，新增一項**：Create 頁的唯讀查閱分頁（路徑 `/create/work-items`，頁籤標籤 **Task History**——與同排的內建分頁 Templates / Tasks / Actions 一致用英文，頁面內容維持中文）。
 
 1. **唯讀**。不新增任何寫入路徑、不新增後端端點、不擴充憑證或權限範圍。資料一律來自現有的 scaffolder read API（`listTasks` / `getTask` / `streamLogs`）。
 2. **實作落在本 repo**：以 `SubPageBlueprint` 掛入既有的 `factory-draft` 前端 module（`attachTo: { id: 'page:scaffolder', input: 'pages' }`），`../backstage-app` 零改動。解析與轉換邏輯放 repo 根目錄的 `src/work-item-history/`（`narrow.ts` / `task-record.ts` / `issue-url.ts`），受本 repo 的 vitest 與覆蓋率門檻管束——該目錄在 `vitest.config.ts` 設有 **100% 覆蓋率門檻**。
@@ -39,7 +39,7 @@ ADR-009 解凍的最小路徑是「factory-work-item 模板 + LLM 草稿 + direc
 ### 負面
 - Backstage 的維護面再擴大一塊 UI；升版時 `SubPageBlueprint` / `useTaskEventStream` 的簽章變動需重驗。
 - 舊任務的 Issue 連結依賴 log 字串解析，屬於已知的脆弱點（退化後果僅為少一個連結，不是頁面損壞）。
-- **`backstage/plugins/**` 不在本 repo 的任何自動化防護內**：React 元件（`SubPage.tsx` / `HistoryList.tsx` / `HistoryDetail.tsx`）既不在 `tsconfig.json` 的 include，也不在 `vitest.config.ts` 的 test scope，因此 `pnpm typecheck` 與 `pnpm test` 綠燈**對它們不構成證據**。唯一驗證是 Task 10 的瀏覽器實測（Create 頁是否真的掛出「工作項歷史」分頁），該項是必要驗收項而非選項。這也是解析與轉換邏輯刻意留在 `src/work-item-history/`、由 100% 門檻釘住的原因。
+- **`backstage/plugins/**` 不在本 repo 的任何自動化防護內**：React 元件（`SubPage.tsx` / `HistoryList.tsx` / `HistoryDetail.tsx`）既不在 `tsconfig.json` 的 include，也不在 `vitest.config.ts` 的 test scope，因此 `pnpm typecheck` 與 `pnpm test` 綠燈**對它們不構成證據**。唯一驗證是 Task 10 的瀏覽器實測（Create 頁是否真的掛出 Task History 分頁），該項是必要驗收項而非選項。這也是解析與轉換邏輯刻意留在 `src/work-item-history/`、由 100% 門檻釘住的原因。
 - 套件名 `factory-draft` 現在同時裝著草稿欄位與歷史頁，名實不符；日後若再增擴充應考慮更名。
 - **前端 bundle 無法消化 repo 根 `src/` 的 `.js` import 慣例**：`src/work-item-history/{task-record,issue-url}.ts` 被前端 plugin 引入，而 `src/**` 慣例是用 `.js` 副檔名互相 import（`tsconfig.build.json` 要把 `src/` emit 成給 Node 消費的 ESM，必須有副檔名）。vitest 與 tsc 都會把 `./narrow.js` 對映到 `narrow.ts`，所以本 repo 測試全綠；但 Backstage CLI 的 rspack **沒有 `extensionAlias`**，解析不到 `./narrow.js`，整個前端 bundle 失敗，且錯誤被報成 `Can't resolve '@software-factory/factory-draft'`——完全指不到真因。已確認 CLI 未提供使用者覆寫 bundler 設定的途徑，故改為讓這兩個模組**自足**（無任何相對 import），並加對抗性測試把此約束釘成紅燈。**任何日後被前端引入的 `src/` 模組都受同一約束。**
 - **插件反向 import repo 根的 `src/`，跨越了套件邊界**：兩個元件（`HistoryList.tsx` / `HistoryDetail.tsx`；`SubPage.tsx` 只組路由，不取用 `src/`）以 `../../../../../src/work-item-history/*.ts` 取用純函式（backend 插件早有同模式先例）。目前可行——Backstage CLI 的 TS/TSX loader 規則沒有 `include` 限制，且 specifier 帶明確副檔名。但它依賴兩個未被任何測試釘住的消費端性質：(a) 若 CLI 收緊 loader 規則，或改用 Vite（`server.fs.allow` 以 workspace root 為界，會擋掉 repo 外的 `software_factory/src`），就會在 dev 直接壞掉；(b) 這個套件因此永遠無法獨立建置或發佈，也無法被其他 app 消費。**取捨理由**：把邏輯移進插件會讓它離開 `tsconfig` 與 vitest 的防護範圍（見上一條），而本功能的整個架構決定就是把邏輯放在受測處、元件保持笨。fallback 見 `docs/superpowers/plans/2026-09-10-backstage-work-item-history.md` Task 10 Step 3。

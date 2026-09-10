@@ -81,7 +81,9 @@
 #     cd ../backstage-app && set -a && . ./.env && set +a && yarn start
 #
 # ✅ 驗證項 1：SubPageBlueprint 的 `attachTo: { id: 'page:scaffolder', input: 'pages' }`
-#   生效——Create 頁出現第六個分頁「工作項歷史」。
+#   生效——Create 頁出現第六個分頁。頁籤標籤為 **Task History**（2026-09-11 由
+#   「工作項歷史」改為英文，與同排內建分頁 Templates / Tasks / Actions /
+#   Template Editor 一致；頁面內容維持中文）。標籤由對抗性測試釘住。
 # ✅ 驗證項 3：useTaskEventStream 對已完成任務 replay 時完整帶回 output 與 stepLogs。
 # ✅ 瀏覽器驗收 8/8 通過（使用者確認，2026-09-11）：
 #   分頁出現／清單只列 factory-work-item（不含 agent-add-tests）／清單六欄正確／
