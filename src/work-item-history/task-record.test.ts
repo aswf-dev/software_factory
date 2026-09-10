@@ -5,7 +5,14 @@
  * 版本、不同 template、早期任務），故每個函式都必須在垃圾輸入下不丟例外。
  */
 import { describe, expect, it } from 'vitest'
-import { isFactoryWorkItemSpec, normalizeRepo } from './task-record.js'
+import {
+  formatTimestamp,
+  isFactoryWorkItemSpec,
+  normalizeRepo,
+  summarize,
+  toWorkItemRecord,
+  toWorkItemRecords,
+} from './task-record.js'
 
 describe('normalizeRepo', () => {
   it('把 RepoUrlPicker 格式轉成 owner/repo', () => {
@@ -87,5 +94,107 @@ describe('isFactoryWorkItemSpec', () => {
     expect(isFactoryWorkItemSpec(null)).toBe(false)
     expect(isFactoryWorkItemSpec(undefined)).toBe(false)
     expect(isFactoryWorkItemSpec('nonsense')).toBe(false)
+  })
+})
+
+const fullTask = {
+  id: '80f332c5-01c3-4e8f-a7b5-9a829dc9dd96',
+  status: 'completed',
+  createdBy: 'user:default/philipz',
+  createdAt: '2026-09-10T08:47:18.000Z',
+  spec: {
+    templateInfo: { entityRef: 'template:default/factory-work-item' },
+    parameters: {
+      oneLiner: '將 Camunda 7.23.0 遷移至 Operaton 2.1.4',
+      taskType: 'agent-update-deps',
+      targetRepo: 'github.com?owner=philipz&repo=camunda_hazelcast',
+      baseBranch: 'software-factory',
+      requirement: '【做什麼】\n遷移。',
+    },
+  },
+}
+
+describe('toWorkItemRecord', () => {
+  it('抽出完整表單欄位並正規化 repo', () => {
+    expect(toWorkItemRecord(fullTask)).toEqual({
+      taskId: '80f332c5-01c3-4e8f-a7b5-9a829dc9dd96',
+      createdAt: '2026-09-10T08:47:18.000Z',
+      createdBy: 'user:default/philipz',
+      status: 'completed',
+      oneLiner: '將 Camunda 7.23.0 遷移至 Operaton 2.1.4',
+      taskType: 'agent-update-deps',
+      targetRepo: 'philipz/camunda_hazelcast',
+      baseBranch: 'software-factory',
+      requirement: '【做什麼】\n遷移。',
+    })
+  })
+
+  it('個別欄位缺失時補空字串，不丟例外', () => {
+    const record = toWorkItemRecord({ id: 'abc', spec: {} })
+    expect(record?.taskId).toBe('abc')
+    expect(record?.oneLiner).toBe('')
+    expect(record?.requirement).toBe('')
+    expect(record?.targetRepo).toBe('')
+  })
+
+  it('createdBy 缺失時退回 spec.user.ref', () => {
+    const record = toWorkItemRecord({
+      id: 'abc',
+      spec: { user: { ref: 'user:default/philipz' } },
+    })
+    expect(record?.createdBy).toBe('user:default/philipz')
+  })
+
+  it('連 id 都取不到時回傳 null', () => {
+    expect(toWorkItemRecord({ spec: {} })).toBeNull()
+    expect(toWorkItemRecord(null)).toBeNull()
+  })
+})
+
+describe('toWorkItemRecords', () => {
+  it('挑出 factory-work-item、丟掉其他 template 與壞資料', () => {
+    const records = toWorkItemRecords([
+      fullTask,
+      { id: 'other', spec: { templateInfo: { entityRef: 'template:default/agent-add-tests' } } },
+      { spec: { templateInfo: { entityRef: 'template:default/factory-work-item' } } },
+      'nonsense',
+    ])
+    expect(records).toHaveLength(1)
+    expect(records[0]?.taskId).toBe('80f332c5-01c3-4e8f-a7b5-9a829dc9dd96')
+  })
+
+  it('非陣列輸入回傳空陣列（listTasks 失敗或回傳形狀改變時不炸頁）', () => {
+    expect(toWorkItemRecords(undefined)).toEqual([])
+    expect(toWorkItemRecords(null)).toEqual([])
+    expect(toWorkItemRecords({ tasks: [] })).toEqual([])
+  })
+})
+
+describe('formatTimestamp', () => {
+  it('空字串顯示破折號', () => {
+    expect(formatTimestamp('')).toBe('—')
+  })
+  it('非字串輸入顯示破折號', () => {
+    expect(formatTimestamp(undefined)).toBe('—')
+    expect(formatTimestamp(42)).toBe('—')
+  })
+  it('無法解析的字串原樣返回', () => {
+    expect(formatTimestamp('not-a-date')).toBe('not-a-date')
+  })
+  it('可解析的 ISO 時間轉成本地字串', () => {
+    expect(formatTimestamp('2026-09-10T08:47:18.000Z')).toContain('2026')
+  })
+})
+
+describe('summarize', () => {
+  it('短於上限時原樣返回（並壓平換行）', () => {
+    expect(summarize('a\nb', 10)).toBe('a b')
+  })
+  it('長於上限時截斷並加省略號', () => {
+    expect(summarize('abcdefghij', 5)).toBe('abcde…')
+  })
+  it('空字串與非字串輸入皆回傳空字串', () => {
+    expect(summarize('', 5)).toBe('')
+    expect(summarize(null, 5)).toBe('')
   })
 })

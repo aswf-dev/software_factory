@@ -67,3 +67,75 @@ export function normalizeRepo(raw: unknown): string {
   const decodedRepo = decodeSegment(repo)
   return owner === undefined ? decodedRepo : `${decodeSegment(owner)}/${decodedRepo}`
 }
+
+/** 歷史清單與詳情頁共用的一筆紀錄。所有欄位皆為字串，缺值以空字串表示。 */
+export interface WorkItemRecord {
+  taskId: string
+  createdAt: string
+  createdBy: string
+  status: string
+  oneLiner: string
+  taskType: string
+  targetRepo: string
+  baseBranch: string
+  requirement: string
+}
+
+/**
+ * scaffolder task → WorkItemRecord。
+ *
+ * 個別欄位缺失一律補空字串；僅當連 id 都取不到（結構完全不可用）時回傳 null。
+ * createdBy 優先取 task.createdBy，缺失時退回 spec.user.ref——內建
+ * ListTasksPage 讀的是後者，兩者在實測資料中同值。
+ */
+export function toWorkItemRecord(task: unknown): WorkItemRecord | null {
+  const t = asRecord(task)
+  const taskId = asString(t?.id)
+  if (taskId.length === 0) return null
+  const spec = asRecord(t?.spec)
+  const parameters = asRecord(spec?.parameters)
+  const createdBy = asString(t?.createdBy) || asString(asRecord(spec?.user)?.ref)
+  return {
+    taskId,
+    createdAt: asString(t?.createdAt),
+    createdBy,
+    status: asString(t?.status),
+    oneLiner: asString(parameters?.oneLiner),
+    taskType: asString(parameters?.taskType),
+    targetRepo: normalizeRepo(parameters?.targetRepo),
+    baseBranch: asString(parameters?.baseBranch),
+    requirement: asString(parameters?.requirement),
+  }
+}
+
+/**
+ * listTasks 的整包結果 → 可直接渲染的清單。
+ *
+ * 篩選 + 轉換 + 丟棄壞資料三步都在這裡完成，元件只拿結果。理由：元件住在
+ * backstage/plugins/**，不在 tsconfig 與 vitest 範圍內——留在那裡的邏輯
+ * 沒有任何自動化防護。
+ */
+export function toWorkItemRecords(tasks: unknown): WorkItemRecord[] {
+  if (!Array.isArray(tasks)) return []
+  const records: WorkItemRecord[] = []
+  for (const task of tasks) {
+    if (!isFactoryWorkItemSpec(asRecord(task)?.spec)) continue
+    const record = toWorkItemRecord(task)
+    if (record !== null) records.push(record)
+  }
+  return records
+}
+
+/** ISO 時間 → 本地字串；空值或非字串顯示破折號，無法解析者原樣返回（不假造時間）。 */
+export function formatTimestamp(iso: unknown): string {
+  const value = asString(iso)
+  if (value.length === 0) return '—'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
+}
+
+/** 清單用的摘要：壓平空白後截斷。詳情頁一律顯示原文，不經過本函式。 */
+export function summarize(text: unknown, maxChars: number): string {
+  const flat = asString(text).replace(/\s+/g, ' ').trim()
+  return flat.length <= maxChars ? flat : `${flat.slice(0, maxChars)}…`
+}
