@@ -623,30 +623,37 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
 })
 
 describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
-  it('template 以 output.links 輸出 Issue 連結（歷史查閱的結構化來源）', () => {
-    const t = read('backstage/templates/factory-work-item/template.yaml')
-    expect(t).toContain('links:')
-    expect(t).toContain("steps['create-issue'].output.issueUrl")
-  })
-
   /**
-   * 上面那條是字串比對，兩個字串「同時出現在檔案某處」就會綠——實測把它們搬進
-   * 一行 YAML 註解（`# TODO: 未來也許加 links:，屆時用 steps[...]。output.issueUrl`）
-   * 仍然通過，而 Backstage 解析出來的 spec.output 根本沒有 links。那正是這個工件
-   * 最容易發生的無聲失效：template 照樣載入、表單照樣送出，只有歷史查閱頁默默
-   * 退回 log 字串解析。故補一條以 YAML 解析後的結構為準的斷言。
+   * 這條刻意解析 YAML 而不做字串比對。原本這裡還有一條
+   * `expect(t).toContain('links:')` + `expect(t).toContain("steps['create-issue'].output.issueUrl")`，
+   * 實測證明它毫無價值：把真正的 links 區塊整段刪掉、只留一行註解
+   * `# TODO: 未來也許加 links:，屆時用 steps['create-issue'].output.issueUrl`，
+   * 該測試照樣綠，而 js-yaml 解析出的 spec.output 只剩 text、一條連結都沒有。
+   * 字串比對只問「這些字有沒有出現在檔案某處」，註解裡的字同樣算數；Backstage
+   * 讀的卻是解析後的樹。這正是本檔要防的無聲失效：template 照樣載入、表單照樣
+   * 送出，只有歷史查閱頁默默退回 log 字串解析，沒有任何功能徵兆。
+   *
+   * 一條「註解就能滿足」的測試比沒有測試更糟——後人會信它。故已刪除該條，
+   * 只留這條以解析後結構為準的斷言（它本來就涵蓋了那兩個字串的實質內容）。
    */
-  it('output.links 是 spec.output 下與 text 並存的真欄位，url 取自 create-issue 的 issueUrl', () => {
+  it('spec.output.links 為解析後的真欄位：與 text 並存、url 取自 create-issue 的 issueUrl，且有 if 守衛', () => {
     const { load } = require('js-yaml') as typeof import('js-yaml')
     const spec = (
       load(read('backstage/templates/factory-work-item/template.yaml')) as {
-        spec: { output: { links?: { title?: string; url?: string }[]; text?: unknown[] } }
+        spec: {
+          output: { links?: { title?: string; url?: string; if?: string }[]; text?: unknown[] }
+        }
       }
     ).spec
     expect(spec.output.links, 'spec.output 缺 links 欄位').toBeDefined()
     expect(spec.output.links).toHaveLength(1)
     expect(spec.output.links![0]!.url).toBe("${{ steps['create-issue'].output.issueUrl }}")
     expect(spec.output.links![0]!.title).toBeTruthy()
+    // if 守衛（ScaffolderOutputLink.if）：create-issue 失敗時 issueUrl 不存在，
+    // 沒有守衛會渲染出 href 為空的連結——看似「Issue 建好了」，點了卻沒反應。
+    expect(spec.output.links![0]!.if, 'links[0] 缺 if 守衛，失敗時會渲染空連結').toBe(
+      "${{ steps['create-issue'].output.issueUrl }}",
+    )
     // 純新增：既有的 output.text 必須原封不動地並存（ADR-009 局部解凍的前提）
     expect(spec.output.text, 'output.text 不得被 links 取代').toHaveLength(1)
   })
