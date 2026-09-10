@@ -11,7 +11,7 @@
  *
  * 使用者：backstage/plugins/factory-draft/src/work-item-history/*
  */
-import { asRecord, asString } from './narrow.js'
+import { asObject, asString } from './narrow.js'
 
 /** template 名稱（entityRef 的最後一段），與 backstage/templates/factory-work-item/ 對齊。 */
 export const FACTORY_WORK_ITEM_TEMPLATE = 'factory-work-item'
@@ -41,7 +41,7 @@ const decodeSegment = (segment: string): string => {
  * 註冊在非 default 的 namespace。
  */
 export function isFactoryWorkItemSpec(spec: unknown): boolean {
-  const ref = asString(asRecord(asRecord(spec)?.templateInfo)?.entityRef)
+  const ref = asString(asObject(asObject(spec)?.templateInfo)?.entityRef)
   if (!ref.startsWith('template:')) return false
   return ref.split('/').pop() === FACTORY_WORK_ITEM_TEMPLATE
 }
@@ -93,12 +93,12 @@ export interface WorkItemRecord {
  * ListTasksPage 讀的是後者。
  */
 export function toWorkItemRecord(task: unknown): WorkItemRecord | null {
-  const t = asRecord(task)
+  const t = asObject(task)
   const taskId = asString(t?.id)
   if (taskId.length === 0) return null
-  const spec = asRecord(t?.spec)
-  const parameters = asRecord(spec?.parameters)
-  const createdBy = asString(t?.createdBy) || asString(asRecord(spec?.user)?.ref)
+  const spec = asObject(t?.spec)
+  const parameters = asObject(spec?.parameters)
+  const createdBy = asString(t?.createdBy) || asString(asObject(spec?.user)?.ref)
   return {
     taskId,
     createdAt: asString(t?.createdAt),
@@ -122,11 +122,11 @@ export function toWorkItemRecord(task: unknown): WorkItemRecord | null {
  * 頁面會安靜地顯示「沒有工作項」而不是報錯，那是歷史頁最難察覺的壞法。
  */
 export function toWorkItemRecords(input: unknown): WorkItemRecord[] {
-  const tasks = Array.isArray(input) ? input : asRecord(input)?.tasks
+  const tasks = Array.isArray(input) ? input : asObject(input)?.tasks
   if (!Array.isArray(tasks)) return []
   const records: WorkItemRecord[] = []
   for (const task of tasks) {
-    if (!isFactoryWorkItemSpec(asRecord(task)?.spec)) continue
+    if (!isFactoryWorkItemSpec(asObject(task)?.spec)) continue
     const record = toWorkItemRecord(task)
     if (record !== null) records.push(record)
   }
