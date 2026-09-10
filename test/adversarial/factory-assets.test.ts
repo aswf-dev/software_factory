@@ -722,7 +722,10 @@ describe('run-name 與 cleanup 解析契約（docs/18 §2.2，G2）', () => {
 describe('factory-draft 防呆契約（2026-08-22：無限轉圈教訓）', () => {
   const router = read('backstage/plugins/factory-draft-backend/src/router.ts')
   const llm = read('backstage/plugins/factory-draft-backend/src/llm.ts')
-  const field = read('backstage/plugins/factory-draft/src/index.tsx')
+  // 草稿欄位實作已於 Task 5 搬到 draft-field/DraftFieldComponent.tsx
+  const field = read(
+    'backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx',
+  )
   it('router 的 async handler 有 try/catch 防護（Express 4 不捕 async 錯誤 → 無回應轉圈）', () => {
     expect(router).toContain('.catch(')
     expect(router).toContain('res.status(500)')
