@@ -15,7 +15,7 @@ Backstage「開立 Factory 工作項」表單送出後，使用者無法在 UI �
 | `/create/tasks` 清單 | 只有 Task ID / Template / Created / Owner / Status 五欄 | `ListTasksPage.esm.js` 欄位寫死 |
 | `/create/tasks/:taskId` | 步驟、log、`output.text`（僅含 `oneLiner` 與 `taskType`） | `OngoingTask.esm.js` + 本專案 template 的 `output` |
 | 「Start Over」選單 | 完整表單原值——但會開一張**新表單**，不是唯讀檢視 | `OngoingTask.esm.js` 讀 `task.spec.parameters` |
-| scaffolder DB | 完整 `spec.parameters`（43 筆任務實查） | `packages/backend/backstage-db/scaffolder.sqlite` |
+| scaffolder DB | 完整 `spec.parameters`（43 筆任務實查；其中 38 筆為 factory-work-item，另 5 筆是 agent-add-tests） | `packages/backend/backstage-db/scaffolder.sqlite` |
 
 資料一直都在，缺的是唯讀的查閱介面。
 
@@ -35,7 +35,7 @@ Backstage「開立 Factory 工作項」表單送出後，使用者無法在 UI �
 |---|---|
 | 在 Create 頁新增 SubPage tab，而非覆寫內建 Tasks 分頁 | 覆寫等於 fork 官方頁面，其他 template 的歷史會被我們的實作取代，升版維護成本高 |
 | 擴充現有 `factory-draft` 前端 module，不新開插件包 | 新插件包需改 `../backstage-app` 的 `package.json` + `App.tsx` + `yarn install`，那是另一個 repo（philipz/backstage-app）。擴充既有 module 則**零 backstage-app 改動**，全部落在本 repo、跟著 CI 與對抗性測試走 |
-| Issue 連結採「template 加 `output.links` + 舊任務 fallback 解析 log」並行 | 新單走結構化欄位（乾淨）；DB 內既有 43 筆只在 log 字串中留有 URL，稽核需要 100% 覆蓋 |
+| Issue 連結採「template 加 `output.links` + 舊任務 fallback 解析 log」並行 | 新單走結構化欄位（乾淨）；DB 內既有 38 筆 factory-work-item 只在 log 字串中留有 URL，稽核需要 100% 覆蓋 |
 | 詳情做成獨立路由而非展開列或彈窗 | 稽核情境需要可分享的網址；與內建 Tasks 分頁的結構一致 |
 | 純函式抽到 `src/work-item-history/` | 本 repo 的 vitest 只收 `src/**` 與 `test/**`，且 `src/**` 有 80% 覆蓋率門檻；邏輯放這裡才受測試保護。已有先例：`factory-draft-backend` import `../../../../src/factory-draft/prompts.ts` |
 
@@ -153,7 +153,7 @@ log 行含 ANSI 色碼（`\u001b[32minfo\u001b[39m: ...`），regex 需容忍。
 
 `list()` 回傳每筆任務的 `id` / `spec`（含完整 `parameters`）/ `status` / `createdBy` / 時間戳。`secrets` 不在回傳結構內——不是靠刪除，是 SELECT 時就沒有這個欄位；`output` 同樣不在其中（它存在 `task_events` 的 completion 事件）。故清單頁一次請求即可顯示所有表單欄位，但無法顯示 Issue 連結（見 §7）。
 
-規模：目前 43 筆任務（約一個月使用量），`limit: 200` 足夠。超過時於頁尾顯示「僅顯示最近 200 筆」，不假裝資料完整。
+規模：目前 43 筆任務（其中 38 筆 factory-work-item；約一個月使用量），`limit: 200` 足夠。超過時於頁尾顯示「僅顯示最近 200 筆」，不假裝資料完整。
 
 **詳情**：`useTaskEventStream(taskId)` 單一 hook 取得 `task.spec.parameters`、`output`、log 行。內建 `OngoingTask` 使用相同 hook，已完成任務會 replay 完整事件。無需新端點，無 N+1 請求。
 
