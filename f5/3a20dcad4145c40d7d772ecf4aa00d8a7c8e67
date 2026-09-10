@@ -1,0 +1,22 @@
+src/work-item-history/issue-url.test.ts
+  h_1b119f25eaf333 1-76
+src/work-item-history/issue-url.ts
+  h_1b119f25eaf333 1-35
+src/work-item-history/narrow.test.ts
+  h_1b119f25eaf333 1-49
+src/work-item-history/narrow.ts
+  h_1b119f25eaf333 1-18
+src/work-item-history/task-record.ts
+  h_1b119f25eaf333 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f53a20dcad4145c40d7d772ecf4aa00d8a7c8e67",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
