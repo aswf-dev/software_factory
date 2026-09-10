@@ -1,0 +1,16 @@
+src/work-item-history/task-record.test.ts
+  h_1b119f25eaf333 25-33
+src/work-item-history/task-record.ts
+  h_1b119f25eaf333 19-30,49-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ccaf0343d7d3731d40230a861e908f5983bf3b03",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
