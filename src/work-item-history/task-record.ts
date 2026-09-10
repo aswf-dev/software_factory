@@ -54,6 +54,11 @@ export function isFactoryWorkItemSpec(spec: unknown): boolean {
  * RepoUrlPicker 的 `github.com?owner=X&repo=Y` → `X/Y`；只有其中一個參數時
  * 回傳該參數；找不到 owner 與 repo 參數時原樣返回。
  *
+ * 例外：repo 解碼後若自帶斜線（`repo=philipz%2Fdocker_practice`——使用者把整串
+ * `owner/repo` 填進 repo 欄），它本身就已經是完整路徑，再補 owner 會產出
+ * `philipz/philipz/docker_practice`。實測 scaffolder DB 38 筆 factory-work-item
+ * 中有 3 筆是這種值，故直接返回解碼結果。
+ *
  * 注意兩個 regex 都沒有錨定在 query string 上，故 `philipz/repo&owner=evil`
  * 會取出 `evil`。實務上無害（repo 名稱不含 `&`），但別把它當成「其餘格式一律
  * 原樣返回」。
@@ -65,6 +70,7 @@ export function normalizeRepo(raw: unknown): string {
   const repo = /[?&]repo=([^&]+)/.exec(value)?.[1]
   if (repo === undefined) return owner === undefined ? value : decodeSegment(owner)
   const decodedRepo = decodeSegment(repo)
+  if (decodedRepo.includes('/')) return decodedRepo
   return owner === undefined ? decodedRepo : `${decodeSegment(owner)}/${decodedRepo}`
 }
 
@@ -85,8 +91,10 @@ export interface WorkItemRecord {
  * scaffolder task → WorkItemRecord。
  *
  * 個別欄位缺失一律補空字串；僅當連 id 都取不到（結構完全不可用）時回傳 null。
- * createdBy 優先取 task.createdBy，缺失時退回 spec.user.ref——內建
- * ListTasksPage 讀的是後者，兩者在實測資料中同值。
+ * createdBy 優先取 task.createdBy，缺失時才退回 spec.user.ref。順序不可對調：
+ * task.createdBy 是 scaffolder 自己的 created_by 欄位，spec.user.ref 只是送出
+ * 當下凍進 spec JSON 的副本。兩者在實測資料中同值，但副本會過時。內建
+ * ListTasksPage 讀的是後者。
  */
 export function toWorkItemRecord(task: unknown): WorkItemRecord | null {
   const t = asRecord(task)
@@ -109,13 +117,16 @@ export function toWorkItemRecord(task: unknown): WorkItemRecord | null {
 }
 
 /**
- * listTasks 的整包結果 → 可直接渲染的清單。
+ * listTasks 的整包結果（`{ tasks: [...] }`）或裸陣列 → 可直接渲染的清單。
+ * 兩種形狀都收，其餘一律回空陣列。
  *
- * 篩選 + 轉換 + 丟棄壞資料三步都在這裡完成，元件只拿結果。理由：元件住在
+ * 拆封 + 篩選 + 轉換 + 丟棄壞資料四步都在這裡完成，元件只拿結果。理由：元件住在
  * backstage/plugins/**，不在 tsconfig 與 vitest 範圍內——留在那裡的邏輯
- * 沒有任何自動化防護。
+ * 沒有任何自動化防護。`value?.tasks ?? []` 寫在元件裡也是邏輯，回應形狀一改，
+ * 頁面會安靜地顯示「沒有工作項」而不是報錯，那是歷史頁最難察覺的壞法。
  */
-export function toWorkItemRecords(tasks: unknown): WorkItemRecord[] {
+export function toWorkItemRecords(input: unknown): WorkItemRecord[] {
+  const tasks = Array.isArray(input) ? input : asRecord(input)?.tasks
   if (!Array.isArray(tasks)) return []
   const records: WorkItemRecord[] = []
   for (const task of tasks) {
@@ -126,16 +137,45 @@ export function toWorkItemRecords(tasks: unknown): WorkItemRecord[] {
   return records
 }
 
-/** ISO 時間 → 本地字串；空值或非字串顯示破折號，無法解析者原樣返回（不假造時間）。 */
+/** 只有這個形狀才交給 new Date：四位年-月-日後面必須接 `T`。 */
+const ISO_DATE_TIME_PREFIX = /^\d{4}-\d{2}-\d{2}T/
+
+/**
+ * ISO 時間 → 本地字串；空字串、只有空白或非字串顯示破折號，無法解析者原樣返回
+ * （不假造時間）。
+ *
+ * 先擋形狀再解析：new Date 對非 ISO 字串過度寬容，`'12345'` 會變成西元 12345 年，
+ * 純日期 `'2026-09-10'` 按 UTC 午夜解析、在 UTC 以西顯示成前一天，
+ * `'2026-09-10 08:47:18'`（SQLite 原生 datetime 格式）則被當成本地時間靜靜位移。
+ * 這三種都不該冒充成一個看起來很像真的時間。
+ */
 export function formatTimestamp(iso: unknown): string {
   const value = asString(iso)
-  if (value.length === 0) return '—'
+  if (value.trim().length === 0) return '—'
+  if (!ISO_DATE_TIME_PREFIX.test(value)) return value
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
 }
 
-/** 清單用的摘要：壓平空白後截斷。詳情頁一律顯示原文，不經過本函式。 */
-export function summarize(text: unknown, maxChars: number): string {
+/** maxChars 不可用時的字元上限，約為清單欄位放得下的量。 */
+const DEFAULT_SUMMARY_MAX_CHARS = 120
+
+/**
+ * 清單用的摘要：壓平空白後截斷。詳情頁一律顯示原文，不經過本函式。
+ *
+ * maxChars 同樣以 unknown 收：呼叫端不受 tsc 檢查，只接受有限的正數（取整），
+ * 其餘（NaN、undefined、0、負數）一律退回預設上限——NaN 會讓所有比較為 false
+ * 而 slice 切出空字串，整段內容只剩一個省略號，且沒有任何測試會攔到。
+ *
+ * 以字元（code point）而非 UTF-16 code unit 切：切在代理對中間會產生落單的
+ * surrogate，渲染成 �。ZWJ 序列與組合字仍可能被拆開，那降級成可讀字元，可接受。
+ */
+export function summarize(text: unknown, maxChars: unknown): string {
+  const limit =
+    typeof maxChars === 'number' && Number.isFinite(maxChars) && maxChars > 0
+      ? Math.floor(maxChars)
+      : DEFAULT_SUMMARY_MAX_CHARS
   const flat = asString(text).replace(/\s+/g, ' ').trim()
-  return flat.length <= maxChars ? flat : `${flat.slice(0, maxChars)}…`
+  const chars = [...flat]
+  return chars.length <= limit ? flat : `${chars.slice(0, limit).join('')}…`
 }
