@@ -27,7 +27,7 @@
 
 | 檔案 | 職責 |
 |---|---|
-| `src/work-item-history/narrow.ts`（Task 3 建立） | 不可信 JSON 的收窄工具（`asRecord` / `asString`），供本目錄各模組共用 |
+| `src/work-item-history/narrow.ts`（Task 3 建立） | 不可信 JSON 的收窄工具（`asObject` / `asString`），供本目錄各模組共用 |
 | `src/work-item-history/task-record.ts`（建立） | 純函式：任務辨識、parameters 轉紀錄與整批轉換、repo 正規化、時間格式化、摘要 |
 | `src/work-item-history/issue-url.ts`（Task 3 建立） | 純函式：從 `output.links` 或 log 行取出 Issue URL（輸入形態與失敗模式皆與 task-record 不同，故獨立） |
 | 上述三者的 `*.test.ts`（建立） | 單元測試；本目錄受 100% 覆蓋率門檻約束 |
@@ -415,7 +415,7 @@ git commit -m "feat(work-item-history): task → WorkItemRecord 轉換與顯示�
 ### Task 3: `extractIssueUrl`（獨立模組；新任務讀 output.links、舊任務退回解析 log）
 
 **Files:**
-- Create: `src/work-item-history/narrow.ts`（把 `asRecord` / `asString` 抽成共用）
+- Create: `src/work-item-history/narrow.ts`（把 `asObject` / `asString` 抽成共用）
 - Create: `src/work-item-history/narrow.test.ts`
 - Create: `src/work-item-history/issue-url.ts`
 - Create: `src/work-item-history/issue-url.test.ts`
@@ -443,20 +443,22 @@ git commit -m "feat(work-item-history): task → WorkItemRecord 轉換與顯示�
  * JSON，欄位可能缺失或型別不符。收窄一律走這裡，避免各自長出不同寫法。
  */
 
-/** 物件才回傳其本身，其餘（含 null、陣列以外的原始型別）回傳 null。 */
-export const asRecord = (v: unknown): Record<string, unknown> | null =>
+/** 物件（含陣列）才回傳其本身，null 與原始型別一律回傳 null。 */
+export const asObject = (v: unknown): Record<string, unknown> | null =>
   typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
 
 /** 字串才回傳其本身，其餘一律回傳空字串。 */
 export const asString = (v: unknown): string => (typeof v === 'string' ? v : '')
 ```
 
+> **命名（Task 3 code review 裁決）**：叫 `asObject` 而非 `asRecord`——它會讓陣列通過，而 `Record` 這個名字暗示不會。名字自己講清楚，就不需要一段註解去解釋。**此更名回溯套用**：前面 Task 1、2 展示的程式碼仍寫作 `asRecord`（那是當時的原貌），實際檔案在 Task 3 已全數更名。
+
 建立 `src/work-item-history/narrow.test.ts`，直接測這兩個函式的邊界（物件／陣列／null／undefined／數字／字串），確保 100% 覆蓋。
 
 接著把 `src/work-item-history/task-record.ts` 內原本的兩個私有 helper 刪除，改為在檔首 import：
 
 ```ts
-import { asRecord, asString } from './narrow.js'
+import { asObject, asString } from './narrow.js'
 ```
 
 - [ ] **Step 2: 執行測試確認未破壞既有行為**
@@ -543,7 +545,7 @@ Expected: FAIL，找不到模組 `./issue-url.js`
  *
  * 兩者皆無時回傳 undefined——呼叫端不顯示連結即可，不得假造。
  */
-import { asRecord, asString } from './narrow.js'
+import { asObject, asString } from './narrow.js'
 
 /**
  * GitHub issue URL 的形狀。刻意不比對 action 的 log 措辭
@@ -554,20 +556,26 @@ const ISSUE_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/
 
 export function extractIssueUrl(input: {
   output?: unknown
-  logLines?: readonly string[] | undefined
+  // 刻意收 unknown[]：真正的呼叫端把 Backstage 的 stepLogs 攤平後傳進來，
+  // 而它住在 backstage/plugins/**，不受型別檢查——防呆必須是真的可達。
+  logLines?: readonly unknown[] | undefined
 }): string | undefined {
-  const links = asRecord(input.output)?.links
+  const links = asObject(input.output)?.links
   if (Array.isArray(links)) {
     for (const link of links) {
-      const url = asString(asRecord(link)?.url)
+      const url = asString(asObject(link)?.url)
       if (ISSUE_URL.test(url)) return url
     }
   }
+  // log 掃描取「最後一個」符合的 URL：本次建立的 issue 一定在執行尾聲才被記錄，
+  // 而偶然引用到的其他 issue 只會出現在更早的行。取第一個會安靜地連錯 issue——
+  // 那比顯示不出連結糟糕得多，且 38/43 筆舊任務只有這條路徑可走。
+  let fromLog: string | undefined
   for (const line of input.logLines ?? []) {
     const matched = ISSUE_URL.exec(asString(line))
-    if (matched !== null) return matched[0]
+    if (matched !== null) fromLog = matched[0]
   }
-  return undefined
+  return fromLog
 }
 ```
 
@@ -591,7 +599,7 @@ git commit -m "feat(work-item-history): Issue URL 抽取獨立成模組
 不綁 github:issues:create 的 log 措辭。
 
 輸入形態與失敗模式都與 task-record 不同（ANSI log 行 vs task JSON、
-少一個連結 vs 少一個欄位），故獨立成檔；asRecord/asString 抽到
+少一個連結 vs 少一個欄位），故獨立成檔；asObject/asString 抽到
 narrow.ts 供兩者共用。"
 ```
 
