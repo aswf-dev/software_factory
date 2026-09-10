@@ -1,0 +1,18 @@
+docs/03-idp-backstage.md
+  h_1b119f25eaf333 187
+docs/ADR/017-backstage-work-item-history.md
+  h_1b119f25eaf333 1-63
+docs/ADR/README.md
+  h_1b119f25eaf333 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4f9f6bfe03d6c65ca27b6847f8799e89b5417f33",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
