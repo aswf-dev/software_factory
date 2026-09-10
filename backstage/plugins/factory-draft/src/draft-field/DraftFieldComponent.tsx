@@ -23,10 +23,11 @@ import {
   Box,
   CircularProgress,
 } from '@material-ui/core'
-import {
-  createFormField,
-  type FieldExtensionComponentProps,
-} from '@backstage/plugin-scaffolder-react/alpha'
+import { createFormField } from '@backstage/plugin-scaffolder-react/alpha'
+// FieldExtensionComponentProps 由套件「根」匯出，/alpha 只是在檔內 import 進來
+// 卻沒有再匯出它（alpha.d.ts 的 export 清單不含此名）——從 /alpha 取會得到
+// TS2459。此檔不在 tsconfig include 內，所以這個錯一直沒被任何工具發現。
+import type { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react'
 
 const useStyles = makeStyles({
   root: { width: '100%' },
