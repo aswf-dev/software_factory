@@ -825,10 +825,16 @@ index.tsx 原本 252 行身兼兩職，再加歷史頁會失控。純搬移，�
     expect(idx).toContain("path: 'work-items'")
   })
 
-  it('分頁有清單與詳情兩條路由（詳情需可分享網址）', () => {
+  it('分頁有清單與詳情兩條路由，且各自渲染對應元件', () => {
     const sub = read('backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx')
-    expect(sub).toContain('<Route index')
     expect(sub).toContain('path=":taskId"')
+    // 用 regex 而非 toContain('<Route index')：後者假設 JSX 寫成單行，但 Prettier
+    // 標準是多行 `<Route\n  index`，那個字面根本不在檔案裡。測的是「有一條 index
+    // 路由」這個意圖，不是某種排版。
+    expect(sub).toMatch(/<Route\s+index/)
+    // 更實質的契約：兩條路由各自渲染對應元件——否則兩條空路由也會過上面的斷言。
+    expect(sub).toContain('<HistoryList />')
+    expect(sub).toContain('<HistoryDetail />')
   })
 ```
 
