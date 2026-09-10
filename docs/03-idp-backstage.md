@@ -174,7 +174,7 @@ spec:
 
 ### 3.4 factory-work-item：工作項的統一入口（ADR-009 局部解凍）
 
-> **狀態**：2026-08-21 對 #50 凍結裁決做局部解凍（`docs/ADR/009-backstage-partial-unfreeze.md`）——只解凍「factory-work-item 模板 + LLM 草稿 + direct dispatch」最小路徑（本機 `yarn dev`），其餘維持凍結。
+> **狀態**：2026-08-21 對 #50 凍結裁決做局部解凍（`docs/ADR/009-backstage-partial-unfreeze.md`）——只解凍「factory-work-item 模板 + LLM 草稿 + direct dispatch」最小路徑（本機 `yarn dev`）；2026-09-10 再依 `docs/ADR/017-backstage-work-item-history.md` 擴大一次，新增「工作項歷史」唯讀分頁。其餘維持凍結。
 
 **流程**：填寫制式欄位（可先用 LLM 草稿助手產生）→ 建立格式合規的 GitHub Issue → 直接 dispatch `factory-run.yml` 觸發 agent。**人類在 Backstage 點擊送出＝核准**，取代 `factory/approved` label 閘門（label 觸發保留給 GitHub 原生路徑）。
 

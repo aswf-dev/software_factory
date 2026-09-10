@@ -37,7 +37,7 @@ Backstage「開立 Factory 工作項」表單送出後，使用者無法在 UI �
 | 擴充現有 `factory-draft` 前端 module，不新開插件包 | 新插件包需改 `../backstage-app` 的 `package.json` + `App.tsx` + `yarn install`，那是另一個 repo（philipz/backstage-app）。擴充既有 module 則**零 backstage-app 改動**，全部落在本 repo、跟著 CI 與對抗性測試走 |
 | Issue 連結採「template 加 `output.links` + 舊任務 fallback 解析 log」並行 | 新單走結構化欄位（乾淨）；DB 內既有 38 筆 factory-work-item 只在 log 字串中留有 URL，稽核需要 100% 覆蓋 |
 | 詳情做成獨立路由而非展開列或彈窗 | 稽核情境需要可分享的網址；與內建 Tasks 分頁的結構一致 |
-| 純函式抽到 `src/work-item-history/` | 本 repo 的 vitest 只收 `src/**` 與 `test/**`，且 `src/**` 有 80% 覆蓋率門檻；邏輯放這裡才受測試保護。已有先例：`factory-draft-backend` import `../../../../src/factory-draft/prompts.ts` |
+| 純函式抽到 `src/work-item-history/` | 本 repo 的 vitest 只收 `src/**` 與 `test/**`，且 `src/work-item-history/**` 有 100% 覆蓋率門檻；邏輯放這裡才受測試保護。已有先例：`factory-draft-backend` import `../../../../src/factory-draft/prompts.ts` |
 
 ## 4. 架構
 
@@ -53,8 +53,12 @@ backstage/plugins/factory-draft/src/
     HistoryDetail.tsx                    唯讀詳情
 
 src/work-item-history/
+  narrow.ts                              不可信 JSON 的收窄工具（asObject / asString）
+  narrow.test.ts                         vitest
   task-record.ts                         純函式
   task-record.test.ts                    vitest
+  issue-url.ts                           Issue URL 抽取（output.links / log 行）
+  issue-url.test.ts                      vitest
 ```
 
 現有 `index.tsx` 為 252 行，同時承擔「草稿欄位實作」與「module 組裝」兩件事。本次一併拆開，屬於為本工作服務的針對性整理，不做無關重構。
@@ -79,13 +83,13 @@ SubPageBlueprint.make({
 
 ### 5.1 `src/work-item-history/`（純函式）
 
-三個模組：`narrow.ts`（`asRecord` / `asString` 收窄工具，共用）、`task-record.ts`（任務辨識與紀錄轉換）、`issue-url.ts`（Issue URL 抽取）。`extractIssueUrl` 獨立成檔的理由：它吃的是 ANSI 著色的 log 行與 `output.links`（不是 task JSON），失敗模式是「少一個連結」（不是「少一個欄位」），且會帶進 regex／ANSI 處理。
+三個模組：`narrow.ts`（`asObject` / `asString` 收窄工具，共用）、`task-record.ts`（任務辨識與紀錄轉換）、`issue-url.ts`（Issue URL 抽取）。`extractIssueUrl` 獨立成檔的理由：它吃的是 ANSI 著色的 log 行與 `output.links`（不是 task JSON），失敗模式是「少一個連結」（不是「少一個欄位」），且會帶進 regex／ANSI 處理。
 
 ```ts
 export type WorkItemRecord = {
   taskId: string
   createdAt: string
-  createdBy?: string
+  createdBy: string
   status: string
   oneLiner: string
   taskType: string
@@ -117,16 +121,16 @@ export function normalizeRepo(raw: unknown): string
  * 這三步刻意不留在元件裡：元件在 backstage/plugins/**，不受 tsconfig
  * 與 vitest 保護。
  */
-export function toWorkItemRecords(tasks: unknown): WorkItemRecord[]
+export function toWorkItemRecords(input: unknown): WorkItemRecord[]
 
 /** 先讀 output.links，沒有才 regex 掃 log 行；都沒有回傳 undefined。 */
 export function extractIssueUrl(input: {
   output?: unknown
-  logLines?: string[]
+  logLines?: readonly unknown[] | undefined
 }): string | undefined
 
 /** PRD 摘要截斷（清單用），保留完整值供詳情頁。 */
-export function summarize(text: unknown, maxChars: number): string
+export function summarize(text: unknown, maxChars: unknown): string
 
 /** ISO 時間 → 本地字串；空值顯示破折號，無法解析者原樣返回。 */
 export function formatTimestamp(iso: unknown): string
@@ -202,7 +206,7 @@ log regex 是舊資料的退化路徑，其失效後果是「少一個連結」�
 
 ## 10. 測試
 
-**單元測試**（`src/work-item-history/task-record.test.ts`，受 80% 覆蓋率門檻約束）：
+**單元測試**（`src/work-item-history/task-record.test.ts`，受 100% 覆蓋率門檻約束）：
 - `normalizeRepo`：`github.com?owner=X&repo=Y`、已正規化的 `X/Y`、空字串
 - `toWorkItemRecord`：完整 parameters、缺欄位、`parameters` 非物件
 - `isFactoryWorkItemSpec`：命中、其他 template、錯誤 kind、`templateInfo` 缺失

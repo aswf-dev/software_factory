@@ -6,7 +6,7 @@ LLM 草稿助手的 Backstage 實作，分三層：
 |---|---|---|
 | `../../src/factory-draft/` | **純邏輯**（prompts / parse / issue-body）——typecheck + 單元測試覆蓋（repo 工具鏈） | ✅ 已測試 |
 | `factory-draft-backend/` | **後端薄接線**：Express 路由 `/api/factory-draft/clarify`、`/api/factory-draft/generate`，呼叫 DeepSeek | ⚠️ 待部署時驗證 |
-| `factory-draft/` | **前端客製欄位** `FactoryWorkItemDraftField`（scaffolder field extension） | ⚠️ 待部署時驗證 |
+| `factory-draft/` | **前端擴充**：客製欄位 `FactoryWorkItemDraftField`（scaffolder field extension）＋ Create 頁「工作項歷史」唯讀 SubPage（ADR-017，清單／詳情元件取用 repo 根的 `src/work-item-history/`） | ⚠️ 待部署時驗證 |
 
 ## Wiring（外部 Backstage app，`../backstage-app/` v1.53.0，2026-08-21 已實跑驗證）
 

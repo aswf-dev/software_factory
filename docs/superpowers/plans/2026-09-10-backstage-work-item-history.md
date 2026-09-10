@@ -48,7 +48,7 @@
 > **✅ 已完成，並依 code review 修正（2026-09-10）。** 後續 task 必須以修正後的樣貌為準：
 >
 > 1. **`isFactoryWorkItemTask` 已更名為 `isFactoryWorkItemSpec`**。理由：Task 2 的 `toWorkItemRecord(task)` 收整個 task，而本函式收 `task.spec`——兩個名字相近、吃不同巢狀層級的函式擺在同一個模組是陷阱；傳錯不會拋錯也不會型別錯，只會讓歷史頁永遠空白，而呼叫點在 `backstage/plugins/**`（tooling 照不到）。
-> 2. **邊界規則**：本模組所有 exported 函式一律收 `unknown`，內部用 `asString` narrow。`normalizeRepo(raw: unknown)`。**Task 2、3 新增的函式都必須遵守此規則**（下方程式碼已據此調整）。
+> 2. **邊界規則**：本模組所有 exported 函式一律收 `unknown`，內部用 `asString` narrow。`normalizeRepo(raw: unknown)`。**Task 2、3 新增的函式都必須遵守此規則**（下方 Task 1 程式碼區塊保留當時原貌，未回填後續的更名與簽章修正——見 Task 3 的命名裁決註記）。
 > 3. `isFactoryWorkItemSpec` 要求 entityRef 以 `template:` 開頭（擋掉 `component:default/factory-work-item`），但**命名空間刻意不釘死**（templates 可能註冊在非 default 命名空間）。
 > 4. `normalizeRepo` 另補：畸形百分比編碼逐段退回原編碼字串（不丟例外）、只有 repo 沒有 owner 時回傳解碼後的 repo。
 > 5. `vitest.config.ts` 已把 `src/work-item-history/**` 提到 100% 覆蓋率層級——**理由與其他 100% 目錄不同**：本模組不做任何決策，但它是整個功能唯一受測的程式碼（下游 React 元件不在 tsconfig/vitest 範圍內）。
@@ -393,7 +393,7 @@ export function summarize(text: unknown, maxChars: number): string {
 - [ ] **Step 4: 執行測試確認通過**
 
 Run: `CI=true pnpm exec vitest run src/work-item-history/task-record.test.ts`
-Expected: PASS，Task 1 修正後既有的 18 條 + 本 task 新增的 13 條 = 31 條全綠
+Expected: PASS，Task 1 修正後的既有測試 + 本 task 新增的測試全綠（後續 code review 又追加了測試，本檔最終 43 條；條數以實際輸出為準）
 
 - [ ] **Step 5: 型別檢查**
 
@@ -607,7 +607,7 @@ narrow.ts 供兩者共用。"
 
 ### Task 4: template 新增 `output.links`
 
-> **✅ 已完成（commits `78bac40`、`2fcb45f`，2026-09-10）。以最終樣貌為準，計畫原文的測試寫法已被否決——見下方裁決。**
+> **✅ 已完成（commits `78bac40`、`2fcb45f`、`61af6b2`，2026-09-10）。以最終樣貌為準，計畫原文的測試寫法已被否決——見下方裁決。**
 
 **Files:**
 - Modify: `backstage/templates/factory-work-item/template.yaml`
