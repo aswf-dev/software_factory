@@ -391,7 +391,7 @@ export function summarize(text: unknown, maxChars: number): string {
 - [ ] **Step 4: 執行測試確認通過**
 
 Run: `CI=true pnpm exec vitest run src/work-item-history/task-record.test.ts`
-Expected: PASS，Task 1 修正後既有測試數 + 本 task 新增的 14 條全綠
+Expected: PASS，Task 1 修正後既有的 18 條 + 本 task 新增的 13 條 = 31 條全綠
 
 - [ ] **Step 5: 型別檢查**
 
