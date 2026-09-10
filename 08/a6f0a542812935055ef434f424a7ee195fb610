@@ -1,0 +1,18 @@
+src/work-item-history/task-record.test.ts
+  h_1b119f25eaf333 8,34-53,56,59,64-76,79-84,86-89
+src/work-item-history/task-record.ts
+  h_1b119f25eaf333 5-10,36-39,43-45,47,49,53-68
+vitest.config.ts
+  h_1b119f25eaf333 64-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "08a6f0a542812935055ef434f424a7ee195fb610",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
