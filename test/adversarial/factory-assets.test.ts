@@ -635,13 +635,17 @@ describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
    *
    * 一條「註解就能滿足」的測試比沒有測試更糟——後人會信它。故已刪除該條，
    * 只留這條以解析後結構為準的斷言（它本來就涵蓋了那兩個字串的實質內容）。
+   *
+   * 連結刻意不加 `if` 守衛：output 只在所有 step 成功後才渲染（firstError 先 throw，
+   * create-issue 無 continueOnFailure），issueUrl 必然存在；且前端 LinkOutputs 與
+   * src/work-item-history/issue-url.ts 都會濾掉無 url 的連結，守衛不可能生效。
    */
-  it('spec.output.links 為解析後的真欄位：與 text 並存、url 取自 create-issue 的 issueUrl，且有 if 守衛', () => {
+  it('spec.output.links 為解析後的真欄位：與 text 並存、url 取自 create-issue 的 issueUrl', () => {
     const { load } = require('js-yaml') as typeof import('js-yaml')
     const spec = (
       load(read('backstage/templates/factory-work-item/template.yaml')) as {
         spec: {
-          output: { links?: { title?: string; url?: string; if?: string }[]; text?: unknown[] }
+          output: { links?: { title?: string; url?: string }[]; text?: unknown[] }
         }
       }
     ).spec
@@ -649,11 +653,6 @@ describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
     expect(spec.output.links).toHaveLength(1)
     expect(spec.output.links![0]!.url).toBe("${{ steps['create-issue'].output.issueUrl }}")
     expect(spec.output.links![0]!.title).toBeTruthy()
-    // if 守衛（ScaffolderOutputLink.if）：create-issue 失敗時 issueUrl 不存在，
-    // 沒有守衛會渲染出 href 為空的連結——看似「Issue 建好了」，點了卻沒反應。
-    expect(spec.output.links![0]!.if, 'links[0] 缺 if 守衛，失敗時會渲染空連結').toBe(
-      "${{ steps['create-issue'].output.issueUrl }}",
-    )
     // 純新增：既有的 output.text 必須原封不動地並存（ADR-009 局部解凍的前提）
     expect(spec.output.text, 'output.text 不得被 links 取代').toHaveLength(1)
   })

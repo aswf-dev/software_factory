@@ -130,11 +130,7 @@ spec:
     # 歷史查閱分頁（ADR-017）以此結構化欄位取得 Issue 連結；在此之前建立的
     # 任務只能從 log 字串解析，故新任務一律走這條。
     links:
-      # if 守衛（ScaffolderOutputLink.if，plugin-scaffolder-common@2.2.1 已驗證）：
-      # create-issue 失敗時 issueUrl 不存在，沒有守衛就會渲染出 href 為空的連結
-      # ——使用者點了沒反應，看起來卻像「Issue 建好了」。有守衛則整條連結直接不出現。
-      - if: ${{ steps['create-issue'].output.issueUrl }}
-        title: 已建立的 Issue
+      - title: 已建立的 Issue
         url: ${{ steps['create-issue'].output.issueUrl }}
     text:
       - title: 建立與觸發完成
