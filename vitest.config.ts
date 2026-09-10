@@ -61,6 +61,16 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // 工作項歷史分頁是唯讀顯示，這裡不做任何決策；訂 100% 的理由不同於上面
+        // 幾項：它是整個功能裡唯一被測到的程式碼。其餘部分都在
+        // backstage/plugins/** 底下，既不在 tsconfig.json 也不在本檔的測試範圍，
+        // 這裡漏掉的分支不會有第二道網子接住。
+        'src/work-item-history/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
       },
     },
   },
