@@ -1,0 +1,14 @@
+backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx
+  h_1b119f25eaf333 26-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ea1408131ca365489676abe54f1b501a501e05f9",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
