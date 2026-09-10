@@ -665,6 +665,13 @@ UI 本來就有保護：前端 `LinkOutputs` 會濾掉沒有 `url` 也沒有 `en
 
 ### Task 5: 拆出草稿欄位元件（純搬移，行為不變）
 
+> **✅ 已完成（commit `0b68694`，2026-09-10）。兩處與計畫原文不同，見下方裁決。**
+>
+> **裁決一：用單一 commit，不拆成「搬移」＋「新 index.tsx」兩個。** 計畫 Step 1 要求「保留 git 歷史」，實作時發現這是個假選項——git 的改名偵測是把**刪除**與**新增**配對，而本變更中 `index.tsx` 是被**改寫**（不是刪除），所以無論怎麼切，搬移都不會被配對出來；連 PR 層級的 base..head diff 也一樣顯示成「新增 225 行 + index.tsx 重寫」。拆成兩個 commit 只換到一個**測試紅燈的中間狀態**（那個 commit 裡 `index.tsx` 不存在，契約測試的 `read()` 直接 ENOENT），會讓 `git bisect` 落在假失敗上。實測確認 `git log --follow` 在單一 commit 形式下仍能跨過搬移（`git blame` 不跨，這是唯一損失）。
+>
+> **裁決二：計畫 Step 5 的「Expected: PASS」是錯的，測試必須改。** 原文只預期 `index.tsx` 仍含 `FactoryWorkItemDraftField`，但漏了**同一支測試檔還有第二個讀取者**：`test/adversarial/factory-assets.test.ts` 另有一條斷言讀 `index.tsx` 找 `POST_TIMEOUT_MS = 120_000`、`AbortController`、`LLM 回應逾時，請重試`。那些常數隨元件搬到了 `DraftFieldComponent.tsx`，故該條必須改讀新路徑（斷言語意不變）。實作者先實測確認它會紅（`1 failed | 104 passed`，失敗在該行）才改，而不是把字串硬塞回 `index.tsx` 來餵測試——後者就是測試造假。**教訓：改動檔案位置時，先全文檢索該檔被哪些測試讀取，不要只信計畫列舉的那一條。**
+
+
 **Files:**
 - Move: `backstage/plugins/factory-draft/src/index.tsx` → `backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx`
 - Create: `backstage/plugins/factory-draft/src/index.tsx`（新內容）
