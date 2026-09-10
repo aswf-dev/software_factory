@@ -24,8 +24,15 @@ const JudgeSchema = z.object({
    * judge.json 頂層的 report（factory-judge 的 JudgeCliOutput = { report, result }）。
    * 這裡只取 skillGap 一欄，其餘不重複驗證——report 已於 factory-judge 端經
    * ReportSchema fail-loud 驗過，在此再收一次只會製造第二套可能分歧的規則。
+   *
+   * `skillGap` 同樣收 `null`（與 ReportSchema 同規則）：agent 常以
+   * `"skillGap": null` 表達「無缺口」，而 `.optional()` 只收 `undefined`。
+   * 本步驟是**貼終態留言**的地方，在此 throw 等於終態資訊遺失
+   * （run #34456925126 即只剩 G1 守衛的模糊警告），故兩處都必須收下。
    */
-  report: z.object({ skillGap: SkillGapSchema.optional() }).optional(),
+  report: z
+    .object({ skillGap: SkillGapSchema.nullish().transform((v) => v ?? undefined) })
+    .optional(),
 })
 export type JudgeLike = z.infer<typeof JudgeSchema>['result']
 

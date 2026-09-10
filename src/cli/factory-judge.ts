@@ -101,8 +101,15 @@ export const ReportSchema = z.object({
    * **刻意不進入 pipeline 判定**（不出現在 toAgentRun）：若讓自報的技能缺口
    * 影響終態，等於給 agent 一個「宣稱缺技能就改變判定」的施力點。與 usage
    * 同立場——schema 收下以供留言與事件使用，判定不讀它。
+   *
+   * **`null` 與缺席同義**（run #34456925126 迴歸）：agent 曾以 `"skillGap": null`
+   * 表達「無缺口」，而 `.optional()` 只收 `undefined`，導致 crosscheck 在讀取
+   * 階段就 throw、整個 run 被判失敗（該次 agent 其實已正常開出 PR #29）。
+   * `null` 是 JSON 表達「無值」最自然的寫法，把它當格式錯誤等於用 schema
+   * 懲罰誠實回報，故以 `.nullish()` 收下並用 `transform` 正規化為 `undefined`
+   * ——下游（`report?.skillGap` 的 undefined 判斷）因此完全不需改動。
    */
-  skillGap: SkillGapSchema.optional(),
+  skillGap: SkillGapSchema.nullish().transform((v) => v ?? undefined),
 })
 
 export type FactoryReport = z.infer<typeof ReportSchema>

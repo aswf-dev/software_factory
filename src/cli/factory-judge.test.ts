@@ -257,6 +257,25 @@ describe('loadReport', () => {
     expect(loadReport(path).skillGap).toBeUndefined()
   })
 
+  /**
+   * 迴歸（run #34456925126，Issue #27 實測）：agent 以 `"skillGap": null` 表達
+   * 「無技能缺口」——語意等同缺席，但 zod 的 `.optional()` 只收 `undefined`，
+   * 於是 crosscheck 在 loadReport 就 throw，整個 run 被判失敗；而該次 agent
+   * 其實已正常產出並開出 PR #29（後已合併）。
+   *
+   * 「沒遇到就省略」是 factory-workflow 的字面要求，但 `null` 是 JSON 表達
+   * 「無值」最自然的寫法，把它當成格式錯誤等於用 schema 懲罰誠實回報。
+   * 故 `null` 與缺席同義，皆正規化為 `undefined`。
+   */
+  it('skillGap 為 null → 視同缺席（迴歸：run #34456925126 以 null 表達無缺口而炸掉 crosscheck）', () => {
+    const path = report('gap-null.json', {
+      issueNumber: 1,
+      invocation: { exitCode: 0 },
+      skillGap: null,
+    })
+    expect(loadReport(path).skillGap).toBeUndefined()
+  })
+
   it('category 非 kebab-case → CliError（聚類鍵不得劣化，docs/25 §7 同義異名風險）', () => {
     const bads = ['MonorepoTestPath', 'monorepo_test_path', 'monorepo test path', '-lead', 'trail-', 'a--b', '']
     bads.forEach((bad, i) => {

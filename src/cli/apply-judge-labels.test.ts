@@ -143,6 +143,38 @@ describe('main（注入 fake gh）', () => {
     expect(() => main(['202', p], vi.fn())).toThrow(CliError)
   })
 
+  /**
+   * 迴歸（run #34456925126 同源）：`report.skillGap` 為 `null` 時視同缺席。
+   *
+   * factory-judge 端已把 `null` 正規化，但本 CLI 是**獨立**解析 judge.json 的
+   * 第二個入口（自有 JudgeSchema），若只修上游，手寫或外部產生的 judge.json
+   * 仍會在這裡 throw——而這一步正是「貼終態留言」的步驟，炸掉等於終態資訊
+   * 遺失（該 run 即因此只剩 G1 守衛的模糊警告）。故兩處都必須收下 `null`。
+   */
+  it('report.skillGap 為 null → 視同缺席，正常貼標與留言（不 throw）', () => {
+    const p = join(tmp, 'gap-null.json')
+    writeFileSync(
+      p,
+      JSON.stringify({
+        report: { skillGap: null },
+        result: RESULT('needs-human', ['needs-human'], 'stopped'),
+      }),
+    )
+    const gh = vi.fn()
+    const out = main(['204', p], gh)
+    // null 不得被當成「有缺口」而誤貼 skill-gap 標籤
+    expect(out.labels).toEqual(['needs-human'])
+    expect(gh).toHaveBeenCalledWith(['issue', 'edit', '204', '--add-label', 'needs-human'])
+    // 留言必須與「無 skillGap」逐字相同（不含技能缺口段落）
+    expect(gh).toHaveBeenCalledWith([
+      'issue',
+      'comment',
+      '204',
+      '--body',
+      '## 工廠執行結果：needs-human\n\nstopped',
+    ])
+  })
+
   it('judge.json 不是物件（root-level 錯誤）→ CliError，訊息含 (root)', () => {
     const p = join(tmp, 'root.json')
     writeFileSync(p, JSON.stringify('not-an-object'))
