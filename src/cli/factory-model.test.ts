@@ -18,19 +18,21 @@ function fixture(name: string, content: string): string {
 
 function tiersYaml(): string {
   return [
+    // 合成 fixture：各 tier 刻意用不同 model id，讓「選錯 tier」必然被斷言抓到
+    // （真實政策見 config/dsh/model-tiers.yaml，由對抗性測試釘住）。
     'tiers:',
     '  low:',
-    '    primary: { provider: deepseek, model: deepseek-v4-flash }',
+    '    primary: { provider: deepseek, model: tier-low-model }',
     '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
     '  medium:',
-    '    primary: { provider: deepseek, model: deepseek-v4-flash }',
+    '    primary: { provider: deepseek, model: tier-medium-model }',
     '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
     '  high:',
-    '    primary: { provider: deepseek, model: deepseek-v4-pro }',
+    '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
     '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }, { provider: qwen, model: qwen3.7-flash }]',
     '  critical:',
     '    primary: { provider: anthropic, model: claude-opus-5 }',
-    '    fallback: [{ provider: deepseek, model: deepseek-v4-pro }]',
+    '    fallback: [{ provider: deepseek, model: deepseek-v4.1-flash }]',
     '',
   ].join('\n')
 }
@@ -132,13 +134,13 @@ describe('parseArgs', () => {
 })
 
 describe('main — 自動解析', () => {
-  it('Issue 分析 low → low tier（deepseek-v4-flash）', () => {
+  it('Issue 分析 low → low tier（取 low 的 primary，不得誤取其他 tier）', () => {
     const issue = fixture('low.json', issueJson('為單一工具函式補測試'))
     const r = main(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath])
     expect(r.tier).toBe('low')
     expect(r.complexitySource).toBe('issue-analysis')
-    expect(r.selected.model).toBe('deepseek-v4-flash')
-    expect(r.chain[0]).toEqual({ provider: 'deepseek', model: 'deepseek-v4-flash' })
+    expect(r.selected.model).toBe('tier-low-model')
+    expect(r.chain[0]).toEqual({ provider: 'deepseek', model: 'tier-low-model' })
   })
 
   it('Issue 分析 high + score total=4 → critical（claude-opus-5）', () => {
@@ -156,7 +158,7 @@ describe('main — 自動解析', () => {
     ])
     expect(r.tier).toBe('critical')
     expect(r.selected.model).toBe('claude-opus-5')
-    expect(r.chain.map((e) => e.model)).toEqual(['claude-opus-5', 'deepseek-v4-pro'])
+    expect(r.chain.map((e) => e.model)).toEqual(['claude-opus-5', 'deepseek-v4.1-flash'])
   })
 
   it('無 --issue → catalog fallback（medium → medium tier）', () => {
@@ -187,7 +189,7 @@ describe('main — 自動解析', () => {
       providersPath,
     ])
     expect(r.tier).toBe('high')
-    expect(r.selected.model).toBe('deepseek-v4-pro')
+    expect(r.selected.model).toBe('deepseek-v4.1-flash')
   })
 })
 

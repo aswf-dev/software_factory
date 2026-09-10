@@ -29,7 +29,7 @@ const writeZstd = (rel: string, parts: string[]): string => {
 }
 
 const header = JSON.stringify({ type: 'session', version: 0, id: 's', createdAt: 1, cwd: '/x' }) + '\n'
-const route = JSON.stringify({ type: 'request/context', data: { provider: 'deepseek', model: 'deepseek-v4-flash', contextWindow: 1 } }) + '\n'
+const route = JSON.stringify({ type: 'request/context', data: { provider: 'deepseek', model: 'deepseek-v4.1-flash', contextWindow: 1 } }) + '\n'
 const usage = (turn: number, step: number, i: number, o: number): string =>
   JSON.stringify({ type: 'assistant/chunk', data: { turn, step, chunk: { type: 'usage', usage: { inputTokens: i, outputTokens: o } } } }) + '\n'
 
@@ -56,7 +56,7 @@ const setup = (): void => {
   writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, route, usage(1, 1, 1000, 100)])
   writeFileSync(
     join(ws, 'pricing.yaml'),
-    'pricing:\n  deepseek-v4-flash:\n    inputUsdPerMTok: 0.14\n    outputUsdPerMTok: 0.28\n',
+    'pricing:\n  deepseek-v4.1-flash:\n    inputUsdPerMTok: 0.14\n    outputUsdPerMTok: 0.28\n',
   )
 }
 
@@ -67,7 +67,7 @@ describe('M1 變異：有 session log 卻回 unavailable（logs 分支被改成 
     expect(out.usage.unavailableReason).toBeUndefined()
     expect(out.usage.totals.inputTokens).toBe(1000)
     expect(out.usage.totals.costUsd).toBeDefined()
-    expect(out.markdown).toContain('deepseek-v4-flash')
+    expect(out.markdown).toContain('deepseek-v4.1-flash')
   })
 })
 
@@ -78,7 +78,7 @@ describe('M2 變異：unpriced route 存在時 costUsd 仍給部分加總（看�
     writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, mystery, usage(1, 1, 500, 50)])
     writeFileSync(
       join(ws, 'pricing.yaml'),
-      'pricing:\n  deepseek-v4-flash:\n    inputUsdPerMTok: 0.14\n    outputUsdPerMTok: 0.28\n',
+      'pricing:\n  deepseek-v4.1-flash:\n    inputUsdPerMTok: 0.14\n    outputUsdPerMTok: 0.28\n',
     )
     const out = main(args())
     expect(out.usage.totals.unpricedModels).toEqual(['mystery'])
@@ -110,7 +110,7 @@ describe('M4 變異：同 (turn,step) 的後續 usage 樣本被重複累加（�
     writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, route, usage(1, 1, 1000, 100), msg])
     writeFileSync(
       join(ws, 'pricing.yaml'),
-      'pricing:\n  deepseek-v4-flash:\n    inputUsdPerMTok: 1\n    outputUsdPerMTok: 1\n',
+      'pricing:\n  deepseek-v4.1-flash:\n    inputUsdPerMTok: 1\n    outputUsdPerMTok: 1\n',
     )
     const out = main(args())
     // 最終樣本取代中途樣本：1200 + 120，不是 1000+100 再 +1200+120

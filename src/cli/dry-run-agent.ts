@@ -74,20 +74,20 @@ export const DRY_RUN_USAGE: UsageReport = {
     cacheWriteTokens: 0,
     reasoningTokens: 0,
     totalTokens: 15_000,
-    costUsd: 0.001, // 9k×0.14/1e6 + 6k×0.28/1e6（deepseek-v4-flash 價）
+    costUsd: 0.0093, // 9k×0.282/1e6 + 6k×1.127/1e6（deepseek-v4.1-flash 高峰價）
     unpricedModels: [],
     cacheReadUnpriced: false,
   },
   routes: [
     {
       provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-v4.1-flash',
       inputTokens: 9_000,
       outputTokens: 6_000,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       reasoningTokens: 0,
-      costUsd: 0.001,
+      costUsd: 0.0093,
       cacheReadUnpriced: false,
     },
   ],

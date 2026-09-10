@@ -156,15 +156,15 @@ describe('buildCheckComment', () => {
     const r = checkIssue(COMPLIANT)
     const c = buildCheckComment(r, {
       tier: 'low',
-      selected: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      selected: { provider: 'deepseek', model: 'deepseek-v4.1-flash' },
       chain: [
-        { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        { provider: 'deepseek', model: 'deepseek-v4.1-flash' },
         { provider: 'qwen', model: 'qwen3.7-flash' },
       ],
       reason: 'Issue 需求分析：low',
     })
     expect(c).toContain('🤖 **建議模型**')
-    expect(c).toContain('deepseek/deepseek-v4-flash')
+    expect(c).toContain('deepseek/deepseek-v4.1-flash')
     expect(c).toContain('low tier')
     expect(c).toContain('qwen/qwen3.7-flash')
   })
