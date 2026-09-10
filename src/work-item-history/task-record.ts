@@ -11,14 +11,10 @@
  *
  * 使用者：backstage/plugins/factory-draft/src/work-item-history/*
  */
+import { asRecord, asString } from './narrow.js'
 
 /** template 名稱（entityRef 的最後一段），與 backstage/templates/factory-work-item/ 對齊。 */
 export const FACTORY_WORK_ITEM_TEMPLATE = 'factory-work-item'
-
-const asRecord = (v: unknown): Record<string, unknown> | null =>
-  typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
-
-const asString = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 /**
  * decodeURIComponent 遇到畸形百分比編碼（如 `%zz`）會丟 URIError。
