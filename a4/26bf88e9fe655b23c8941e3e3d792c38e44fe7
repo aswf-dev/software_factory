@@ -1,0 +1,14 @@
+docs/superpowers/specs/2026-09-10-backstage-work-item-history-design.md
+  h_1b119f25eaf333 1-223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a426bf88e9fe655b23c8941e3e3d792c38e44fe7",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
