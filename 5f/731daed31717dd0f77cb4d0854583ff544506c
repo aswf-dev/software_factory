@@ -1,0 +1,18 @@
+docs/superpowers/plans/2026-09-10-backstage-work-item-history.md
+  h_1b119f25eaf333 22-24,30,46-53,181,194,198,259-277,282-285,301,303,352,358-381,385,393-394,435,439,529-530,886,907-908
+docs/superpowers/specs/2026-09-10-backstage-work-item-history-design.md
+  h_1b119f25eaf333 95-101,111-118,127-130,145,206-207
+vitest.config.ts
+  h_1b119f25eaf333 64-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5f731daed31717dd0f77cb4d0854583ff544506c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
