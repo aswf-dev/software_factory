@@ -1,0 +1,60 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 52
+backstage/plugins/README.md
+  h_1b119f25eaf333 41
+backstage/plugins/factory-draft-backend/src/llm.ts
+  h_1b119f25eaf333 21
+backstage/plugins/factory-draft-backend/src/router.ts
+  h_1b119f25eaf333 32
+backstage/versions.md
+  h_1b119f25eaf333 22-24
+config/dsh/model-tiers.yaml
+  h_1b119f25eaf333 3,12-15,20,29,36,38-39,42,56
+config/dsh/pricing.yaml
+  h_1b119f25eaf333 15,17-27,32-35
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 455,484-486,490-491,500,513
+docs/10-open-questions.md
+  h_1b119f25eaf333 169
+docs/13-phase1-acceptance.md
+  h_1b119f25eaf333 61
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 12,16-17,21,32-33,35-37,45-47,56,61-63
+src/cli/dry-run-agent.ts
+  h_1b119f25eaf333 77,84,90
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 159,161,167
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 196,213
+src/cli/factory-model-mutation.test.ts
+  h_1b119f25eaf333 4-5,8,12,16,21,98,102,114,150
+src/cli/factory-model.test.ts
+  h_1b119f25eaf333 21-22,25,28,31,35,137,142-143,161,192
+src/cli/factory-usage-mutation.test.ts
+  h_1b119f25eaf333 32,59,70,81,113
+src/cli/factory-usage.test.ts
+  h_1b119f25eaf333 61,123,130,143-144,151,159,169
+src/model-tier/resolve.test.ts
+  h_1b119f25eaf333 18-22,25,29,33,41,57,70,74,119,172,177-178,229,232,235,239-240,256,259,273,276,287,290,293
+src/model-tier/resolve.ts
+  h_1b119f25eaf333 251
+src/usage/aggregate.test.ts
+  h_1b119f25eaf333 30,39,47,58,69,79,91,98,110,112,141,147,153
+src/usage/render.test.ts
+  h_1b119f25eaf333 14,18,28,40,59,64,70,81,105,124,170
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 718,723-727,743-754,761,857-860
+test/integration/factory-model-cli.test.ts
+  h_1b119f25eaf333 62,78,102,108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b3a0a95aee44f5293b3fff54d1f09209cc9e7dab",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
