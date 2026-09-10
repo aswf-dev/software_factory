@@ -1,0 +1,18 @@
+backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx
+  h_1b119f25eaf333 38-40,43-51,87
+src/work-item-history/task-record.ts
+  h_1b119f25eaf333 17
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 677-678,701,705-721,724
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "66ae104cc89e9442891935f1fafc7c7355aaedae",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
