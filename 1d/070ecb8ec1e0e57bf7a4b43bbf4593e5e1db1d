@@ -1,0 +1,28 @@
+backstage/plugins/README.md
+  h_1b119f25eaf333 9
+backstage/plugins/factory-draft/src/index.tsx
+  h_1b119f25eaf333 42-45
+backstage/versions.md
+  h_1b119f25eaf333 84-86
+docs/03-idp-backstage.md
+  h_1b119f25eaf333 177,187
+docs/ADR/017-backstage-work-item-history.md
+  h_1b119f25eaf333 23,42
+docs/superpowers/plans/2026-09-10-backstage-work-item-history.md
+  h_1b119f25eaf333 1286-1289
+docs/superpowers/specs/2026-09-10-backstage-work-item-history-design.md
+  h_1b119f25eaf333 44,222
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 688-697
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1d070ecb8ec1e0e57bf7a4b43bbf4593e5e1db1d",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
