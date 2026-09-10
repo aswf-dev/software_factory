@@ -607,39 +607,13 @@ narrow.ts 供兩者共用。"
 
 ### Task 4: template 新增 `output.links`
 
+> **✅ 已完成（commits `78bac40`、`2fcb45f`，2026-09-10）。以最終樣貌為準，計畫原文的測試寫法已被否決——見下方裁決。**
+
 **Files:**
-- Modify: `backstage/templates/factory-work-item/template.yaml:129-135`
+- Modify: `backstage/templates/factory-work-item/template.yaml`
 - Test: `test/adversarial/factory-assets.test.ts`
 
-- [ ] **Step 1: 寫失敗測試**
-
-在 `test/adversarial/factory-assets.test.ts` 的 `describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', ...)` 區塊**結束大括號之後**，新增：
-
-```ts
-describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
-  it('template 以 output.links 輸出 Issue 連結（歷史查閱的結構化來源）', () => {
-    const t = read('backstage/templates/factory-work-item/template.yaml')
-    expect(t).toContain('links:')
-    expect(t).toContain("steps['create-issue'].output.issueUrl")
-  })
-})
-```
-
-- [ ] **Step 2: 執行測試確認失敗**
-
-Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts -t '工作項歷史'`
-Expected: FAIL，`expected ... to contain "links:"`
-
-- [ ] **Step 3: 修改 template**
-
-把 `backstage/templates/factory-work-item/template.yaml` 的：
-
-```yaml
-  output:
-    text:
-```
-
-改為：
+**最終 template 樣貌**（`spec.output` 其餘一字不動）：
 
 ```yaml
   output:
@@ -649,24 +623,43 @@ Expected: FAIL，`expected ... to contain "links:"`
       - title: 已建立的 Issue
         url: ${{ steps['create-issue'].output.issueUrl }}
     text:
+      ...（原文不動）...
 ```
 
-`steps` 與既有的 `output.text` 一字不動。
+**最終測試**：解析 YAML 後斷言結構，**不做字串比對**：
 
-- [ ] **Step 4: 執行測試確認通過**
-
-Run: `pnpm exec vitest run test/adversarial/factory-assets.test.ts`
-Expected: PASS，該檔全數通過（既有 8 條模板契約測試不受影響）
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add backstage/templates/factory-work-item/template.yaml test/adversarial/factory-assets.test.ts
-git commit -m "feat(template): output 加上已建立 Issue 的連結
-
-github:issues:create 的 issueUrl 原本只進 log；歷史查閱頁需要
-結構化來源。既有 steps 與 output.text 不動。"
+```ts
+it('spec.output.links 為解析後的真欄位：與 text 並存、url 取自 create-issue 的 issueUrl', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  const spec = (load(read('backstage/templates/factory-work-item/template.yaml')) as {...}).spec
+  expect(spec.output.links, 'spec.output 缺 links 欄位').toBeDefined()
+  expect(spec.output.links).toHaveLength(1)
+  expect(spec.output.links![0]!.url).toBe("${{ steps['create-issue'].output.issueUrl }}")
+  expect(spec.output.links![0]!.title).toBeTruthy()
+  // 純新增：既有的 output.text 必須原封不動地並存（ADR-009 局部解凍的前提）
+  expect(spec.output.text, 'output.text 不得被 links 取代').toHaveLength(1)
+})
 ```
+
+**裁決一：計畫原文的 `toContain` 斷言已刪除。** 原文是：
+
+```ts
+expect(t).toContain('links:')
+expect(t).toContain("steps['create-issue'].output.issueUrl")
+```
+
+實作者建了反例證明它毫無價值：把真正的 `links:` 區塊整段換成**一行 YAML 註解** `# TODO: 未來也許加 links:，屆時用 steps['create-issue'].output.issueUrl`，該測試照樣綠，而 `js-yaml` 解析出的 `spec.output` 只剩 `text`——Backstage 讀的是解析後的樹，一條連結都不會有。字串比對只問「這些字有沒有出現在檔案某處」，註解裡的字同樣算數。**一條「註解就能滿足」的測試比沒有測試更糟，因為後人會信它。**
+
+**裁決二：加在 `links` 上的 `if:` 守衛已移除——它不可能觸發。** 當初加它是想防「create-issue 失敗時渲染出空 href 的連結」。code review 驅動**實際安裝的** render 路徑後證明它永遠不會生效，兩個獨立原因：
+
+1. **輸入不可達**：`plugin-scaffolder-backend@4.0.2` 的 `NunjucksWorkflowRunner` 在渲染 output **之前**就 `if (firstError) throw firstError`，而 `create-issue` 是第一步且無 `continueOnFailure`——失敗時整個任務中止、根本不會渲染 output，所以 `issueUrl` 在守衛處必然存在。
+2. **就算可達也會被抹掉**：`render()` 對渲染成空字串的單一模板回傳 `undefined`，而作為 `JSON.parse` reviver，回傳 `undefined` 會**刪除該 key**——`if` 與 `url` 一起消失，於是 `helper.cjs.js` 的 `filterConditionalItems` 檢查 `"if" in obj` 得到 false，該項目照樣保留。守衛什麼都濾不掉。
+
+UI 本來就有保護：前端 `LinkOutputs` 會濾掉沒有 `url` 也沒有 `entityRef` 的連結，消費端 `src/work-item-history/issue-url.ts` 也用 `asString(...url)` 收窄後再測 `ISSUE_URL`。
+
+> **教訓（給後續 task）**：型別存在 ≠ 行為生效。當初授權這個守衛時只查了 `ScaffolderOutputLink.if` 在 2.2.1 的**型別宣告**，沒有探測**渲染路徑的實際行為**。凡是「加了某個防護欄位」的變更，都要用真實程式碼驗證它真的會攔到東西，否則就是在設定檔裡製造假保證——而這正是本測試檔存在的原因。
+
+**副作用（正面，值得知道）**：`output.links` 不只餵給歷史頁，`DefaultTemplateOutputs` 也會把它渲染成任務完成頁上的按鈕。所以這個改動同時讓每次開單後多一個「已建立的 Issue」按鈕。計畫原本沒提，但它對使用者是有益的。
 
 ---
 
@@ -831,6 +824,10 @@ index.tsx 原本 252 行身兼兩職，再加歷史頁會失控。純搬移，�
     expect(sub).toContain('path=":taskId"')
   })
 ```
+
+> **這幾條是字串比對，強度有限，理由要寫在測試裡。** Task 4 已證明字串比對可以被註解騙過。這裡仍用它是因為對象是 `.tsx` 原始碼，而本 repo 沒有現成的 TS 結構化解析工具，為此引入 TypeScript compiler API 屬於過度工程。**限制必須明講**：這些斷言只證明「字串出現在檔案裡」，**不證明擴充真的掛進了 app tree**——那件事在 `backstage/plugins/**` 不受任何自動化檢查，唯一的驗證是 Task 10 的瀏覽器實測（第 1 項：Create 頁是否真的出現分頁）。
+>
+> 因此請在測試的 docblock 寫明這個界線，並在 Task 10 的驗收清單把「分頁出現」列為**必要**項而非選項。不要讓字串斷言看起來像行為保證。
 
 - [ ] **Step 2: 執行測試確認失敗**
 
