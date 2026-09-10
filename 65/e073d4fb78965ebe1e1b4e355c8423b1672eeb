@@ -1,0 +1,14 @@
+docs/superpowers/plans/2026-09-10-backstage-work-item-history.md
+  h_1b119f25eaf333 394
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "65e073d4fb78965ebe1e1b4e355c8423b1672eeb",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
