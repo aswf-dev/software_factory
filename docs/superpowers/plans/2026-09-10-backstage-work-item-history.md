@@ -906,15 +906,30 @@ git commit -m "feat(work-item-history): Create 頁新增工作項歷史分頁骨
 
 - [ ] **Step 1: 寫失敗測試**
 
+先補測試檔的 import（原本只有 `readFileSync` 與 `join`）：
+
+```ts
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+```
+
 在同一個 describe 內追加：
 
 ```ts
-  it('歷史頁元件從 src/ 取用純函式（邏輯受 vitest 與覆蓋率門檻管束）', () => {
+  it('歷史頁元件從 src/ 取用純函式，且相對路徑真的解析得到', () => {
     for (const f of [
       'backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx',
       'backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx',
     ]) {
-      expect(read(f)).toContain('src/work-item-history/task-record.ts')
+      const src = read(f)
+      expect(src).toContain('src/work-item-history/task-record.ts')
+      // 關鍵：`toContain` 抓不到層數寫錯（4 層與 5 層都含這個子字串），
+      // 但 backstage/plugins/** 不受 tsc 檢查，寫錯會一路安靜到瀏覽器才爆。
+      // 故把每個相對 import 真的解析出來，斷言目標檔存在。
+      for (const m of src.matchAll(/from '(\.\.\/[^']+)'/g)) {
+        const resolved = resolve(dirname(f), m[1]!)
+        expect(existsSync(resolved), `${f} 的 import ${m[1]} 解析不到（實際指向 ${resolved}）`).toBe(true)
+      }
     }
   })
 ```
@@ -948,7 +963,7 @@ import {
   summarize,
   toWorkItemRecords,
   type WorkItemRecord,
-} from '../../../../src/work-item-history/task-record.ts'
+} from '../../../../../src/work-item-history/task-record.ts'
 
 /**
  * 後端 list 端點只支援 createdBy/status 篩選，沒有 template 篩選，
@@ -1060,11 +1075,11 @@ import { useTaskEventStream } from '@backstage/plugin-scaffolder-react'
 import { ErrorPanel, InfoCard, Link, Progress } from '@backstage/core-components'
 import Box from '@material-ui/core/Box'
 import Typography from '@material-ui/core/Typography'
-import { extractIssueUrl } from '../../../../src/work-item-history/issue-url.ts'
+import { extractIssueUrl } from '../../../../../src/work-item-history/issue-url.ts'
 import {
   formatTimestamp,
   toWorkItemRecord,
-} from '../../../../src/work-item-history/task-record.ts'
+} from '../../../../../src/work-item-history/task-record.ts'
 
 function Field(props: { label: string; value: string }) {
   return (
