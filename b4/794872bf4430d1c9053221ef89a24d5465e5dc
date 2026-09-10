@@ -1,0 +1,16 @@
+docs/superpowers/plans/2026-09-10-backstage-work-item-history.md
+  h_1b119f25eaf333 30-33,415,418-424,434,436,439-451,454-456,459-480,502-511,527,529-530,532,534,538,546-554,574,576-577,579,581-582,584,587-588,591-595,957-960,997,1051,1266-1267,1269-1270,1279
+docs/superpowers/specs/2026-09-10-backstage-work-item-history-design.md
+  h_1b119f25eaf333 80-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b4794872bf4430d1c9053221ef89a24d5465e5dc",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
