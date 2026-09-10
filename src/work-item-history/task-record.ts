@@ -14,7 +14,7 @@
 import { asObject, asString } from './narrow.js'
 
 /** template 名稱（entityRef 的最後一段），與 backstage/templates/factory-work-item/ 對齊。 */
-export const FACTORY_WORK_ITEM_TEMPLATE = 'factory-work-item'
+const FACTORY_WORK_ITEM_TEMPLATE = 'factory-work-item'
 
 /**
  * decodeURIComponent 遇到畸形百分比編碼（如 `%zz`）會丟 URIError。

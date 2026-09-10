@@ -35,10 +35,19 @@ export function HistoryList() {
   if (loading) return <Progress />
   if (error) return <ErrorPanel error={error} />
 
-  // 拆信封、篩選、轉換、丟壞資料全在 src/ 的純函式裡完成——本元件不做任何判斷。
-  // 連 `value?.tasks` 都不自己拆：回應形狀若改變，這裡會安靜地變成「查無資料」，
-  // 而那是歷史頁最難察覺的失敗模式。
+  // 拆信封、篩選、轉換、丟壞資料全在 src/ 的純函式裡完成——本元件不對資料做任何
+  // 判斷，`rows` 一律來自 toWorkItemRecords(value)：回應形狀若改變，這裡會安靜地
+  // 變成「查無資料」，而那是歷史頁最難察覺的失敗模式。
   const rows: WorkItemRecord[] = toWorkItemRecords(value)
+
+  // 唯一會直接讀信封的地方是截斷提示，且是刻意的：它需要「這次實際取回幾筆、總數
+  // 又有幾筆」，而 toWorkItemRecords 只回傳通過篩選的紀錄，刻意不暴露這兩個數字。
+  // totalTasks 是 listTasks 回傳的權威總數（後端 DatabaseTaskStore.list 提供）；
+  // 唯有總數大於已載入筆數才算截斷——剛好取回 FETCH_LIMIT 筆而別無其他，不算截斷。
+  // 欄位缺失或非數字時一律視為「沒有更多」，不從資料的缺席推測截斷。
+  const fetchedCount = value?.tasks?.length ?? 0
+  const totalTasks = value?.totalTasks
+  const isTruncated = typeof totalTasks === 'number' && totalTasks > fetchedCount
 
   if (rows.length === 0) {
     return (
@@ -75,7 +84,7 @@ export function HistoryList() {
           { title: '建立者', field: 'createdBy' },
         ]}
       />
-      {(value?.tasks?.length ?? 0) >= FETCH_LIMIT && (
+      {isTruncated && (
         <Typography variant="caption">
           僅掃描最近 {FETCH_LIMIT} 筆 scaffolder 任務，更早的紀錄未載入。
         </Typography>

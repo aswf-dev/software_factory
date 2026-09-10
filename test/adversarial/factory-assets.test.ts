@@ -674,8 +674,8 @@ describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
    * ——`pnpm typecheck` 綠燈對 `.tsx` 不構成證據。唯一的驗證是 Task 10 的瀏覽器實測
    * （Create 頁是否真的出現「工作項歷史」分頁），該項是必要驗收項而非選項。
    *
-   * 第三條比其餘兩條稍強：它把每個 `../` 相對 import 真的 resolve 到磁碟再斷言檔案
-   * 存在，故能抓到層數寫錯（4 層與 5 層都含 `src/work-item-history/task-record.ts`
+   * 第三條比其餘兩條稍強：它把每個相對 import（`./` 與 `../`）真的 resolve 到磁碟再
+   * 斷言檔案存在，故能抓到層數寫錯（4 層與 5 層都含 `src/work-item-history/task-record.ts`
    * 這個子字串，`toContain` 抓不到）——但「解析得到」仍不等於「語意正確」。
    */
   it('SubPage 擴充明寫 attachTo page:scaffolder（不依賴 relative 解析）', () => {
@@ -698,16 +698,30 @@ describe('Backstage 工作項歷史查閱分頁（docs/ADR/017）', () => {
   })
 
   it('歷史頁元件從 src/ 取用純函式，且相對路徑真的解析得到', () => {
+    // 純函式是這個功能唯一受 tsc 與 vitest 保護的程式碼；先釘住兩個消費端真的有取用。
     for (const f of [
       'backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx',
       'backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx',
     ]) {
+      expect(read(f)).toContain('src/work-item-history/task-record.ts')
+    }
+    // 關鍵：`toContain` 抓不到層數寫錯（4 層與 5 層都含 `src/work-item-history/task-record.ts`
+    // 這個子字串），但 backstage/plugins/** 不受 tsc 檢查，寫錯會一路安靜到瀏覽器才爆。
+    // 故把每個相對 import 真的解析出來，斷言目標檔存在。
+    //
+    // 範圍涵蓋 `./`（同目錄／子目錄）與 `../`（跨 root 取用 src/）兩種相對形式，
+    // 靜態 `from '...'` 與動態 `import('...')` 皆收：index.tsx → ./work-item-history/
+    // SubPage.tsx 與 SubPage.tsx → ./HistoryList.tsx 這些單點路徑沒有任何工具檢查得到。
+    // regex 要求 specifier 以 `.` 開頭，故 react / @backstage/* 這類裸套件 specifier
+    // 不會被當成檔案解析。
+    for (const f of [
+      'backstage/plugins/factory-draft/src/index.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/SubPage.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryList.tsx',
+      'backstage/plugins/factory-draft/src/work-item-history/HistoryDetail.tsx',
+    ]) {
       const src = read(f)
-      expect(src).toContain('src/work-item-history/task-record.ts')
-      // 關鍵：`toContain` 抓不到層數寫錯（4 層與 5 層都含這個子字串），
-      // 但 backstage/plugins/** 不受 tsc 檢查，寫錯會一路安靜到瀏覽器才爆。
-      // 故把每個相對 import 真的解析出來，斷言目標檔存在。
-      for (const m of src.matchAll(/from '(\.\.\/[^']+)'/g)) {
+      for (const m of src.matchAll(/(?:from\s+|import\()'(\.[^']+)'/g)) {
         const resolved = resolve(dirname(f), m[1]!)
         expect(existsSync(resolved), `${f} 的 import ${m[1]} 解析不到（實際指向 ${resolved}）`).toBe(true)
       }
