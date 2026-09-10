@@ -22,6 +22,15 @@ describe('normalizeRepo', () => {
   it('空字串回傳空字串', () => {
     expect(normalizeRepo('')).toBe('')
   })
+  it('owner 是畸形百分比編碼時退回原編碼字串，不丟例外', () => {
+    expect(normalizeRepo('github.com?owner=%zz')).toBe('%zz')
+  })
+  it('repo 是畸形百分比編碼時退回原編碼字串，不丟例外', () => {
+    expect(normalizeRepo('github.com?owner=philipz&repo=%zz')).toBe('philipz/%zz')
+  })
+  it('只有壞掉的那一段退回原樣，另一段照常解碼', () => {
+    expect(normalizeRepo('github.com?owner=%zz&repo=my%20repo')).toBe('%zz/my repo')
+  })
 })
 
 describe('isFactoryWorkItemTask', () => {
