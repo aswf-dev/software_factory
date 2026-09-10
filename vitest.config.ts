@@ -61,6 +61,17 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // The work item history page is read-only display and decides nothing, so
+        // the reason for 100% here differs from the entries above: this module is
+        // the only tested code in the whole feature. Everything downstream lives
+        // under backstage/plugins/**, outside both tsconfig.json and this file's
+        // test scope, so a branch missed here has no second net to catch it.
+        'src/work-item-history/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
       },
     },
   },
