@@ -19,14 +19,15 @@
    - 插件的 `.tsx` 不會被 `pnpm typecheck` 檢查——**邏輯一律放 `src/`**，元件只做渲染。
    - 插件檔案的契約由 `test/adversarial/factory-assets.test.ts` 的字串斷言守住。
 3. **程式風格**：無分號、單引號、2 空格縮排。`src/` 內部互相 import 用 `.js` 副檔名；插件反向 import `src/` 用 `.ts`/`.tsx` 明確副檔名（既有先例：`backstage/plugins/factory-draft-backend/src/router.ts` import `../../../../src/factory-draft/prompts.ts`）。
-4. **tsconfig 嚴格度**：`strict`、`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`verbatimModuleSyntax`（型別 import 要寫 `import type`）。`lib` 只有 `ES2023`（**沒有 DOM**）——`src/` 的純函式不可使用任何 DOM 型別。
-5. **實測基準資料**（2026-09-10 查 `../backstage-app/packages/backend/backstage-db/scaffolder.sqlite`）：43 筆任務，其中 `template:default/factory-work-item` 38 筆、`template:default/agent-add-tests` 5 筆；`created_by` 值形如 `user:default/philipz`。
+4. **執行 pnpm 指令一律加 `CI=true` 前綴**（例：`CI=true pnpm test`）。本機環境沒有 TTY 時，pnpm 的 verify-deps 前置檢查會以 `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` 中止。**不要**因此執行 `pnpm install` 或動 `node_modules`。
+5. **tsconfig 嚴格度**：`strict`、`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`verbatimModuleSyntax`（型別 import 要寫 `import type`）。`lib` 只有 `ES2023`（**沒有 DOM**）——`src/` 的純函式不可使用任何 DOM 型別。
+6. **實測基準資料**（2026-09-10 查 `../backstage-app/packages/backend/backstage-db/scaffolder.sqlite`）：43 筆任務，其中 `template:default/factory-work-item` 38 筆、`template:default/agent-add-tests` 5 筆；`created_by` 值形如 `user:default/philipz`。
 
 ## 檔案結構
 
 | 檔案 | 職責 |
 |---|---|
-| `src/work-item-history/task-record.ts`（建立） | 純函式：任務辨識、parameters 轉紀錄、repo 正規化、Issue URL 抽取、時間格式化、摘要 |
+| `src/work-item-history/task-record.ts`（建立） | 純函式：任務辨識、parameters 轉紀錄與整批轉換、repo 正規化、Issue URL 抽取、時間格式化、摘要 |
 | `src/work-item-history/task-record.test.ts`（建立） | 上述純函式的單元測試 |
 | `backstage/plugins/factory-draft/src/index.tsx`（改寫） | 只做 module 組裝與擴充註冊 |
 | `backstage/plugins/factory-draft/src/draft-field/DraftFieldComponent.tsx`（自 index.tsx 搬移） | 既有 LLM 草稿欄位元件 |
@@ -41,6 +42,14 @@
 ---
 
 ### Task 1: 純函式基石——`normalizeRepo` 與 `isFactoryWorkItemTask`
+
+> **✅ 已完成，並依 code review 修正（2026-09-10）。** 後續 task 必須以修正後的樣貌為準：
+>
+> 1. **`isFactoryWorkItemTask` 已更名為 `isFactoryWorkItemSpec`**。理由：Task 2 的 `toWorkItemRecord(task)` 收整個 task，而本函式收 `task.spec`——兩個名字相近、吃不同巢狀層級的函式擺在同一個模組是陷阱；傳錯不會拋錯也不會型別錯，只會讓歷史頁永遠空白，而呼叫點在 `backstage/plugins/**`（tooling 照不到）。
+> 2. **邊界規則**：本模組所有 exported 函式一律收 `unknown`，內部用 `asString` narrow。`normalizeRepo(raw: unknown)`。**Task 2、3 新增的函式都必須遵守此規則**（下方程式碼已據此調整）。
+> 3. `isFactoryWorkItemSpec` 要求 entityRef 以 `template:` 開頭（擋掉 `component:default/factory-work-item`），但**命名空間刻意不釘死**（templates 可能註冊在非 default 命名空間）。
+> 4. `normalizeRepo` 另補：畸形百分比編碼逐段退回原編碼字串（不丟例外）、只有 repo 沒有 owner 時回傳解碼後的 repo。
+> 5. `vitest.config.ts` 已把 `src/work-item-history/**` 提到 100% 覆蓋率層級——**理由與其他 100% 目錄不同**：本模組不做任何決策，但它是整個功能唯一受測的程式碼（下游 React 元件不在 tsconfig/vitest 範圍內）。
 
 **Files:**
 - Create: `src/work-item-history/task-record.ts`
@@ -169,7 +178,7 @@ scaffolder API 的 JSON，故一律以 unknown 收再逐欄 narrow。"
 
 ---
 
-### Task 2: `toWorkItemRecord`、`formatTimestamp`、`summarize`
+### Task 2: `toWorkItemRecord`、`toWorkItemRecords`、`formatTimestamp`、`summarize`
 
 **Files:**
 - Modify: `src/work-item-history/task-record.ts`
@@ -182,10 +191,11 @@ scaffolder API 的 JSON，故一律以 unknown 收再逐欄 narrow。"
 ```ts
 import {
   formatTimestamp,
-  isFactoryWorkItemTask,
+  isFactoryWorkItemSpec,
   normalizeRepo,
   summarize,
   toWorkItemRecord,
+  toWorkItemRecords,
 } from './task-record.js'
 ```
 
@@ -246,9 +256,32 @@ describe('toWorkItemRecord', () => {
   })
 })
 
+describe('toWorkItemRecords', () => {
+  it('挑出 factory-work-item、丟掉其他 template 與壞資料', () => {
+    const records = toWorkItemRecords([
+      fullTask,
+      { id: 'other', spec: { templateInfo: { entityRef: 'template:default/agent-add-tests' } } },
+      { spec: { templateInfo: { entityRef: 'template:default/factory-work-item' } } },
+      'nonsense',
+    ])
+    expect(records).toHaveLength(1)
+    expect(records[0]?.taskId).toBe('80f332c5-01c3-4e8f-a7b5-9a829dc9dd96')
+  })
+
+  it('非陣列輸入回傳空陣列（listTasks 失敗或回傳形狀改變時不炸頁）', () => {
+    expect(toWorkItemRecords(undefined)).toEqual([])
+    expect(toWorkItemRecords(null)).toEqual([])
+    expect(toWorkItemRecords({ tasks: [] })).toEqual([])
+  })
+})
+
 describe('formatTimestamp', () => {
   it('空字串顯示破折號', () => {
     expect(formatTimestamp('')).toBe('—')
+  })
+  it('非字串輸入顯示破折號', () => {
+    expect(formatTimestamp(undefined)).toBe('—')
+    expect(formatTimestamp(42)).toBe('—')
   })
   it('無法解析的字串原樣返回', () => {
     expect(formatTimestamp('not-a-date')).toBe('not-a-date')
@@ -265,8 +298,9 @@ describe('summarize', () => {
   it('長於上限時截斷並加省略號', () => {
     expect(summarize('abcdefghij', 5)).toBe('abcde…')
   })
-  it('空字串回傳空字串', () => {
+  it('空字串與非字串輸入皆回傳空字串', () => {
     expect(summarize('', 5)).toBe('')
+    expect(summarize(null, 5)).toBe('')
   })
 })
 ```
@@ -315,21 +349,40 @@ export function toWorkItemRecord(task: unknown): WorkItemRecord | null {
     status: asString(t?.status),
     oneLiner: asString(parameters?.oneLiner),
     taskType: asString(parameters?.taskType),
-    targetRepo: normalizeRepo(asString(parameters?.targetRepo)),
+    targetRepo: normalizeRepo(parameters?.targetRepo),
     baseBranch: asString(parameters?.baseBranch),
     requirement: asString(parameters?.requirement),
   }
 }
 
-/** ISO 時間 → 本地字串；空值顯示破折號，無法解析者原樣返回（不假造時間）。 */
-export function formatTimestamp(iso: string): string {
-  if (typeof iso !== 'string' || iso.length === 0) return '—'
-  const parsed = new Date(iso)
-  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString()
+/**
+ * listTasks 的整包結果 → 可直接渲染的清單。
+ *
+ * 篩選 + 轉換 + 丟棄壞資料三步都在這裡完成，元件只拿結果。理由：元件住在
+ * backstage/plugins/**，不在 tsconfig 與 vitest 範圍內——留在那裡的邏輯
+ * 沒有任何自動化防護。
+ */
+export function toWorkItemRecords(tasks: unknown): WorkItemRecord[] {
+  if (!Array.isArray(tasks)) return []
+  const records: WorkItemRecord[] = []
+  for (const task of tasks) {
+    if (!isFactoryWorkItemSpec(asRecord(task)?.spec)) continue
+    const record = toWorkItemRecord(task)
+    if (record !== null) records.push(record)
+  }
+  return records
+}
+
+/** ISO 時間 → 本地字串；空值或非字串顯示破折號，無法解析者原樣返回（不假造時間）。 */
+export function formatTimestamp(iso: unknown): string {
+  const value = asString(iso)
+  if (value.length === 0) return '—'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
 }
 
 /** 清單用的摘要：壓平空白後截斷。詳情頁一律顯示原文，不經過本函式。 */
-export function summarize(text: string, maxChars: number): string {
+export function summarize(text: unknown, maxChars: number): string {
   const flat = asString(text).replace(/\s+/g, ' ').trim()
   return flat.length <= maxChars ? flat : `${flat.slice(0, maxChars)}…`
 }
@@ -337,8 +390,8 @@ export function summarize(text: string, maxChars: number): string {
 
 - [ ] **Step 4: 執行測試確認通過**
 
-Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
-Expected: PASS，17 tests passed
+Run: `CI=true pnpm exec vitest run src/work-item-history/task-record.test.ts`
+Expected: PASS，Task 1 修正後既有測試數 + 本 task 新增的 14 條全綠
 
 - [ ] **Step 5: 型別檢查**
 
@@ -379,10 +432,11 @@ git commit -m "feat(work-item-history): task → WorkItemRecord 轉換與顯示�
 import {
   extractIssueUrl,
   formatTimestamp,
-  isFactoryWorkItemTask,
+  isFactoryWorkItemSpec,
   normalizeRepo,
   summarize,
   toWorkItemRecord,
+  toWorkItemRecords,
 } from './task-record.js'
 ```
 
@@ -472,8 +526,8 @@ export function extractIssueUrl(input: {
 
 - [ ] **Step 4: 執行測試確認通過**
 
-Run: `pnpm exec vitest run src/work-item-history/task-record.test.ts`
-Expected: PASS，21 tests passed
+Run: `CI=true pnpm exec vitest run src/work-item-history/task-record.test.ts`
+Expected: PASS，全綠（含本 task 新增的 4 條 `extractIssueUrl` 測試）
 
 - [ ] **Step 5: 確認覆蓋率門檻未被拉低**
 
@@ -828,9 +882,8 @@ import Typography from '@material-ui/core/Typography'
 import useAsync from 'react-use/esm/useAsync'
 import {
   formatTimestamp,
-  isFactoryWorkItemTask,
   summarize,
-  toWorkItemRecord,
+  toWorkItemRecords,
   type WorkItemRecord,
 } from '../../../../src/work-item-history/task-record.ts'
 
@@ -851,10 +904,8 @@ export function HistoryList() {
   if (error) return <ErrorPanel error={error} />
 
   const fetched = value?.tasks ?? []
-  const rows = fetched
-    .filter((task) => isFactoryWorkItemTask(task.spec))
-    .map((task) => toWorkItemRecord(task))
-    .filter((record): record is WorkItemRecord => record !== null)
+  // 篩選、轉換、丟壞資料全在 src/ 的純函式裡完成——本元件不做任何判斷。
+  const rows: WorkItemRecord[] = toWorkItemRecords(fetched)
 
   if (rows.length === 0) {
     return (

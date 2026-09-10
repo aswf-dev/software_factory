@@ -92,8 +92,13 @@ export type WorkItemRecord = {
   requirement: string
 }
 
-/** 以 spec.templateInfo.entityRef 認出 factory-work-item 任務。 */
-export function isFactoryWorkItemTask(spec: unknown): boolean
+/**
+ * 以 spec.templateInfo.entityRef 認出 factory-work-item 任務。
+ * 收的是 task.spec 而非整個 task——故命名為 Spec，避免與 toWorkItemRecord(task)
+ * 混淆（傳錯層級不會拋錯也不會型別錯，只會讓清單永遠空白）。
+ * 要求 kind 為 template:，但 namespace 刻意不釘死。
+ */
+export function isFactoryWorkItemSpec(spec: unknown): boolean
 
 /**
  * spec.parameters → WorkItemRecord。
@@ -103,7 +108,14 @@ export function isFactoryWorkItemTask(spec: unknown): boolean
 export function toWorkItemRecord(task: unknown): WorkItemRecord | null
 
 /** github.com?owner=X&repo=Y → X/Y；已是 X/Y 則原樣返回。 */
-export function normalizeRepo(raw: string): string
+export function normalizeRepo(raw: unknown): string
+
+/**
+ * listTasks 的整包結果 → 可直接渲染的清單（篩選 + 轉換 + 丟壞資料）。
+ * 這三步刻意不留在元件裡：元件在 backstage/plugins/**，不受 tsconfig
+ * 與 vitest 保護。
+ */
+export function toWorkItemRecords(tasks: unknown): WorkItemRecord[]
 
 /** 先讀 output.links，沒有才 regex 掃 log 行；都沒有回傳 undefined。 */
 export function extractIssueUrl(input: {
@@ -112,7 +124,10 @@ export function extractIssueUrl(input: {
 }): string | undefined
 
 /** PRD 摘要截斷（清單用），保留完整值供詳情頁。 */
-export function summarize(text: string, maxChars: number): string
+export function summarize(text: unknown, maxChars: number): string
+
+/** ISO 時間 → 本地字串；空值顯示破折號，無法解析者原樣返回。 */
+export function formatTimestamp(iso: unknown): string
 ```
 
 `extractIssueUrl` 的 log pattern 依實測字串：
@@ -127,7 +142,7 @@ log 行含 ANSI 色碼（`\u001b[32minfo\u001b[39m: ...`），regex 需容忍。
 
 元件只做三件事：取資料、呼叫純函式、渲染。不在元件內做字串解析或格式判斷。
 
-- `HistoryList`：`useApi(scaffolderApiRef).listTasks({ filterByOwnership: 'all', limit: 200 })` → `isFactoryWorkItemTask` 過濾 → `toWorkItemRecord` 轉換 → `<Table>`。
+- `HistoryList`：`useApi(scaffolderApiRef).listTasks({ filterByOwnership: 'all', limit: 200 })` → `toWorkItemRecords(tasks)` → `<Table>`。
 - `HistoryDetail`：`useTaskEventStream(taskId)` → `task.spec.parameters` 唯讀渲染 + `extractIssueUrl({ output, logLines })`。
 
 ## 6. 資料流
@@ -188,7 +203,8 @@ log regex 是舊資料的退化路徑，其失效後果是「少一個連結」�
 **單元測試**（`src/work-item-history/task-record.test.ts`，受 80% 覆蓋率門檻約束）：
 - `normalizeRepo`：`github.com?owner=X&repo=Y`、已正規化的 `X/Y`、空字串
 - `toWorkItemRecord`：完整 parameters、缺欄位、`parameters` 非物件
-- `isFactoryWorkItemTask`：命中、其他 template、`templateInfo` 缺失
+- `isFactoryWorkItemSpec`：命中、其他 template、錯誤 kind、`templateInfo` 缺失
+- `toWorkItemRecords`：混雜清單只留 factory-work-item、非陣列輸入回空陣列
 - `extractIssueUrl`：`output.links` 優先於 log、只有 log（含 ANSI 色碼）、兩者皆無
 - `summarize`：短於上限、長於上限、空字串
 

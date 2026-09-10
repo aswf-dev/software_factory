@@ -61,10 +61,11 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
-        // 工作項歷史分頁是唯讀顯示，這裡不做任何決策；訂 100% 的理由不同於上面
-        // 幾項：它是整個功能裡唯一被測到的程式碼。其餘部分都在
-        // backstage/plugins/** 底下，既不在 tsconfig.json 也不在本檔的測試範圍，
-        // 這裡漏掉的分支不會有第二道網子接住。
+        // The work item history page is read-only display and decides nothing, so
+        // the reason for 100% here differs from the entries above: this module is
+        // the only tested code in the whole feature. Everything downstream lives
+        // under backstage/plugins/**, outside both tsconfig.json and this file's
+        // test scope, so a branch missed here has no second net to catch it.
         'src/work-item-history/**/*.ts': {
           lines: 100,
           functions: 100,
