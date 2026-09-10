@@ -1,0 +1,16 @@
+docs/ADR/017-backstage-work-item-history.md
+  h_1b119f25eaf333 44,48
+docs/superpowers/specs/2026-09-10-backstage-work-item-history-design.md
+  h_1b119f25eaf333 18,38,156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c12b0954397dfd40399be90fa3580ec64eaaaebb",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
