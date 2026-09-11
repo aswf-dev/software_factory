@@ -967,6 +967,33 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(s).not.toContain('deepseek-v4.1-flash')
   })
 
+  /**
+   * 「模型真的叫得動」的驗證管道（2026-09-11）。
+   *
+   * 本檔其餘測試都只能驗證「設定與文件互相一致」——模型 id 不存在、或 pi-ai
+   * 不認得該 id，靜態測試一律測不出來（PR #274 全綠卻讓整條 deepseek 路徑失效）。
+   * 唯一能發現的方法是真打一次 API，那需要 credential 與費用，因此做成
+   * 「本機腳本 + 手動觸發的 CI job」。這裡釘住的是**那條管道本身存在且接對線**，
+   * 避免它日後被刪掉或改壞而無人察覺。
+   */
+  it('verify-models 腳本存在且驗證 L1(API)+L2(DSH) 兩層', () => {
+    const s = read('scripts/verify-models.sh')
+    expect(s).toContain('api.deepseek.com/models') // L1：模型 id 在供應商端存在
+    expect(s).toContain('dsh --profile headless') // L2：pi-ai 認得且能推論
+    expect(s).toContain('factory-model.js') // 驗的是 tier chain 的模型，非寫死清單
+    // 缺 credential 必須是 SKIP 而非 FAIL——否則紅燈會混淆「沒鑰匙」與「模型壞了」
+    expect(s).toContain('SKIP')
+  })
+
+  it('verify-models.yml 手動可觸發、帶三家 credential，且複用同一支腳本', () => {
+    const c = read('.github/workflows/verify-models.yml')
+    expect(c).toContain('workflow_dispatch')
+    expect(c).toContain('scripts/verify-models.sh') // 不得另寫第二套驗證邏輯
+    for (const secret of ['DEEPSEEK_API_KEY', 'ANTHROPIC_API_KEY', 'QWEN_API_KEY']) {
+      expect(c, `verify-models.yml 缺 ${secret}`).toContain(secret)
+    }
+  })
+
   it('qwen route 指向 QwenCloud 國際端點（dashscope-intl，2026-08-28 修正 401）', () => {
     // 實測：QwenCloud Pay-As-You-Go key 對中國端點 dashscope.aliyuncs.com 回 401
     // invalid_api_key；國際端點 dashscope-intl.aliyuncs.com 正常（文件

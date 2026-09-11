@@ -1,0 +1,91 @@
+# Verify Models — 確認 model-tiers.yaml 宣告的模型「真的叫得動」（ADR-011）。
+#
+# 為什麼需要這個 workflow（2026-09-11 實測教訓）：
+# test.yml 的 1000+ 測試只驗證「config 與文件互相一致」，**無法**發現模型 id
+# 不存在或 pi-ai 不認得。PR #274 全綠合併後，整條 deepseek 路徑其實是死的
+# （誤用不存在的 `deepseek-v4.1-flash`；即使改對 id，`deepseek-flash` 不在
+# pi-ai 內建 catalog 仍會 UNKNOWN_MODEL）。靜態測試抓不到的，只能真打一次 API。
+#
+# 為什麼是 workflow_dispatch 而不是綁進每顆 PR：
+#   - 需要真 credential 與真金費用（雖然每個模型僅數十 token）；
+#   - 外部 API 抖動會造成 flaky 紅燈，而「會亂紅的 gate」會訓練人忽略它。
+# 改動 config/dsh/model-tiers.yaml 或 settings.providers.yaml 的 PR，請手動觸發一次。
+#
+# 與本機的關係：本 workflow 直接執行 scripts/verify-models.sh——同一支腳本、
+# 同一套判準，不維護第二份邏輯。CI 的附加價值是它有 anthropic/qwen 的
+# credential（本機通常只有 deepseek），能驗到完整的 fallback chain。
+name: Verify Models
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 只驗證單一 provider（留空＝驗證所有 tier chain 的模型）
+        required: false
+        type: choice
+        options: ['', deepseek, anthropic, qwen]
+        default: ''
+      ref:
+        description: 驗證哪一份設定（git ref，例如 origin/main；留空＝本 checkout）
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # REF 模式需要其他分支的物件；淺 clone 會讓 git show 失敗
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: pnpm
+
+      - name: Install dependencies (dsh is a devDependency)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI (factory-model 解析 tier chain)
+        run: pnpm run build
+
+      # 缺哪些 credential 先講清楚：SKIP 是「沒鑰匙」不是「模型壞了」，
+      # 事後看 log 的人必須能分辨這兩者。
+      - name: Report credential availability
+        env:
+          HAS_DEEPSEEK: ${{ secrets.DEEPSEEK_API_KEY != '' }}
+          HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_QWEN: ${{ secrets.QWEN_API_KEY != '' }}
+        run: |
+          echo "deepseek credential : $HAS_DEEPSEEK"
+          echo "anthropic credential: $HAS_ANTHROPIC"
+          echo "qwen credential     : $HAS_QWEN"
+          echo "（false 的 provider 會標 SKIP——缺 credential 不算模型失敗）"
+
+      - name: Verify every model in the tier chains
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+          REF: ${{ inputs.ref }}
+        run: |
+          ./scripts/verify-models.sh ${{ inputs.provider }} | tee /tmp/verify-models.txt
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo '## Verify Models'
+            echo
+            echo '```'
+            cat /tmp/verify-models.txt 2>/dev/null || echo '(無輸出——腳本未執行到)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
