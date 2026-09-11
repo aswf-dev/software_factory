@@ -1,0 +1,20 @@
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 506-508
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 30-36
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 174-220
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 31,395-405,480-490,584-585
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cc8cda616212d89939ada0ae92d34f34e4524dc2",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
