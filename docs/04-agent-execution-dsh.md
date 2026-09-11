@@ -514,6 +514,31 @@ critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（rev
 
 > **誠實揭露**：啟發式分析是粗略近似（Q06-2 已知）；誤判由「留言展示判據給人看＋`model_tier` 覆寫」緩解。`deepseek high tier ≈ opus/sonnet 等級` 為待 A/B 驗證假設；「V4.1 Flash 全面超越 V4 Pro」為 DeepSeek 官方公告說法，本 repo 未獨立驗證。
 
+### 7.5 驗證模型「真的叫得動」（改模型時必跑）
+
+**為什麼需要獨立的驗證管道**：`npm test` 的 1100+ 測試只驗證「設定與文件互相一致」，**無法**發現模型 id 不存在、或 pi-ai 不認得該 id。2026-09-11 實測：PR #274 測試全綠合併後，整條 deepseek 路徑其實是死的（誤用不存在的 `deepseek-v4.1-flash`；即使改對 id，`deepseek-flash` 不在 pi-ai 內建 catalog 仍會 `UNKNOWN_MODEL`）。靜態測試抓不到的，只能真打一次 API。
+
+驗證分兩層——**L1 過不代表 L2 過**，兩層都要跑：
+
+| 層 | 驗什麼 | 失敗長相 |
+|---|---|---|
+| **L1 Provider API** | 模型 id 在供應商端存在且能推論 | `HTTP 400 ... you passed <id>` |
+| **L2 DSH 執行層** | pi-ai 認得該 id 且能完成 headless 推論 | `UNKNOWN_MODEL: pi-ai provider "…" has no configured model "…"` |
+
+**本機**（一行；會自動解析 tier chain 並逐一驗證）：
+
+```bash
+./scripts/verify-models.sh                  # 全部 tier chain 的模型
+./scripts/verify-models.sh deepseek         # 只驗單一 provider
+REF=origin/main ./scripts/verify-models.sh  # 驗「線上生效的那份」設定
+```
+
+**CI**（Actions → **Verify Models** → Run workflow）：同一支腳本，但 runner 有 `ANTHROPIC_API_KEY` / `QWEN_API_KEY`，能驗到本機通常驗不到的 fallback chain。**改動 `config/dsh/model-tiers.yaml` 或 `settings.providers.yaml` 的 PR 請手動觸發一次。**
+
+缺 credential 的 provider 標 `SKIP` 而非 `FAIL`——「沒鑰匙」與「模型壞了」必須分得開，否則紅燈會失去意義。成本：每個模型一次極短推論（數十 token）。
+
+> **未綁進每顆 PR 的理由**：需要真 credential 與費用，且外部 API 抖動會造成 flaky 紅燈——一個會亂紅的 gate 會訓練人忽略它，比沒有 gate 更糟。
+
 ---
 
 ## 未決事項
