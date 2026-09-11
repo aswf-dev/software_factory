@@ -1,0 +1,62 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 52
+backstage/plugins/README.md
+  h_1b119f25eaf333 41
+backstage/plugins/factory-draft-backend/src/llm.ts
+  h_1b119f25eaf333 21
+backstage/plugins/factory-draft-backend/src/router.ts
+  h_1b119f25eaf333 32
+backstage/versions.md
+  h_1b119f25eaf333 24
+config/dsh/model-tiers.yaml
+  h_1b119f25eaf333 3,12-20,23-26,35,42,44-46,49,63
+config/dsh/pricing.yaml
+  h_1b119f25eaf333 18-23,25-26,31-34
+config/dsh/settings.providers.yaml
+  h_1b119f25eaf333 9-16,28-44
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 455,484-486,490,500
+docs/10-open-questions.md
+  h_1b119f25eaf333 169
+docs/13-phase1-acceptance.md
+  h_1b119f25eaf333 61
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 12,16-24,29,41,43,45,55,64
+src/cli/dry-run-agent.ts
+  h_1b119f25eaf333 77,84,90
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 159,161,167
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 196,213
+src/cli/factory-model-mutation.test.ts
+  h_1b119f25eaf333 16,21,98,102,114
+src/cli/factory-model.test.ts
+  h_1b119f25eaf333 31,35,161,192
+src/cli/factory-usage-mutation.test.ts
+  h_1b119f25eaf333 32,59,70,81,113
+src/cli/factory-usage.test.ts
+  h_1b119f25eaf333 61,123,130,143-144,151,159,169
+src/model-tier/resolve.test.ts
+  h_1b119f25eaf333 33,41,70,74,119,172,177-178,229,232,235,239-240,256,259,273,276,287,290,293
+src/model-tier/resolve.ts
+  h_1b119f25eaf333 251
+src/usage/aggregate.test.ts
+  h_1b119f25eaf333 30,39,47,58,69,79,91,98,110,112,141,147,153
+src/usage/render.test.ts
+  h_1b119f25eaf333 14,18,28,40,59,64,70,81,105,124,170
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 874,881-883,902,907-909,913,920,938-969,1048-1051
+test/integration/factory-model-cli.test.ts
+  h_1b119f25eaf333 62,78,102,108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "af8b31297428d3790aa8ea1728beef98e7180da3",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
