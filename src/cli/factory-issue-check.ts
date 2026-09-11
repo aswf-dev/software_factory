@@ -28,6 +28,7 @@ import { load } from 'js-yaml'
 import { minimatch } from 'minimatch'
 import { analyzeComplexity, type ComplexityAnalysis } from '../issue-analysis/complexity.js'
 import {
+  CRITICAL_MIN_TOTAL,
   loadDeclaredProviders,
   loadTiers,
   resolveModelTier,
@@ -391,6 +392,17 @@ export interface ModelRecommendation {
   selected: ModelEntry
   chain: readonly ModelEntry[]
   reason: string
+  /**
+   * critical tier 的 primary（來自 model-tiers.yaml，非硬編碼）。
+   *
+   * 本檢查流程**不計分**（計分屬 factory-run 的 Initial score 步驟），因此
+   * `resolveModelTier` 的 critical 升級分支在此不可達，建議天花板永遠是 high。
+   * 但 factory-run 會傳入計分，複雜度 high 且總分 ≥ CRITICAL_MIN_TOTAL 時會升級
+   * 為 critical——留言必須誠實揭露這個差異，否則人看到的建議與實際執行不符
+   * （2026-09-11 實測：fubon-tradingbot#611 留言 deepseek-flash、實跑 opus-5）。
+   * 有值時才輸出揭露行；由 tiers 設定供給，設定改了揭露文字就跟著改。
+   */
+  criticalPrimary?: ModelEntry | undefined
 }
 
 /** 從表單 body 抽取欄位值：`### <欄位標題>\n\n<值>`（值為首個非空段落）。 */
@@ -465,6 +477,17 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
       `🤖 **建議模型**：${recommendation.selected.provider}/${recommendation.selected.model}` +
         `（${recommendation.tier} tier；fallback: ${fallback}）`,
     )
+    // 誠實揭露：本流程不計分，故建議天花板為 high；實跑會加上初始計分，
+    // 複雜度 high 且總分 ≥ CRITICAL_MIN_TOTAL 會升級為 critical（較貴的旗艦）。
+    // 只在「真的可能被升級」時提示（tier=high 且 critical 有宣告 primary）。
+    if (recommendation.tier === 'high' && recommendation.criticalPrimary !== undefined) {
+      const c = recommendation.criticalPrimary
+      lines.push(
+        `⚠️ **實際執行可能升級**：本檢查不含計分，故建議止於 high。` +
+          `Factory Run 會先做初始計分，若總分 ≥ ${CRITICAL_MIN_TOTAL} 則升級為 critical` +
+          `（${c.provider}/${c.model}），成本較高。實際路由以執行紀錄的 \`model.json\` 為準。`,
+      )
+    }
   }
   if (!r.dod.specific) {
     lines.push(...buildDodSpecificityHint(r.dod))
@@ -558,6 +581,8 @@ export function main(
     selected: resolution.selected,
     chain: resolution.chain,
     reason: resolution.reason,
+    // 由設定供給（非硬編碼）：critical tier 若未宣告則不輸出揭露行。
+    criticalPrimary: tiers.critical?.primary,
   }
   return { issueNumber, result, comment: buildCheckComment(result, recommendation) }
 }
