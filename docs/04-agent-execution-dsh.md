@@ -503,7 +503,9 @@ critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（rev
 
 1. **Select model tier 步驟**（Initial score 後、agent 前；零 LLM 成本）：`gh issue view --json body` → `factory-model` CLI → `.factory/model.json`（含 `tier`/`reason`/`chain`）。
 2. **agent 步驟**：以 `jq -c '.chain[]'` 迭代 chain，每項把 `agent-default-model: {provider, model[, reasoningEffort]}` 寫入 `$HOME/.dsh/settings.yaml` 後跑 dsh。**provider 層失敗**（`RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL`）沿 chain fallback；**任務層失敗不重試**（§4.2 不變）。
-3. **factory-issue-check 留言**同步回報：格式合規 ＋ 📊 複雜度分析（等級＋判據）＋ 🤖 建議模型（tier＋primary＋fallback）。留言建議與實際路由共用同一解析核心，永不打架。
+3. **factory-issue-check 留言**同步回報：格式合規 ＋ 📊 複雜度分析（等級＋判據）＋ 🤖 建議模型（tier＋primary＋fallback）。留言與實際路由共用同一解析核心（邏輯一致），但**輸入不同**：留言階段**不計分**，故 tier 天花板為 high；factory-run 會加上初始計分，複雜度 high 且總分 ≥ 4 時升級為 critical。因此 tier=high 時留言會多一行 **⚠️ 實際執行可能升級**（指名 critical 模型與門檻，取自 `model-tiers.yaml`）。實際路由以 `.factory/model.json` 為準。
+
+   > **誠實揭露（2026-09-11 修正）**：本節原稱兩者「永不打架」——不成立。實測 [fubon-tradingbot#611](https://github.com/philipz/fubon-tradingbot/issues/611#issuecomment-5632704780) 留言 `deepseek-flash`、實跑 `claude-opus-5`。又因 `total ≥ 5` 即 in-loop（agent 不啟動），critical 實際上只在**恰好 4 分**時觸發。
 
 ### 7.4 手動覆寫
 

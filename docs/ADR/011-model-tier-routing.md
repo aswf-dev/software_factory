@@ -27,7 +27,13 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 
 1. **複雜度訊號：啟發式分析，零 LLM 成本**。新模組 `src/issue-analysis/complexity.ts` 把 docs/06 §3.3 的客觀判準（低=單一檔案/模組；中=跨數模組；高=跨服務/新架構/共用抽象）機械化為決定性的關鍵字/計數規則，讀 Issue body 的任務類型＋需求四段文字，輸出 `{complexity, score, evidence}`。每條判據進 `evidence` 給人看。**fail-safe 方向為 high**（需求缺失/不可分析 → 最強適用模型；不可知 ⇒ 不降級）。
 2. **模型分級：`config/dsh/model-tiers.yaml`**。每個 tier 宣告 `primary`＋`fallback` chain（`{provider, model[, reasoningEffort]}`）。用戶優先序由對抗性測試釘住：low/medium=`qwen3.8-flash`、high=`deepseek-flash`（2026-09-11 起；原 `deepseek-v4-pro`）、**critical=`claude-opus-5`（fable-5 已移除）**；sonnet 僅作 fallback（品質擔保，正常不走）。
-3. **單一解析核心：`src/model-tier/resolve.ts`**。解析順序：手動 `--tier` ＞ Issue 需求分析 ＞ catalog 標註（`factory.io/complexity`）＞ fail-safe high。**critical 額外條件**：分析為 high 且 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動故不耗模型）。`factory-model` CLI 與 `factory-issue-check` 共用此核心——留言建議與實際路由永不打架。
+3. **單一解析核心：`src/model-tier/resolve.ts`**。解析順序：手動 `--tier` ＞ Issue 需求分析 ＞ catalog 標註（`factory.io/complexity`）＞ fail-safe high。**critical 額外條件**：分析為 high 且 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動故不耗模型）。`factory-model` CLI 與 `factory-issue-check` 共用此核心——**邏輯**一致，無第二套規則可漂移。
+
+   > **修正（2026-09-11）**：本條原寫「留言建議與實際路由永不打架」，**這是錯的**。兩者共用核心但**輸入不同**：`factory-issue-check` 是零 LLM 成本的開單即時檢查，**不做計分**（計分是 factory-run 的 Initial score 步驟），故傳入的 `scoreTotal` 為 undefined，critical 升級分支在該路徑**結構上不可達**——留言的 tier 天花板永遠是 high。實測案例：[fubon-tradingbot#611](https://github.com/philipz/fubon-tradingbot/issues/611#issuecomment-5632704780) 留言建議 `deepseek/deepseek-flash`（high），實跑為 `anthropic/claude-opus-5`（critical）。
+   >
+   > 另注意觸發區間極窄：`total ≥ 5` 會落入 in-loop（agent 不啟動），故 **critical 實際上只有「恰好 4 分」會觸發**——即 review 區間的最上緣。
+   >
+   > 處置（2026-09-11 用戶裁決）：**改留言措辭**——tier 為 high 且設定有 critical primary 時，留言附一行揭露「實跑若計分 ≥ 4 會升級為 critical（含該模型名，取自設定非硬編碼）」。未採「留言也計分」（會讓零成本檢查變重並依賴 catalog 三軸資料）。
 4. **接線**：
    - `factory-run.yml` 新增「Select model tier」步驟（`gh issue view --json body` ＋ `factory-model` CLI → `.factory/model.json`）；agent 步驟改為沿 `model.json` 的 chain 迭代（`jq -c '.chain[]'`），每項重寫 `agent-default-model` 後跑 dsh；**provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback，任務層失敗不重試**（docs/02 §6 不變）。
    - `factory-issue-check` 留言擴充為三行：格式合規 ＋ 📊 複雜度分析（等級＋判據）＋ 🤖 建議模型（tier＋primary＋fallback）。
