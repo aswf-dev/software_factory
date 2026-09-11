@@ -171,6 +171,53 @@ describe('buildCheckComment', () => {
   it('無建議模型 → 不出 🤖 行', () => {
     expect(buildCheckComment(checkIssue(COMPLIANT))).not.toContain('🤖')
   })
+
+  /**
+   * 2026-09-11 實測缺陷：留言說 deepseek-flash（high），factory-run 實跑 opus-5
+   * （critical）——因為本檢查不計分，critical 升級分支在此不可達。留言必須揭露，
+   * 否則人看到的建議與實際執行不符（見 fubon-tradingbot#611、ADR-011）。
+   */
+  describe('critical 升級揭露（留言與實跑可能不一致）', () => {
+    const highRec = {
+      tier: 'high' as const,
+      selected: { provider: 'deepseek', model: 'deepseek-flash' },
+      chain: [{ provider: 'deepseek', model: 'deepseek-flash' }],
+      reason: 'Issue 需求分析：high',
+      criticalPrimary: { provider: 'anthropic', model: 'claude-opus-5' },
+    }
+
+    it('tier=high 且有 criticalPrimary → 揭露可能升級，並指名 critical 模型與門檻', () => {
+      const c = buildCheckComment(checkIssue(COMPLIANT), highRec)
+      expect(c).toContain('⚠️ **實際執行可能升級**')
+      expect(c).toContain('anthropic/claude-opus-5')
+      expect(c).toContain('≥ 4') // CRITICAL_MIN_TOTAL：只講「可能升級」卻不給判準等於沒說
+    })
+
+    it('critical 模型名取自設定而非硬編碼（換模型 → 揭露文字跟著換）', () => {
+      const c = buildCheckComment(checkIssue(COMPLIANT), {
+        ...highRec,
+        criticalPrimary: { provider: 'acme', model: 'future-flagship-9' },
+      })
+      expect(c).toContain('acme/future-flagship-9')
+      expect(c).not.toContain('claude-opus-5')
+    })
+
+    it('tier=low → 不揭露（low/medium 永遠不會被升級為 critical）', () => {
+      const c = buildCheckComment(checkIssue(COMPLIANT), { ...highRec, tier: 'low' })
+      expect(c).not.toContain('實際執行可能升級')
+    })
+
+    it('tier=critical → 不揭露（已是最高 tier，無可升級）', () => {
+      const c = buildCheckComment(checkIssue(COMPLIANT), { ...highRec, tier: 'critical' })
+      expect(c).not.toContain('實際執行可能升級')
+    })
+
+    it('未宣告 critical tier → 不揭露（不得憑空宣稱升級到不存在的 tier）', () => {
+      const { criticalPrimary: _omit, ...noCritical } = highRec
+      const c = buildCheckComment(checkIssue(COMPLIANT), noCritical)
+      expect(c).not.toContain('實際執行可能升級')
+    })
+  })
 })
 
 describe('parseCheckArgs', () => {
