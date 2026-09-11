@@ -11,11 +11,11 @@ function usageChunk(turn: number, step: number, usage: Record<string, number>): 
 const route = (provider: string, model: string): string =>
   `${JSON.stringify({ type: 'request/context', data: { provider, model, contextWindow: 1000 } })}\n`
 
-/** 單一 session log input（deepseek-v4.1-flash 兩步）。 */
+/** 單一 session log input（deepseek-flash 兩步）。 */
 const deepseekSession: SessionLogInput = {
   path: 's1',
   text:
-    route('deepseek-official', 'deepseek-v4.1-flash') +
+    route('deepseek-official', 'deepseek-flash') +
     usageChunk(1, 1, { inputTokens: 100_000, outputTokens: 10_000 }) +
     usageChunk(1, 2, { inputTokens: 50_000, outputTokens: 5_000, cacheReadTokens: 20_000 }),
 }
@@ -25,7 +25,7 @@ const PRICING_REF = 'config/dsh/pricing.yaml'
 describe('buildUsageReport', () => {
   it('routes 全空（session 有 log 但無 usage 樣本）→ costUsd undefined、priced 0、渲染 $0.00', () => {
     const usage = foldSessionLogs([{ path: 's0', text: '{"type":"session","version":0,"id":"s","createdAt":1,"cwd":"/x"}\n' }])
-    const pricing = new Map([['deepseek-v4.1-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28 }]])
+    const pricing = new Map([['deepseek-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28 }]])
     const report = buildUsageReport(usage, pricing, PRICING_REF, '2026-09-02T00:00:00.000Z')
     expect(report.totals.totalTokens).toBe(0)
     expect(report.totals.costUsd).toBeUndefined()
@@ -37,7 +37,7 @@ describe('buildUsageReport', () => {
   it('全部 route 有定價 → totals.costUsd = 加總', () => {
     const usage = foldSessionLogs([deepseekSession])
     const pricing = new Map([
-      ['deepseek-v4.1-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28 }],
+      ['deepseek-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28 }],
     ])
     const report = buildUsageReport(usage, pricing, PRICING_REF, '2026-09-02T00:00:00.000Z')
     // input 150k * 0.14/1e6 + output 15k * 0.28/1e6 = 0.021 + 0.0042
@@ -56,18 +56,18 @@ describe('buildUsageReport', () => {
         text: route('anthropic', 'claude-opus-5') + usageChunk(1, 1, { inputTokens: 1_000_000, outputTokens: 100_000 }),
       },
     ])
-    const pricing = new Map([['deepseek-v4.1-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28 }]])
+    const pricing = new Map([['deepseek-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28 }]])
     const report = buildUsageReport(usage, pricing, PRICING_REF, '2026-09-02T00:00:00.000Z')
     expect(report.totals.costUsd).toBeUndefined()
     expect(report.totals.unpricedModels).toEqual(['claude-opus-5'])
     expect(report.routes.find((r) => r.model === 'claude-opus-5')?.costUsd).toBeUndefined()
-    expect(report.routes.find((r) => r.model === 'deepseek-v4.1-flash')?.costUsd).toBeDefined()
+    expect(report.routes.find((r) => r.model === 'deepseek-flash')?.costUsd).toBeDefined()
   })
 
   it('cacheRead 有定價 → 計入金額；cacheReadUnpriced false', () => {
     const usage = foldSessionLogs([deepseekSession])
     const pricing = new Map([
-      ['deepseek-v4.1-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28, cacheReadUsdPerMTok: 0.014 }],
+      ['deepseek-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28, cacheReadUsdPerMTok: 0.014 }],
     ])
     const report = buildUsageReport(usage, pricing, PRICING_REF, '2026-09-02T00:00:00.000Z')
     expect(report.totals.cacheReadUnpriced).toBe(false)
@@ -78,7 +78,7 @@ describe('buildUsageReport', () => {
   it('cacheRead>0 但無 cacheRead 定價 → 金額不含 cacheRead 且標 cacheReadUnpriced', () => {
     const usage = foldSessionLogs([deepseekSession])
     const pricing = new Map([
-      ['deepseek-v4.1-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28 }],
+      ['deepseek-flash', { inputUsdPerMTok: 0.14, outputUsdPerMTok: 0.28 }],
     ])
     const report = buildUsageReport(usage, pricing, PRICING_REF, '2026-09-02T00:00:00.000Z')
     expect(report.totals.cacheReadUnpriced).toBe(true)
@@ -102,7 +102,7 @@ describe('renderUsageMarkdown', () => {
       },
       routes: Array.from({ length: opts.routes ?? 1 }, () => ({
         provider: 'deepseek-official',
-        model: 'deepseek-v4.1-flash',
+        model: 'deepseek-flash',
         inputTokens: 150_000,
         outputTokens: 15_000,
         cacheReadTokens: 20_000,
@@ -121,7 +121,7 @@ describe('renderUsageMarkdown', () => {
     const md = renderUsageMarkdown(reportWith(0.0252))
     expect(md).toContain('185,000')
     expect(md).toContain('USD $0.025')
-    expect(md).toContain('deepseek-v4.1-flash')
+    expect(md).toContain('deepseek-flash')
     expect(md).toContain('非 agent 自報')
   })
 
@@ -167,7 +167,7 @@ describe('lookupPricing 整合（防 drift）', () => {
     const { loadPricing } = await import('./pricing.js')
     const { readFileSync } = await import('node:fs')
     const table = loadPricing(new URL('../../config/dsh/pricing.yaml', import.meta.url).pathname)
-    expect(lookupPricing(table, 'deepseek-v4.1-flash')).toBeDefined()
+    expect(lookupPricing(table, 'deepseek-flash')).toBeDefined()
     expect(lookupPricing(table, 'qwen3.8-flash')).toBeDefined()
     expect(lookupPricing(table, 'claude-opus-5')).toBeDefined()
     expect(lookupPricing(table, 'no-such-model')).toBeUndefined()

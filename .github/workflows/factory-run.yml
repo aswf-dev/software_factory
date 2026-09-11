@@ -49,7 +49,7 @@ on:
         options: [success, blocked, guardrail]
         default: success
       model_tier:
-        description: 模型 tier（auto＝依 Issue 複雜度自動選擇；low/medium→qwen3.8-flash、high→deepseek-v4.1-flash、critical→claude-opus-5，ADR-011）
+        description: 模型 tier（auto＝依 Issue 複雜度自動選擇；low/medium→qwen3.8-flash、high→deepseek-flash、critical→claude-opus-5，ADR-011）
         required: false
         type: choice
         options: [auto, low, medium, high, critical]
