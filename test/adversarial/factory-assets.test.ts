@@ -871,16 +871,16 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     })['llm-pi-ai'].providers,
   )
 
-  it('用戶模型優先序：low/medium=qwen3.8-flash（2026-08-27 起為預設）、high=v4.1-flash、critical=opus-5', () => {
+  it('用戶模型優先序：low/medium=qwen3.8-flash（2026-08-27 起為預設）、high=deepseek-flash、critical=opus-5', () => {
     expect(tiers.low.primary.provider).toBe('qwen')
     expect(tiers.low.primary.model).toBe('qwen3.8-flash')
     expect(tiers.medium.primary.provider).toBe('qwen')
     expect(tiers.medium.primary.model).toBe('qwen3.8-flash')
     // 原預設 deepseek-v4-flash 退居 low/medium fallback（跨 provider failover，Q04-8）；
     // 2026-09-11 起該 deepseek fallback 為 v4.1-flash。
-    expect(tiers.low.fallback.map((e) => e.model)).toContain('deepseek-v4.1-flash')
-    expect(tiers.medium.fallback.map((e) => e.model)).toContain('deepseek-v4.1-flash')
-    expect(tiers.high.primary.model).toBe('deepseek-v4.1-flash')
+    expect(tiers.low.fallback.map((e) => e.model)).toContain('deepseek-flash')
+    expect(tiers.medium.fallback.map((e) => e.model)).toContain('deepseek-flash')
+    expect(tiers.high.primary.model).toBe('deepseek-flash')
     expect(tiers.critical).toBeDefined() // critical tier 必備（最高 tier 的出口）
     expect(tiers.critical?.primary.model).toBe('claude-opus-5')
     expect(tiers.critical?.primary.provider).toBe('anthropic')
@@ -899,22 +899,25 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
   it('deepseek V4 舊 id 已汰換（2026-09-11 用戶裁決）——任何 tier 不得引用 v4-flash/v4-pro', () => {
     // DeepSeek 官方公告：V4.1 Flash 於 2026-09-10 12:00（北京時間）發布，各項指標
     // 全面超越 V4 Pro；V4.1 Pro 上線前 V4 Pro 請求全部路由至 V4.1 Flash 並按其單價計費。
-    // → deepseek-v4-flash 與 deepseek-v4-pro 一律改為 deepseek-v4.1-flash。
+    // → deepseek-v4-flash 與 deepseek-v4-pro 一律改為 deepseek-flash。
     for (const [id, t] of Object.entries(tiers)) {
       const models = [t.primary, ...t.fallback].map((e) => e.model)
       expect(models, `tier ${id} 不得含已汰換的 deepseek-v4-flash`).not.toContain('deepseek-v4-flash')
       expect(models, `tier ${id} 不得含已汰換的 deepseek-v4-pro`).not.toContain('deepseek-v4-pro')
+      // deepseek-v4.1-flash 是不存在的 id（API 回 HTTP 400：supported names are
+      // deepseek-flash, deepseek-v4-pro）——曾誤用，釘住避免回潮。
+      expect(models, `tier ${id} 含不存在的 id deepseek-v4.1-flash`).not.toContain('deepseek-v4.1-flash')
     }
   })
 
-  it('critical tier：primary = claude-opus-5、fallback 由 deepseek-v4.1-flash 起（fable 已移除）', () => {
+  it('critical tier：primary = claude-opus-5、fallback 由 deepseek-flash 起（fable 已移除）', () => {
     // 2026-08-28 用戶裁決：fable-5 需額外 credit（實測 run #33175623064 無法使用）
     // → 移除 fable-5，critical 預設改為同代旗艦 claude-opus-5。
     const critical = tiers.critical
     expect(critical).toBeDefined()
     expect(critical?.primary.model).toBe('claude-opus-5')
     expect(critical?.primary.provider).toBe('anthropic')
-    expect(critical?.fallback[0]?.model).toBe('deepseek-v4.1-flash')
+    expect(critical?.fallback[0]?.model).toBe('deepseek-flash')
   })
 
   it('每個 tier 有 primary 與非空 fallback（provider 層失敗必須可 fallback）', () => {
@@ -930,6 +933,38 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
         expect(providers, `tier ${id} provider ${e.provider}`).toContain(e.provider)
       }
     }
+  })
+
+  it('手動宣告 models 的 route：chain 引用的每個 model 都必須在該清單內（UNKNOWN_MODEL 防線）', () => {
+    // 2026-09-11 實測教訓：`deepseek-flash` 不在 pi-ai 0.85.1 內建 catalog，
+    // 若 route 未明列該 model，DSH 會以 UNKNOWN_MODEL 失敗（整條 chain 當場作廢）。
+    // pi-ai 語意：route 一旦有 models 清單，該清單即「取代」內建 catalog——
+    // 因此清單漏列 = 執行期紅燈。本測試把這個對應關係釘在 CI，不靠人工記得。
+    const providerDefs = (
+      load(read('config/dsh/settings.providers.yaml')) as {
+        'llm-pi-ai': { providers: Record<string, { models?: { id: string }[] }> }
+      }
+    )['llm-pi-ai'].providers
+    for (const [id, t] of Object.entries(tiers)) {
+      for (const e of [t.primary, ...t.fallback]) {
+        const declared = providerDefs[e.provider]?.models
+        if (declared === undefined) continue // 無 models 清單 ⇒ 沿用 pi-ai 內建 catalog
+        expect(
+          declared.map((m) => m.id),
+          `tier ${id} 的 ${e.provider}/${e.model} 未列於 settings.providers.yaml 的 models ` +
+            `清單；該 route 已手動宣告 models（會取代內建 catalog），漏列會在執行期 UNKNOWN_MODEL`,
+        ).toContain(e.model)
+      }
+    }
+  })
+
+  it('deepseek route 明列 deepseek-flash（pi-ai catalog 尚未收錄，2026-09-11）', () => {
+    const s = read('config/dsh/settings.providers.yaml')
+    expect(s).toContain('id: deepseek-flash')
+    expect(s).toContain('baseURL: https://api.deepseek.com')
+    // 官方唯一有效的 V4.1 Flash id 是 deepseek-flash；deepseek-v4.1-flash 不存在
+    // （API 回 HTTP 400），曾誤用，故在此釘死避免回潮。
+    expect(s).not.toContain('deepseek-v4.1-flash')
   })
 
   it('qwen route 指向 QwenCloud 國際端點（dashscope-intl，2026-08-28 修正 401）', () => {
@@ -1010,10 +1045,10 @@ describe('用量與成本契約（docs/04 §5、docs/08 §2.3、docs/ADR/011）'
   it('定價數值與 ADR-011 表一致（qwen3.8-flash $0.15/0.47 等）', () => {
     expect(pricing['qwen3.8-flash']?.inputUsdPerMTok).toBe(0.15)
     expect(pricing['qwen3.8-flash']?.outputUsdPerMTok).toBe(0.47)
-    // deepseek-v4.1-flash：2026-09-10 生效的官方公告價，取高峰時段（2 元 / 8 元）
-    // 以 1 USD = 7.1 CNY 換算（保守估算，不低估成本）。
-    expect(pricing['deepseek-v4.1-flash']?.inputUsdPerMTok).toBe(0.282)
-    expect(pricing['deepseek-v4.1-flash']?.outputUsdPerMTok).toBe(1.127)
+    // deepseek-flash：官方定價頁直接以 USD 公布（無匯率假設），取高峰時段價
+    // （空閒為半價）：input $0.30 / output $1.20 / cacheRead $0.006。
+    expect(pricing['deepseek-flash']?.inputUsdPerMTok).toBe(0.3)
+    expect(pricing['deepseek-flash']?.outputUsdPerMTok).toBe(1.2)
     expect(pricing['claude-opus-5']?.inputUsdPerMTok).toBe(5)
     expect(pricing['claude-opus-5']?.outputUsdPerMTok).toBe(25)
   })

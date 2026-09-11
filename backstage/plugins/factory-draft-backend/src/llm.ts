@@ -18,7 +18,7 @@ export interface CallDeepSeekOptions {
 export const LLM_TIMEOUT_MS = 90_000
 
 /**
- * 完成 token 預算。deepseek-v4.1-flash 是 reasoning 模型——預算由思考
+ * 完成 token 預算。deepseek-flash 是 reasoning 模型——預算由思考
  * （reasoning_content）與最終內容共用；2000 在複雜輸入下會被思考吃光 →
  * content 空白 + finish_reason=length（2026-08-22 實測）。
  * 8000 對草稿 JSON（實測 usage 約 2900）餘裕充足。

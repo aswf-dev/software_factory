@@ -30,7 +30,7 @@ const TIERS: TierPolicies = {
     fallback: [{ provider: 'qwen', model: 'qwen3.7-flash' }],
   },
   high: {
-    primary: { provider: 'deepseek', model: 'deepseek-v4.1-flash' },
+    primary: { provider: 'deepseek', model: 'deepseek-flash' },
     fallback: [
       { provider: 'anthropic', model: 'claude-sonnet-5' },
       { provider: 'qwen', model: 'qwen3.7-flash' },
@@ -38,7 +38,7 @@ const TIERS: TierPolicies = {
   },
   critical: {
     primary: { provider: 'anthropic', model: 'claude-opus-5' },
-    fallback: [{ provider: 'deepseek', model: 'deepseek-v4.1-flash' }],
+    fallback: [{ provider: 'deepseek', model: 'deepseek-flash' }],
   },
 }
 
@@ -67,11 +67,11 @@ describe('resolveModelTier — 自動路徑解析順序', () => {
     expect(r.complexitySource).toBe('catalog')
   })
 
-  it('無分析且 catalog 未標註 → fail-safe high（deepseek-v4.1-flash，不誤燒旗艦成本）', () => {
+  it('無分析且 catalog 未標註 → fail-safe high（deepseek-flash，不誤燒旗艦成本）', () => {
     const r = resolveModelTier({ tiers: TIERS, declaredProviders: PROVIDERS })
     expect(r.tier).toBe('high')
     expect(r.complexitySource).toBe('fail-safe')
-    expect(r.selected.model).toBe('deepseek-v4.1-flash')
+    expect(r.selected.model).toBe('deepseek-flash')
   })
 
   it('無分析且 catalog 非法值 → fail-safe high', () => {
@@ -116,7 +116,7 @@ describe('resolveModelTier — critical 升級條件', () => {
       scoreTotal: 3,
     })
     expect(r.tier).toBe('high')
-    expect(r.selected.model).toBe('deepseek-v4.1-flash')
+    expect(r.selected.model).toBe('deepseek-flash')
   })
 
   it('無 scoreTotal（檢查留言路徑）→ 不觸發 critical', () => {
@@ -169,13 +169,13 @@ describe('buildChain — 偏好 provider 過濾', () => {
   it('偏好 provider → 置前，其餘依序', () => {
     const chain = buildChain(TIERS.high, 'anthropic', PROVIDERS)
     expect(chain.map((e) => e.provider)).toEqual(['anthropic', 'deepseek', 'qwen'])
-    expect(chain.map((e) => e.model)).toEqual(['claude-sonnet-5', 'deepseek-v4.1-flash', 'qwen3.7-flash'])
+    expect(chain.map((e) => e.model)).toEqual(['claude-sonnet-5', 'deepseek-flash', 'qwen3.7-flash'])
   })
 
   it('重複項目去重（保留第一個）', () => {
     const policy = {
-      primary: { provider: 'deepseek', model: 'deepseek-v4.1-flash' },
-      fallback: [{ provider: 'deepseek', model: 'deepseek-v4.1-flash' }],
+      primary: { provider: 'deepseek', model: 'deepseek-flash' },
+      fallback: [{ provider: 'deepseek', model: 'deepseek-flash' }],
     }
     const chain = buildChain(policy, undefined, PROVIDERS)
     expect(chain).toHaveLength(1)
@@ -226,18 +226,18 @@ describe('loadTiers / loadDeclaredProviders（檔案載入）', () => {
       'tiers.yml',
       'tiers:',
       '  low:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
       '  medium:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
       '  high:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }]',
     )
     const tiers = loadTiers(p, ['deepseek', 'qwen', 'anthropic'])
-    expect(tiers.low.primary.model).toBe('deepseek-v4.1-flash')
-    expect(tiers.high.primary.model).toBe('deepseek-v4.1-flash')
+    expect(tiers.low.primary.model).toBe('deepseek-flash')
+    expect(tiers.high.primary.model).toBe('deepseek-flash')
   })
 
   it('缺 low/medium/high → CliError（auto 路徑必需）', () => {
@@ -253,10 +253,10 @@ describe('loadTiers / loadDeclaredProviders（檔案載入）', () => {
       '    primary: { provider: openai, model: gpt-5 }',
       '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
       '  medium:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
       '  high:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }]',
     )
     expect(() => loadTiers(p, ['deepseek', 'qwen', 'anthropic'])).toThrow(CliError)
@@ -270,10 +270,10 @@ describe('loadTiers / loadDeclaredProviders（檔案載入）', () => {
       '    primary: { provider: deepseek }',
       '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
       '  medium:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
       '  high:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }]',
     )
     expect(() => loadTiers(p, ['deepseek', 'qwen', 'anthropic'])).toThrow(CliError)
@@ -284,13 +284,13 @@ describe('loadTiers / loadDeclaredProviders（檔案載入）', () => {
       'empty-fallback.yml',
       'tiers:',
       '  low:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: []',
       '  medium:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
       '  high:',
-      '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+      '    primary: { provider: deepseek, model: deepseek-flash }',
       '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }]',
     )
     expect(() => loadTiers(p, ['deepseek', 'qwen', 'anthropic'])).toThrow(CliError)

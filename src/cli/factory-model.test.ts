@@ -28,11 +28,11 @@ function tiersYaml(): string {
     '    primary: { provider: deepseek, model: tier-medium-model }',
     '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
     '  high:',
-    '    primary: { provider: deepseek, model: deepseek-v4.1-flash }',
+    '    primary: { provider: deepseek, model: deepseek-flash }',
     '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }, { provider: qwen, model: qwen3.7-flash }]',
     '  critical:',
     '    primary: { provider: anthropic, model: claude-opus-5 }',
-    '    fallback: [{ provider: deepseek, model: deepseek-v4.1-flash }]',
+    '    fallback: [{ provider: deepseek, model: deepseek-flash }]',
     '',
   ].join('\n')
 }
@@ -158,7 +158,7 @@ describe('main — 自動解析', () => {
     ])
     expect(r.tier).toBe('critical')
     expect(r.selected.model).toBe('claude-opus-5')
-    expect(r.chain.map((e) => e.model)).toEqual(['claude-opus-5', 'deepseek-v4.1-flash'])
+    expect(r.chain.map((e) => e.model)).toEqual(['claude-opus-5', 'deepseek-flash'])
   })
 
   it('無 --issue → catalog fallback（medium → medium tier）', () => {
@@ -189,7 +189,7 @@ describe('main — 自動解析', () => {
       providersPath,
     ])
     expect(r.tier).toBe('high')
-    expect(r.selected.model).toBe('deepseek-v4.1-flash')
+    expect(r.selected.model).toBe('deepseek-flash')
   })
 })
 
