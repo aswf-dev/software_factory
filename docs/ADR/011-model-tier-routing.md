@@ -9,16 +9,24 @@
 
 factory-run 目前以固定映射挑模型：`model_provider` input 選 provider，每種 provider 對應單一 model（`deepseek→deepseek-v4-flash`、`qwen→qwen3.7-flash`、`anthropic→claude-sonnet-4-5`），寫入 DSH settings 的 `agent-default-model` 後跑 `dsh --profile headless`。**所有 Issue 一律同一顆模型，與難度無關**——簡單工作項也用不到最強模型，複雜工作項又缺乏更強模型選項。
 
-需求（用戶裁決，2026-09-11 更新）：依 Issue 需求複雜度選擇對應等級的 LLM——低/中 → `qwen3.8-flash`（2026-08-27 起為預設）、高 → `deepseek-v4.1-flash`、**最高（critical）→ `claude-opus-5`**；sonnet 僅作 fallback。並在 `factory-issue-check`（零 LLM 成本的格式檢查流程）留言中回報複雜度分析與建議模型。
+需求（用戶裁決，2026-09-11 更新）：依 Issue 需求複雜度選擇對應等級的 LLM——低/中 → `qwen3.8-flash`（2026-08-27 起為預設）、高 → `deepseek-flash`、**最高（critical）→ `claude-opus-5`**；sonnet 僅作 fallback。並在 `factory-issue-check`（零 LLM 成本的格式檢查流程）留言中回報複雜度分析與建議模型。
 
 > **2026-08-28 裁決（取代先前「只有最高才用 fable」）**：`claude-fable-5` 需額外 credit（帳號方案未包含；實測 run #33175623064 無法使用）——**移除 fable-5**，critical 預設改為同代旗艦 `claude-opus-5`（$5/25、1M ctx、支援 xhigh/max thinking）。
 
-> **2026-09-11 裁決（DeepSeek V4 系列汰換）**：DeepSeek 官方公告 `V4.1 Flash` 於 2026-09-10 12:00（北京時間）正式發布，宣告「在性能、費用、速度、總用時等各項指標上全面超越 V4 Pro」，並在 `V4.1 Pro` 上線前**將 V4 Pro 的請求全部路由至 V4.1 Flash、按 V4.1 Flash 單價計費**。因此 `deepseek-v4-flash` 與 `deepseek-v4-pro` 一律改為 **`deepseek-v4.1-flash`**：low/medium 的 deepseek fallback 與 high 的 primary 現為同一顆模型（官方端本就會如此路由，明寫新 id 才與實際計費模型一致）。
+> **2026-09-11 裁決（DeepSeek V4 系列汰換）**：DeepSeek 於 2026-09-10 發布 `DeepSeek-V4.1-Flash`，宣告「在性能、費用、速度、總用時等各項指標上全面超越 V4 Pro」。依官方 API 文件（[Change Log](https://api-docs.deepseek.com/updates/)、[Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing)）：
+>
+> - 新模型 id 為 **`deepseek-flash`**（官方原文：*Use `deepseek-flash` as the model name*）；
+> - 舊名 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` **已退役**，僅保留相容轉送至 V4.1 Flash；
+> - 自 **2026-09-14 12:00（北京時間）**起至 `V4.1 Pro` 發布前，`deepseek-v4-pro` 的請求全部路由至 V4.1 Flash 並按其單價計費。
+>
+> 因此 `deepseek-v4-flash` 與 `deepseek-v4-pro` 一律改為 **`deepseek-flash`**：low/medium 的 deepseek fallback 與 high 的 primary 現為同一顆模型（官方端本就會如此路由，明寫新 id 才與實際計費模型一致）。
+>
+> ⚠️ **實測修正**：`deepseek-v4.1-flash` 是**不存在的 id**——DeepSeek API 回 `HTTP 400: The supported API model names are deepseek-flash, deepseek-v4-pro`。此外 `deepseek-flash` **不在 pi-ai 0.85.1（現行最新）的內建 catalog** 內，直接使用會被 DSH 以 `UNKNOWN_MODEL` 擋下；故 `config/dsh/settings.providers.yaml` 的 deepseek route 改為**手動宣告 models**（該檔已註明：models 清單會取代該 route 的內建 catalog，需自行維護 ctx/compat 欄位）。
 
 ## 決策
 
 1. **複雜度訊號：啟發式分析，零 LLM 成本**。新模組 `src/issue-analysis/complexity.ts` 把 docs/06 §3.3 的客觀判準（低=單一檔案/模組；中=跨數模組；高=跨服務/新架構/共用抽象）機械化為決定性的關鍵字/計數規則，讀 Issue body 的任務類型＋需求四段文字，輸出 `{complexity, score, evidence}`。每條判據進 `evidence` 給人看。**fail-safe 方向為 high**（需求缺失/不可分析 → 最強適用模型；不可知 ⇒ 不降級）。
-2. **模型分級：`config/dsh/model-tiers.yaml`**。每個 tier 宣告 `primary`＋`fallback` chain（`{provider, model[, reasoningEffort]}`）。用戶優先序由對抗性測試釘住：low/medium=`qwen3.8-flash`、high=`deepseek-v4.1-flash`（2026-09-11 起；原 `deepseek-v4-pro`）、**critical=`claude-opus-5`（fable-5 已移除）**；sonnet 僅作 fallback（品質擔保，正常不走）。
+2. **模型分級：`config/dsh/model-tiers.yaml`**。每個 tier 宣告 `primary`＋`fallback` chain（`{provider, model[, reasoningEffort]}`）。用戶優先序由對抗性測試釘住：low/medium=`qwen3.8-flash`、high=`deepseek-flash`（2026-09-11 起；原 `deepseek-v4-pro`）、**critical=`claude-opus-5`（fable-5 已移除）**；sonnet 僅作 fallback（品質擔保，正常不走）。
 3. **單一解析核心：`src/model-tier/resolve.ts`**。解析順序：手動 `--tier` ＞ Issue 需求分析 ＞ catalog 標註（`factory.io/complexity`）＞ fail-safe high。**critical 額外條件**：分析為 high 且 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動故不耗模型）。`factory-model` CLI 與 `factory-issue-check` 共用此核心——留言建議與實際路由永不打架。
 4. **接線**：
    - `factory-run.yml` 新增「Select model tier」步驟（`gh issue view --json body` ＋ `factory-model` CLI → `.factory/model.json`）；agent 步驟改為沿 `model.json` 的 chain 迭代（`jq -c '.chain[]'`），每項重寫 `agent-default-model` 後跑 dsh；**provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback，任務層失敗不重試**（docs/02 §6 不變）。
@@ -30,11 +38,11 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 | tier | primary | 成本 | 相較候選 |
 |---|---|---|---|
 | low/medium | qwen3.8-flash（2026-08-27 起） | $0.15/0.47 | 最便宜（deepseek 退居 fallback） |
-| high | deepseek-v4.1-flash（2026-09-11 起） | $0.282/1.127 | ~18× 便宜於 claude-opus-5（$5/25） |
+| high | deepseek-flash（2026-09-11 起） | $0.30/1.20 | ~17× 便宜於 claude-opus-5（$5/25） |
 | critical | claude-opus-5 | $5/25 | 最高 tier；fable-5 已移除（需額外 credit） |
-| fallback | deepseek-v4.1-flash / qwen3.8-flash | — | 品質擔保，正常不走 |
+| fallback | deepseek-flash / qwen3.8-flash | — | 品質擔保，正常不走 |
 
-> **deepseek-v4.1-flash 定價換算**：官方公告為人民幣、且分時段——輸入（快取未命中）空閒 1 元／高峰 2 元、輸出空閒 4 元／高峰 8 元、輸入（快取命中）空閒 0.02 元／高峰 0.04 元；高峰時段＝週一至週五 09:00–12:00、14:00–18:00（北京時間）。本表與 `pricing.yaml` 為單一價格欄位，故採**高峰價**並以 **1 USD = 7.1 CNY** 換算（保守，不低估成本）。誠實揭露：空閒時段實付約為此值的一半，匯率為固定假設值。
+> **deepseek-flash 定價**：官方定價頁**直接以 USD 公布**（無需匯率換算）且**分時段**——輸入（快取未命中）空閒 $0.15／高峰 $0.30、輸出空閒 $0.60／高峰 $1.20、輸入（快取命中）空閒 $0.003／高峰 $0.006；高峰時段＝週一至週五 **01:00–04:00、06:00–10:00（UTC）**，其餘為空閒、價格減半。本表與 `pricing.yaml` 為單一價格欄位，故採**高峰價**（保守，不低估成本）。誠實揭露：空閒時段實付為此值的一半。
 
 > **機器可讀副本**：定價表另有 `config/dsh/pricing.yaml`（`factory-usage` 換算「每工作項成本」
 > 的唯一事實來源，`docs/04` §5.1）。兩處同源，對抗性測試釘住「model-tiers 引用的每個
@@ -44,7 +52,7 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 
 誠實揭露：「deepseek high tier ≈ opus/sonnet 等級」是待 A/B 驗證的假設（非實測對比）；「V4.1 Flash 全面超越 V4 Pro」為 DeepSeek 官方公告說法，本 repo 未做獨立對比驗證。config 為唯一事實來源，`model_tier` 手動覆寫可隨時指定 opus；high tier 的 fallback 不含 opus，避免無謂升級。
 
-> **副作用（2026-09-11 起）**：low/medium 的 deepseek fallback 與 high 的 primary 均為 `deepseek-v4.1-flash`，故 low/medium 的跨 provider failover 與 high 的主路徑落在同一顆模型。這反映官方實際路由行為（V4 Pro 請求本就被導向 V4.1 Flash），非設定錯誤；待 `V4.1 Pro` 上線後可重新拉開 high tier 的層級差。
+> **副作用（2026-09-11 起）**：low/medium 的 deepseek fallback 與 high 的 primary 均為 `deepseek-flash`，故 low/medium 的跨 provider failover 與 high 的主路徑落在同一顆模型。這反映官方實際路由行為（V4 Pro 請求本就被導向 V4.1 Flash），非設定錯誤；待 `V4.1 Pro` 上線後可重新拉開 high tier 的層級差。
 
 ## 後果
 
@@ -53,7 +61,7 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 - 成本匹配能力：簡單工作項不浪費旗艦模型，複雜工作項可用最強模型。
 - 檢查與執行共用同一解析核心：留言建議即實際路由，無第二套邏輯可漂移。
 - 維持零 LLM 成本的格式檢查設計（分析是決定性的啟發式，不是 LLM call）。
-- fail-safe 方向與計分一致：不可知 ⇒ 不降級（high/`deepseek-v4.1-flash`），也不誤燒 opus 旗艦成本。
+- fail-safe 方向與計分一致：不可知 ⇒ 不降級（high/`deepseek-flash`），也不誤燒 opus 旗艦成本。
 
 ### 負面
 

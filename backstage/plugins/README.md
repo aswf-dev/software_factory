@@ -38,7 +38,7 @@ LLM 草稿助手的 Backstage 實作，分三層：
    factoryDraft:
      apiKey: ${DEEPSEEK_API_KEY}     # .env 或環境變數
      baseUrl: https://api.deepseek.com   # 可省略
-     model: deepseek-v4.1-flash          # 可省略（2026-09-10 起 V4 Pro 請求由官方路由至 V4.1 Flash）
+     model: deepseek-flash          # 可省略（2026-09-10 起 V4 Pro 請求由官方路由至 V4.1 Flash）
    ```
    `integrations.github.token: ${GITHUB_TOKEN}`（app-config.yaml 已有）＝ philipz
    PAT（human-initiated dispatch + issues:create 共用）。

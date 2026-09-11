@@ -1,6 +1,6 @@
 # DSH 模型分級路由政策（docs/ADR/011、docs/04 §7）。
 #
-# 依 Issue 複雜度選擇模型 tier（低/中 → qwen3.8-flash（預設）、高 → deepseek-v4.1-flash、
+# 依 Issue 複雜度選擇模型 tier（低/中 → qwen3.8-flash（預設）、高 → deepseek-flash、
 # 最高 critical → claude-opus-5）。每個 tier 的 primary 為首選，fallback
 # 僅在 provider 層失敗（429/credential/UNKNOWN_MODEL）時依序嘗試；任務層失敗
 # 不重試（docs/02 §6）。
@@ -9,15 +9,21 @@
 # 原預設 deepseek-v4-flash 退居 low/medium fallback（跨 provider failover，Q04-8）。
 # 2026-08-28 用戶裁決：claude-fable-5 需額外 credit（帳號方案未包含，實測 run
 # #33175623064 無法使用）——**移除 fable-5**，critical 預設改為同代旗艦 claude-opus-5。
-# 2026-09-11 用戶裁決：DeepSeek 官方公告 V4.1 Flash 於 2026-09-10 12:00（北京時間）
-# 正式發布，並宣告「V4.1 Flash 在性能、費用、速度、總用時等各項指標上全面超越 V4 Pro」，
-# 且在 V4.1 Pro 上線前將 **V4 Pro 的請求全部路由至 V4.1 Flash 並按 V4.1 Flash 單價計費**。
-# 因此 deepseek-v4-flash 與 deepseek-v4-pro 一律改為 **deepseek-v4.1-flash**。
+# 2026-09-11 用戶裁決：DeepSeek 官方 2026-09-10 發布 DeepSeek-V4.1-Flash，宣告
+# 「V4.1 Flash 在性能、費用、速度、總用時等各項指標上全面超越 V4 Pro」。官方 API 文件：
+#   - 新模型 id 為 **`deepseek-flash`**（官方原文：Use `deepseek-flash` as the model name）；
+#   - 舊名 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` **已退役**，僅保留相容轉送；
+#   - 自 2026-09-14 12:00（北京時間）起至 V4.1 Pro 發布前，`deepseek-v4-pro` 的請求
+#     全部路由至 V4.1 Flash 並按 V4.1 Flash 單價計費。
+# 因此 deepseek-v4-flash 與 deepseek-v4-pro 一律改為 **deepseek-flash**。
+# ⚠️ 實測：`deepseek-v4.1-flash` 是**不存在的 id**（API 回 HTTP 400）；且 `deepseek-flash`
+# 不在 pi-ai 0.85.1 內建 catalog，需在 settings.providers.yaml 明列（見該檔說明）。
 #
 # 由 factory-model CLI 讀取（--tiers），並與 config/dsh/settings.providers.yaml
-# 的 provider 宣告互相驗證（對抗性測試釘住：本檔 provider 必須是已宣告 route）。
-# 模型 id 來自 pi-ai catalog（2026-08 查證）；定價（USD/MTok input/output）：
-#   qwen3.8-flash $0.15/0.47、deepseek-v4.1-flash $0.282/1.127（高峰時段，見 pricing.yaml）、
+# 的 provider 宣告互相驗證（對抗性測試釘住：本檔 provider 必須是已宣告 route，
+# 且每個 deepseek/qwen 模型 id 必須在該檔的 models 清單內）。
+# 定價（USD/MTok input/output，官方公布價高峰時段，見 pricing.yaml）：
+#   qwen3.8-flash $0.15/0.47、deepseek-flash $0.30/1.20、
 #   claude-sonnet-5 $2/10、claude-opus-5 $5/25。
 tiers:
   low:
@@ -26,20 +32,21 @@ tiers:
       model: qwen3.8-flash
     fallback:
       - provider: deepseek
-        model: deepseek-v4.1-flash
+        model: deepseek-flash
   medium:
     primary:
       provider: qwen
       model: qwen3.8-flash
     fallback:
       - provider: deepseek
-        model: deepseek-v4.1-flash
+        model: deepseek-flash
   high:
-    # 2026-09-11：原 deepseek-v4-pro。官方將 V4 Pro 請求全部路由至 V4.1 Flash，
-    # 續留舊 id 只是讓 provider 端替換，明寫新 id 才與實際計費模型一致。
+    # 2026-09-11：原 deepseek-v4-pro。官方自 2026-09-14 12:00（北京時間）起將
+    # V4 Pro 請求全部路由至 V4.1 Flash，續留舊 id 只是讓 provider 端替換，
+    # 明寫新 id 才與實際計費模型一致。
     primary:
       provider: deepseek
-      model: deepseek-v4.1-flash
+      model: deepseek-flash
     fallback:
       - provider: anthropic
         model: claude-sonnet-5
@@ -53,6 +60,6 @@ tiers:
       model: claude-opus-5
     fallback:
       - provider: deepseek
-        model: deepseek-v4.1-flash
+        model: deepseek-flash
       - provider: qwen
         model: qwen3.8-flash

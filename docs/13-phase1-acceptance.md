@@ -58,7 +58,7 @@ Issue → CI 計分 → DSH agent（受限沙箱 + skills）→ stacked PR → �
 | 4 | `git commit` 失敗 | checkout 不設 git identity | 設定 bot identity | — |
 | 5 | push 仍 403 | **checkout 的 extraheader 寫在獨立檔、經 `includeIf.gitdir` 引入**，`--unset-all` 清不掉 | 移除 includeIf 項目 | Q05-8（完整） |
 | 6 | 平行 run 探針衝突 | 共用 `_factory-auth-probe` 分支名 | run id 唯一化 | — |
-| 7 | Anthropic 429 rate limit | opus-5 用量觸頂（外部限制） | **多 provider failover 鏈**（deepseek→qwen→anthropic；low/medium 預設 qwen3.8-flash、deepseek 側為 deepseek-v4.1-flash） | Q04-8 |
+| 7 | Anthropic 429 rate limit | opus-5 用量觸頂（外部限制） | **多 provider failover 鏈**（deepseek→qwen→anthropic；low/medium 預設 qwen3.8-flash、deepseek 側為 deepseek-flash） | Q04-8 |
 
 > 每輪都在「花 LLM 成本之前」以探針/本機實測定位——唯最後成功 run 才消耗 LLM。這是試跑方法論的核心成果。
 

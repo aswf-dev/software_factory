@@ -193,7 +193,7 @@ describe('loadReport', () => {
         routes: [
           {
             provider: 'deepseek',
-            model: 'deepseek-v4.1-flash',
+            model: 'deepseek-flash',
             inputTokens: 1000,
             outputTokens: 200,
             cacheReadTokens: 50,
@@ -210,7 +210,7 @@ describe('loadReport', () => {
     })
     const r = loadReport(path)
     expect(r.usage?.totals.totalTokens).toBe(1250)
-    expect(r.usage?.routes[0]?.model).toBe('deepseek-v4.1-flash')
+    expect(r.usage?.routes[0]?.model).toBe('deepseek-flash')
   })
 
   it('usage 欄位形狀錯誤 → CliError（fail-loud，不接受破格式的執行報告）', () => {

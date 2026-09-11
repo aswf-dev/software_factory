@@ -58,7 +58,7 @@ const pricingPath = (): string => {
   const p = join(ws, 'pricing.yaml')
   writeFileSync(
     p,
-    'pricing:\n  deepseek-v4.1-flash:\n    inputUsdPerMTok: 0.14\n    outputUsdPerMTok: 0.28\n  claude-opus-5:\n    inputUsdPerMTok: 5\n    outputUsdPerMTok: 25\n    cacheReadUsdPerMTok: 0.5\n',
+    'pricing:\n  deepseek-flash:\n    inputUsdPerMTok: 0.14\n    outputUsdPerMTok: 0.28\n  claude-opus-5:\n    inputUsdPerMTok: 5\n    outputUsdPerMTok: 25\n    cacheReadUsdPerMTok: 0.5\n',
   )
   return p
 }
@@ -120,14 +120,14 @@ describe('parseArgs', () => {
 describe('main', () => {
   it('有 session log → 輸出換算後的 usage 與 markdown', () => {
     const root = sessionsRoot()
-    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-v4.1-flash'), usageEvent(1_000_000, 500_000)])
+    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-flash'), usageEvent(1_000_000, 500_000)])
     const out = main(['--sessions-root', root, '--pricing', pricingPath()], () => new Date('2026-09-02T00:00:00.000Z'))
     expect(out.usage.totals.inputTokens).toBe(1_000_000)
     expect(out.usage.totals.outputTokens).toBe(500_000)
     expect(out.usage.totals.totalTokens).toBe(1_500_000)
     expect(out.usage.totals.costUsd).toBeCloseTo(0.14 + 0.14, 10)
     expect(out.usage.unavailableReason).toBeUndefined()
-    expect(out.markdown).toContain('deepseek-v4.1-flash')
+    expect(out.markdown).toContain('deepseek-flash')
     expect(out.markdown).toContain('USD $0.28')
   })
 
@@ -140,15 +140,15 @@ describe('main', () => {
 
   it('--since-ms 過濾舊 session', () => {
     const root = sessionsRoot()
-    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-v4.1-flash'), usageEvent(1000, 100)])
-    writeZstd('sessions/proj/s2/session.jsonl.zstd', [`${JSON.stringify({ type: 'session', version: 0, id: 's2', createdAt: 5000, cwd: '/x' })}\n`, routeEvent('deepseek', 'deepseek-v4.1-flash'), usageEvent(2000, 200)])
+    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-flash'), usageEvent(1000, 100)])
+    writeZstd('sessions/proj/s2/session.jsonl.zstd', [`${JSON.stringify({ type: 'session', version: 0, id: 's2', createdAt: 5000, cwd: '/x' })}\n`, routeEvent('deepseek', 'deepseek-flash'), usageEvent(2000, 200)])
     const out = main(['--sessions-root', root, '--pricing', pricingPath(), '--since-ms', '2000'])
     expect(out.usage.totals.inputTokens).toBe(2000)
   })
 
   it('--usage-md 寫出 markdown 檔', () => {
     const root = sessionsRoot()
-    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-v4.1-flash'), usageEvent(1000, 100)])
+    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-flash'), usageEvent(1000, 100)])
     const mdPath = join(ws, 'usage.md')
     const out = main(['--sessions-root', root, '--pricing', pricingPath(), '--usage-md', mdPath])
     expect(readFileSync(mdPath, 'utf8')).toBe(out.markdown)
@@ -156,7 +156,7 @@ describe('main', () => {
 
   it('--report 把 usage 寫回 report.json（保留原欄位）', () => {
     const root = sessionsRoot()
-    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-v4.1-flash'), usageEvent(1000, 100)])
+    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-flash'), usageEvent(1000, 100)])
     const reportPath = writeFile('report.json', JSON.stringify({ issueNumber: 7, invocation: { exitCode: 0 } }))
     main(['--sessions-root', root, '--pricing', pricingPath(), '--report', reportPath])
     const report = JSON.parse(readFileSync(reportPath, 'utf8')) as { issueNumber: number; usage?: { totals: { inputTokens: number } } }
@@ -166,7 +166,7 @@ describe('main', () => {
 
   it('--report 指向不存在/壞 JSON/非物件 JSON 的 report → 不拋錯、不產檔', () => {
     const root = sessionsRoot()
-    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-v4.1-flash'), usageEvent(1000, 100)])
+    writeZstd('sessions/proj/s1/session.jsonl.zstd', [header, routeEvent('deepseek', 'deepseek-flash'), usageEvent(1000, 100)])
     const reportPath = join(ws, 'missing-report.json')
     expect(() => main(['--sessions-root', root, '--pricing', pricingPath(), '--report', reportPath])).not.toThrow()
     expect(() => {

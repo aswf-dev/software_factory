@@ -6,7 +6,14 @@
 # MISSING_CREDENTIAL 明確失敗而非靜默使用其他金鑰。
 #
 # - anthropic：pi-ai 內建目錄路由（現役，成本最高）
-# - deepseek：pi-ai 內建目錄路由（DSH 預設 provider；成本低）
+# - deepseek：**手動宣告**（2026-09-11 起）。原為 pi-ai 內建目錄路由，但 V4.1 Flash
+#   的模型 id `deepseek-flash` 不在 pi-ai 0.85.1（現行最新）的內建 catalog 內
+#   （catalog 只有已退役的 deepseek-v4-flash / deepseek-v4-flash-vision-exp 與
+#   deepseek-v4-pro），實測 DSH 會以 UNKNOWN_MODEL 失敗。故改為明列 models。
+#   ⚠️ pi-ai 語意：**models 清單會「取代」該 route 的內建 catalog**，因此本檔需
+#   自行維護 contextWindow/maxTokens/reasoningEfforts/compat（compat 數值取自
+#   pi-ai catalog 的 deepseek-v4-flash 條目，ctx/輸出上限取自官方定價頁）。
+#   待 pi-ai catalog 收錄 deepseek-flash 後，可刪除 models 區塊改回內建路由。
 # - qwen：手動宣告的 OpenAI-compatible 路由（QwenCloud 國際端點 dashscope-intl；
 #   2026-08-28 修正：原誤用中國端點 dashscope.aliyuncs.com，導致 QwenCloud
 #   Pay-As-You-Go key 回 401 invalid_api_key——QwenCloud 文件
@@ -18,6 +25,23 @@ llm-pi-ai:
       apiKeyEnv: ANTHROPIC_API_KEY
     deepseek:
       apiKeyEnv: DEEPSEEK_API_KEY
+      api: openai-completions
+      baseURL: https://api.deepseek.com
+      models:
+        # DeepSeek-V4.1-Flash（2026-09-10 發布）。官方：「Use `deepseek-flash` as
+        # the model name.」——舊名 deepseek-v4-flash 已退役（僅保留相容轉送）。
+        - id: deepseek-flash
+          name: DeepSeek V4.1 Flash
+          contextWindow: 1000000
+          maxTokens: 384000
+          input: [text, image] # V4.1 Flash 原生多模態視覺理解
+          reasoningEfforts: { low: low, high: high, max: max }
+          compat:
+            supportsStore: false
+            supportsDeveloperRole: false
+            maxTokensField: max_tokens
+            requiresReasoningContentOnAssistantMessages: true
+            thinkingFormat: deepseek
     qwen:
       displayName: Qwen (QwenCloud / DashScope-intl)
       apiKeyEnv: QWEN_API_KEY

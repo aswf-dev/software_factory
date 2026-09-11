@@ -27,7 +27,7 @@ describe('parseEvents', () => {
 
 describe('foldSessionLogs', () => {
   it('無 usage 樣本 → 空 routes、全零 totals', () => {
-    const r = foldSessionLogs([{ path: 'a', text: ev('session') + route('deepseek', 'deepseek-v4.1-flash') }])
+    const r = foldSessionLogs([{ path: 'a', text: ev('session') + route('deepseek', 'deepseek-flash') }])
     expect(r.routes).toEqual([])
     expect(r.totals.inputTokens).toBe(0)
     expect(r.sessionCount).toBe(1)
@@ -36,7 +36,7 @@ describe('foldSessionLogs', () => {
   it('單 session 單 route：累加每個 (turn,step) 的用量', () => {
     const text =
       ev('session') +
-      route('deepseek', 'deepseek-v4.1-flash') +
+      route('deepseek', 'deepseek-flash') +
       usageChunk(1, 1, { inputTokens: 100, outputTokens: 10 }) +
       usageChunk(1, 2, { inputTokens: 200, outputTokens: 20, cacheReadTokens: 5 }) +
       usageChunk(2, 1, { inputTokens: 300, outputTokens: 30 })
@@ -44,7 +44,7 @@ describe('foldSessionLogs', () => {
     expect(r.routes).toHaveLength(1)
     expect(r.routes[0]).toMatchObject({
       provider: 'deepseek',
-      model: 'deepseek-v4.1-flash',
+      model: 'deepseek-flash',
       inputTokens: 600,
       outputTokens: 60,
       cacheReadTokens: 5,
@@ -55,7 +55,7 @@ describe('foldSessionLogs', () => {
 
   it('同 (turn,step) 的後續樣本取代先前貢獻（chunk 中途樣本 → message 最終樣本）', () => {
     const text =
-      route('deepseek', 'deepseek-v4.1-flash') +
+      route('deepseek', 'deepseek-flash') +
       usageChunk(1, 1, { inputTokens: 100, outputTokens: 10 }) +
       usageMessage(1, 1, { inputTokens: 120, outputTokens: 15 }) // 取代 100/10
     const r = foldSessionLogs([{ path: 'a', text }])
@@ -66,7 +66,7 @@ describe('foldSessionLogs', () => {
   it('同 route 但不同 session：跨 session 累加', () => {
     const mk = (): SessionLogInput => ({
       path: 'x',
-      text: route('deepseek', 'deepseek-v4.1-flash') + usageChunk(1, 1, { inputTokens: 100, outputTokens: 10 }),
+      text: route('deepseek', 'deepseek-flash') + usageChunk(1, 1, { inputTokens: 100, outputTokens: 10 }),
     })
     const r = foldSessionLogs([mk(), mk()])
     expect(r.routes[0]?.inputTokens).toBe(200)
@@ -76,7 +76,7 @@ describe('foldSessionLogs', () => {
 
   it('多 route：依出現順序分開累計', () => {
     const text =
-      route('deepseek', 'deepseek-v4.1-flash') +
+      route('deepseek', 'deepseek-flash') +
       usageChunk(1, 1, { inputTokens: 100, outputTokens: 10 }) +
       route('anthropic', 'claude-opus-5') +
       usageChunk(1, 2, { inputTokens: 200, outputTokens: 20 })
@@ -88,14 +88,14 @@ describe('foldSessionLogs', () => {
   })
 
   it('reasoningTokens 只記錄不加入 output（⊆ output 慣例）', () => {
-    const text = route('deepseek', 'deepseek-v4.1-flash') + usageChunk(1, 1, { inputTokens: 100, outputTokens: 50, reasoningTokens: 40 })
+    const text = route('deepseek', 'deepseek-flash') + usageChunk(1, 1, { inputTokens: 100, outputTokens: 50, reasoningTokens: 40 })
     const r = foldSessionLogs([{ path: 'a', text }])
     expect(r.routes[0]?.reasoningTokens).toBe(40)
     expect(r.routes[0]?.outputTokens).toBe(50)
   })
 
   it('樣本缺 input 或 output（缺損）→ 跳過不推測', () => {
-    const text = route('deepseek', 'deepseek-v4.1-flash') + usageChunk(1, 1, { inputTokens: 100 })
+    const text = route('deepseek', 'deepseek-flash') + usageChunk(1, 1, { inputTokens: 100 })
     const r = foldSessionLogs([{ path: 'a', text }])
     expect(r.routes).toEqual([])
   })
@@ -107,9 +107,9 @@ describe('foldSessionLogs', () => {
   })
 
   it('session/title-llm-request 提供 route', () => {
-    const text = ev('session/title-llm-request', { data: { route: { provider: 'deepseek', model: 'deepseek-v4.1-flash' } } }) + usageChunk(1, 1, { inputTokens: 5, outputTokens: 1 })
+    const text = ev('session/title-llm-request', { data: { route: { provider: 'deepseek', model: 'deepseek-flash' } } }) + usageChunk(1, 1, { inputTokens: 5, outputTokens: 1 })
     const r = foldSessionLogs([{ path: 'a', text }])
-    expect(r.routes[0]?.model).toBe('deepseek-v4.1-flash')
+    expect(r.routes[0]?.model).toBe('deepseek-flash')
   })
 
   it('無任何 route 事件時的 usage → unknown route（不遺失樣本）', () => {
@@ -138,19 +138,19 @@ describe('foldSessionLogs', () => {
   })
 
   it('usage 樣本缺 turn/step → 跳過', () => {
-    const text = route('deepseek', 'deepseek-v4.1-flash') + ev('assistant/chunk', { data: { chunk: { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } } } })
+    const text = route('deepseek', 'deepseek-flash') + ev('assistant/chunk', { data: { chunk: { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } } } })
     const r = foldSessionLogs([{ path: 'a', text }])
     expect(r.routes).toEqual([])
   })
 
   it('非 usage 的 assistant/chunk 不誤判', () => {
-    const text = route('deepseek', 'deepseek-v4.1-flash') + ev('assistant/chunk', { data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'hi' } } })
+    const text = route('deepseek', 'deepseek-flash') + ev('assistant/chunk', { data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'hi' } } })
     const r = foldSessionLogs([{ path: 'a', text }])
     expect(r.routes).toEqual([])
   })
 
   it('cacheWriteTokens 記錄在桶中', () => {
-    const text = route('deepseek', 'deepseek-v4.1-flash') + usageChunk(1, 1, { inputTokens: 10, outputTokens: 1, cacheWriteTokens: 3 })
+    const text = route('deepseek', 'deepseek-flash') + usageChunk(1, 1, { inputTokens: 10, outputTokens: 1, cacheWriteTokens: 3 })
     const r = foldSessionLogs([{ path: 'a', text }])
     expect(r.routes[0]?.cacheWriteTokens).toBe(3)
   })
