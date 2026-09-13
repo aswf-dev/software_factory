@@ -1131,7 +1131,28 @@ describe('label bootstrap 覆蓋發射端（run 34731487680：skill-gap 未建�
     }
   })
 
-  // 反向鎖：發射端若新增字面值卻沒進 FACTORY_LABELS，上面那條就形同虛設。
+  // 反向鎖之一：src/labels.ts 匯出的每個單一 label 常數都必須在 FACTORY_LABELS 內。
+  //
+  // 少了這條，上一條會有一個無聲的破口：把 SKILL_GAP_LABEL 從 FACTORY_LABELS
+  // 拿掉、但發射端仍 `labels.push(SKILL_GAP_LABEL)`，兩條測試都不會紅
+  // ——bootstrap 不建立、執行期照貼，run 34731487680 的失敗原封不動回來。
+  // （實測：撰寫時先漏了這條，探針拔掉 SKILL_GAP_LABEL 後 122 條全綠。）
+  it('src/labels.ts 匯出的每個 *_LABEL 常數都在 FACTORY_LABELS 內', async () => {
+    const mod = (await import('../../src/labels.js')) as Record<string, unknown>
+    const factoryLabels = mod['FACTORY_LABELS'] as readonly string[]
+    const singles = Object.entries(mod).filter(
+      ([name, value]) => name.endsWith('_LABEL') && typeof value === 'string',
+    )
+    expect(singles.length, 'labels.ts 未匯出任何單一 label 常數——本測試會空跑').toBeGreaterThan(0)
+    for (const [name, value] of singles) {
+      expect(
+        factoryLabels.includes(value as string),
+        `${name} = '${value as string}' 未列入 FACTORY_LABELS，bootstrap 不會建立它`,
+      ).toBe(true)
+    }
+  })
+
+  // 反向鎖之二：發射端若新增**字面值**卻沒進 FACTORY_LABELS，第一條就形同虛設。
   // 掃 apply-judge-labels.ts 的 labels.push(...) 引數，逐一要求在清單內。
   it('apply-judge-labels 推入的 label 字面值都在 FACTORY_LABELS 內', async () => {
     const { FACTORY_LABELS } = (await import('../../src/labels.js')) as {
