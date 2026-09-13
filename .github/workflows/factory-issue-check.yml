@@ -80,13 +80,18 @@ jobs:
       # 跨 repo 工作項請在 software_factory 手動 dispatch——D6 的 App 無 actions: write）
       - name: Dispatch factory-run on approval label
         if: ${{ github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'factory/approved' }}
+        env:
+          # 與上一個步驟同一個理由（第 42-43 行）：gh 在 Actions 不會自動用
+          # GITHUB_TOKEN。此處原本漏設——因為 factory/approved 這個 label 在 repo
+          # 中從未建立（見 docs/12 §4.1），這條路徑一次都沒被走到，缺 token
+          # 也就一直沒有暴露。沒有症狀不等於沒有缺陷。
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh issue comment "${{ github.event.issue.number }}" \
             --body '🚀 收到 `factory/approved` 核准——開始 dispatch factory-run。'
-          # 從表單 body 抽 task_type（fallback agent-add-tests）
-          TASK_TYPE=$(gh issue view "${{ github.event.issue.number }}" --json body --jq .body \
-            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const m=s.match(/### 任務類型\s*\n+(\S+)/);console.log(m?m[1]:"agent-add-tests")})')
-          echo "task_type=$TASK_TYPE"
+          # task_type 交給 factory-run 的 auto 解析（同一支 checkIssue）。
+          # 此處原本自寫了一份抓任務類型的正則，與 CLI 的 FIELD_TITLES 是兩份
+          # 可能分歧的規則；改為不傳，由單一實作決定。
           gh workflow run factory-run.yml \
             -f issue_number="${{ github.event.issue.number }}" \
-            -f task_type="$TASK_TYPE"
+            -f task_type=auto
