@@ -24,9 +24,12 @@
 5. 產出 `proposals/onboarding/catalog-info.yaml`：
    - 格式對齊機制 repo 的 catalog-info.yaml（annotations 三軸 + spec）
    - **三軸的值一律填 `TODO`**，不要自己決定：
-       factory.io/business-criticality: TODO  # strategic | tactical | supporting
-       factory.io/risk-profile: TODO          # high | medium | low
-       factory.io/complexity: TODO            # high | medium | low
+       factory.io/business-criticality: TODO  # 合法值：tactical | operational | strategic
+       factory.io/risk-profile: TODO          # 合法值：low | medium | high
+       factory.io/complexity: TODO            # 合法值：low | medium | high
+     合法值以單一真相來源 `src/scoring/types.ts` 為準，**值缺席或非法一律
+     fail-safe 計為 2**（最高風險級，且無任何錯誤訊息——憑直覺自創的值
+     （如過去模板誤用的幽靈值）會讓 repo 被靜默升級監督等級，見 docs/27 §7.2）。
    - 每一軸下方以註解寫出**建議值 + 理由 + 證據**，格式參考 docs/16 §5.1
      （factory-scoreboard 的評級理由是好範例：每軸一段，講清楚為什麼不是更高也不是更低）。
    - 理由必須引用**你實際看到的檔案**，不要寫通則。
