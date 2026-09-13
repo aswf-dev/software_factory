@@ -1148,6 +1148,42 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(c).toContain('--providers config/dsh/settings.providers.yaml')
   })
 
+  // 實測（Issue #287，2026-09-13）：workflow 監聽 labeled，但 labeled 事件中只有
+  // factory/approved 需要做事。條件原本只寫在 step 層，於是每貼一個無關 label
+  // （meta/observation、oversight/*、ready、needs-human…）都會啟動 runner、checkout、
+  // pnpm install、pnpm run build，然後所有 step 都 skipped：
+  //   run 34731348555  labeled(meta/observation)  → 全 skip，空跑 33s
+  //   run 34731515739  labeled(oversight/review)  → 全 skip，空跑 27s
+  // 而 factory-run 每次執行都會貼 oversight/*、ready 或 needs-human，
+  // 故每個工作項生命週期都會重複發生。
+  //
+  // 契約：labeled 的過濾必須存在於 **job 層**——寫在 step 層擋不住 runner 啟動。
+  it('factory-issue-check.yml 在 job 層過濾非 factory/approved 的 labeled 事件（防空跑）', () => {
+    const wf = load(read('.github/workflows/factory-issue-check.yml')) as {
+      jobs: Record<string, { if?: string } | undefined>
+    }
+    const jobIf = wf.jobs['check']?.if
+    expect(
+      jobIf,
+      'jobs.check 缺 job 層 if——labeled 事件會等 runner 起來、install、build 後才 skip',
+    ).toBeTypeOf('string')
+    expect(jobIf).toContain("github.event.action != 'labeled'")
+    expect(jobIf).toContain("github.event.label.name == 'factory/approved'")
+  })
+
+  it('factory-issue-check.yml 的 job 層條件不擋掉 opened/edited（防過度收斂）', () => {
+    // YAML 1.1 陷阱：未加引號的 `on:` 會被 js-yaml 解析成 boolean true 當 key。
+    const raw = load(read('.github/workflows/factory-issue-check.yml')) as Record<string, unknown>
+    const triggers = (raw['on'] ?? raw['true']) as { issues?: { types?: string[] } } | undefined
+    expect(triggers?.issues?.types, 'on.issues.types 應含 opened/edited/labeled').toEqual(
+      expect.arrayContaining(['opened', 'edited', 'labeled']),
+    )
+    // opened/edited 時 action != 'labeled' 成立 → job 必須執行。以左式開頭確保這條
+    // 分支存在且未被改寫成只認 factory/approved（那會讓格式檢查整個消失）。
+    const jobIf = (raw['jobs'] as Record<string, { if?: string }>)['check']?.if ?? ''
+    expect(jobIf.trim().startsWith("github.event.action != 'labeled'")).toBe(true)
+  })
+
   it('factory-issue-check 留言含複雜度分析與建議模型行（ADR-011）', () => {
     const src = read('src/cli/factory-issue-check.ts')
     expect(src).toContain('📊 **複雜度分析**')

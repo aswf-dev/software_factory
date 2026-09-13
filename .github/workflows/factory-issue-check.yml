@@ -5,6 +5,7 @@
 #     合規留言、不合規列出缺失（事前攔截，取代 agent 執行中的 SR4 事後停手）
 #   - labeled（factory/approved）：格式合規的 Issue 貼上核准 label → 同 repo
 #     自動 dispatch factory-run（半自動觸發；跨 repo 受 D6 權限限制，見 docs/16）
+#   - labeled（其餘 label）：job 層條件直接略過，**不啟動 runner**（見 jobs.check.if）
 #
 # 零 LLM 成本：只跑 node CLI（dist），不啟動 agent。
 name: Factory Issue Check
@@ -22,6 +23,20 @@ permissions:
 
 jobs:
   check:
+    # labeled 事件中只有 factory/approved 需要做事；其餘 label（meta/observation、
+    # oversight/*、ready、needs-human…）本 job 一步都不會執行。
+    #
+    # 條件必須在 **job 層**而非只在 step 層：step 層的 if 要等 runner 起來、checkout、
+    # pnpm install、pnpm run build 全部跑完才判斷，最後所有步驟 skipped。
+    # 實測（Issue #287，2026-09-13）：一張 Issue 觸發 3 次 workflow——
+    #   run 34731348389  opened                      → 有效
+    #   run 34731348555  labeled(meta/observation)   → 全 skip，空跑 33s
+    #   run 34731515739  labeled(oversight/review)   → 全 skip，空跑 27s
+    # 而 factory-run 每次執行都會貼 oversight/*、ready 或 needs-human，
+    # 故每個工作項生命週期至少空跑數次。job 層條件讓這些事件連 runner 都不啟動。
+    if: >-
+      github.event.action != 'labeled'
+      || github.event.label.name == 'factory/approved'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
