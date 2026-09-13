@@ -1,0 +1,24 @@
+.github/workflows/factory-issue-check.yml
+  h_1b119f25eaf333 83-88,92-94,97
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 25,28-29,170,173-179,190,222-263,374,434,551,554,735
+docs/12-repo-settings-guide.md
+  h_1b119f25eaf333 247-270
+src/cli/apply-judge-labels.ts
+  h_1b119f25eaf333 14-15,53-60
+src/labels.ts
+  h_1b119f25eaf333 1-42
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 330-331,333,345,540,547-551,575,577-578,580-587,1087-1184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4fc70906349d4c1c25778655d07c4881669cde48",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
