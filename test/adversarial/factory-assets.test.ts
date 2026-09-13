@@ -181,11 +181,11 @@ describe('task-template 完成後立即停止（防 agent 開完 PR 後空轉不
  *    名稱之處，若列出值（`a | b | c` 形式或 `key: value`），每個值都必須在合法集合內。
  * 3) 回歸鎖：`supporting` 不得作為三軸值出現在 factory 資產中。
  *
- * **it.skip 交付說明（test-only 工作項，Issue #287）**：以下兩條標红的測試揭露的是
- * 既有缺陷 1（模板尚未修，非測試自身錯誤）。依 agent-add-tests 劃界（#198 共識），
- * 本工作項不得改實作，故紅燈測試以 `it.skip` 交付、斷言完整保留；修復模板
- * （`.github/factory/task-template-onboard.txt` 三軸註解）的 agent-fix-bug 工作項
- * 應 un-skip 這兩條並轉綠（REQ-2）。
+ * **交付歷史（Issue #287）**：以下兩條測試以 test-only 層（PR #288）用 `it.skip`
+ * 交付，揭露既有缺陷 1（模板教 agent 填非法幽靈值）。修復工作項把
+ * `.github/factory/task-template-onboard.txt` 的三軸註解改成對齊
+ * `src/scoring/types.ts` 的合法集合并 un-skip 轉綠——斷言完整保留，紅燈已在
+ * 沙箱實測（修復前該兩條為全檔唯二失敗點）。本鎖永久防止回潮。
  */
 describe('三軸合法值抗漂移（#287：單一真相來源 = src/scoring/types.ts）', () => {
   const AXIS_LEGAL: Record<string, readonly string[]> = {
@@ -214,7 +214,7 @@ describe('三軸合法值抗漂移（#287：單一真相來源 = src/scoring/typ
     expect(ASSET_FILES.some((f) => f.startsWith('.dsh/skills/'))).toBe(true)
   })
 
-  it.skip('三軸 annotation 名稱處列出的值全在合法集合內（紅＝缺陷 1 未修，修復 PR un-skip）', () => {
+  it('三軸 annotation 名稱處列出的值全在合法集合內（#287 抗漂移鎖）', () => {
     const violations: string[] = []
     for (const rel of ASSET_FILES) {
       read(rel)
@@ -239,7 +239,7 @@ describe('三軸合法值抗漂移（#287：單一真相來源 = src/scoring/typ
     expect(violations, 'factory 資產列出了不屬於機制合法集合的三軸值').toEqual([])
   })
 
-  it.skip('回歸鎖：supporting 不得作為三軸值出現在 factory 資產（紅＝缺陷 1 未修）', () => {
+  it('回歸鎖：supporting 不得作為三軸值出現在 factory 資產（#287 幽靈值防回潮）', () => {
     const offenders: string[] = []
     for (const rel of ASSET_FILES) {
       read(rel)
@@ -257,7 +257,7 @@ describe('三軸合法值抗漂移（#287：單一真相來源 = src/scoring/typ
         })
     }
     // `supporting` 是三軸共同的幽靈值：factory-score fail-safe 計 2 → 靜默升級監督分數，
-    // 無任何錯誤訊息（docs/27 §12 實證）。修復後此鎖防止回潮。
+    // 無任何錯誤訊息（docs/27 §7.2 實證）。修復後此鎖防止回潮。
     expect(offenders, 'supporting 非法（不是任何一軸的合法值）').toEqual([])
   })
 })
