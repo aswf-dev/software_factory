@@ -63,17 +63,20 @@ MODELS="$(
   for T in low medium high critical; do
     node dist/cli/factory-model.js --tier "$T" \
       --tiers "$WORK/tiers.yaml" --providers "$WORK/providers.yaml" 2>/dev/null \
-      | jq -r '.chain[] | "\(.provider) \(.model)"'
+      | jq -r '.chain[] | "\(.provider) \(.model) \(.reasoningEffort // "-")"'
   done | awk '!seen[$0]++'
 )"
 
 [ -n "$MODELS" ] || { echo "錯誤：解析不到任何模型（設定損壞？）" >&2; exit 1; }
 
-printf '\n%-11s %-24s %-8s %-8s %s\n' PROVIDER MODEL L1-API L2-DSH NOTE
-printf '%.0s-' {1..72}; printf '\n'
+printf '\n%-11s %-24s %-7s %-8s %-8s %s\n' PROVIDER MODEL EFFORT L1-API L2-DSH NOTE
+printf '%.0s-' {1..82}; printf '\n'
 
 FAIL=0
-while read -r P M; do
+# reasoningEffort 也要帶進驗證：模型「叫得動」不代表「以設定的 effort 叫得動」
+# （opus-5 只接受 off/xhigh/max，填 high 會 UNSUPPORTED_REASONING_EFFORT）。
+# 若這裡不帶，驗的就不是 production 實際會送出的那組設定。
+while read -r P M EFFORT; do
   [ -n "$ONLY_PROVIDER" ] && [ "$P" != "$ONLY_PROVIDER" ] && continue
 
   case "$P" in
@@ -84,7 +87,7 @@ while read -r P M; do
   esac
 
   if [ -z "$KEY" ]; then
-    printf '%-11s %-24s %-8s %-8s %s\n' "$P" "$M" SKIP SKIP "無 credential（非模型問題）"
+    printf '%-11s %-24s %-7s %-8s %-8s %s\n' "$P" "$M" "$EFFORT" SKIP SKIP "無 credential（非模型問題）"
     continue
   fi
 
@@ -102,19 +105,23 @@ while read -r P M; do
   # L2：以 repo 實際 providers 設定 + agent-default-model 跑一次 headless 推論。
   #     這是決定性關卡——L1 過不代表 L2 過（pi-ai catalog 可能沒有該 id）。
   cp "$WORK/providers.yaml" "$WORK/home/settings.yaml"
-  printf 'agent-default-model:\n  provider: %s\n  model: %s\n' "$P" "$M" >> "$WORK/home/settings.yaml"
+  {
+    printf 'agent-default-model:\n  provider: %s\n  model: %s\n' "$P" "$M"
+    # 與 factory-run.yml 寫 settings 的方式一致（僅在 chain 宣告 effort 時才寫）
+    [ "$EFFORT" != "-" ] && printf '  reasoningEffort: %s\n' "$EFFORT"
+  } >> "$WORK/home/settings.yaml"
   OUT="$(DSH_HOME="$WORK/home" npx dsh --profile headless 'Reply with exactly: PING' 2>&1)"
   if printf '%s' "$OUT" | grep -q 'PING'; then
     L2="OK"; NOTE=""
   else
     L2="FAIL"
-    NOTE="$(printf '%s' "$OUT" | grep -oE '(UNKNOWN_MODEL|MISSING_CREDENTIAL|AUTH|RATE_LIMIT|INVALID_CONFIG)[^\"]*' | head -1)"
+    NOTE="$(printf '%s' "$OUT" | grep -oE '(UNKNOWN_MODEL|UNSUPPORTED_REASONING_EFFORT|MISSING_CREDENTIAL|AUTH|RATE_LIMIT|INVALID_CONFIG)[^\"]*' | head -1)"
     [ -z "$NOTE" ] && NOTE="$(printf '%s' "$OUT" | tail -1 | cut -c1-40)"
   fi
 
   [ "$L1" = "FAIL" ] && FAIL=1
   [ "$L2" = "FAIL" ] && FAIL=1
-  printf '%-11s %-24s %-8s %-8s %s\n' "$P" "$M" "$L1" "$L2" "$NOTE"
+  printf '%-11s %-24s %-7s %-8s %-8s %s\n' "$P" "$M" "$EFFORT" "$L1" "$L2" "$NOTE"
 done <<< "$MODELS"
 
 printf '\n'

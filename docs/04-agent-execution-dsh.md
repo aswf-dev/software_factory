@@ -479,11 +479,15 @@ concurrency:
 
 ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
 
-| tier | primary（用戶優先序） | fallback（品質擔保，正常不走） |
+| tier | primary（用戶優先序） | fallback（**可用性替補**，正常不走） |
 |---|---|---|
 | low / medium | **qwen3.8-flash**（2026-08-27 起為預設） | deepseek-flash |
 | high | deepseek-flash（2026-09-11 起；原 deepseek-v4-pro） | claude-sonnet-5 → qwen3.8-flash |
-| critical | **claude-opus-5**（最高 tier；fable-5 需額外 credit 已移除，2026-08-28） | deepseek-flash → qwen3.8-flash |
+| critical | **claude-opus-5** + `reasoningEffort: max`（最高 tier） | deepseek-flash → qwen3.8-flash |
+
+> **fallback 的角色（2026-09-11 更正）**：本表原稱 fallback 為「品質擔保」——第三方基準不支持這個說法。Artificial Analysis Intelligence Index v4.3：deepseek-flash **40** 分 > Sonnet 5 **38** 分，且 agentic 指標差距明顯（AutomationBench 69% vs 37%），Sonnet 成本卻高約 19 倍。fallback 只在 **provider 層失敗**時觸發，作用是「換一家供應商把同一件事做完」，**不是升級**。
+>
+> **critical 的 effort 是必要設定，不是調校**：Opus 5 在 low effort 只有 40 分（與 deepseek-flash 打平、貴約 21 倍），max effort 才是 51 分。未明設 effort 等於讓最高 tier 可能付旗艦價換平手品質，故 2026-09-11 明設 `max`（opus-5 僅接受 `off`/`xhigh`/`max`）。詳見 `docs/ADR/011`。
 
 模型 id 來自 pi-ai catalog（定價見 `docs/ADR/011`）；tier→chain 政策宣告於 `config/dsh/model-tiers.yaml`（版控、CODEOWNERS 保護、可調校）。
 

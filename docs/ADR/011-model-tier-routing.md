@@ -26,7 +26,7 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 ## 決策
 
 1. **複雜度訊號：啟發式分析，零 LLM 成本**。新模組 `src/issue-analysis/complexity.ts` 把 docs/06 §3.3 的客觀判準（低=單一檔案/模組；中=跨數模組；高=跨服務/新架構/共用抽象）機械化為決定性的關鍵字/計數規則，讀 Issue body 的任務類型＋需求四段文字，輸出 `{complexity, score, evidence}`。每條判據進 `evidence` 給人看。**fail-safe 方向為 high**（需求缺失/不可分析 → 最強適用模型；不可知 ⇒ 不降級）。
-2. **模型分級：`config/dsh/model-tiers.yaml`**。每個 tier 宣告 `primary`＋`fallback` chain（`{provider, model[, reasoningEffort]}`）。用戶優先序由對抗性測試釘住：low/medium=`qwen3.8-flash`、high=`deepseek-flash`（2026-09-11 起；原 `deepseek-v4-pro`）、**critical=`claude-opus-5`（fable-5 已移除）**；sonnet 僅作 fallback（品質擔保，正常不走）。
+2. **模型分級：`config/dsh/model-tiers.yaml`**。每個 tier 宣告 `primary`＋`fallback` chain（`{provider, model[, reasoningEffort]}`）。用戶優先序由對抗性測試釘住：low/medium=`qwen3.8-flash`、high=`deepseek-flash`（2026-09-11 起；原 `deepseek-v4-pro`）、**critical=`claude-opus-5` + `reasoningEffort: max`（fable-5 已移除）**；sonnet 僅作 fallback（**跨供應商可用性替補**，正常不走——第三方基準顯示它不是品質升級，見下節）。
 3. **單一解析核心：`src/model-tier/resolve.ts`**。解析順序：手動 `--tier` ＞ Issue 需求分析 ＞ catalog 標註（`factory.io/complexity`）＞ fail-safe high。**critical 額外條件**：分析為 high 且 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動故不耗模型）。`factory-model` CLI 與 `factory-issue-check` 共用此核心——**邏輯**一致，無第二套規則可漂移。
 
    > **修正（2026-09-11）**：本條原寫「留言建議與實際路由永不打架」，**這是錯的**。兩者共用核心但**輸入不同**：`factory-issue-check` 是零 LLM 成本的開單即時檢查，**不做計分**（計分是 factory-run 的 Initial score 步驟），故傳入的 `scoreTotal` 為 undefined，critical 升級分支在該路徑**結構上不可達**——留言的 tier 天花板永遠是 high。實測案例：[fubon-tradingbot#611](https://github.com/philipz/fubon-tradingbot/issues/611#issuecomment-5632704780) 留言建議 `deepseek/deepseek-flash`（high），實跑為 `anthropic/claude-opus-5`（critical）。
@@ -45,8 +45,8 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 |---|---|---|---|
 | low/medium | qwen3.8-flash（2026-08-27 起） | $0.15/0.47 | 最便宜（deepseek 退居 fallback） |
 | high | deepseek-flash（2026-09-11 起） | $0.30/1.20 | ~17× 便宜於 claude-opus-5（$5/25） |
-| critical | claude-opus-5 | $5/25 | 最高 tier；fable-5 已移除（需額外 credit） |
-| fallback | deepseek-flash / qwen3.8-flash | — | 品質擔保，正常不走 |
+| critical | claude-opus-5（`reasoningEffort: max`） | $5/25 | 最高 tier；**effort 必須明設 max**，見下方基準實測 |
+| fallback | claude-sonnet-5 / deepseek-flash / qwen3.8-flash | — | **可用性**替補（非品質升級），正常不走 |
 
 > **deepseek-flash 定價**：官方定價頁**直接以 USD 公布**（無需匯率換算）且**分時段**——輸入（快取未命中）空閒 $0.15／高峰 $0.30、輸出空閒 $0.60／高峰 $1.20、輸入（快取命中）空閒 $0.003／高峰 $0.006；高峰時段＝週一至週五 **01:00–04:00、06:00–10:00（UTC）**，其餘為空閒、價格減半。本表與 `pricing.yaml` 為單一價格欄位，故採**高峰價**（保守，不低估成本）。誠實揭露：空閒時段實付為此值的一半。
 
@@ -56,7 +56,28 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 
 > **2026-08-28 修正**：critical 由 `claude-fable-5` 改為 **`claude-opus-5`**（$5/25、1M ctx、支援 xhigh/max thinking）——fable-5 需額外 credit，帳號方案未包含（實測 run #33175623064 無法使用），故移除 fable-5 並以同代旗艦 opus-5 為 primary。
 
-誠實揭露：「deepseek high tier ≈ opus/sonnet 等級」是待 A/B 驗證的假設（非實測對比）；「V4.1 Flash 全面超越 V4 Pro」為 DeepSeek 官方公告說法，本 repo 未做獨立對比驗證。config 為唯一事實來源，`model_tier` 手動覆寫可隨時指定 opus；high tier 的 fallback 不含 opus，避免無謂升級。
+### 第三方基準實測（2026-09-11，Artificial Analysis Intelligence Index v4.3）
+
+原本「deepseek ≈ opus/sonnet 等級」只是待驗證的假設。[Artificial Analysis](https://artificialanalysis.ai/models/comparisons/deepseek-v4-1-flash-vs-claude-opus-5) 的第三方數據讓它可以被部分替換為事實：
+
+| 模型（effort） | Intelligence Index | AutomationBench-AA | Terminal-Bench v4.0 | AA-Omniscience | 每任務成本 |
+|---|---|---|---|---|---|
+| **Opus 5（max）** | **51** | 57% | **49%** | **37** | $5.86 |
+| deepseek-flash（max） | 40 | **69%** | 27% | **−5** | **$0.27** |
+| Opus 5（**low**） | 40 | 52% | 26% | 29 | $1.10 |
+| Sonnet 5（max） | 38 | 37% | 14% | 16 | $5.09 |
+
+三個可據以行動的結論：
+
+1. **對 sonnet 的假設成立、對 opus-max 不成立**。deepseek-flash 綜合分**高於** Sonnet 5（40 vs 38）且 agentic 指標大幅領先；但明顯**低於** Opus 5 的 max effort（40 vs 51）。
+2. **critical tier 的價值完全繫於 effort**。Opus 5 在 low effort 只有 40 分——與 deepseek-flash 打平卻貴約 21 倍。本 ADR 原本「不設定 `reasoningEffort`」的做法，等於讓最高 tier 可能付旗艦價換平手品質。**2026-09-11 裁決：critical 明設 `reasoningEffort: max`**（opus-5 只接受 `off`/`xhigh`/`max`）。
+3. **sonnet 作為 high 的 fallback 不是「品質擔保」**——它綜合分更低、agentic 指標差距明顯（AutomationBench 37% vs 69%），成本卻高約 19 倍。它的真實作用是**跨供應商可用性替補**（DeepSeek 限流/故障時仍能完成工作），文件措辭已據此更正。
+
+> **誠實揭露**：這是第三方綜合基準，**不是我們工作負載的實測**。方向不一致之處必須併陳：最接近本專案情境的 Terminal-Bench v4.0 由 Opus 大幅領先（49% vs 27%），但 AutomationBench-AA 反由 deepseek-flash 領先（69% vs 57%）。因此本次**不調整 tier 分層本身**，只修正 effort 設定與錯誤措辭。另：AA-Omniscience 為 **−5**（懲罰幻覺的知識指標，負值代表不確定時傾向自信給錯）——這正是本 repo「不採信 agent 自述、以 crosscheck／測試佐證」（docs/02 §4）的必要性佐證，殘餘風險由該機制承擔。
+>
+> AA 頁面列出的價格與 `config/dsh/pricing.yaml` **完全一致**（含 opus cacheRead $0.50，原為 `input×0.1` 的推估值，現獲第三方佐證）。
+
+誠實揭露：「V4.1 Flash 全面超越 V4 Pro」為 DeepSeek 官方公告說法，本 repo 未做獨立對比驗證。config 為唯一事實來源，`model_tier` 手動覆寫可隨時指定 opus；high tier 的 fallback 不含 opus，避免無謂升級（見上：fallback 的角色是可用性而非升級）。
 
 > **副作用（2026-09-11 起）**：low/medium 的 deepseek fallback 與 high 的 primary 均為 `deepseek-flash`，故 low/medium 的跨 provider failover 與 high 的主路徑落在同一顆模型。這反映官方實際路由行為（V4 Pro 請求本就被導向 V4.1 Flash），非設定錯誤；待 `V4.1 Pro` 上線後可重新拉開 high tier 的層級差。
 
@@ -79,5 +100,5 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 ## 未做（日後選項）
 
 - LLM 分析的複雜度判定（需 key＋成本，不符本 gate 零成本設計）。
-- 每 tier 的 `reasoningEffort` 調校（config 已支援欄位，預設不設定）。
+- ~~每 tier 的 `reasoningEffort` 調校~~ → **critical 已於 2026-09-11 明設 `max`**（理由見上節基準實測）。low/medium/high 仍未設定（走 provider 預設）——誠實揭露：AA 的 deepseek-flash 40 分是在 **Max Effort** 下測得，我們跑預設 effort，**實際品質可能低於該數字**；是否替 high tier 也明設 effort 尚待決定。
 - 其他更便宜旗艦（kimi-k2.7-code、MiniMax-M3、gemini-3.1-pro、gpt-5.6-terra、qwen3.7-max）需新增 API key 或 route 宣告。
