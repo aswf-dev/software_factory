@@ -22,11 +22,11 @@ on:
         required: true
         type: number
       task_type:
-        description: 任務類型（決定 task-template 與 skill 分支）
+        description: 任務類型（決定 task-template 與 skill 分支）；auto = 以 Issue 宣告為準
         required: false
         type: choice
-        options: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze, agent-propose-skill]
-        default: agent-add-tests
+        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze, agent-propose-skill]
+        default: auto
       repo:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
         required: false
@@ -167,9 +167,16 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
 
-      # 標籤必須預先存在（gh issue edit --add-label 不會自動建立）。
+      # 標籤必須預先存在（gh issue edit --add-label 不會自動建立，缺一個整條指令失敗）。
       # 冪等：--force 在已存在時更新顏色而不報錯。
       # GH_REPO 讓 gh 指向目標 repo（預設是本 repo 的 origin）。
+      #
+      # ⚠️ 這份清單必須涵蓋 src/labels.ts 的 FACTORY_LABELS 全部成員——
+      # test/adversarial/factory-assets.test.ts 會比對兩邊，漏一個即紅燈。
+      # 實測 run 34731487680（Issue #287）：skill-gap 只加了發射端（docs/20 E4）
+      # 沒加這裡，agent 的工作已經成功（crosscheck 過、judge 出終態、PR 已開），
+      # 卻在收尾 `gh issue edit --add-label oversight/review,skill-gap` exit 1，
+      # 整個 run 被標成 failure 並貼 needs-human——成功的執行被偽裝成失敗。
       - name: Ensure factory labels exist
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -180,6 +187,7 @@ jobs:
           gh label create "oversight/in-loop"  --color "d73a4a" --force
           gh label create "needs-human"        --color "b60205" --force
           gh label create "ready"              --color "0e8a16" --force
+          gh label create "skill-gap"          --color "fbca04" --force
           echo "factory labels ensured ($GH_REPO)"
 
       # 集中式 Issue 格式檢查（ADR-012）：檢查邏輯只存在機制 repo（dist CLI），
@@ -210,6 +218,48 @@ jobs:
             exit 1
           fi
           echo "格式合規"
+
+      # 任務類型以 **Issue 為準**（docs/02 §3.2：Issue 是工作項契約）。
+      #
+      # 實測（Issue #287，2026-09-13）：Issue body 宣告 agent-fix-bug，但 dispatch
+      # 漏帶 -f task_type，input 的預設值 agent-add-tests 靜默生效——agent 收到
+      # task-template-add-tests.txt，完全照 add-tests 規矩走（test-only、缺陷以
+      # it.skip 交付），實作與文件兩層從未產生。整個 run 是綠的，沒有任何訊息
+      # 說明「你派的類型不是 Issue 宣告的類型」。
+      #
+      # 修法：預設改為 auto → 從 Issue body 解析。解析呼叫 dist 的 checkIssue
+      # （FIELD_TITLES 的權威實作），不自寫正則——factory-issue-check.yml 曾各寫
+      # 一份，那正是漂移的來源。人類仍可顯式指定覆寫，但會留下 ::notice:: 稽核痕跡。
+      - name: Resolve task_type (Issue 為準)
+        id: tasktype
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          REQUESTED: ${{ inputs.task_type }}
+        run: |
+          set -euo pipefail
+          DECLARED=$(gh issue view "${{ inputs.issue_number }}" --json body --jq .body \
+            | node -e '
+              let s = ""
+              process.stdin.on("data", (d) => (s += d)).on("end", async () => {
+                const { checkIssue } = await import("./dist/cli/factory-issue-check.js")
+                process.stdout.write(checkIssue(s).taskType ?? "")
+              })')
+          echo "issue 宣告的任務類型: ${DECLARED:-（無法解析）}"
+          if [ "$REQUESTED" = "auto" ]; then
+            if [ -z "$DECLARED" ]; then
+              echo "::error::task_type=auto 但 Issue #${{ inputs.issue_number }} 的任務類型欄位無法解析。請修正 Issue，或 dispatch 時顯式指定 task_type。"
+              exit 1
+            fi
+            RESOLVED="$DECLARED"
+          else
+            RESOLVED="$REQUESTED"
+            if [ -n "$DECLARED" ] && [ "$DECLARED" != "$REQUESTED" ]; then
+              echo "::notice::dispatch 指定 task_type=$REQUESTED，與 Issue 宣告的 $DECLARED 不同——以 dispatch 為準（人類覆寫）。"
+            fi
+          fi
+          echo "resolved task_type: $RESOLVED"
+          echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
 
       # DSH 的 sandbox 不會把 GH_TOKEN 傳進 agent 的 process 環境（實測：
       # step 層的 gh 可用 App token，但 agent 內的 gh 看不到任何 token）。
@@ -321,7 +371,7 @@ jobs:
           # 「留言是否含此 run id」去重，不會把 gate 阻斷誤判為缺終態而補貼假訊息。
           node dist/cli/apply-score-labels.js \
             "${{ inputs.issue_number }}" .factory/score.json \
-            "${{ inputs.task_type }}" \
+            "${{ steps.tasktype.outputs.value }}" \
             "${{ github.run_id }}"
 
       # 被擋下（in-loop）時說明並結束；agent 步驟會被 if: success() 跳過
@@ -381,7 +431,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
-          TASK_TYPE: ${{ inputs.task_type }}
+          TASK_TYPE: ${{ steps.tasktype.outputs.value }}
         run: |
           set +e
           if [ "${{ inputs.dry_run }}" == "true" ]; then
@@ -498,10 +548,10 @@ jobs:
         run: |
           set +e
           ANALYZE_FLAG=""
-          if [ "${{ inputs.task_type }}" = "agent-analyze" ]; then
+          if [ "${{ steps.tasktype.outputs.value }}" = "agent-analyze" ]; then
             # analyze 模式：crosscheck 驗證「僅分析不實作」（非 docs/ 變更 → fail-loud）
             ANALYZE_FLAG="--analyze-only"
-          elif [ "${{ inputs.task_type }}" = "agent-propose-skill" ]; then
+          elif [ "${{ steps.tasktype.outputs.value }}" = "agent-propose-skill" ]; then
             # propose-skill 模式（E6／ADR-016 §3 閘門 1）：只允許 proposals/skills/ 與
             # docs/；任何 .dsh/、src/、.github/ 變更 → fail-loud → needs-human。
             # 兩個旗標互斥（CLI 會拒絕同時指定），故此處用 elif 而非各自獨立判斷。
@@ -682,7 +732,7 @@ jobs:
             --repo "${{ inputs.repo }}" \
             --issue "${{ inputs.issue_number }}" \
             --run-id "${{ github.run_id }}" \
-            --task-type "${{ inputs.task_type }}" \
+            --task-type "${{ steps.tasktype.outputs.value }}" \
             --report "$GITHUB_WORKSPACE/target/.factory/run/report.json" \
             --judge "$GITHUB_WORKSPACE/.factory/judge.json" \
             --crosscheck "$GITHUB_WORKSPACE/.factory/crosscheck.json" \

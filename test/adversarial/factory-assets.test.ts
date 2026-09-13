@@ -327,7 +327,10 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
     const m = w.match(/^ {8}options: \[(.+)\]$/m)
     expect(m).not.toBeNull()
     const options = m![1]!.split(',').map((s) => s.trim())
+    // `auto` 是**解析指示**而非任務類型：它要求從 Issue 讀出真正的類型
+    // （docs/02 §3.2 契約在 Issue），因此不對應任何 task-template 檔。
     expect(options).toEqual([
+      'auto',
       'agent-add-tests',
       'agent-fix-bug',
       'agent-update-deps',
@@ -339,7 +342,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
     // 路由必須剝除前綴，否則專屬模板永遠拼不出檔名（2026-08-21 實測抓到的
     // 既有 bug：PR #101 後 4 型全部靜默 fallback 到通用模板）。
     expect(w).toContain('task-template-${TASK_TYPE#agent-}.txt')
-    for (const t of options) {
+    for (const t of options.filter((o) => o !== 'auto')) {
       const file = `task-template-${t.replace(/^agent-/, '')}.txt`
       expect(read(`.github/factory/${file}`)).toContain('<ISSUE>')
     }
@@ -534,14 +537,18 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
    * 但仍是宣告入口——新增 task_type 時漏改它，表單就永遠開不出該型別。
    * 三處 enum（workflow options／ISSUE_TEMPLATE／Backstage）必須一致。
    */
-  it('Backstage template enum 與 workflow options 完全一致（防 #238 漂移）', () => {
+  it('Backstage template enum 與 workflow options 一致（扣除 auto，防 #238 漂移）', () => {
     const w = read('.github/workflows/factory-run.yml')
     const options = w.match(/^ {8}options: \[(.+)\]$/m)![1]!.split(',').map((s) => s.trim())
     const bs = read('backstage/templates/factory-work-item/template.yaml')
     const enumBlock = bs.match(/enum:\n((?: {12}- agent-[\w-]+\n)+)/)
     expect(enumBlock, 'Backstage template 找不到 taskType enum 區塊').not.toBeNull()
     const enumTypes = [...enumBlock![1]!.matchAll(/- (agent-[\w-]+)/g)].map((m) => m[1])
-    expect(enumTypes).toEqual(options)
+    // Backstage 表單是**建立 Issue 的入口**，必須寫入一個具體類型；
+    // `auto`（從既有 Issue 讀回類型）在那裡沒有意義，故只存在於 workflow 端。
+    // 其餘型別仍須逐字一致——#238 的漂移正是從這裡開始。
+    expect(options.filter((o) => o !== 'auto')).toEqual(enumTypes)
+    expect(options, 'workflow 必須提供 auto').toContain('auto')
   })
   it('Backstage factory-work-item 模板存在且含建 Issue + dispatch 結構', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
@@ -565,13 +572,19 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     const t = read('.github/workflows/test.yml')
     expect(t).toMatch(/branches: \[main, software-factory\]/)
   })
-  it('taskType 表單預設 = agent-add-tests（與 workflow input / issue-check fallback 一致）', () => {
+  it('Backstage 表單預設 agent-add-tests；workflow 預設 auto（兩者刻意不同）', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
-    // 表單預設值讓 Review 按鈕不需手選即可按（2026-08-21 UX 修正），
-    // 且與 factory-run.yml 的 input default 及 issue-check 的 fallback 同源。
+    // Backstage 是建立 Issue 的入口，預設值讓 Review 按鈕不需手選即可按
+    // （2026-08-21 UX 修正），且該值會被寫進 Issue body，dispatch 與 Issue 一致。
     expect(t).toMatch(/default: agent-add-tests/)
-    expect(read('.github/workflows/factory-run.yml')).toContain('default: agent-add-tests')
-    expect(read('.github/workflows/factory-issue-check.yml')).toContain('"agent-add-tests"')
+    // factory-run 則相反：它面對的是**已存在的 Issue**，任何固定預設都會在
+    // 漏帶 -f task_type 時靜默覆蓋 Issue 的宣告（實測 #287：Issue 寫
+    // agent-fix-bug，實跑 add-tests，run 全綠無提示）。故預設必須是 auto。
+    expect(read('.github/workflows/factory-run.yml')).toContain('default: auto')
+    expect(
+      read('.github/workflows/factory-run.yml'),
+      'factory-run 不得再有固定類型的 input 預設',
+    ).not.toContain('default: agent-add-tests')
   })
   it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（5 型，2026-09-01 C1 漂移修復）', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
@@ -1070,6 +1083,104 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(src).toContain('🤖 **建議模型**')
     expect(src).toContain('analyzeComplexity')
     expect(src).toContain('resolveModelTier')
+  })
+
+  // 每個用得到 gh 的 step 都必須自帶 GH_TOKEN——gh 在 Actions **不會**自動撿
+  // GITHUB_TOKEN（2026-08-19 實測，該檔第 42-43 行已記載）。
+  // 實測缺口：「Dispatch factory-run on approval label」步驟漏設，因為
+  // factory/approved 這個 label 從未在 repo 建立，該路徑一次都沒走到，
+  // 缺 token 也就一直沒有暴露——沒有症狀不等於沒有缺陷。
+  it('factory-issue-check.yml 每個呼叫 gh 的 step 都設了 GH_TOKEN', () => {
+    const wf = load(read('.github/workflows/factory-issue-check.yml')) as {
+      jobs: Record<string, { steps?: { name?: string; run?: string; env?: Record<string, string> }[] }>
+    }
+    const steps = wf.jobs['check']?.steps ?? []
+    expect(steps.length, '解析不到 steps——結構可能已變動').toBeGreaterThan(0)
+    for (const step of steps) {
+      if (step.run === undefined || !/(^|\s)gh\s/m.test(step.run)) continue
+      expect(
+        step.env?.['GH_TOKEN'],
+        `step「${step.name ?? '(未命名)'}」用了 gh 但未設 GH_TOKEN`,
+      ).toBeDefined()
+    }
+  })
+})
+
+describe('label bootstrap 覆蓋發射端（run 34731487680：skill-gap 未建立導致收尾 exit 1）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+
+  // `gh issue edit --add-label` 不會自動建立 label，缺一個就整條指令失敗。
+  // 發射端（apply-*-labels）與 bootstrap（factory-run.yml）是兩份清單，
+  // docs/20 E4 加了 skill-gap 發射端卻沒加 bootstrap，於是任何回報 skillGap
+  // 的 run 都會在最後一步炸掉——agent 工作已成功卻被標成 failure。
+  it('FACTORY_LABELS 的每個成員都出現在 factory-run.yml 的 gh label create', async () => {
+    const { FACTORY_LABELS } = (await import('../../src/labels.js')) as {
+      FACTORY_LABELS: readonly string[]
+    }
+    const wf = read('.github/workflows/factory-run.yml')
+    const created = new Set(
+      [...wf.matchAll(/gh label create\s+"([^"]+)"/g)].map((m) => m[1] as string),
+    )
+    expect(created.size, 'factory-run.yml 找不到任何 gh label create').toBeGreaterThan(0)
+    expect(FACTORY_LABELS.length).toBeGreaterThan(0)
+    for (const label of FACTORY_LABELS) {
+      expect(
+        created.has(label),
+        `factory-run.yml 的 bootstrap 未建立 "${label}"——貼標籤時會 exit 1`,
+      ).toBe(true)
+    }
+  })
+
+  // 反向鎖：發射端若新增字面值卻沒進 FACTORY_LABELS，上面那條就形同虛設。
+  // 掃 apply-judge-labels.ts 的 labels.push(...) 引數，逐一要求在清單內。
+  it('apply-judge-labels 推入的 label 字面值都在 FACTORY_LABELS 內', async () => {
+    const { FACTORY_LABELS } = (await import('../../src/labels.js')) as {
+      FACTORY_LABELS: readonly string[]
+    }
+    const src = read('src/cli/apply-judge-labels.ts')
+    const pushedLiterals = [...src.matchAll(/labels\.push\(\s*'([^']+)'\s*\)/g)].map(
+      (m) => m[1] as string,
+    )
+    for (const label of pushedLiterals) {
+      expect(
+        FACTORY_LABELS.includes(label),
+        `apply-judge-labels 直接 push 了字面值 '${label}'，但它不在 src/labels.ts 的 FACTORY_LABELS——bootstrap 不會建立它`,
+      ).toBe(true)
+    }
+  })
+
+  it('FACTORY_LABELS 涵蓋全部 oversight tier 與 needs-human（新增 tier 不得漏建）', async () => {
+    const { FACTORY_LABELS } = (await import('../../src/labels.js')) as {
+      FACTORY_LABELS: readonly string[]
+    }
+    const { TIER_LABEL } = await import('../../src/scoring/types.js')
+    const { NEEDS_HUMAN_LABEL } = await import('../../src/stop-rules/types.js')
+    for (const label of Object.values(TIER_LABEL)) {
+      expect(FACTORY_LABELS).toContain(label)
+    }
+    expect(FACTORY_LABELS).toContain(NEEDS_HUMAN_LABEL)
+  })
+
+  // Issue 是工作項契約（docs/02 §3.2）。實測 #287：dispatch 漏帶 task_type，
+  // input 預設 agent-add-tests 靜默覆蓋 Issue 宣告的 agent-fix-bug，
+  // agent 因此只交付 test-only 一層，而 run 全綠、無任何提示。
+  it('factory-run.yml 的 task_type 預設為 auto（不得以固定類型靜默覆蓋 Issue）', () => {
+    const raw = load(read('.github/workflows/factory-run.yml')) as Record<string, unknown>
+    const on = (raw['on'] ?? raw['true']) as {
+      workflow_dispatch?: { inputs?: Record<string, { default?: string; options?: string[] }> }
+    }
+    const input = on.workflow_dispatch?.inputs?.['task_type']
+    expect(input?.default, 'task_type 預設必須是 auto').toBe('auto')
+    expect(input?.options, 'options 必須含 auto').toContain('auto')
+  })
+
+  it('task_type 的解析共用 checkIssue，不得各自重打正則（雙份規則＝漂移）', () => {
+    const run = read('.github/workflows/factory-run.yml')
+    expect(run).toContain('checkIssue')
+    // 兩支 workflow 都不得再出現自寫的「### 任務類型」正則
+    for (const wf of ['.github/workflows/factory-run.yml', '.github/workflows/factory-issue-check.yml']) {
+      expect(read(wf), `${wf} 仍有自寫的任務類型正則`).not.toMatch(/### 任務類型\\s\*/)
+    }
   })
 })
 
