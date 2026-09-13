@@ -7,10 +7,12 @@
  *
  * 本檔定義「契約」：Task 5–8 與 Task 16–20 依此建立檔案後轉綠。
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DOD_LABELS } from '../../src/cli/factory-issue-check.js'
+// Issue #287：三軸合法值的單一真相來源。測試若重打字串，測試自己就是下一個漂移點。
+import { BUSINESS_CRITICALITY, COMPLEXITY, RISK_PROFILE } from '../../src/scoring/types.js'
 
 const ROOT = join(import.meta.dirname, '../..')
 const read = (p: string): string => readFileSync(join(ROOT, p), 'utf8')
@@ -126,16 +128,26 @@ describe('task-template 完成後立即停止（防 agent 開完 PR 後空轉不
   //
   // 契約：每個 task-template 都必須明確指示「所有步驟完成後立即停止」，不繼續任何
   // 額外工作/驗證/輸出。缺此指示的模板會讓 agent 在 CI 空轉直到 50min timeout。
-  const TEMPLATES = [
-    'task-template.txt',
-    'task-template-add-tests.txt',
-    'task-template-fix-bug.txt',
-    'task-template-update-deps.txt',
-    'task-template-write-docs.txt',
-    'task-template-analyze.txt',
-  ]
+  //
+  // Issue #287（缺陷 2）：這裡曾硬編碼 6 個模板名——`.github/factory/` 實際有 8 個，
+  // `task-template-onboard.txt` 與 `task-template-propose-skill.txt` 從未被納入檢查。
+  // 這種「新增資產沒接上檢查」的清單漂移與缺陷 1 同源，故改為 glob 列舉：
+  // 新增模板自動納入下面兩項檢查，不需要有人記得更新清單。
+  const TEMPLATES = readdirSync(join(ROOT, '.github/factory'))
+    .filter((f) => /^task-template.*\.txt$/.test(f))
+    .sort()
 
-  it('全部 6 個 task-template 含「完成後立即停止」指示（防 CI 空轉）', () => {
+  it('glob 實際列舉出 task-template（數量 > 0，防 glob 寫錯導致空跑恆綠）', () => {
+    // 若 glob 失效，TEMPLATES 為空 → 下面兩條迴圈測試全部空跑、恆綠無聲。
+    expect(TEMPLATES.length, 'glob 未列舉到任何 task-template').toBeGreaterThan(0)
+    // #287 實證基數：至少 8 個（7 個專屬模板 + 1 個通用）；新增只增不減。
+    expect(TEMPLATES.length).toBeGreaterThanOrEqual(8)
+    // 釘住兩個曾经的盲區模板，確保列舉真的涵蓋它們（不重新硬編碼整個清單）。
+    expect(TEMPLATES).toContain('task-template-onboard.txt')
+    expect(TEMPLATES).toContain('task-template-propose-skill.txt')
+  })
+
+  it('所有 task-template（glob 列舉）含「完成後立即停止」指示（防 CI 空轉）', () => {
     for (const t of TEMPLATES) {
       const c = read(`.github/factory/${t}`)
       expect(c, `${t} 缺「完成後立即停止」指示`).toMatch(/立即停止|立即結束|停止任何額外/)
@@ -151,6 +163,102 @@ describe('task-template 完成後立即停止（防 agent 開完 PR 後空轉不
       // 在寫 report 前就停止
       expect(stopIdx, `${t} 停止指示位置錯誤`).toBeGreaterThan(reportIdx)
     }
+  })
+})
+
+/**
+ * Issue #287：三軸合法值抗漂移。
+ *
+ * 根因（缺陷 1）：`task-template-onboard.txt` 教 agent 填 `supporting`，但機制合法值
+ * 在 `src/scoring/types.ts` 是 `['tactical','operational','strategic']`——`supporting`
+ * 非法。`factory-score` 對非法值 fail-safe 計 2，後果不是紅燈而是**靜默升級**
+ * （實證：docs/27 §7.2 camunda_hazelcast 預期 total 1 → on-loop，實得 3 → review）。
+ *
+ * 契約：
+ * 1) 值集合一律以 `src/scoring/types.ts` 的常數為單一真相來源（見檔頭 import）——
+ *    測試內重打字串會讓測試自己變成下一個漂移點。
+ * 2) factory 資產（`.github/factory/**`、`.dsh/skills/**`）中出現三軸 annotation
+ *    名稱之處，若列出值（`a | b | c` 形式或 `key: value`），每個值都必須在合法集合內。
+ * 3) 回歸鎖：`supporting` 不得作為三軸值出現在 factory 資產中。
+ *
+ * **it.skip 交付說明（test-only 工作項，Issue #287）**：以下兩條標红的測試揭露的是
+ * 既有缺陷 1（模板尚未修，非測試自身錯誤）。依 agent-add-tests 劃界（#198 共識），
+ * 本工作項不得改實作，故紅燈測試以 `it.skip` 交付、斷言完整保留；修復模板
+ * （`.github/factory/task-template-onboard.txt` 三軸註解）的 agent-fix-bug 工作項
+ * 應 un-skip 這兩條並轉綠（REQ-2）。
+ */
+describe('三軸合法值抗漂移（#287：單一真相來源 = src/scoring/types.ts）', () => {
+  const AXIS_LEGAL: Record<string, readonly string[]> = {
+    'business-criticality': BUSINESS_CRITICALITY,
+    'risk-profile': RISK_PROFILE,
+    complexity: COMPLEXITY,
+  }
+  const FACTORY_ASSET_DIRS = ['.github/factory', '.dsh/skills']
+
+  // 遞迴列舉 factory 資產檔（這些目錄下全為文字檔：.txt/.md/.yml/.qnt）
+  const listAssetFiles = (relDir: string): string[] => {
+    const out: string[] = []
+    for (const e of readdirSync(join(ROOT, relDir), { withFileTypes: true })) {
+      const rel = join(relDir, e.name)
+      if (e.isDirectory()) out.push(...listAssetFiles(rel))
+      else if (e.isFile()) out.push(rel)
+    }
+    return out
+  }
+  const ASSET_FILES = FACTORY_ASSET_DIRS.flatMap(listAssetFiles).sort()
+
+  it('factory 資產以遞迴列舉非空（防路徑寫錯導致空跑恆綠）', () => {
+    expect(ASSET_FILES.length, '未列舉到任何 factory 資產').toBeGreaterThan(0)
+    expect(ASSET_FILES).toContain('.github/factory/task-template-onboard.txt')
+    // 兩個目錄都要真的掃到（防其中一個路徑打錯而靜默漏掃）
+    expect(ASSET_FILES.some((f) => f.startsWith('.dsh/skills/'))).toBe(true)
+  })
+
+  it.skip('三軸 annotation 名稱處列出的值全在合法集合內（紅＝缺陷 1 未修，修復 PR un-skip）', () => {
+    const violations: string[] = []
+    for (const rel of ASSET_FILES) {
+      read(rel)
+        .split('\n')
+        .forEach((line, idx) => {
+          for (const [axis, legal] of Object.entries(AXIS_LEGAL)) {
+            if (!line.includes(axis)) continue
+            // 值來源：優先取行內註解（模板以 `# a | b | c` 教合法值），否則取 `:` 之後
+            const hash = line.indexOf('#')
+            const valuePart = hash >= 0 ? line.slice(hash + 1) : line.slice(line.indexOf(':') + 1)
+            for (const seg of valuePart.split('|')) {
+              const tok = seg.trim()
+              // 只審查「單獨成詞的小寫 token」；說明性文字跳過（誤報比漏報更傷防線信任）
+              if (!/^[a-z][a-z-]*$/.test(tok)) continue
+              if (!legal.includes(tok)) {
+                violations.push(`${rel}:${idx + 1} [${axis}] 非法值 "${tok}"（合法：${legal.join(' | ')}）`)
+              }
+            }
+          }
+        })
+    }
+    expect(violations, 'factory 資產列出了不屬於機制合法集合的三軸值').toEqual([])
+  })
+
+  it.skip('回歸鎖：supporting 不得作為三軸值出現在 factory 資產（紅＝缺陷 1 未修）', () => {
+    const offenders: string[] = []
+    for (const rel of ASSET_FILES) {
+      read(rel)
+        .split('\n')
+        .forEach((line, idx) => {
+          if (!/\bsupporting\b/.test(line)) return
+          // `.dsh/skills/**` 含官方 vendored 內容，其中的普通英文 "supporting"
+          // （如 quint-modeling 指南的 "a supporting path"）不是軸值漂移、亦不在
+          // 本 Issue 修改範圍，故該目錄只鎖「與三軸 annotation 名稱同行」的出現。
+          // `.github/factory/**` 全是工廠機制資產——零容忍。
+          const axisContext = Object.keys(AXIS_LEGAL).some((a) => line.includes(a))
+          if (rel.startsWith('.github/factory') || axisContext) {
+            offenders.push(`${rel}:${idx + 1}: ${line.trim()}`)
+          }
+        })
+    }
+    // `supporting` 是三軸共同的幽靈值：factory-score fail-safe 計 2 → 靜默升級監督分數，
+    // 無任何錯誤訊息（docs/27 §12 實證）。修復後此鎖防止回潮。
+    expect(offenders, 'supporting 非法（不是任何一軸的合法值）').toEqual([])
   })
 })
 
@@ -870,7 +978,7 @@ describe('factory-draft 防呆契約（2026-08-22：無限轉圈教訓）', () =
 describe('模型分級路由契約（docs/ADR/011）', () => {
   const { load } = require('js-yaml') as typeof import('js-yaml')
   interface TierShape {
-    primary: { provider: string; model: string }
+    primary: { provider: string; model: string; reasoningEffort?: string }
     fallback: { provider: string; model: string }[]
   }
   const tiers = (
@@ -931,6 +1039,18 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(critical?.primary.model).toBe('claude-opus-5')
     expect(critical?.primary.provider).toBe('anthropic')
     expect(critical?.fallback[0]?.model).toBe('deepseek-flash')
+  })
+
+  it('critical 必須明設 reasoningEffort: max（否則付旗艦價只換到平手品質）', () => {
+    // 2026-09-11 第三方基準（Artificial Analysis Intelligence Index v4.3）：
+    //   Opus 5 (max effort) = 51 分；Opus 5 (low effort) = 40 分；deepseek-flash = 40 分。
+    // 未設 effort → 走 provider 預設（值未知），critical tier 可能在付約 21 倍成本
+    // 換取與 high tier 打平的品質——那會讓「最高 tier」失去存在意義。
+    // 注意 opus-5 只接受 off/xhigh/max（pi-ai catalog thinkingLevelMap），
+    // 填 low/medium/high 會在執行期 UNSUPPORTED_REASONING_EFFORT。
+    const effort = tiers.critical?.primary.reasoningEffort
+    expect(effort, 'critical primary 必須宣告 reasoningEffort').toBeDefined()
+    expect(['xhigh', 'max'], `opus-5 不接受 effort "${effort}"`).toContain(effort)
   })
 
   it('每個 tier 有 primary 與非空 fallback（provider 層失敗必須可 fallback）', () => {
