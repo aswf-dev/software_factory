@@ -11,6 +11,8 @@ import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 import { SkillGapSchema } from './factory-judge.js'
 import { renderSkillGapMarkdown } from '../skill-gap/render.js'
+import { SKILL_GAP_LABEL } from '../labels.js'
+import { NEEDS_HUMAN_LABEL } from '../stop-rules/types.js'
 
 export const PHASE1_HUMAN_REVIEW_NOTE = '（第 1 期：不自動合併，等待人類審查）'
 
@@ -48,8 +50,14 @@ export function computeJudgeLabels(
   hasSkillGap = false,
 ): { labels: string[]; requiresHuman: boolean } {
   const labels = [...judge.labels]
-  if (judge.outcome === 'needs-human' && !labels.includes('needs-human')) labels.push('needs-human')
-  if (hasSkillGap && !labels.includes('skill-gap')) labels.push('skill-gap')
+  // 字面值改用 src/labels.ts 的常數：那份清單同時被對抗性測試拿去比對
+  // factory-run.yml 的 bootstrap，確保「發射得出來的 label 一定先被建立」
+  // （run 34731487680：skill-gap 未建立導致收尾 exit 1）。
+  // 左式是**終點**、右式是**label**，兩者字面相同但語意不同，故不共用常數。
+  if (judge.outcome === 'needs-human' && !labels.includes(NEEDS_HUMAN_LABEL)) {
+    labels.push(NEEDS_HUMAN_LABEL)
+  }
+  if (hasSkillGap && !labels.includes(SKILL_GAP_LABEL)) labels.push(SKILL_GAP_LABEL)
   // Phase 1：任何執行過的終點都要人審；blocked-in-loop 已在 apply-score-labels 留言
   const requiresHuman = judge.outcome !== 'blocked-in-loop'
   return { labels, requiresHuman }

@@ -244,6 +244,30 @@ config/github/main-ruleset.json
 
 ---
 
+## 4.1 `factory/approved` label（半自動觸發的前提）
+
+`factory-issue-check.yml` 的半自動觸發是「格式合規的 Issue 貼上 `factory/approved` → 自動 dispatch factory-run」。
+
+**這個 label 必須由人手動建立，工廠無法自舉**：`factory-run.yml` 的「Ensure factory labels exist」只在 factory-run **已經被觸發之後**才執行，而 `factory/approved` 正是觸發它的條件——先有雞後有蛋。它也不屬於 `src/labels.ts` 的 `FACTORY_LABELS`（那是**工廠會貼出去**的 label；`factory/approved` 相反，是人類貼給工廠的核准信號）。
+
+```bash
+gh label create "factory/approved" --repo philipz/software_factory \
+  --color "0e8a16" --description "人類核准：自動 dispatch factory-run"
+```
+
+> **2026-09-13 實測發現**：這個 label 在 repo 中**從未被建立**，因此半自動觸發路徑自實作以來一次都沒有被走到。連帶讓另一個缺陷長期潛伏——該步驟漏設 `GH_TOKEN`（`gh` 在 Actions 不會自動撿 `GITHUB_TOKEN`），因為沒被執行過，所以沒有症狀。
+>
+> **沒有症狀不等於沒有缺陷。** 現已補上 `GH_TOKEN`，並由 `test/adversarial/factory-assets.test.ts` 斷言「每個呼叫 `gh` 的 step 都必須設 `GH_TOKEN`」。
+
+驗證：
+
+```bash
+gh label list --repo philipz/software_factory --json name --jq '.[].name' \
+  | grep -x "factory/approved"
+```
+
+---
+
 ## 5. 完成後的驗證清單
 
 設定完成後逐項確認（每項都應可實測）：
