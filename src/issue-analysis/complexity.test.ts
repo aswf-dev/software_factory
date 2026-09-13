@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   analyzeComplexity,
   countFileMentions,
+  detectComputationalIntensity,
   HIGH_SCOPE_KEYWORDS,
   MEDIUM_SCOPE_KEYWORDS,
   RISK_KEYWORDS,
@@ -106,5 +107,77 @@ describe('analyzeComplexity — taskType 不影響結果（scope 是決定者）
   it('agent-fix-bug 但跨模組 → medium（scope 凌駕 taskType）', () => {
     const r = analyzeComplexity({ taskType: 'agent-fix-bug', requirement: '跨模組修正，動多個檔案' })
     expect(r.complexity).toBe('medium')
+  })
+})
+
+/**
+ * B5（34735315950 事故修正）：計算強度軸。
+ *
+ * 契約：heavy-verify 判定必須**保守**——誤報會讓每個普通任務都吃 critical tier
+ * 的旗艦成本，漏報則重演「50 分鐘換 0 commit」。故測試同時釘住兩個方向。
+ */
+describe('detectComputationalIntensity — 工具級關鍵字', () => {
+  it('quint/apalache/模型檢查/形式化 任一命中 → heavy-verify 並回報訊號', () => {
+    for (const kw of ['quint', 'apalache', '模型檢查', '形式化', 'TLA+', 'Z3']) {
+      const r = detectComputationalIntensity(`本單需要以 ${kw} 處理`)
+      expect(r.intensity, `${kw} 應判為 heavy-verify`).toBe('heavy-verify')
+      expect(r.signals.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('純文字需求（無工具/泛用詞）→ standard', () => {
+    expect(detectComputationalIntensity('修正登入頁的錯字').intensity).toBe('standard')
+    expect(detectComputationalIntensity('').intensity).toBe('standard')
+  })
+})
+
+describe('detectComputationalIntensity — 泛用詞需 sharpener（防誤報）', () => {
+  it('單獨的 verify 不算（幾乎每個任務都有「驗證方式」）', () => {
+    const r = detectComputationalIntensity('請補測試，驗證方式明確；跑測試確認綠燈')
+    expect(r.intensity).toBe('standard')
+  })
+
+  it('verify ＋ 規格級 sharpener → heavy-verify', () => {
+    const r = detectComputationalIntensity('以 max-steps 12 執行 verify 並記錄反例')
+    expect(r.intensity).toBe('heavy-verify')
+  })
+
+  it('反例 單獨出現不算；「不變式」sharpener 併存才算', () => {
+    expect(detectComputationalIntensity('找出反例').intensity).toBe('standard')
+    expect(detectComputationalIntensity('形式化不變式並找出反例').intensity).toBe('heavy-verify')
+  })
+})
+
+describe('analyzeComplexity — heavy-verify 抬升複雜度與強度欄位', () => {
+  it('模型檢查需求 → complexity high ＋ computationalIntensity heavy-verify ＋ evidence 註明', () => {
+    const r = analyzeComplexity({
+      requirement: '以 quint 建立 as-is 規格，形式化不變式並存證反例，verify 於 max-steps 12',
+    })
+    expect(r.complexity).toBe('high')
+    expect(r.computationalIntensity).toBe('heavy-verify')
+    expect(r.evidence.join()).toContain('heavy-verify')
+  })
+
+  it('34735315950 實際 Issue 文字形狀 → heavy-verify（回歸鎖）', () => {
+    // 取自 agent-playground/node-redlock#7 的需求描述（事故原始輸入）。
+    const r = analyzeComplexity({
+      requirement:
+        '新增 specs/redlock.qnt、specs/redlockTest.qnt；把已核實的 9 項疑點形式化為不變式與 witness，'
+        + '把反例軌跡存證，npx quint verify specs/redlock.qnt --invariants mutualExclusionOnNodes --max-steps 12。',
+    })
+    expect(r.computationalIntensity).toBe('heavy-verify')
+    expect(r.complexity).toBe('high')
+  })
+
+  it('一般驗證需求 → standard 且不抬升為 high（不誤燒旗艦）', () => {
+    const r = analyzeComplexity({ requirement: '為單一工具函式補測試，跑測試確認綠燈' })
+    expect(r.complexity).toBe('low')
+    expect(r.computationalIntensity).toBe('standard')
+  })
+
+  it('需求欄位缺失 → fail-safe high，但強度不臆測為 heavy（無證據不假設 CPU-bound）', () => {
+    const r = analyzeComplexity({ requirement: '' })
+    expect(r.complexity).toBe('high')
+    expect(r.computationalIntensity).toBe('standard')
   })
 })

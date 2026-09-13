@@ -129,6 +129,95 @@ describe('resolveModelTier — critical 升級條件', () => {
   })
 })
 
+/**
+ * B5（34735315950 事故修正）：計算強度 heavy-verify 必須**繞過總分門檻**直接
+ * 升 critical，並在 resolution 上留下 `escalation` 供 factory-run 決定逾時預算。
+ *
+ * 事故實證：Issue #7 複雜度判據只有「目標檔案提及 13 處」→ high → deepseek-flash，
+ * 總分未達 CRITICAL_MIN_TOTAL 故未升級；agent 在 50 分鐘內重寫模型 4 版、起停
+ * 10+ 個 Apalache job，最後卡在 state 8/12 逾時，交付為零。
+ */
+describe('resolveModelTier — heavy-verify 強制 critical（B5）', () => {
+  const heavy = {
+    complexity: 'high' as const,
+    score: 2,
+    evidence: ['計算強度 heavy-verify：quint → 至少 high'],
+    computationalIntensity: 'heavy-verify' as const,
+  }
+
+  it('heavy-verify 即使 total=0（未達門檻）仍升 critical', () => {
+    const r = resolveModelTier({
+      tiers: TIERS,
+      declaredProviders: PROVIDERS,
+      analysis: heavy,
+      scoreTotal: 0,
+    })
+    expect(r.tier).toBe('critical')
+    expect(r.selected.model).toBe('claude-opus-5')
+    expect(r.escalation).toBe('heavy-verify')
+    expect(r.reason).toContain('heavy-verify')
+    expect(r.reason).toContain('不受總分門檻限制')
+  })
+
+  it('heavy-verify 且 total 已達門檻 → 仍標記 escalation（逾時預算需要）', () => {
+    const r = resolveModelTier({
+      tiers: TIERS,
+      declaredProviders: PROVIDERS,
+      analysis: heavy,
+      scoreTotal: CRITICAL_MIN_TOTAL,
+    })
+    expect(r.tier).toBe('critical')
+    expect(r.escalation).toBe('heavy-verify')
+  })
+
+  it('標準強度（未帶 computationalIntensity）→ 不升級、無 escalation（向後相容）', () => {
+    const r = resolveModelTier({
+      tiers: TIERS,
+      declaredProviders: PROVIDERS,
+      analysis: { complexity: 'high', score: 2, evidence: ['scope 高'] },
+      scoreTotal: 0,
+    })
+    expect(r.tier).toBe('high')
+    expect(r.escalation).toBeUndefined()
+  })
+
+  it('standard 強度明確標示 → 不升級', () => {
+    const r = resolveModelTier({
+      tiers: TIERS,
+      declaredProviders: PROVIDERS,
+      analysis: { ...heavy, computationalIntensity: 'standard' },
+      scoreTotal: 0,
+    })
+    expect(r.tier).toBe('high')
+    expect(r.escalation).toBeUndefined()
+  })
+
+  it('critical 政策缺席 → 誠實退回 high 並在 reason 說明（不靜默假裝升級）', () => {
+    const tiers: TierPolicies = { ...TIERS, critical: undefined }
+    const r = resolveModelTier({
+      tiers,
+      declaredProviders: PROVIDERS,
+      analysis: heavy,
+      scoreTotal: 0,
+    })
+    expect(r.tier).toBe('high')
+    expect(r.escalation).toBeUndefined()
+    expect(r.reason).toContain('未定義 critical')
+  })
+
+  it('手動 model_tier=low 為人類明示 → heavy-verify 不覆寫（手動優先於啟發式）', () => {
+    const r = resolveModelTier({
+      tiers: TIERS,
+      declaredProviders: PROVIDERS,
+      manualTier: 'low',
+      analysis: heavy,
+      scoreTotal: 0,
+    })
+    expect(r.tier).toBe('low')
+    expect(r.escalation).toBeUndefined()
+  })
+})
+
 describe('resolveModelTier — 手動覆寫', () => {
   it('manualTier=critical → 直接 critical，不因 total 低而降級', () => {
     const r = resolveModelTier({

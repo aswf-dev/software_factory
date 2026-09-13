@@ -13,6 +13,7 @@ body:
         - agent-fix-bug
         - agent-update-deps
         - agent-write-docs
+        - agent-write-spec
         - agent-analyze
         - agent-propose-skill
     validations:

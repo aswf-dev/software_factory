@@ -38,6 +38,14 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
    - `factory-run.yml` 新增「Select model tier」步驟（`gh issue view --json body` ＋ `factory-model` CLI → `.factory/model.json`）；agent 步驟改為沿 `model.json` 的 chain 迭代（`jq -c '.chain[]'`），每項重寫 `agent-default-model` 後跑 dsh；**provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback，任務層失敗不重試**（docs/02 §6 不變）。
    - `factory-issue-check` 留言擴充為三行：格式合規 ＋ 📊 複雜度分析（等級＋判據）＋ 🤖 建議模型（tier＋primary＋fallback）。
    - Inputs：新增 `model_tier`（auto/low/medium/high/critical，預設 auto）；`model_provider` 加 `auto` 並改預設 `auto`（語意改為「偏好 provider」，chain 內該 provider 置前）。
+5. **計算強度軸：heavy-verify 強制 critical，繞過計分門檻（2026-09-13，34735315950 事故修正）**。
+
+   複雜度軸量的是**變更廣度/風險**，但模型的成敗還受「任務是否把 CPU-bound 工作迴圈塞進 run」支配。事故實證：Issue #7（as-is Quint 規格＋反例存證）的複雜度判據只有「目標檔案提及 13 處」→ high → `deepseek-flash`；總分未達 `CRITICAL_MIN_TOTAL` 故未升級。Agent 在 50 分鐘內重寫模型 4 版、起停 10+ 個 Apalache job，最後卡在 `state 8/12` 被 step timeout 砍掉——`0` commit、`0` PR、`0` bytes stdout，成本 $0.306 全損。
+
+   - **新增判定**：`src/issue-analysis/complexity.ts` 的 `detectComputationalIntensity()` 以兩段式（工具級關鍵字 `quint`/`apalache`/`tla+`/`模型檢查`/`形式化`/`z3`… 任一命中；或泛用詞 `verify`/`反例` **且** 規格級 sharpener `spec`/`規格`/`max-steps`/`不變式` 同時命中）判 `heavy-verify`。**刻意保守**：單獨的「verify」不算——幾乎每個 Issue 都有「驗證方式」段落，誤報會讓所有任務吃旗艦成本。
+   - **路由後果**：`resolveModelTier` 見 `computationalIntensity === 'heavy-verify'` 時**直接升 critical**（不要求 `score.total ≥ 4`），並在 resolution 上標記 `escalation: 'heavy-verify'`。理由：本 ADR 原門檻是「review 上緣的成本保險」，但 heavy-verify 的失敗模式不是改壞東西，而是**整個 run 的牆鐘被吃掉、交付為零**——此時提早升級（更早做出「降界並記錄」的取捨）期望值明顯較高。`escalation` 與「本次是否剛好才升 tier」**解耦**：總分剛好達標的 heavy-verify 任務同樣要拿到放寬的逾時預算。
+   - **逾時連動**：`factory-run.yml` 的 agent 逾時改為計算式（原硬編碼 50 分）。heavy-verify → 110 分、critical（總分升級）→ 70 分、其餘 → 50 分；`agent_timeout_minutes` input 非 0 時完全覆寫。
+   - **手動優先**：`model_tier` 明示時不套用強制升級（人類覆寫優先於啟發式，與既有解析順序一致）。設定檔缺 critical tier 時退回原 tier 並在 `reason` 明寫（不靜默假裝升級）。
 
 ## 模型選擇與成本依據（pi-ai catalog 定價，USD/MTok input/output，2026-08 查證）
 

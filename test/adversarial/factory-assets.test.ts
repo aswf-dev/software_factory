@@ -422,6 +422,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'task-template-fix-bug.txt',
       'task-template-update-deps.txt',
       'task-template-write-docs.txt',
+      'task-template-write-spec.txt',
     ]) {
       const c = read(`.github/factory/${t}`)
       expect(c).toContain('<REPO>')
@@ -430,7 +431,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       expect(c).toContain('export BASE_BRANCH=$(cat .factory/run/base-branch')
     }
   })
-  it('6 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
+  it('7 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
     const w = read('.github/workflows/factory-run.yml')
     const m = w.match(/^ {8}options: \[(.+)\]$/m)
     expect(m).not.toBeNull()
@@ -443,6 +444,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'agent-fix-bug',
       'agent-update-deps',
       'agent-write-docs',
+      'agent-write-spec',
       'agent-analyze',
       'agent-propose-skill',
     ])
@@ -626,13 +628,14 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     const labels = [...yml.matchAll(/^ {8}- label: (.+)$/gm)].map((m) => m[1])
     expect(labels).toEqual([...DOD_LABELS])
   })
-  it('ISSUE_TEMPLATE 的 task_type 6 種選項齊全', () => {
+  it('ISSUE_TEMPLATE 的 task_type 7 種選項齊全', () => {
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     for (const t of [
       'agent-add-tests',
       'agent-fix-bug',
       'agent-update-deps',
       'agent-write-docs',
+      'agent-write-spec',
       'agent-analyze',
       'agent-propose-skill',
     ]) {
@@ -694,7 +697,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'factory-run 不得再有固定類型的 input 預設',
     ).not.toContain('default: agent-add-tests')
   })
-  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（5 型，2026-09-01 C1 漂移修復）', () => {
+  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（7 型，2026-09-01 C1 漂移修復）', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     const expected = [
@@ -702,6 +705,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-fix-bug',
       'agent-update-deps',
       'agent-write-docs',
+      'agent-write-spec',
       'agent-analyze',
       'agent-propose-skill',
     ]
@@ -910,8 +914,16 @@ describe('Security 第一層資產（免費、不依賴 GHAS，2026-08-20）', (
 describe('factory-run 逾時捕獲與診斷（2026-08-21 run #32491052696 實測教訓）', () => {
   const c = read('.github/workflows/factory-run.yml')
   it('agent step 逾時 ≥ 40min（Java/mvn 建置需要時間）', () => {
-    const m = c.match(/timeout-minutes: (\d+)/g)
-    expect(Number(m?.[1]?.match(/\d+/)?.[0] ?? 25)).toBeGreaterThanOrEqual(40)
+    // A1 後 agent step 的 timeout 改為計算式（綁 agent-timeout 輸出），不再有字面
+    // 數字；此處只驗證「若非計算式則必須 ≥ 40」。計算式的下限由下面
+    // 「agent 逾時預算動態化」describe 逐條釘住（含 ≥50 分的回歸鎖）。
+    const agentStep = c.slice(c.indexOf('name: Run factory agent'))
+    const literal = agentStep.match(/timeout-minutes: (\d+)/)
+    if (literal) {
+      expect(Number(literal[1])).toBeGreaterThanOrEqual(40)
+    } else {
+      expect(agentStep).toContain('fromJSON(steps.agent-timeout.outputs.step_timeout_minutes)')
+    }
   })
   it('逾時/失敗捕獲：寫 --timed-out report + needs-human 標籤', () => {
     expect(c).toContain('--timed-out')
@@ -927,6 +939,114 @@ describe('factory-run 逾時捕獲與診斷（2026-08-21 run #32491052696 實測
     expect(c).toContain('if-no-files-found: ignore')
   })
 })
+
+/**
+ * A1（34735315950 事故修正）：agent 逾時預算必須是**計算出來的**，不是硬編碼。
+ *
+ * 事故：`timeout-minutes: 50` 寫死，而 heavy-verify（模型檢查/求解器迭代）任務
+ * 本質上無法在 50 分內收斂——agent 重寫模型 4 版、起停 10+ 個 Apalache job 後
+ * 仍卡在 state 8/12 被砍，且 step 逾時會直接殺掉 process，agent 來不及寫 report。
+ *
+ * 契約：
+ *  1. 存在「Compute agent timeout budget」步驟，依 model.json 的 tier/escalation 決策；
+ *  2. step 級 timeout 綁該步驟輸出（非字面數字）——字面值會讓計算步驟形同虛設；
+ *  3. heavy-verify 預設 ≥ 100 分、其餘 tier ≥ 50 分（不得低於舊硬編碼值）；
+ *  4. 內層 timeout(1) 具名逾時（A4），止原因可歸因。
+ */
+describe('agent 逾時預算動態化（A1/A4，34735315950）', () => {
+  const c = read('.github/workflows/factory-run.yml')
+
+  it('存在 Compute agent timeout budget 步驟且讀 model.json', () => {
+    expect(c).toContain('name: Compute agent timeout budget')
+    expect(c).toContain('id: agent-timeout')
+    expect(c).toContain('.factory/model.json')
+  })
+
+  it('step 級 timeout 綁 agent-timeout 輸出（不得寫死字面值）', () => {
+    expect(c).toMatch(/timeout-minutes: \$\{\{ fromJSON\(steps\.agent-timeout\.outputs\.step_timeout_minutes\) \}\}/)
+    // 反向釘住：agent step 不得再出現硬編碼的 50（舊事故值）
+    const agentStep = c.slice(c.indexOf('id: agent'))
+    expect(agentStep).not.toMatch(/timeout-minutes: 50\b/)
+  })
+
+  it('heavy-verify 預算 ≥ 100 分；其餘 tier ≥ 50 分（不得低於舊值）', () => {
+    const budgets = [...c.matchAll(/EFFECTIVE=(\d+)/g)].map((m) => Number(m[1]))
+    expect(budgets.length, '找不到 EFFECTIVE= 預算指派').toBeGreaterThanOrEqual(3)
+    expect(Math.max(...budgets), 'heavy-verify 預算過低').toBeGreaterThanOrEqual(100)
+    expect(Math.min(...budgets), '常態預算低於舊硬編碼 50 分（回歸）').toBeGreaterThanOrEqual(50)
+  })
+
+  it('agent_timeout_minutes input 存在且預設 0（0 = 自動）', () => {
+    expect(c).toContain('agent_timeout_minutes:')
+    expect(c).toMatch(/agent_timeout_minutes:[\s\S]{0,300}?default: 0/)
+  })
+
+  it('內層以 timeout(1) 包住 dsh，逾時可歸因（A4）', () => {
+    expect(c).toContain('timeout --signal=TERM --kill-after=30s')
+    // 124/137 都是逾時訊號，必須都被辨識
+    expect(c).toMatch(/code.*-eq 124/)
+    expect(c).toMatch(/code.*-eq 137/)
+    expect(c).toContain('agent-inner-timeout')
+  })
+})
+
+/**
+ * A2（34735315950）：逾時必須具名寫進 report.json，否則 judge/scoreboard 收到的
+ * `stop_reason` 是 null，50 分鐘的失敗在資料層完全沒有名字。
+ */
+describe('止原因具名化接線（A2）', () => {
+  const c = read('.github/workflows/factory-run.yml')
+  it('write-report 呼叫帶 --stop-reason / --provider / --attempts', () => {
+    expect(c).toContain('--stop-reason')
+    expect(c).toContain('--provider')
+    expect(c).toContain('--attempts')
+  })
+  it('dry_run 不套用真實止原因語意（避免偽造歸因）', () => {
+    expect(c).toMatch(/dry_run[^\n]*!= "true"[\s\S]{0,80}REPORT_ARGS/)
+  })
+})
+
+/**
+ * B6（34735315950）：「這個模型檢查任務可不可行」應該在**花成本前**被揭露，
+ * 而不是讓 agent 燒 50 分鐘牆鐘才發現。preflight 是零成本 advisory 檢查。
+ */
+describe('heavy-verify 前置檢查（B6）', () => {
+  const c = read('.github/workflows/factory-run.yml')
+  it('存在 Preflight heavy-verify 步驟，且在 agent 步驟之前', () => {
+    const pre = c.indexOf('name: Preflight heavy-verify feasibility')
+    const agent = c.indexOf('name: Run factory agent')
+    expect(pre, '找不到 preflight 步驟').toBeGreaterThan(-1)
+    expect(agent, '找不到 agent 步驟').toBeGreaterThan(-1)
+    expect(pre, 'preflight 必須排在 agent 之前（否則無法預警）').toBeLessThan(agent)
+  })
+  it('只對 heavy-verify 觸發（依 model.json 的 escalation）', () => {
+    expect(c).toMatch(/ESCALATION.*heavy-verify/)
+    expect(c).toContain('heavy_verify=false')
+  })
+  it('缺工具鏈時 fail-loud warning（不靜默）', () => {
+    expect(c).toMatch(/::warning::heavy-verify 前置缺口/)
+    expect(c).toContain('quint-dep')
+  })
+})
+
+/**
+ * A1 的 job 級上限：step 預算 115 分必須小於 job 逾時，否則 step 永遠跑不到
+ * 自己的預算就被 job 砍掉，而 job 逾時不會觸發 step 的失敗處理（終態留言缺失）。
+ */
+describe('job 逾時上限涵蓋 heavy-verify step 預算（A1）', () => {
+  it('job timeout-minutes > 最大 step 預算 + 收尾餘裕', () => {
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const wf = load(read('.github/workflows/factory-run.yml')) as {
+      jobs: { run: { 'timeout-minutes': number; steps: { name?: string; 'timeout-minutes'?: unknown }[] } }
+    }
+    const jobTimeout = wf.jobs.run['timeout-minutes']
+    const budgets = [...read('.github/workflows/factory-run.yml').matchAll(/EFFECTIVE=(\d+)/g)].map((m) => Number(m[1]))
+    const maxStep = Math.max(...budgets) + 5 // step = EFFECTIVE + 5
+    expect(jobTimeout, `job 逾時 ${jobTimeout} 必須大於最大 step 逾時 ${maxStep}`).toBeGreaterThan(maxStep)
+  })
+})
+
+
 
 describe('run-name 與 cleanup 解析契約（docs/18 §2.2，G2）', () => {
   // 2026-08 實測教訓：plain scalar 中的 ` #` 會被 YAML 當成註解——run-name 解析值
