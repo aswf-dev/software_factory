@@ -1,0 +1,44 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 71,77
+.github/ISSUE_TEMPLATE/factory-work-item.yml
+  h_1b119f25eaf333 16
+.github/factory/task-template-write-spec.txt
+  h_1b119f25eaf333 1-28
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 28,64-69,85-89,414-508,530-532,575-591,603-605,612,619-625,632-635,637-649,654-656,658-659,661-665,669-686,689,700-705,715-726
+backstage/templates/factory-work-item/template.yaml
+  h_1b119f25eaf333 47
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 41-48
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 471-480
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 28-32,39-49
+src/cli/write-report-mutation.test.ts
+  h_1b119f25eaf333 54-55,139,148-150
+src/cli/write-report.test.ts
+  h_1b119f25eaf333 5,32-34,45-47,51-87,139-191
+src/cli/write-report.ts
+  h_1b119f25eaf333 7-14,21-40,48-52,61-72,75-78,81-118,137-139,143-152,167-169,188-190
+src/issue-analysis/complexity.test.ts
+  h_1b119f25eaf333 8,112-183
+src/issue-analysis/complexity.ts
+  h_1b119f25eaf333 19-96,104-108,198,211-214,247-257,268
+src/model-tier/resolve.test.ts
+  h_1b119f25eaf333 132-220
+src/model-tier/resolve.ts
+  h_1b119f25eaf333 53-63,66-72,83-84,279-299,306
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 425,434,447,631,638,700,708,917-926,943-1050
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5b9e2d8536853b6aa4c1492fe99bcb1f03b23287",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
