@@ -321,5 +321,14 @@ error: file not found: catalog-info.yaml                EXIT=1
 
 - **Backstage 模板尚未建立**：`backstage/templates/` 下無 `factory-onboard`，
   Backstage 的 Create 頁面看不到納管表單。目前入口為網頁 issue 表單與 gh CLI。
-- **`supporting` 誤用風險**：agent 可能建議非法軸值（§7.2 實測）。
-  task-template 尚未列出合法值清單，待補強。
+
+> **已修復（原本節缺口「`supporting` 誤用風險」，#287）**：
+> `task-template-onboard.txt` 的三軸註解已直接列出合法值，並明寫「值缺席或非法
+> 一律 fail-safe 計為 2」。合法值的單一真相來源為 `src/scoring/types.ts`
+> （business-criticality：`tactical | operational | strategic`；risk-profile 與
+> complexity：`low | medium | high`）。回歸鎖位於
+> `test/adversarial/factory-assets.test.ts` 的「三軸合法值抗漂移」describe——
+> 合法集合自常數匯入推導（測試內重打字串會讓測試自己成為下一個漂移點），
+> 對 `.github/factory/**`、`.dsh/skills/**` 掃描三軸 annotation 行的值，並零容忍
+> 阻擋幽靈值在 `.github/factory/**` 回潮。§7.2 的 camunda_hazelcast 實測案例
+> 保留為史實。
