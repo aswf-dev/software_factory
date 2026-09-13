@@ -1,0 +1,14 @@
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 155-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bde5714d4a470a155f4f2ff02758f8195dd9661c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
