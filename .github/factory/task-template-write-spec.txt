@@ -1,0 +1,28 @@
+處理 GitHub Issue #<ISSUE>（repo: <REPO>，工廠 trunk 分支: <BASE_BRANCH>）。
+
+1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules。
+   本單為**可執行規格（executable spec）**工作項：交付物是 `.qnt` 等規格檔與其驗證證據，
+   通常**不改 `src/`**（規格描述現況；修復另開工單）。
+   **輸出紀律（重要）**：設計/推導/思考過程**不要輸出到 stdout**——直接撰寫目標檔案（規格/測試/實作）；stdout 只用於簡短進度與最終摘要（PR 編號、驗證結果、.factory/run/report.json 摘要）。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
+2. 若環境變數 GH_TOKEN 不存在，先執行：
+   export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)
+   export GH_REPO=$(cat .factory/run/repo 2>/dev/null)
+   export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)
+3. 讀取該 Issue：範圍與驗收條件。缺驗收條件依 factory-stop-rules 停手。
+4. **先建分支並及早提交（硬規則，34735315950 事故）**：建立工作分支後，**每完成一個檔案就 commit 一次**，
+   不要等全部做完才提交。實測事故：agent 在 50 分鐘內把規格寫出來卻從未 commit，
+   逾時被砍後 branch 不存在、**整場產出歸零**。早提交讓逾時只損失最後一段，不是全部。
+5. **模型檢查的牆鐘預算（硬規則）**：`verify`／模型檢查（Apalache/TLC/Z3 等）每次執行
+   可能數分鐘且只能序列嘗試。規則：
+   - 先用**縮小規模**（較小 const、較小 `--max-steps`）量測單次牆鐘，再放大；
+   - 同一條命令**最多重試 3 次最佳化**。若 3 次後仍超出 Issue 給的牆鐘上限，
+     **停手並交還人類**（依 factory-stop-rules），附上：已量測的牆鐘、嘗試過的模型變體、
+     以及「降界需要什麼」。**不得**用沉默的無限迭代把 run 燒到逾時——那正是事故的根因。
+   - 反例類（`INV_VIOLATED_*`）通常很快（深度淺）；真不變式的窮盡證明才是慢的那條，先做快的。
+6. 每一條 Issue 驗收命令都要**實際執行並貼出可觀察結果**（退出碼、牆鐘秒數、反例檔）。
+   量不到就誠實記錄「量不到＋原因」，不得虛構數字。
+7. 依 factory-pr-stacking 拆分（規格與 README 通常單層即可）。
+8. 完成後在 Issue 留言回報 PR 編號，並依 factory-workflow 寫出 .factory/run/report.json。
+9. **完成後立即停止**：report.json 寫完即為工作項終點——不要繼續任何額外工作（重跑測試、額外驗證、自我檢查、輸出思考）。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
+
+若觸發任何停手規則，依該規則處理後結束。

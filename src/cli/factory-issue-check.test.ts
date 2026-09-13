@@ -152,6 +152,42 @@ describe('buildCheckComment', () => {
     expect(buildCheckComment(checkIssue('x'))).toContain('📊 **複雜度分析**')
     expect(buildCheckComment(checkIssue('x'))).toContain('high')
   })
+
+  /**
+   * B5（34735315950 事故）：計算強度是決定模型 tier 與逾時預算的第二個軸，
+   * 必須在留言上可見，否則人類在 dispatch 前無從發現誤判（ADR-011 §5 揭露精神）。
+   */
+  it('heavy-verify 需求 → 留言含 🧮 計算強度行與手動覆寫提示', () => {
+    const body = [
+      '### 任務類型',
+      '',
+      'agent-write-spec',
+      '',
+      '### 需求描述（PRD）',
+      '',
+      '以 quint 建立 as-is 規格，形式化不變式並存證反例，verify 於 max-steps 12',
+      '',
+      '### 驗收標準（DoD）',
+      '',
+      '- [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）',
+      '- [x] 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）',
+      '- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）',
+      '',
+      '### 目標 repo（預設本 repo）',
+      '',
+      'agent-playground/node-redlock',
+      '',
+    ].join('\n')
+    const c = buildCheckComment(checkIssue(body))
+    expect(c).toContain('🧮 **計算強度**')
+    expect(c).toContain('heavy-verify')
+    // 誤判是人類在 dispatch 前要能處置的：提示必須指出覆寫手段
+    expect(c).toContain('agent_timeout_minutes')
+  })
+
+  it('一般需求 → 不含 🧮 行（不誤報，避免無謂警示）', () => {
+    expect(buildCheckComment(checkIssue(COMPLIANT))).not.toContain('🧮 **計算強度**')
+  })
   it('有建議模型時 → 🤖 行含 tier、primary 與 fallback', () => {
     const r = checkIssue(COMPLIANT)
     const c = buildCheckComment(r, {

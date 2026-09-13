@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { buildReport, main, parseArgs } from './write-report.js'
+import { buildReport, deriveStopReason, main, parseArgs } from './write-report.js'
 import { CliError } from './run-cli.js'
 
 let tmp: string
@@ -29,6 +29,9 @@ describe('parseArgs', () => {
       stdoutFile: 'out.txt',
       stderrFile: 'err.txt',
       timedOut: true,
+      stopReason: undefined,
+      provider: undefined,
+      attempts: undefined,
     })
   })
 
@@ -39,7 +42,47 @@ describe('parseArgs', () => {
       stdoutFile: '',
       stderrFile: '',
       timedOut: false,
+      stopReason: undefined,
+      provider: undefined,
+      attempts: undefined,
     })
+  })
+
+  // A2：逾時必須具名。CI 以 --stop-reason 傳入決定性原因，供 judge/scoreboard 歸因。
+  it('解析 --stop-reason/--provider/--attempts（A2 歸因欄位）', () => {
+    expect(
+      parseArgs([
+        '7', '124', 'out.txt', 'err.txt',
+        '--timed-out', '--stop-reason', 'agent-inner-timeout',
+        '--provider', 'deepseek', '--attempts', '2',
+      ]),
+    ).toEqual({
+      issueNumber: 7,
+      exitCode: 124,
+      stdoutFile: 'out.txt',
+      stderrFile: 'err.txt',
+      timedOut: true,
+      stopReason: 'agent-inner-timeout',
+      provider: 'deepseek',
+      attempts: 2,
+    })
+  })
+
+  it('--stop-reason 非法值 → CliError（封閉集合，fail-loud）', () => {
+    expect(() => parseArgs(['7', '1', '', '', '--stop-reason', 'agent-gave-up'])).toThrow(/stop-reason/)
+  })
+
+  it('--stop-reason 缺值 → CliError（不靜默吞掉）', () => {
+    expect(() => parseArgs(['7', '1', '', '', '--stop-reason'])).toThrow(/requires a value/)
+  })
+
+  it('--attempts 非負整數驗證', () => {
+    expect(() => parseArgs(['7', '1', '', '', '--attempts', '-1'])).toThrow(/attempts/)
+    expect(() => parseArgs(['7', '1', '', '', '--attempts', 'x'])).toThrow(/attempts/)
+  })
+
+  it('未知旗標 → CliError', () => {
+    expect(() => parseArgs(['7', '1', '', '', '--nope'])).toThrow(/unknown argument/)
   })
 
   it('非整數 issueNumber → CliError', () => {
@@ -92,6 +135,59 @@ describe('buildReport', () => {
     const p = buildReport({ issueNumber: 9, exitCode: 124, stderr: '', stdout: '', timedOut: true, cwd: ws })
     const r = JSON.parse(readFileSync(p, 'utf8')) as { invocation: { timedOut: boolean } }
     expect(r.invocation.timedOut).toBe(true)
+  })
+
+  // A2：34735315950 的 report 只有 timedOut=true，stop_reason 在上游為 null，
+  // 導致 50 分鐘的失敗在資料層沒有名字。以下三條釘住「失敗必須具名」。
+  it('逾時且未顯式指定 → stopReason 推導為 agent-step-timeout', () => {
+    const p = buildReport({ issueNumber: 9, exitCode: 124, stderr: '', stdout: '', timedOut: true, cwd: ws })
+    const r = JSON.parse(readFileSync(p, 'utf8')) as { invocation: { stopReason: string } }
+    expect(r.invocation.stopReason).toBe('agent-step-timeout')
+  })
+
+  it('顯式 stopReason/provider/attempts → 寫入 invocation（CI 歸因欄位）', () => {
+    const p = buildReport({
+      issueNumber: 9,
+      exitCode: 124,
+      stderr: '',
+      stdout: '',
+      timedOut: true,
+      stopReason: 'agent-inner-timeout',
+      provider: 'anthropic',
+      attempts: 3,
+      cwd: ws,
+    })
+    const r = JSON.parse(readFileSync(p, 'utf8')) as {
+      invocation: { stopReason: string; provider: string; attempts: number }
+    }
+    expect(r.invocation.stopReason).toBe('agent-inner-timeout')
+    expect(r.invocation.provider).toBe('anthropic')
+    expect(r.invocation.attempts).toBe(3)
+  })
+
+  it('provider/attempts 未指定 → 欄位缺席（不塞 undefined 進 JSON）', () => {
+    const p = buildReport({ issueNumber: 9, exitCode: 1, stderr: '', stdout: '', timedOut: false, cwd: ws })
+    const r = JSON.parse(readFileSync(p, 'utf8')) as { invocation: Record<string, unknown> }
+    expect('provider' in r.invocation).toBe(false)
+    expect('attempts' in r.invocation).toBe(false)
+    expect(r.invocation.stopReason).toBe('agent-error')
+  })
+
+  it('exit 0 但 agent 未寫 report → stopReason 為 agent-exit-zero（異常需人看）', () => {
+    const p = buildReport({ issueNumber: 9, exitCode: 0, stderr: '', stdout: '', timedOut: false, cwd: ws })
+    const r = JSON.parse(readFileSync(p, 'utf8')) as { invocation: { stopReason: string } }
+    expect(r.invocation.stopReason).toBe('agent-exit-zero')
+  })
+})
+
+describe('deriveStopReason', () => {
+  it('逾時優先於 exit code', () => {
+    expect(deriveStopReason({ exitCode: 0, timedOut: true })).toBe('agent-step-timeout')
+    expect(deriveStopReason({ exitCode: 124, timedOut: true })).toBe('agent-step-timeout')
+  })
+  it('非零 exit code → agent-error；零 → agent-exit-zero', () => {
+    expect(deriveStopReason({ exitCode: 1, timedOut: false })).toBe('agent-error')
+    expect(deriveStopReason({ exitCode: 0, timedOut: false })).toBe('agent-exit-zero')
   })
 })
 

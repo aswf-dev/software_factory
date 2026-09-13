@@ -51,6 +51,8 @@ const fallbackShape = (over: Record<string, unknown> = {}) =>
       stdout: expect.any(String),
       stderr: expect.any(String),
       timedOut: expect.any(Boolean),
+      // A2：止原因必須具名（34735315950 的 stop_reason 曾是 null）
+      stopReason: expect.any(String),
     }),
     ...over,
   })
@@ -134,7 +136,7 @@ describe('M2 變異：invocation.timedOut 被硬編成 true（false 的真實性
     expect(r.invocation.timedOut).toBe(false)
   })
 
-  it('fallback 完整結構仍須具備最小欄位形狀（exitCode/stdout/stderr/timedOut）', () => {
+  it('fallback 完整結構仍須具備最小欄位形狀（exitCode/stdout/stderr/timedOut/stopReason）', () => {
     const p = buildReport({
       issueNumber: 9,
       exitCode: 124,
@@ -143,12 +145,9 @@ describe('M2 變異：invocation.timedOut 被硬編成 true（false 的真實性
       timedOut: true,
       cwd: ws,
     })
-    expect(JSON.parse(readFileSync(p, 'utf8'))).toEqual(
-      fallbackShape({
-        issueNumber: 9,
-        invocation: { exitCode: 124, stdout: '', stderr: '', timedOut: true },
-      }),
-    )
+    // 不再覆寫 invocation：讓 fallbackShape 的 objectContaining 生效，新增欄位
+    // （A2 stopReason）不會讓這條變成「精確等於」而無聲失準。
+    expect(JSON.parse(readFileSync(p, 'utf8'))).toEqual(fallbackShape({ issueNumber: 9 }))
   })
 })
 

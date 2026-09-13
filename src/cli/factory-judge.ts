@@ -25,12 +25,28 @@ import { CliError, runCli } from './run-cli.js'
 /**
  * DSH 執行結果。每個欄位皆為選填，對應 DshInvocation：
  * 逾時的行程沒有 exitCode，成功的行程 stderr 為空。
+ *
+ * `stopReason`（A2）為封閉列舉：34735315950 事故的教訓是「沒有名字的失敗無從
+ * 歸因」——scoreboard 收到 `stop_reason: null`，judge 與事後統計都分不出
+ * 「agent 迷路」與「任務對 50 分鐘不可行」。此處以 zod 收緊，讓 CI 寫入的
+ * 終止原因必須是已知值，否則 judge 讀取時 fail-loud（而非靜默吞掉）。
  */
 const InvocationSchema = z.object({
   exitCode: z.number().optional(),
   stdout: z.string().optional(),
   stderr: z.string().optional(),
   timedOut: z.boolean().optional(),
+  stopReason: z
+    .enum([
+      'agent-step-timeout',
+      'agent-inner-timeout',
+      'provider-error',
+      'agent-error',
+      'agent-exit-zero',
+    ])
+    .optional(),
+  provider: z.string().optional(),
+  attempts: z.number().int().nonnegative().optional(),
 })
 
 /**

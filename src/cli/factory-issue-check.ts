@@ -468,6 +468,16 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
     )
   }
   lines.push(`📊 **複雜度分析**：${r.analysis.complexity}（判據：${r.analysis.evidence.join('；')}）`)
+  // B5（34735315950 事故）：計算強度是與複雜度正交的第二個軸，且它會同時決定
+  // 模型 tier（強制 critical）與 agent 逾時預算（heavy-verify 放寬）。把判準
+  // 顯示在留言上，讓人類在 dispatch 前就能發現誤判（同 ADR-011 §5 的揭露精神）。
+  if (r.analysis.computationalIntensity === 'heavy-verify') {
+    lines.push(
+      '🧮 **計算強度**：heavy-verify（模型檢查/求解器迭代）→ 模型強制 critical tier，' +
+        'agent 逾時預算放寬至 110 分。若誤判（例如只是文件的「驗證方式」段落被關鍵字命中），' +
+        'dispatch 時以 `model_tier` / `agent_timeout_minutes` 手動覆寫。',
+    )
+  }
   if (recommendation !== undefined) {
     const fallback = recommendation.chain
       .slice(1)

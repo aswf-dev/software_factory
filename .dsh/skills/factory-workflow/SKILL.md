@@ -68,12 +68,13 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 
 ## 任務型別
 
-任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs / agent-analyze / agent-propose-skill）。依型別調整：
+任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs / agent-write-spec / agent-analyze / agent-propose-skill）。依型別調整：
 
 - **agent-add-tests**：為**既有行為**補測試——test-only **單層**（01-test 是主體，無實作/文件層），新增測試必須在既有實作上**直接綠燈**。若測試揭露**既有缺陷**（紅燈且非測試自身錯誤）→ 以 `it.skip` 交付（斷言完整保留、該層單獨 CI 綠）＋在 Issue 留言報告＋建議另開 agent-fix-bug 工作項修復（沿用 fix-bug 的紅燈交付機制，**不停手**，本工作項不改實作）。若既有測試已充分覆蓋，依 factory-stop-rules 誠實停手（不為交差而製造無意義測試）。
 - **agent-fix-bug**：先寫「重現失敗」的測試（紅），再實作修復（綠）。不刪除/弱化既有斷言。**01-test 層的紅燈測試以 `it.skip` 提交**（斷言完整保留、該層單獨 CI 綠；紅燈驗證在沙箱內完成）；**02-impl 層 un-skip（改回 `it`）**並含修復——否則 01-test 單獨 PR 必然 CI 紅（docs/07 §2.2 教訓，試點 #3）。
 - **agent-update-deps**：通常是單一 PR（docs/07 §2.3）；不得未經核可新增未鎖定的新套件（SR5）；更新後全量測試。
 - **agent-write-docs**：文件與實作一致；繁體中文；單層 PR 為主。
+- **agent-write-spec**：可執行規格型（`.qnt`／模型檢查，ADR-008）。交付 `specs/**` 規格檔＋驗證證據（反例 ITF、牆鐘量測），通常**不改 `src/`**（規格描述現況，修復另開工單）。**三條硬規則**（源自 34735315950 事故：agent 寫了規格卻從未 commit，逾時後整場產出歸零）：(1) **先建分支、每完成一個檔案就 commit**，不要等全部做完；(2) 模型檢查先用**縮小規模**量單次牆鐘再放大，同一條命令**最多重試 3 次最佳化**，逾時上限用盡仍不達標就**停手交還人類**（附已量測牆鐘、嘗試過的變體、降界所需條件），**不得**沉默無限迭代；(3) 反例類（`INV_VIOLATED_*`，深度淺）先做，真不變式的窮盡證明（慢）後做。**不得**以自撰規格在同一 run 內驗證自撰程式碼（docs/06 §4.3）。
 - **agent-analyze**：分析/調查型（bug 重現、根因分析、影響分析、可行性、in-loop 前置分析）——**不產生程式碼變更**，只允許 `docs/research/` 下的報告檔。產出為 **docs/ 報告 PR（單層）**＋「建議下一步」（可直接開成工作項）；DoD = 報告含結論摘要／證據與根因／影響範圍／方案比較／建議下一步。**in-loop（5–6 分）工作項可用**——docs/06 §4「僅可產出分析與方案，不得實作」的實作；報告不具放行效力，仍須人類審查（crosscheck 以 analyze 模式驗證無 src/ 變更，違反即 needs-human）。**report.json 的 `requirements` 必填**：每條驗收條件對應 `{id, status}`（`passed`＝報告已涵蓋／`failed`＝報告指出未涵蓋或無法達成／`skipped`＝不適用），缺漏會觸發 `requirements-missing` fail-loud（docs/20 B1）。
 - **agent-propose-skill**：技能提案型（ADR-016、docs/25 §4）——依 Issue 描述的技能缺口撰寫技能草案。**寫入 `proposals/skills/<name>/SKILL.md`（kebab-case），絕不寫入 `.dsh/skills/`**：後者是已生效技能目錄，受 H5＋CODEOWNERS 保護；草案須由人類審查並執行 `factory-skills-lock --promote` 後才生效（**產出與生效分離**——草案不在任何 DSH 探索路徑上，誤合併也不會生效）。**不修改** `src/`、`.github/`、`.dsh/`、`config/`、`catalog-info.yaml`（crosscheck 以 propose-skill 模式白名單驗證，越界即 needs-human）。草案要求：frontmatter 合法（`name` kebab-case 且與目錄同名、`description` 必填，否則 DSH 靜默丟棄）、內容為**可執行步驟**非泛泛原則、**不得弱化或繞過 factory-stop-rules 任何一條**、不得與既有技能矛盾、不得含憑證。**in-loop（5–6 分）工作項可用**（同 analyze，僅產出不實作）。`requirements` 必填，規則同上。
 

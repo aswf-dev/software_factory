@@ -25,7 +25,7 @@ on:
         description: 任務類型（決定 task-template 與 skill 分支）；auto = 以 Issue 宣告為準
         required: false
         type: choice
-        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze, agent-propose-skill]
+        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-write-spec, agent-analyze, agent-propose-skill]
         default: auto
       repo:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
@@ -61,7 +61,12 @@ on:
         options: [auto, deepseek, qwen, anthropic]
         default: auto
       token_budget:
-        description: 單一工作項 token 上限（0 = 不設限，Q02-5 待基線校準後設定實際值）
+        description: 單一工作項 token 上限（0 = 不設限）。B8 基線：34735315950 實測 19.4M token 仍逾時，故 heavy-verify 類建議設 25000000；judge 讀此值觸發 SR7 停手規則
+        required: false
+        type: number
+        default: 0
+      agent_timeout_minutes:
+        description: Agent 步驟逾時分鐘數（0 = 自動：依 model.json 的計算強度，heavy-verify 用 110、其餘 50）
         required: false
         type: number
         default: 0
@@ -77,7 +82,11 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # job 級逾時是 step 逾時的**上限**：A1 讓 heavy-verify 的 agent step 需要 115 分，
+    # 若 job 仍留 60 分，step 永遠跑不到自己的預算就被 job 砍掉（且 job 逾時不會
+    # 觸發 step 的失敗處理 → 終態留言可能缺失）。取 150 分＝最大 step 預算 115 分
+    # ＋其餘步驟（setup/usage/judge/上傳）約 35 分餘裕。
+    timeout-minutes: 150
     steps:
       # 機制 repo（本 repo：workflow/CLI/skill 所在）在根目錄；
       # 目標 repo（inputs.repo）另行 checkout 至 target/，agent 在 target/ 內工作。
@@ -402,6 +411,101 @@ jobs:
           cat .factory/model.json
           echo "model tier selected: $(jq -r .tier .factory/model.json) ($(jq -r .complexitySource .factory/model.json))"
 
+      # Step 2.6 — Agent 逾時預算（A1，34735315950 事故修正）。
+      #
+      # 事故：`Run factory agent` 的 timeout-minutes 硬編碼 50，且 step timeout 一旦
+      # 觸發就是**直接砍掉 runner 上的 process**——agent 連寫 report 的機會都沒有
+      # （該 run 的 report.json 是事後 fallback 補的），50 分鐘的工作全損。
+      #
+      # 修法兩層：
+      #  1. 預算依 model.json 的計算強度浮動：heavy-verify（模型檢查/求解器迭代，
+      #     見 src/issue-analysis/complexity.ts）→ 預設 110 分；其餘維持 50 分。
+      #     依 **tier 而非只有 escalation** 判斷，因為「任務是 CPU-bound」這件事與
+      #     「本次是否剛好才升 critical」無關。
+      #  2. step 級 timeout 留 5 分餘裕給收尾步驟（usage/artifacts 上傳）。
+      # `agent_timeout_minutes` input 非 0 時完全覆寫（人類手動止血）。
+      - name: Compute agent timeout budget
+        id: agent-timeout
+        env:
+          MODEL_JSON: ${{ github.workspace }}/.factory/model.json
+          MANUAL_TIMEOUT: ${{ inputs.agent_timeout_minutes }}
+        run: |
+          MANUAL="${MANUAL_TIMEOUT:-0}"
+          if [ "$MANUAL" != "0" ]; then
+            EFFECTIVE="$MANUAL"
+            BASIS="手動指定 agent_timeout_minutes=$MANUAL"
+          else
+            TIER=$(jq -r '.tier // "high"' "$MODEL_JSON" 2>/dev/null || echo high)
+            ESCALATION=$(jq -r '.escalation // empty' "$MODEL_JSON" 2>/dev/null || true)
+            if [ "$TIER" = "critical" ]; then
+              # heavy-verify 強制升級或總分升級；heavy-verify 需要更長時間預算，
+              # 因為 Apalache 迭代本質上無法在 50 分內收斂（事故實測）。
+              if [ "$ESCALATION" = "heavy-verify" ]; then
+                EFFECTIVE=110
+                BASIS="tier=critical 且 escalation=heavy-verify"
+              else
+                EFFECTIVE=70
+                BASIS="tier=critical（總分升級）"
+              fi
+            else
+              EFFECTIVE=50
+              BASIS="tier=$TIER"
+            fi
+          fi
+          # step 級逾時：比內層 timeout(1) 多 5 分餘裕，讓 agent 有機會寫終態
+          # （內層逾時是具名的；step 逾時是「連 report 都來不及寫」的最後防線，
+          # 故 step 必須嚴格大於內層預算，且留足夠時間跑完 write-report）。
+          STEP_TIMEOUT=$((EFFECTIVE + 5))
+          echo "effective_minutes=$EFFECTIVE" >> "$GITHUB_OUTPUT"
+          echo "step_timeout_minutes=$STEP_TIMEOUT" >> "$GITHUB_OUTPUT"
+          echo "::notice::agent 逾時預算 ${EFFECTIVE} 分（step ${STEP_TIMEOUT} 分；依據：${BASIS}）"
+
+      # Step 2.7 — heavy-verify 前置檢查（B6，34735315950 事故修正）。
+      #
+      # 事故的可行性風險出現在**很晚**才被發現：agent 花了 50 分鐘反覆調整模型，
+      # 只為讓 Apalache 在 10 分鐘內跑完。這種「可行性質疑」應該在花成本前就揭露。
+      #
+      # 本步驟是**零成本、advisory** 的前置檢查（不擋 run）：對 heavy-verify 任務
+      # 檢查目標 repo 是否已具備規格工具鏈（quint 依賴／specs/ 目錄／Java）。
+      # 缺一項就發 warning 到 run log——讓人類在 agent 燒牆鐘前有機會決定：
+      # 先開 spike 單、降界、或改 model_tier 覆寫。
+      #
+      # 誠實揭露：這不是完整可行性證明（真正的成本量測必須實際跑一次模型檢查）。
+      # 完整 spike 需在機制 repo 建 probe CLI＋Apalache 二進位，列為後續工作項。
+      - name: Preflight heavy-verify feasibility (advisory)
+        id: heavy-preflight
+        if: steps.model.outcome == 'success'
+        env:
+          MODEL_JSON: ${{ github.workspace }}/.factory/model.json
+        run: |
+          TIER=$(jq -r '.tier // "high"' "$MODEL_JSON" 2>/dev/null || echo high)
+          ESCALATION=$(jq -r '.escalation // empty' "$MODEL_JSON" 2>/dev/null || true)
+          if [ "$ESCALATION" != "heavy-verify" ]; then
+            echo "not heavy-verify (tier=$TIER); preflight skipped"
+            echo "heavy_verify=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "heavy_verify=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::heavy-verify 任務：模型已升 critical、agent 逾時預算 110 分（A1）"
+          MISSING=""
+          if [ -d target/specs ]; then
+            echo "preflight: target/specs/ 已存在（$(find target/specs -name '*.qnt' | wc -l | tr -d ' ') 個 .qnt）"
+          else
+            echo "preflight: target/specs/ 不存在——agent 需從零建立規格樹"
+            MISSING="$MISSING specs-dir"
+          fi
+          if jq -e '.devDependencies["@informalsystems/quint"] // .dependencies["@informalsystems/quint"]' \
+              target/package.json >/dev/null 2>&1; then
+            echo "preflight: @informalsystems/quint 已宣告於目標 repo"
+          else
+            echo "preflight: @informalsystems/quint 未宣告——模型檢查工具鏈需由 agent 取得"
+            MISSING="$MISSING quint-dep"
+          fi
+          if [ -n "$MISSING" ]; then
+            echo "::warning::heavy-verify 前置缺口:${MISSING}。可行性風險請於 Issue 留言確認——考慮先開 spike 單量測單次 verify 牆鐘，或於 dispatch 時以 agent_timeout_minutes 覆寫預算。"
+            echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+          fi
+
       # Step 3 — 執行 agent（DSH headless，受限沙箱；或 dry-run stub）。
       # agent 的工作目錄 = target/（目標 repo）；機制（node_modules/dist/config）
       # 在根目錄以絕對路徑引用。
@@ -423,7 +527,9 @@ jobs:
       - name: Run factory agent
         id: agent
         if: success()
-        timeout-minutes: 50      # step 級逾時（Java/mvn 建置需較長時間；2026-08-21 25min 不夠）
+        # step 級逾時動態化（A1）。原本硬編碼 50 分：heavy-verify 任務必然逾時，
+        # 且逾時 = process 被砍、agent 來不及寫 report（34735315950 實證）。
+        timeout-minutes: ${{ fromJSON(steps.agent-timeout.outputs.step_timeout_minutes) }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           # 多 provider 金鑰：全部以 env 傳入（DSH 在 sandbox 外讀取），
@@ -466,6 +572,23 @@ jobs:
             # 模型 tier 路由（ADR-011）：chain 來自「Select model tier」步驟的
             # model.json（primary + fallback）。每項重寫 agent-default-model 後跑 dsh；
             # provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback。
+            #
+            # A4（34735315950 事故修正）：每次嘗試以 `timeout(1)` 包住，並在此層
+            # **具名**逾時（`agent-inner-timeout`）。原本的失敗模式是整條 step 被
+            # runner 砍掉：agent 沒有機會寫 report，止原因在資料層是 null。
+            # 內層逾時的兩個好處：(1) 止原因可歸因到單一 provider；(2) 逾時後
+            # 仍有時間把 report 寫完，judge/scoreboard 拿得到訊號。
+            #
+            # 逾時也納入 chain fallback（原本只有 provider 錯誤字串會 fallback）：
+            # 一個在時限內無法收斂的 provider，換更強的模型是最合理的下一步。
+            # A4 的 fallback 語意變更：`timeout` 觸發（code=124）原本被視為
+            # 「任務層失敗不重試」而直接 break，現在改為沿 chain 升級。
+            BUDGET_MIN="${{ steps.agent-timeout.outputs.effective_minutes }}"
+            REMAINING_SEC=$((BUDGET_MIN * 60))
+            ATTEMPT=0
+            TIMED_OUT=false
+            STOP_REASON=""
+            LAST_PROVIDER=""
             while IFS= read -r ENTRY; do
               [ -z "$ENTRY" ] && continue
               P=$(printf '%s' "$ENTRY" | jq -r .provider)
@@ -477,44 +600,93 @@ jobs:
                   "$P" "$MODEL"
                 [ -n "$EFFORT" ] && printf '  reasoningEffort: %s\n' "$EFFORT"
               } >> "$HOME/.dsh/settings.yaml"
-              echo "trying model routing: $P/$MODEL${EFFORT:+ (effort=$EFFORT)}"
+              ATTEMPT=$((ATTEMPT + 1))
+              LAST_PROVIDER="$P"
+              echo "trying model routing: $P/$MODEL${EFFORT:+ (effort=$EFFORT)} (attempt=$ATTEMPT, remaining=${REMAINING_SEC}s)"
               # 依 task_type 選模板（優先目標 repo 的模板，fallback 到機制 repo）
               # 檔名慣例為 task-template-<type>.txt（type 無 agent- 前綴，
               # docs/09 §3 2.1）；TASK_TYPE 帶 agent- 前綴，故剝除後再拼檔名。
               TEMPLATE=".github/factory/task-template-${TASK_TYPE#agent-}.txt"
               [ -f "$TEMPLATE" ] || TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template-${TASK_TYPE#agent-}.txt"
               if [ ! -f "$TEMPLATE" ]; then
-                # 4 種 task_type 應各有專屬模板（factory-assets 對抗性測試釘住）；
+                # 每種 task_type 應各有專屬模板（factory-assets 對抗性測試釘住）；
                 # 走到這裡表示漂移（缺檔或新增 task_type 未建檔）——fail-loud：
                 # 警告不可靜默，讓維護者看到降級。
                 echo "::warning::No dedicated task-template for task_type=${TASK_TYPE}; falling back to generic task-template.txt"
                 TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template.txt"
               fi
               echo "task template: $TEMPLATE"
-              "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
+              # 單次嘗試上限：剩餘預算與（首次）總預算的較小值。逾時訊號先 TERM
+              # （讓 DSH flush session log 與 stdout），30 秒後才 KILL——DSH headless
+              # 在收到 TERM 時仍有機會完成 flush（usage 量測依賴 session log）。
+              ATTEMPT_TIMEOUT="$REMAINING_SEC"
+              STARTED_AT=$(date +%s)
+              timeout --signal=TERM --kill-after=30s "$ATTEMPT_TIMEOUT" \
+                "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
                 --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
                 "$(sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
                         -e "s|<REPO>|${{ inputs.repo }}|" \
                         -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" "$TEMPLATE")" \
                 > .factory/run/stdout.txt 2> .factory/run/stderr.txt
               code=$?
-              echo "provider=$P exit=$code"
+              ELAPSED=$(( $(date +%s) - STARTED_AT ))
+              REMAINING_SEC=$((REMAINING_SEC - ELAPSED))
+              [ "$REMAINING_SEC" -lt 0 ] && REMAINING_SEC=0
+              echo "provider=$P exit=$code elapsed=${ELAPSED}s remaining=${REMAINING_SEC}s"
               if [ "$code" -eq 0 ]; then break; fi
+              if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
+                # 124 = timeout 到期；137 = TERM 未生效被 KILL。兩者都是逾時。
+                TIMED_OUT=true
+                STOP_REASON="agent-inner-timeout"
+                echo "::warning::provider=$P 在 ${ELAPSED}s 後逾時（inner timeout；A4）"
+                if [ "$REMAINING_SEC" -le 0 ]; then
+                  echo "::warning::逾時預算已用盡，不再升級 chain"
+                  break
+                fi
+                # 逾時視為需要更強模型的訊號 → 沿 chain 升級（相對 provider 層 fallback）。
+                echo "escalating to next chain entry after timeout"
+                continue
+              fi
               # 僅 provider 層失敗才 fallback（rate limit/credential/model）；
               # 任務層失敗（非上述錯誤）不重試（docs/02 §6）。
               # 含 AUTH/401/invalid_api_key：壞 key 也屬 credential 層失敗，應沿 chain
               # fallback（2026-08-28 #171 實測：qwen key 401 直接 needs-human，未 fallback）。
-              if ! grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL|AUTH|401|INVALID_CREDENTIAL|invalid_api_key" .factory/run/stderr.txt; then
-                break
+              if grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL|AUTH|401|INVALID_CREDENTIAL|invalid_api_key" .factory/run/stderr.txt; then
+                STOP_REASON="provider-error"
+                continue
               fi
+              STOP_REASON="agent-error"
+              break
             done < <(jq -c '.chain[]' "$GITHUB_WORKSPACE/.factory/model.json")
+            # exit 0 代表成功：成功路徑不該帶任何止原因（agent 應已自寫 report，
+            # 這裡只在它漏寫時補一份乾淨的）。
+            if [ "$code" -eq 0 ]; then STOP_REASON=""; fi
+            [ -z "$STOP_REASON" ] && [ "$code" -ne 0 ] && STOP_REASON="agent-error"
+            echo "inner_timeout=$TIMED_OUT attempts=$ATTEMPT stop_reason=${STOP_REASON:-none}" >> "$GITHUB_OUTPUT"
           fi
           set -e
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          # fallback：agent 未寫 report 時依 exit code 補最小 report（cwd=target）
+          # fallback：agent 未寫 report 時依 exit code 補最小 report（cwd=target）。
+          # A2：帶上決定性的止原因與 chain 歸因，讓 judge/scoreboard 不必從 log 猜。
+          # dry_run 走 stub agent，不套用真實 run 的止原因語意（避免偽造歸因）。
+          REPORT_ARGS=()
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
+            if [ -n "${STOP_REASON:-}" ]; then
+              REPORT_ARGS+=(--stop-reason "$STOP_REASON")
+            fi
+            if [ -n "${LAST_PROVIDER:-}" ]; then
+              REPORT_ARGS+=(--provider "$LAST_PROVIDER")
+            fi
+            if [ "${ATTEMPT:-0}" -gt 0 ]; then
+              REPORT_ARGS+=(--attempts "$ATTEMPT")
+            fi
+            if [ "${TIMED_OUT:-false}" = "true" ]; then
+              REPORT_ARGS+=(--timed-out)
+            fi
+          fi
           node "$GITHUB_WORKSPACE/dist/cli/write-report.js" \
             "${{ inputs.issue_number }}" "$code" \
-            .factory/run/stdout.txt .factory/run/stderr.txt
+            .factory/run/stdout.txt .factory/run/stderr.txt "${REPORT_ARGS[@]}"
 
       # Step 3.5 — 量測 token 用量與成本（docs/04 §5、docs/08 §2.3）。
       # 真實 run 才有 DSH session log；dry_run 由 stub 產固定 usage（同路徑）。
@@ -525,6 +697,12 @@ jobs:
       - name: Measure usage & cost
         if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
         continue-on-error: true
+        env:
+          # B8：token budget 的可觀察性。judge 已讀 TOKEN_BUDGET 觸發 SR7 停手規則
+          # （src/stop-rules/stop-rules.ts），但在此之前 `token_budget` 預設 0＝
+          # 裝置形同不存在：34735315950 燒掉 19.4M token（USD $0.306）而 run 內
+          # 沒有任何一處顯示「這逼近了什麼」。此處把預算與實測並列，讓留言自帶校準依據。
+          TOKEN_BUDGET: ${{ inputs.token_budget }}
         run: |
           node "$GITHUB_WORKSPACE/dist/cli/factory-usage.js" \
             --sessions-root "$HOME/.dsh/sessions" \
@@ -534,6 +712,18 @@ jobs:
             > "$GITHUB_WORKSPACE/target/.factory/run/usage.json" \
             || echo "::warning::usage 量測失敗（不擋 run；Issue 留言將不含用量段落）"
           ls -la target/.factory/run/usage.md 2>/dev/null || true
+          # B8：預算 vs 實測並列。逾時 run 的 per-run 觀測值是校準 token_budget
+          # 唯一的來源（Q02-5），故即使量測失敗也印出預算設定。
+          BUDGET="${TOKEN_BUDGET:-0}"
+          OBSERVED=$(jq -r '.usage.totals.totalTokens // empty' \
+            "$GITHUB_WORKSPACE/target/.factory/run/usage.json" 2>/dev/null || true)
+          if [ -z "$OBSERVED" ]; then
+            echo "::notice::token budget=$BUDGET（本次量測不可用；逾時 run 常無 session log）"
+          elif [ "$BUDGET" -gt 0 ] && [ "$OBSERVED" -gt "$BUDGET" ]; then
+            echo "::warning::token 用量 $OBSERVED 已超過單一工作項上限 $BUDGET（SR7 停手規則將觸發；請於 judge 留言確認）"
+          else
+            echo "::notice::token budget=$BUDGET，本次實測 $OBSERVED"
+          fi
 
       # Step 4 — 交叉驗證（G3，docs/18 §2.3）：把 agent 自報的 report.json 與目標
       # repo 的實際 git diff 比對。report 是 agent 自報（不可信），judge 只驗形狀；

@@ -50,7 +50,25 @@ export type TierPolicies = {
 /** critical 升級門檻：複雜度 high 且總分 ≥ 4（docs/06 §4 的 review 上緣）。 */
 export const CRITICAL_MIN_TOTAL = 4
 
+/**
+ * heavy-verify 任務的 critical 升級**不受總分門檻限制**（B5）。
+ *
+ * 理由：`CRITICAL_MIN_TOTAL` 是「review 上緣」的成本保險，預設只有高風險變更才
+ * 願意燒旗艦。但模型檢查任務的成本結構不同——它的失敗模式不是「改壞東西」，而是
+ * **一整個 run 的牆鐘被 Apalache 迭代吃掉、交付為零**（34735315950 實證：50 分鐘
+ * 換到 0 commit，成本 $0.31 全損）。此時「先升級到強模型以更早做出降界取捨」的
+ * 期望值明顯較高，故繞過分數門檻。
+ */
+export const HEAVY_VERIFY_ESCALATION_EVIDENCE = '計算強度 heavy-verify（模型檢查/求解器迭代）'
+
 export type ComplexitySource = 'manual' | 'issue-analysis' | 'catalog' | 'fail-safe'
+
+/**
+ * tier 被強制升級的原因（B5）。缺席 = 依複雜度常態解析。
+ *  - `heavy-verify`：Issue 需求分析判定為模型檢查/求解器迭代任務，繞過
+ *    scoreTotal 門檻直接升 critical（34735315950 事故修正）。
+ */
+export type TierEscalationReason = 'heavy-verify'
 
 export interface ModelResolution {
   tier: ModelTier
@@ -62,6 +80,8 @@ export interface ModelResolution {
   selected: ModelEntry
   /** primary + fallback 的迭代順序（含偏好 provider 過濾）。 */
   chain: readonly ModelEntry[]
+  /** 強制升級原因；undefined = 未觸發。供 factory-run 決定 agent 逾時預算。 */
+  escalation?: TierEscalationReason | undefined
 }
 
 export interface ModelResolutionInput {
@@ -228,7 +248,6 @@ export function resolveModelTier(input: ModelResolutionInput): ModelResolution {
       chain,
     }
   }
-
   let complexity: Complexity
   let complexitySource: ComplexitySource
   let evidence: readonly string[]
@@ -257,11 +276,32 @@ export function resolveModelTier(input: ModelResolutionInput): ModelResolution {
     reason = `${reason}；複雜度 high 且總分 ${input.scoreTotal} ≥ ${CRITICAL_MIN_TOTAL} → critical（claude-opus-5）`
   }
 
+  // B5：heavy-verify 強制 critical（繞過總分門檻）。順序刻意排在總分升級之後，
+  // 讓 reason 能同時保留兩條判據。
+  //
+  // `escalation` 必須在**兩條升級路徑都成立時**仍然標記——factory-run 用它決定
+  // agent 逾時預算（A1）；若只在「本次才升 critical」時標記，一個總分剛好達門檻的
+  // heavy-verify 任務就會拿到預設逾時，重演 34735315950。故標記與升 tier 解耦。
+  let escalation: TierEscalationReason | undefined
+  if (input.analysis?.computationalIntensity === 'heavy-verify') {
+    if (tiers.critical !== undefined) {
+      escalation = 'heavy-verify'
+      if (tier !== 'critical') {
+        tier = 'critical'
+        reason = `${reason}；${HEAVY_VERIFY_ESCALATION_EVIDENCE} → critical（不受總分門檻限制）`
+      } else {
+        reason = `${reason}；${HEAVY_VERIFY_ESCALATION_EVIDENCE}`
+      }
+    } else {
+      reason = `${reason}；${HEAVY_VERIFY_ESCALATION_EVIDENCE}，但 model-tiers 未定義 critical → 維持 ${tier}`
+    }
+  }
+
   const policy = tiers[tier]
   if (policy === undefined) {
     throw new CliError(`model-tiers 缺 tier "${tier}"（可用的：${MODEL_TIERS.join(', ')}）`)
   }
   const chain = buildChain(policy, input.preferredProvider, declaredProviders)
   const selected = chain[0] as ModelEntry
-  return { tier, complexity, complexitySource, evidence, reason, selected, chain }
+  return { tier, complexity, complexitySource, evidence, reason, selected, chain, escalation }
 }
