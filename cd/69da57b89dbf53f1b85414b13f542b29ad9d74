@@ -1,0 +1,22 @@
+config/dsh/model-tiers.yaml
+  h_1b119f25eaf333 58-67,71
+docs/04-agent-execution-dsh.md
+  h_1b119f25eaf333 482,486-490
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 29,48-49,59-80,103
+scripts/verify-models.sh
+  h_1b119f25eaf333 66,72-73,76-79,90,108-112,118,124
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 860,923-934
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cd69da57b89dbf53f1b85414b13f542b29ad9d74",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
