@@ -857,7 +857,7 @@ describe('factory-draft 防呆契約（2026-08-22：無限轉圈教訓）', () =
 describe('模型分級路由契約（docs/ADR/011）', () => {
   const { load } = require('js-yaml') as typeof import('js-yaml')
   interface TierShape {
-    primary: { provider: string; model: string }
+    primary: { provider: string; model: string; reasoningEffort?: string }
     fallback: { provider: string; model: string }[]
   }
   const tiers = (
@@ -918,6 +918,18 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(critical?.primary.model).toBe('claude-opus-5')
     expect(critical?.primary.provider).toBe('anthropic')
     expect(critical?.fallback[0]?.model).toBe('deepseek-flash')
+  })
+
+  it('critical 必須明設 reasoningEffort: max（否則付旗艦價只換到平手品質）', () => {
+    // 2026-09-11 第三方基準（Artificial Analysis Intelligence Index v4.3）：
+    //   Opus 5 (max effort) = 51 分；Opus 5 (low effort) = 40 分；deepseek-flash = 40 分。
+    // 未設 effort → 走 provider 預設（值未知），critical tier 可能在付約 21 倍成本
+    // 換取與 high tier 打平的品質——那會讓「最高 tier」失去存在意義。
+    // 注意 opus-5 只接受 off/xhigh/max（pi-ai catalog thinkingLevelMap），
+    // 填 low/medium/high 會在執行期 UNSUPPORTED_REASONING_EFFORT。
+    const effort = tiers.critical?.primary.reasoningEffort
+    expect(effort, 'critical primary 必須宣告 reasoningEffort').toBeDefined()
+    expect(['xhigh', 'max'], `opus-5 不接受 effort "${effort}"`).toContain(effort)
   })
 
   it('每個 tier 有 primary 與非空 fallback（provider 層失敗必須可 fallback）', () => {

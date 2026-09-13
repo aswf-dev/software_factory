@@ -55,9 +55,20 @@ tiers:
   critical:
     # 最高 tier 預設：claude-opus-5（2026-08-28 用戶裁決：fable-5 需額外 credit 已移除，
     # 不再有「只有最高才用 fable」——最高 tier 直接以同代旗艦 opus-5 為 primary）。
+    #
+    # reasoningEffort: max（2026-09-11 用戶裁決）——**這個欄位決定 critical tier
+    # 是否有存在意義**。Artificial Analysis Intelligence Index v4.3 第三方實測：
+    #   Opus 5（Max Effort）  = 51 分
+    #   Opus 5（Low Effort）  = 40 分 ← 與 deepseek-flash 打平，但每任務成本貴約 21 倍
+    #   deepseek-flash（Max） = 40 分
+    # 先前未設此欄位 → 走 provider 預設 effort（值未知），等於可能付旗艦價只換到
+    # 平手品質。明設 max 讓「最高 tier」名實相符。
+    # 注意：opus-5 只接受 off / xhigh / max（pi-ai catalog 的 thinkingLevelMap），
+    # 不接受 low / medium / high——填錯會以 UNSUPPORTED_REASONING_EFFORT 失敗。
     primary:
       provider: anthropic
       model: claude-opus-5
+      reasoningEffort: max
     fallback:
       - provider: deepseek
         model: deepseek-flash
