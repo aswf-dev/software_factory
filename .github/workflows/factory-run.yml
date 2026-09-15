@@ -876,17 +876,33 @@ jobs:
             echo "terminal state already posted for run ${{ github.run_id }}; guard idle"
           else
             echo "::warning::run ${{ github.run_id }} 未留下終態留言——補貼 needs-human（G1 終態守衛）"
+            mkdir -p .factory
+            echo "⚠️ 工廠執行未正常完成（run: ${{ github.run_id }}）——agent 已啟動但未收到終態判定（可能 judge/labels 步驟失敗）。已交還人類，請查看 Actions run logs。" \
+              > .factory/guard-comment.txt
             if [ -f target/.factory/run/usage.md ]; then
-              { echo "⚠️ 工廠執行未正常完成（run: ${{ github.run_id }}）——agent 已啟動但未收到終態判定（可能 judge/labels 步驟失敗）。已交還人類，請查看 Actions run logs。"
-                echo ""
-                cat target/.factory/run/usage.md
-              } > .factory/guard-comment.txt
-              gh issue comment "${{ inputs.issue_number }}" --body-file .factory/guard-comment.txt
-            else
-              gh issue comment "${{ inputs.issue_number }}" \
-                --body "⚠️ 工廠執行未正常完成（run: ${{ github.run_id }}）——agent 已啟動但未收到終態判定（可能 judge/labels 步驟失敗）。已交還人類，請查看 Actions run logs。"
+              { echo ""; cat target/.factory/run/usage.md; } >> .factory/guard-comment.txt
             fi
-            gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
+            # 技能缺口（docs/25 §2.1）：judge/labels 失敗時，這是缺口進入 Issue 的
+            # **唯一**路徑。少了它，該筆缺口就只存在於 Scoreboard 與 ~90 天後過期的
+            # artifacts——實測 3 筆（run 34731487680、34371349788、34372193923）
+            # 正是如此消失的。CLI 恆 exit 0，取不到時寫出空檔，守衛不受影響。
+            node dist/cli/factory-skill-gap.js \
+              --report target/.factory/run/report.json \
+              --out .factory/guard-skill-gap.md \
+              || echo "::warning::skill-gap 取出失敗（不擋守衛）"
+            if [ -s .factory/guard-skill-gap.md ]; then
+              { echo ""; echo "---"; echo ""; cat .factory/guard-skill-gap.md; } >> .factory/guard-comment.txt
+            fi
+            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/guard-comment.txt
+            # 有缺口時一併補上 skill-gap 標籤（聚類用，不影響終態）。兩個標籤同時
+            # 指定時若任一不存在，gh 會整條失敗，故退回只貼 needs-human——
+            # 守衛的第一要務是「終態不失守」，標籤是附註。
+            if [ -s .factory/guard-skill-gap.md ]; then
+              gh issue edit "${{ inputs.issue_number }}" --add-label needs-human,skill-gap \
+                || gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
+            else
+              gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
+            fi
           fi
 
       # Step 6（人類）— 第 1 期不自動合併；留言告知等待審查
