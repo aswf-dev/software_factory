@@ -1,0 +1,20 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 879-881,883-902,904
+src/cli/factory-skill-gap.test.ts
+  h_1b119f25eaf333 1-157
+src/cli/factory-skill-gap.ts
+  h_1b119f25eaf333 1-137
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 1516-1572
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c1b64321e084be05e68cf2cc4182228a0d18cf64",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
