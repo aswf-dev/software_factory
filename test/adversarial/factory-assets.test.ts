@@ -1513,3 +1513,60 @@ describe('用量與成本契約（docs/04 §5、docs/08 §2.3、docs/ADR/011）'
     expect(src).toContain('usage:')
   })
 })
+
+/**
+ * G1 終態守衛必須帶上技能缺口（2026-09-14 實測缺口）。
+ *
+ * 缺口進入 Issue 目前只有一條路徑：`apply-judge-labels` 讀 judge.json。該步驟
+ * 失敗時，G1 守衛補貼的留言只帶 usage，skillGap 整段消失；而 factory-push-event
+ * 直接讀 report.json，照樣把事件推進 Scoreboard。於是「D1 有、Issue 沒有」。
+ *
+ * 盤點 Scoreboard 全部 5 筆缺口，3 筆命中此路徑（run 34731487680 →
+ * software_factory#287；34371349788／34372193923 → camunda_hazelcast#25），
+ * 其唯一人類可讀副本是 ~90 天後就過期的 artifacts。docs/25 §2.2 卻把
+ * 「Issue 留言＝永久」當成聚類主源——該前提在守衛路徑上並不成立。
+ *
+ * 本組測試釘住修補後的接線，避免日後重構把守衛改回只帶 usage。
+ */
+describe('G1 終態守衛保存 skillGap（judge/labels 失敗時的唯一入 Issue 路徑）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+
+  /** 取 factory-run.yml 中 G1 守衛那一步的 run 指令。 */
+  function guardRun(): string {
+    const wf = load(read('.github/workflows/factory-run.yml')) as {
+      jobs: Record<string, { steps: { name?: string; run?: string }[] }>
+    }
+    const steps = Object.values(wf.jobs).flatMap((j) => j.steps ?? [])
+    const guard = steps.find((s) => (s.name ?? '').includes('Ensure terminal state'))
+    expect(guard, 'factory-run.yml 找不到 G1 終態守衛步驟——本測試會空跑').toBeDefined()
+    return guard?.run ?? ''
+  }
+
+  it('守衛呼叫 factory-skill-gap 取出缺口（否則 judge 失敗時缺口只剩 D1）', () => {
+    expect(guardRun()).toContain('dist/cli/factory-skill-gap.js')
+  })
+
+  it('守衛把缺口檔附加進留言本體（僅呼叫不附加＝白跑）', () => {
+    const run = guardRun()
+    const outMatch = /--out\s+(\S+)/.exec(run)
+    expect(outMatch, '守衛未以 --out 指定缺口檔路徑').not.toBeNull()
+    const outPath = outMatch?.[1] as string
+    // 同一個路徑必須同時出現在「非空判斷」與「cat 進留言」兩處，否則寫到 A、
+    // 讀 B 的漂移不會有任何症狀：留言照貼，只是永遠不含缺口。
+    expect(run).toContain(`[ -s ${outPath} ]`)
+    expect(run).toContain(`cat ${outPath}`)
+    expect(run).toContain('--body-file .factory/guard-comment.txt')
+  })
+
+  it('取出失敗不得中止守衛（守衛是最後一道網，不能變成新的失敗來源）', () => {
+    expect(guardRun()).toMatch(/factory-skill-gap\.js[\s\S]*?\|\|\s*echo/)
+  })
+
+  it('factory-skill-gap 重用 src/skill-gap/render.ts，不自寫第二套格式', () => {
+    const src = read('src/cli/factory-skill-gap.ts')
+    expect(src).toContain('renderSkillGapMarkdown')
+    // 格式契約只能有一份（見 render.ts 檔首）：第二套一旦分歧，聚類器會把
+    // 新舊留言分到不同解析分支，docs/25 §3 的「≥3 次」門檻永遠達不到。
+    expect(src).not.toContain('### 🧩')
+  })
+})
