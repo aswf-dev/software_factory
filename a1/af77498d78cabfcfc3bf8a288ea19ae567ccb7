@@ -1,0 +1,38 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 56-66
+config/factory/skills-lock.json
+  h_1b119f25eaf333 18
+src/cli/factory-crosscheck.test.ts
+  h_1b119f25eaf333 17,745-854
+src/cli/factory-crosscheck.ts
+  h_1b119f25eaf333 24,332-360,515-520
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 469-524
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 20,143-151,233-241
+src/cli/factory-push-event.test.ts
+  h_1b119f25eaf333 471-520
+src/cli/factory-push-event.ts
+  h_1b119f25eaf333 20,213,225,245-258
+src/cli/write-report.test.ts
+  h_1b119f25eaf333 5-6,219-320
+src/cli/write-report.ts
+  h_1b119f25eaf333 153-195,200-205,216,220-222
+src/skill-gap/unreported.test.ts
+  h_1b119f25eaf333 1-69
+src/skill-gap/unreported.ts
+  h_1b119f25eaf333 1-91
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 112-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a1af77498d78cabfcfc3bf8a288ea19ae567ccb7",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
