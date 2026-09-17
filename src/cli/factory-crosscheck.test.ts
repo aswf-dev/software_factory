@@ -14,6 +14,7 @@ import {
   collectReportedPaths,
   compareReportToActual,
   compareRequirementIds,
+  detectUnreportedTrigger,
   isFactoryInternal,
   main,
   normalizePath,
@@ -739,5 +740,115 @@ describe('main（fake git runner）', () => {
     }
     main(['12', reportPath, '--target', 'target'], git)
     expect(sawCwd).toBe('target')
+  })
+})
+
+/**
+ * 「該回報卻沒回報技能缺口」advisory（docs/25 §2.1）。
+ *
+ * 動機（2026-09-17 盤點）：`skillGap` 缺席有兩種含義——「確實沒有」與「遇到了
+ * 但沒回報」——而資料上完全相同。實證：run 35098422118 以 crosscheck
+ * `requirements-missing` 收場卻無 skillGap；run 34586354343 needs-human、
+ * 零產出、亦無 skillGap。本組測試釘住 advisory 的觸發與**不觸發**邊界。
+ */
+describe('未回報技能缺口 advisory', () => {
+  let dir: string
+  let reportPath: string
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'crosscheck-gap-'))
+    reportPath = join(dir, 'report.json')
+  })
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const GAP = { category: 'ci-sandbox-vitest-run', needed: 'x' }
+  const cleanGit = fakeGit({
+    branches: 'factory/12-01-test\n',
+    diffNameOnly: () => 'src/a.ts\n',
+    shortStat: () => ' 1 file changed, 30 insertions(+)',
+  })
+  /** 零產出：無分支、無 diff。 */
+  const emptyGit = fakeGit({ branches: '' })
+  const run = (report: string, git: GitRunner): ReturnType<typeof main> => {
+    writeFileSync(reportPath, report)
+    return main(['12', reportPath, '--target', 'target'], git)
+  }
+  const kinds = (out: ReturnType<typeof main>): string[] => out.advisories.map((a) => a.kind)
+
+  it('一致且有產出、無缺口回報 → 不發話（乾淨 run 不該被打擾）', () => {
+    const out = run(makeReport(), cleanGit)
+    expect(out.ok).toBe(true)
+    expect(kinds(out)).not.toContain('skill-gap-unreported')
+  })
+
+  it('crosscheck mismatch 且未回報 → 發 advisory（judge 在此情境不會執行）', () => {
+    const out = run(makeReport({ changedPaths: ['src/ghost.ts'] }), cleanGit)
+    expect(out.ok).toBe(false)
+    expect(kinds(out)).toContain('skill-gap-unreported')
+  })
+
+  it('零產出且未回報 → 發 advisory（停手的代理訊號）', () => {
+    const out = run(makeReport({ changedPaths: [], changedLines: 0 }), emptyGit)
+    expect(out.ok).toBe(true)
+    expect(kinds(out)).toContain('skill-gap-unreported')
+  })
+
+  it('零產出但已回報缺口 → 不發話（agent 已盡責）', () => {
+    const out = run(makeReport({ changedPaths: [], changedLines: 0, skillGap: GAP }), emptyGit)
+    expect(kinds(out)).not.toContain('skill-gap-unreported')
+  })
+
+  /**
+   * `skillGap: null` 與缺席同義（ReportSchema 的 nullish transform）。若這裡把
+   * null 當成「已回報」，claude-sonnet-5 那種明寫 null 的 run（34456925126）
+   * 就會靜默豁免，advisory 形同虛設。
+   */
+  it('skillGap 為 null → 仍視為未回報', () => {
+    const out = run(makeReport({ changedPaths: [], changedLines: 0, skillGap: null }), emptyGit)
+    expect(kinds(out)).toContain('skill-gap-unreported')
+  })
+
+  /** advisory 絕不影響 ok：零產出情境下 ok 必須維持 true。 */
+  it('advisory 不改變 ok（第一階段觀察期，不擋 run）', () => {
+    const out = run(makeReport({ changedPaths: [], changedLines: 0 }), emptyGit)
+    expect(out.advisories.length).toBeGreaterThan(0)
+    expect(out.ok).toBe(true)
+    expect(out.mismatches).toEqual([])
+  })
+})
+
+describe('detectUnreportedTrigger（觸發優先序）', () => {
+  const actual = (paths: string[]): CrosscheckActual => ({
+    branches: [],
+    paths,
+    added: 0,
+    deleted: 0,
+    uncommitted: [],
+  })
+
+  it('有 mismatch → crosscheck-mismatch 優先於零產出', () => {
+    expect(
+      detectUnreportedTrigger({ changedPaths: [] }, actual([]), [{ kind: 'k', detail: 'd' }]),
+    ).toBe('crosscheck-mismatch')
+  })
+
+  it('無 mismatch 且雙方皆無變更 → no-output', () => {
+    expect(detectUnreportedTrigger({ changedPaths: [] }, actual([]), [])).toBe('no-output')
+  })
+
+  it('report 宣告無變更但實際有 diff → 不觸發（那是 mismatch 的職責）', () => {
+    expect(detectUnreportedTrigger({ changedPaths: [] }, actual(['src/a.ts']), [])).toBeNull()
+  })
+
+  it('report 有變更 → 不觸發', () => {
+    expect(detectUnreportedTrigger({ changedPaths: ['src/a.ts'] }, actual([]), [])).toBeNull()
+  })
+
+  /** .factory/ 內部檔不算產出——否則每次 run 都因為 run 目錄而不被視為零產出。 */
+  it('實際 diff 只有 .factory/ 內部檔 → 仍視為零產出', () => {
+    expect(detectUnreportedTrigger({ changedPaths: [] }, actual(['.factory/run/report.json']), [])).toBe('no-output')
   })
 })

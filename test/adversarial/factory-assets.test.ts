@@ -109,6 +109,22 @@ describe('factory-workflow 含 report.json 契約', () => {
     // 誠實回報：沒遇到就省略，不得為填而填
     expect(content).toMatch(/不得為了填而虛構缺口|虛構/)
   })
+
+  /**
+   * 停手時必須顯式表態（2026-09-17）。
+   *
+   * 「沒遇到缺口」與「遇到了但沒想到回報」在資料上都是欄位缺席，人類無從分辨。
+   * 盤點 09-09 以來 13 次 run：5 筆缺口全部只來自 deepseek-v4-pro 與
+   * qwen3.8-flash，claude 家族在 4 次「該考慮回報」的情境中 0 次填寫。
+   * 把可見性寄託在模型自覺上，訊號會隨路由政策悄悄斷掉——故要求停手時以
+   * `"skillGap": null` 顯式否認，讓兩種缺席可區分。
+   */
+  it('要求停手時顯式表態（有缺口就填，沒有則明寫 null）', () => {
+    expect(content).toContain('"skillGap": null')
+    expect(content).toMatch(/停手|無法完成/)
+    // advisory 是提醒不是閘門——措辭若變成「會擋下」，agent 就有動機為過關而虛構
+    expect(content).toMatch(/不擋|不影響終態/)
+  })
 })
 
 describe('task-template 自足且指向 skills', () => {

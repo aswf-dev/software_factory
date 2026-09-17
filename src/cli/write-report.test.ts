@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { buildReport, deriveStopReason, main, parseArgs } from './write-report.js'
+import { buildReport, buildTimeoutSkillGap, deriveStopReason, main, parseArgs } from './write-report.js'
+import { ReportSchema } from './factory-judge.js'
 import { CliError } from './run-cli.js'
 
 let tmp: string
@@ -213,5 +214,107 @@ describe('main', () => {
     const out = main(['12', '0', join(tmp, 'nope.txt'), ''], ws)
     const r = JSON.parse(readFileSync(out.reportPath, 'utf8')) as { invocation: { stdout: string } }
     expect(r.invocation.stdout).toBe('')
+  })
+})
+
+/**
+ * 逾時 run 的技能缺口登記（docs/25 §2.1）。
+ *
+ * 結構性盲點：skillGap 只能由 agent 寫進 report.json，而逾時的 agent 來不及寫；
+ * fallback report 先前又沒有這個欄位 → 逾時 run 在結構上不可能回報缺口，
+ * 偏偏逾時正是最可能藏著缺口的情境（實證 run 34735315950：50 分鐘、$0.306 全損，
+ * stdout 裡有成品級的 Apalache 調優發現，隨逾時一起丟失）。
+ */
+describe('逾時 → CI 登記 agent-timeout 缺口', () => {
+  const load = (dir: string): Record<string, unknown> =>
+    JSON.parse(readFileSync(join(dir, '.factory/run/report.json'), 'utf8')) as Record<string, unknown>
+
+  it('step 級逾時 → 寫入 skillGap，category 為 agent-timeout', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wr-timeout-'))
+    buildReport({
+      issueNumber: 7,
+      exitCode: 1,
+      stdout: '',
+      stderr: '',
+      timedOut: true,
+      cwd: dir,
+    })
+    const gap = load(dir)['skillGap'] as Record<string, string>
+    expect(gap.category).toBe('agent-timeout')
+    expect(gap.needed).not.toBe('')
+    expect(gap.context).toContain('agent-step-timeout')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('內層逾時（provider 可歸因）→ context 帶 provider 與 attempts', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wr-inner-'))
+    buildReport({
+      issueNumber: 7,
+      exitCode: 124,
+      stdout: '',
+      stderr: '',
+      timedOut: false,
+      stopReason: 'agent-inner-timeout',
+      provider: 'deepseek',
+      attempts: 2,
+      cwd: dir,
+    })
+    const gap = load(dir)['skillGap'] as Record<string, string>
+    expect(gap.category).toBe('agent-timeout')
+    expect(gap.context).toContain('provider=deepseek')
+    expect(gap.context).toContain('attempts=2')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /**
+   * 非逾時的失敗**不得**登記缺口：那會把每一次 agent-error 都變成一筆假缺口，
+   * 污染 docs/25 §3 的「同 category ≥3 次」門檻。
+   */
+  it('非逾時失敗 → 不寫 skillGap 欄位', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wr-err-'))
+    buildReport({ issueNumber: 7, exitCode: 1, stdout: '', stderr: 'boom', timedOut: false, cwd: dir })
+    expect('skillGap' in load(dir)).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('成功但未寫 report（agent-exit-zero）→ 不寫 skillGap 欄位', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wr-zero-'))
+    buildReport({ issueNumber: 7, exitCode: 0, stdout: 'ok', stderr: '', timedOut: false, cwd: dir })
+    expect('skillGap' in load(dir)).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /**
+   * 契約：登記的缺口必須通過 factory-judge 的 SkillGapSchema（kebab-case category、
+   * needed 非空）。否則 judge 會 fail-loud，逾時 run 反而變成「連 judge 都跑不完」。
+   */
+  it('登記的缺口可通過 ReportSchema（不得讓 judge 因自己寫的欄位炸掉）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wr-schema-'))
+    buildReport({ issueNumber: 7, exitCode: 1, stdout: '', stderr: '', timedOut: true, cwd: dir })
+    const parsed = ReportSchema.safeParse(load(dir))
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true)
+    expect(parsed.data?.skillGap?.category).toBe('agent-timeout')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('buildTimeoutSkillGap（逾時判定的封閉集合）', () => {
+  it('兩種逾時 → 皆登記', () => {
+    for (const r of ['agent-step-timeout', 'agent-inner-timeout'] as const) {
+      expect(buildTimeoutSkillGap({ stopReason: r })?.category, r).toBe('agent-timeout')
+    }
+  })
+
+  it('非逾時的三種 stopReason → 皆不登記', () => {
+    for (const r of ['provider-error', 'agent-error', 'agent-exit-zero'] as const) {
+      expect(buildTimeoutSkillGap({ stopReason: r }), r).toBeUndefined()
+    }
+  })
+
+  it('無 provider／attempts → context 仍可讀（只列 stopReason）', () => {
+    const gap = buildTimeoutSkillGap({ stopReason: 'agent-step-timeout' })
+    expect(gap?.context).toContain('stopReason=agent-step-timeout')
+    expect(gap?.context).not.toContain('provider=')
+    expect(gap?.context).not.toContain('attempts=')
   })
 })
