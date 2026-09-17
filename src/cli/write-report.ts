@@ -150,10 +150,59 @@ export function deriveStopReason(input: { exitCode: number; timedOut: boolean })
   return input.exitCode === 0 ? 'agent-exit-zero' : 'agent-error'
 }
 
+/** 逾時類的 stopReason（內外層各一，兩者都代表 agent 沒機會寫 report）。 */
+const TIMEOUT_STOP_REASONS: readonly StopReason[] = ['agent-step-timeout', 'agent-inner-timeout']
+
+/**
+ * 逾時 run 的技能缺口（docs/25 §2.1）。
+ *
+ * **要修的結構性盲點**：`skillGap` 只能由 agent 自己寫進 report.json。agent 被
+ * `timeout(1)` 砍掉時來不及寫，CI 補的 fallback report 又沒有這個欄位，於是
+ * **逾時 run 在結構上不可能回報缺口**——而逾時正是最可能藏著缺口的情境。
+ *
+ * 實證：run 34735315950（node-redlock#7）跑了 50 分鐘、19.4M token、USD $0.306，
+ * 全損收場。它的 stdout 裡有一個成品級的缺口——agent 自行發現「Quint 模型的
+ * map 更新用 `fold` 會讓 Apalache 的狀態空間爆炸，改用 `mapBy` 後從 2.5 分鐘/步
+ * 降到 1 分鐘跑完 7 步」。那段發現連同整場產出一起消失了。
+ *
+ * **這不是替 agent 虛構缺口**（SKILL 明文禁止虛報）：本函式只登記一件 CI 自己
+ * 觀測到的客觀事實——「這次 run 以逾時收場、沒有產出」。`needed` 刻意寫成
+ * 「需人類從 run log 判讀」而非編造一條 SOP，因為 CI 並不知道 agent 卡在哪。
+ *
+ * **對聚類的影響（刻意）**：`agent-timeout` 會累積計數；同一 category 反覆出現
+ * 正是 docs/25 §3 要偵測的訊號——重複逾時代表任務類型與能力/預算的系統性落差，
+ * 值得開提案或調整路由（2026-09-13 的 heavy-verify 升 tier 就是這樣的修正）。
+ */
+export function buildTimeoutSkillGap(input: {
+  stopReason: StopReason
+  provider?: string | undefined
+  attempts?: number | undefined
+}): { category: string; needed: string; context: string } | undefined {
+  if (!TIMEOUT_STOP_REASONS.includes(input.stopReason)) return undefined
+  const facts = [
+    `stopReason=${input.stopReason}`,
+    ...(input.provider === undefined ? [] : [`provider=${input.provider}`]),
+    ...(input.attempts === undefined ? [] : [`attempts=${input.attempts}`]),
+  ].join('、')
+  return {
+    category: 'agent-timeout',
+    needed:
+      '本次 run 逾時中止，agent 未能自報技能缺口。缺什麼 SOP 需由人類從 run log ' +
+      '與 stdout 判讀（CI 只能觀測到「逾時且無產出」這件事實，不代為推論）',
+    context: `CI 自動登記（非 agent 自報）：${facts}`,
+  }
+}
+
 export function buildReport(input: WriteReportInput): string {
   const target = join(input.cwd, '.factory/run/report.json')
   if (existsSync(target)) return target // agent 已寫，保留
   mkdirSync(dirname(target), { recursive: true })
+  const stopReason = input.stopReason ?? deriveStopReason(input)
+  const skillGap = buildTimeoutSkillGap({
+    stopReason,
+    provider: input.provider,
+    attempts: input.attempts,
+  })
   writeFileSync(
     target,
     JSON.stringify(
@@ -164,10 +213,13 @@ export function buildReport(input: WriteReportInput): string {
           stdout: input.stdout,
           stderr: input.stderr,
           timedOut: input.timedOut,
-          stopReason: input.stopReason ?? deriveStopReason(input),
+          stopReason,
           ...(input.provider === undefined ? {} : { provider: input.provider }),
           ...(input.attempts === undefined ? {} : { attempts: input.attempts }),
         },
+        // 非逾時的 fallback 不寫此欄位——缺席即「未回報」，與 agent 自寫的
+        // report 同語意，也讓 advisory（docs/25 §2.1）照常對它發話。
+        ...(skillGap === undefined ? {} : { skillGap }),
       },
       null,
       2,

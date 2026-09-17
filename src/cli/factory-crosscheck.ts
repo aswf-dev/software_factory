@@ -21,6 +21,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/unreported.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, formatCliError } from './run-cli.js'
@@ -328,6 +329,35 @@ export function compareRequirementIds(
   return out
 }
 
+/**
+ * 判定本次 run 是否落在「該回報技能缺口」的情境（`null` = 無異常，不發話）。
+ *
+ * crosscheck **不知道終態**（judge 尚未執行），因此用兩個它看得見的代理訊號：
+ *
+ *  1. 自身抓到 mismatch → 這次必然 needs-human。**這一格只有 crosscheck 能補**：
+ *     workflow 的 judge 步驟要求 crosscheck 成功，crosscheck 失敗時 judge 根本
+ *     不會執行（實證：run 35098422118 的步驟列表無 Judge terminal state）。
+ *  2. 零產出（report 宣告無變更且實際 diff 也是空的）→ 通常代表 agent 停手。
+ *     實證：run 34586354343（needs-human、changedPaths 0、無 skillGap）。
+ *
+ * mismatch 優先於零產出：前者是更明確的失敗訊號，detail 也更有助於查因。
+ *
+ * **已知未涵蓋**：judge 因停手規則判 needs-human、但 agent 確實有產出的情況
+ * （實證：run 34457060253，11 個 changedPaths、終態 needs-human、無 skillGap）
+ * ——那要由 `factory-judge` 端的 `needs-human` 觸發補上，本函式看不到終態。
+ */
+export function detectUnreportedTrigger(
+  report: { changedPaths?: readonly string[] | undefined },
+  actual: CrosscheckActual,
+  mismatches: readonly CrosscheckMismatch[],
+): UnreportedTrigger | null {
+  if (mismatches.length > 0) return 'crosscheck-mismatch'
+  const reported = collectReportedPaths(report.changedPaths)
+  const actualPaths = actual.paths.filter((p) => !isFactoryInternal(p))
+  if (reported.length === 0 && actualPaths.length === 0) return 'no-output'
+  return null
+}
+
 /** 從目標 repo checkout 收集 git 事實。 */
 export function collectActualDiff(
   git: GitRunner,
@@ -482,6 +512,12 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   )
   // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
   const advisories = compareRequirementIds(report.requirements, requirementAnchors)
+  advisories.push(
+    ...adviseUnreportedSkillGap(
+      detectUnreportedTrigger(report, actual, mismatches),
+      report.skillGap !== undefined,
+    ),
+  )
   return {
     issueNumber,
     ok: mismatches.length === 0,

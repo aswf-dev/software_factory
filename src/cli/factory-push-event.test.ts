@@ -468,3 +468,53 @@ describe('requirements 訊號（REQ 錨定 → extra 槽）', () => {
     expect(e.extra).toEqual({})
   })
 })
+
+/**
+ * 「該回報卻沒回報技能缺口」→ extra.skill_gap_unreported（docs/25 §2.1）。
+ *
+ * 訊號可能來自 crosscheck（mismatch／零產出）或 judge（needs-human）。以單一
+ * 布林送出而非兩個陣列：同一次 run 兩邊可能各發一條，布林由構造上就不重複。
+ */
+describe('未回報技能缺口訊號（→ extra 槽）', () => {
+  const ADV = [{ kind: 'skill-gap-unreported', detail: '不應外流的細節' }]
+
+  it('crosscheck 發出 → extra.skill_gap_unreported = true', () => {
+    const cc = writeJson('cc-gap.json', { mismatches: [], advisories: ADV })
+    const e = buildEvent(parseArgs([...baseArgv(), '--crosscheck', cc]))
+    expect(e.extra['skill_gap_unreported']).toBe(true)
+    expect(JSON.stringify(e)).not.toContain('不應外流的細節')
+  })
+
+  it('judge 發出 → extra.skill_gap_unreported = true', () => {
+    const judge = writeJson('j-gap.json', {
+      result: { outcome: 'needs-human', labels: [], summary: '' },
+      advisories: ADV,
+    })
+    const e = buildEvent(parseArgs([...baseArgv(), '--judge', judge]))
+    expect(e.extra['skill_gap_unreported']).toBe(true)
+  })
+
+  it('兩邊同時發出 → 仍是單一 true（不重複計數）', () => {
+    const cc = writeJson('cc-both.json', { mismatches: [], advisories: ADV })
+    const judge = writeJson('j-both.json', {
+      result: { outcome: 'needs-human', labels: [], summary: '' },
+      advisories: ADV,
+    })
+    const e = buildEvent(parseArgs([...baseArgv(), '--crosscheck', cc, '--judge', judge]))
+    expect(e.extra['skill_gap_unreported']).toBe(true)
+  })
+
+  it('只有其他 kind 的 advisory → 不設此欄位（不製造 false 噪音）', () => {
+    const cc = writeJson('cc-other.json', {
+      mismatches: [],
+      advisories: [{ kind: 'requirements-uncovered', detail: 'x' }],
+    })
+    const e = buildEvent(parseArgs([...baseArgv(), '--crosscheck', cc]))
+    expect(e.extra['skill_gap_unreported']).toBeUndefined()
+    expect(e.extra['requirement_advisories']).toEqual(['requirements-uncovered'])
+  })
+
+  it('缺檔／無 advisories → 不設此欄位', () => {
+    expect(buildEvent(parseArgs(baseArgv())).extra['skill_gap_unreported']).toBeUndefined()
+  })
+})

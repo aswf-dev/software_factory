@@ -17,6 +17,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { hasUnreportedSkillGapAdvisory } from '../skill-gap/unreported.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError } from './run-cli.js'
 
@@ -209,7 +210,7 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
     // 收下（docs/26 §1）。累積後可統計「哪一類驗收條件最常 failed」，那是**不依賴
     // agent 自報 skillGap** 的技能缺口訊號（docs/25 §2.3 T3）。
     // 只送 id，不送條文內容（隱私，docs/26 §1.1 約束 3）。
-    extra: buildRequirementExtra(report, crosscheck),
+    extra: buildRequirementExtra(report, crosscheck, judge),
   }
 }
 
@@ -221,6 +222,7 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
 export function buildRequirementExtra(
   report: Record<string, unknown> | undefined,
   crosscheck: Record<string, unknown> | undefined,
+  judge?: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   const extra: Record<string, unknown> = {}
 
@@ -239,6 +241,20 @@ export function buildRequirementExtra(
     extra['requirement_advisories'] = advisories
       .map((a) => asRecord(a)?.['kind'])
       .filter((k): k is string => typeof k === 'string')
+  }
+
+  // 「該回報卻沒回報技能缺口」：以單一布林送出，而非把兩邊的 advisory 陣列
+  // 都塞進事件。理由有二：
+  //  1. crosscheck 與 judge 可能對**同一次 run** 各發一條（例如零產出 ＋
+  //     needs-human），送陣列會讓後台需要自行去重；布林由構造上就不重複。
+  //  2. 兩處的 detail 對聚類沒有額外價值——真正要聚類的是缺口本身（skill_gap），
+  //     這裡只需要知道「這次 run 屬於缺口訊號可能漏掉的那一類」。
+  // 不發生時**不寫入欄位**（不製造 `false` 噪音，與本函式其他欄位同慣例）。
+  if (
+    hasUnreportedSkillGapAdvisory(crosscheck?.['advisories']) ||
+    hasUnreportedSkillGapAdvisory(judge?.['advisories'])
+  ) {
+    extra['skill_gap_unreported'] = true
   }
   return extra
 }

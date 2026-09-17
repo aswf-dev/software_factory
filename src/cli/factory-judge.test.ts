@@ -466,3 +466,59 @@ describe('isMainModule', () => {
     expect(isMainModule(entry, realpathSync(entry))).toBe(true)
   })
 })
+
+/**
+ * needs-human 卻未回報技能缺口 → advisory（docs/25 §2.1）。
+ *
+ * judge 是唯一知道**真實終態**的元件，因此負責 crosscheck 看不到的成因：
+ * 停手規則造成的 needs-human，且 agent 仍有產出（實證 run 34457060253：
+ * 11 個 changedPaths、終態 needs-human、無 skillGap——零產出代理訊號抓不到它）。
+ */
+describe('未回報技能缺口 advisory（judge 端）', () => {
+  const failing = { issueNumber: 301, invocation: { exitCode: 1, stdout: '', stderr: 'boom' } }
+  const clean = {
+    issueNumber: 302,
+    invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+    changedPaths: ['src/util/format.test.ts'],
+    changedLines: 40,
+    assertionDelta: 6,
+    hasAcceptanceCriteria: true,
+  }
+
+  it('needs-human 且未回報 → 發一條 advisory', () => {
+    const out = main([report('adv-nh.json', failing), catalog, riskPaths])
+    expect(out.result.outcome).toBe('needs-human')
+    expect(out.advisories.map((a) => a.kind)).toEqual(['skill-gap-unreported'])
+  })
+
+  it('needs-human 但已回報 → 不發話', () => {
+    const out = main([
+      report('adv-nh-gap.json', { ...failing, skillGap: { category: 'a-b', needed: 'x' } }),
+      catalog,
+      riskPaths,
+    ])
+    expect(out.result.outcome).toBe('needs-human')
+    expect(out.advisories).toEqual([])
+  })
+
+  it('非 needs-human 終態 → 不發話（乾淨 run 不該被打擾）', () => {
+    const out = main([report('adv-ok.json', clean), catalog, riskPaths])
+    expect(out.result.outcome).not.toBe('needs-human')
+    expect(out.advisories).toEqual([])
+  })
+
+  /**
+   * 契約釘死：advisory 與終態判定分屬兩側。同一份 report 下，
+   * advisory 的有無**不得**改變 result 的任何一欄（M7 的延伸）。
+   */
+  it('advisory 不影響 result 任何一欄', () => {
+    const withoutGap = main([report('adv-cmp-a.json', failing), catalog, riskPaths])
+    const withGap = main([
+      report('adv-cmp-b.json', { ...failing, skillGap: { category: 'a-b', needed: 'x' } }),
+      catalog,
+      riskPaths,
+    ])
+    expect(withoutGap.advisories).not.toEqual(withGap.advisories)
+    expect(withoutGap.result).toEqual(withGap.result)
+  })
+})
