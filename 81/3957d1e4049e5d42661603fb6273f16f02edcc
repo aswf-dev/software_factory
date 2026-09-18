@@ -1,0 +1,16 @@
+docs/25-skill-authoring-loop.md
+  h_1b119f25eaf333 88-108,175-233,332-333,348-350,360
+docs/26-scoreboard-integration.md
+  h_1b119f25eaf333 77-97,219,230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "813957d1e4049e5d42661603fb6273f16f02edcc",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
