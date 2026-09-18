@@ -74,6 +74,27 @@
 | `model_tier` | `.factory/model.json` 的 `tier` | Select model tier |
 | `repo`／`issue_number`／`task_type`／`run_id` | workflow inputs 與 `github.run_id` | — |
 | `skills_digest` | `config/factory/skills-lock.json` 的彙總 hash | Skills 同步步驟 |
+| `extra.skill_gap_unreported` | `crosscheck.json` 或 `judge.json` 的 `advisories`（kind `skill-gap-unreported`） | Cross-check／Judge |
+
+### 1.3 `extra` 槽目前承載的欄位
+
+`extra` 是前向相容槽（§1 schema）：**新增欄位不需要接收端改動，也不改 schema 版本**。
+
+| 欄位 | 型別 | 意義 |
+|---|---|---|
+| `requirements_failed` | `string[]` | 狀態為 `failed` 的驗收條件 id（只送 id，不送條文——隱私，§1.1 約束 3）|
+| `requirements_total` | `number` | 驗收條件總數 |
+| `requirement_advisories` | `string[]` | crosscheck advisory 的 `kind`（不含 `detail`）|
+| `skill_gap_unreported` | `true`（不存在即否）| 本次 run 異常收場卻未回報 `skillGap`——**「可能漏報」的訊號，不是缺口本身** |
+
+**`skill_gap_unreported` 的三個設計約束**：
+
+1. **布林而非陣列**：crosscheck 與 judge 可能對同一次 run 各發一條 advisory，
+   布林由構造上就不重複，接收端不必自行去重。
+2. **不發生時不寫入欄位**：不製造 `false` 噪音，與 `extra` 其他欄位同慣例。
+3. **與 `skill_gap` 是不同的東西**：`skill_gap` 是缺口內容（進 `/skill-gaps` 聚類）；
+   `skill_gap_unreported` 只說「這次 run 落在缺口可能漏掉的那一類」，**不應**被當成
+   一筆缺口計數。它的用途是回答「訊號是真的沒有，還是模型不報」（`docs/25` §2.4）。
 
 > **注意**：`judge.json`／`crosscheck.json` 在部分終態下不存在（如 agent 逾時、crosscheck 失敗擋下 judge）。推送端**必須容忍缺檔**，以 `null` 填入而非中止。
 
@@ -195,7 +216,7 @@ curl -s "$SCOREBOARD_URL/api/v1/events?from=<date>" | jq '[.[].run_id]'
 
 | 編號 | 事項 | 處置 |
 |---|---|---|
-| Q26-1 | `skills_digest` 的計算方式（全體 hash vs 逐 skill） | 建議全體彙總 hash；實作時定案並記於 `skills-lock.json` 格式 |
+| Q26-1 | `skills_digest` 的計算方式（全體 hash vs 逐 skill） | 建議全體彙總 hash；實作時定案並記於 `skills-lock.json` 格式。<br>⚠️ **2026-09-17 實測：此欄位從未接線，所有事件一律為 `null`**（`factory-push-event` 讀 `report.skillsDigest`，而沒有任何步驟寫入該欄位）。連帶後果：`docs/25` §5 生效驗證第 4 步「Scoreboard 可比對 `skills_digest` 前後」目前**做不到**。 |
 | Q26-2 | Backstage 開單事件（`source: backstage-form`）是否納入 MVP | 建議 MVP 只做 `factory-ci`；開單事件待 Backstage 解凍後再議 |
 | Q26-3 | 對帳是否自動化 | MVP 手動；若缺失率高再考慮自動告警 |
 
@@ -206,3 +227,4 @@ curl -s "$SCOREBOARD_URL/api/v1/events?from=<date>" | jq '[.[].run_id]'
 | 日期 | 變動 |
 |---|---|
 | 2026-09-05 | 建立：事件 schema v2、推送規格、冪等性、對帳、權威來源界線與隱私規則 |
+| 2026-09-17 | 新增 §1.3 記載 `extra` 槽目前承載的四個欄位（含新增的 `skill_gap_unreported`）；Q26-1 補記 `skills_digest` 實測恆為 `null` 且連帶使 `docs/25` §5 的生效驗證第 4 步無法執行。**schema v2 未變動，接收端零改動** |
