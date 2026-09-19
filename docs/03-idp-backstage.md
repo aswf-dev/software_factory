@@ -319,7 +319,7 @@ yarn dev   # 預設 http://localhost:3000
 
 | 組件 | 設定 | 驗證 |
 |---|---|---|
-| 認證 | `auth.providers.github.development`（`AUTH_GITHUB_CLIENT_ID/SECRET` env）+ backend 註冊 `plugin-auth-backend-module-github-provider` + signIn resolver `emailMatchingUserEntityProfileEmail`（白名單：`backstage/users.yaml` 的 `github.com/user-login`）| 登入成功、guest 已移除 |
+| 認證 | `auth.providers.github.development`（`AUTH_GITHUB_CLIENT_ID/SECRET` env）+ backend 註冊 `plugin-auth-backend-module-github-provider` + signIn resolver `usernameMatchingUserEntityName`（白名單：**backstage-app repo 的 `users.yaml`**，User `metadata.name` = GitHub 登入名）| 登入成功、guest 已移除 |
 | Catalog | `catalog.locations`：software_factory/fubon/spring 的 `catalog-info.yaml` + Template + users | 0 警示 |
 | TechDocs | `techdocs.builder: local` + `generator.runIn: docker` + 各 repo 根 `mkdocs.yml` | software-factory docs 成功顯示 |
 | Scaffolder | `github:actions:dispatch`（`plugin-scaffolder-backend-module-github`）| Template 端到端觸發 factory-run 成功 |
@@ -327,14 +327,17 @@ yarn dev   # 預設 http://localhost:3000
 ### 7.2 踩坑紀錄（複製時注意）
 
 1. **auth provider 需顯式註冊 module**：僅 config 的 `auth.providers.github` 不夠——backend 必須 `backend.add(import('@backstage/plugin-auth-backend-module-github-provider'))`（舊版自動、新版顯式）。
-2. **signIn resolver 名稱**：`emailMatchingUserEntityAnnotation` 無效（provider skip）→ 用 `emailMatchingUserEntityProfileEmail`（比對 User entity 的 `spec.profile.email`）。
-3. **guest 是未認證後門**：`auth.providers.guest` + `plugin-auth-backend-module-guest-provider` 都移除，登入頁只剩 GitHub。
-4. **前端登入頁需宣告**：新版 `createApp`（frontend-defaults）登入頁不會自動顯示 GitHub——需 `SignInPageBlueprint.make({ provider: { id: 'github-auth-provider', apiRef: githubAuthApiRef } })` 併入 `createFrontendModule({ pluginId: 'app' })`（官方 getting-started/config/authentication）。
-5. **Backstage Component 必填 spec**：`type` / `lifecycle` / `owner` 三個都要（factory 計分只讀 `factory.io/*` annotation，不衝突）。三個試點 repo 的 catalog 已補齊。
-6. **TechDocs 需 `docs/index.md`**：mkdocs 首頁入口，缺則「no index.md in root」。
-7. **`github:actions:dispatch` 的 input 型別**：`workflowInputs` 值需字串（issue_number 用 `type: string`）。
-8. **`github:actions:dispatch` 的 `repoUrl` 是 workflow 所在 repo**（factory-run 在 software_factory）——目標 repo 走 `workflowInputs.repo`；`repoUrl` 用 scaffold 格式 `github.com?owner=..&repo=..`（非完整 URL）。
-9. **RepoUrlPicker Host 下拉**：單 host 時加 `ui:options.allowedHosts: [github.com]` 自動帶入。
+2. **signIn resolver 名稱**：`emailMatchingUserEntityAnnotation` 不存在（provider skip）。曾改用 `emailMatchingUserEntityProfileEmail`，但它比對的是 GitHub **公開 email**（provider 預設只要 `read:user` scope，未公開 email 的帳號 profile.email 為空），對未設公開 email 的成員必定失敗 → 2026-09-19 改用 `usernameMatchingUserEntityName`（GitHub 登入名 → User entity `metadata.name`），與 `users.yaml` 的白名單語意一致。
+   - 失敗徵狀：登入頁出現 `Failed to sign-in, unable to resolve user identity...`（`plugin-auth-node` 在**所有** resolver 皆丟 `NotFoundError` 時拋出），代表 OAuth 已成功、只是 catalog 查無對應 User entity。
+3. **白名單屬部署組態，不放產品 repo**：`users.yaml` 原先版控於本 repo 的 `backstage/`，由 catalog 以 url 型讀 main。2026-09-19 移至 **backstage-app repo 根目錄**，location 改 `type: file`（`../../users.yaml`，相對 backend cwd）。理由：「誰能登入這台 Backstage」隨部署與使用者而異——換人架設就換成自己的帳號，放在產品 repo 會逼所有使用者共用同一份白名單，且每次加人都要對產品 repo 發 PR。
+   - **這不違反 D1**：D1 管的是「工廠狀態」（Issue/PR/workflow 結果）必須以 GitHub 為唯一事實來源；登入白名單不是工廠狀態，是本安裝的組態。判準仍然是 §2 那句：「任何『只存在於 Backstage 而 GitHub 沒有』的**工廠狀態**」。
+4. **guest 是未認證後門**：`auth.providers.guest` + `plugin-auth-backend-module-guest-provider` 都移除，登入頁只剩 GitHub。
+5. **前端登入頁需宣告**：新版 `createApp`（frontend-defaults）登入頁不會自動顯示 GitHub——需 `SignInPageBlueprint.make({ provider: { id: 'github-auth-provider', apiRef: githubAuthApiRef } })` 併入 `createFrontendModule({ pluginId: 'app' })`（官方 getting-started/config/authentication）。
+6. **Backstage Component 必填 spec**：`type` / `lifecycle` / `owner` 三個都要（factory 計分只讀 `factory.io/*` annotation，不衝突）。三個試點 repo 的 catalog 已補齊。
+7. **TechDocs 需 `docs/index.md`**：mkdocs 首頁入口，缺則「no index.md in root」。
+8. **`github:actions:dispatch` 的 input 型別**：`workflowInputs` 值需字串（issue_number 用 `type: string`）。
+9. **`github:actions:dispatch` 的 `repoUrl` 是 workflow 所在 repo**（factory-run 在 software_factory）——目標 repo 走 `workflowInputs.repo`；`repoUrl` 用 scaffold 格式 `github.com?owner=..&repo=..`（非完整 URL）。
+10. **RepoUrlPicker Host 下拉**：單 host 時加 `ui:options.allowedHosts: [github.com]` 自動帶入。
 
 ### 7.3 啟動方式
 
