@@ -1,0 +1,16 @@
+docs/03-idp-backstage.md
+  h_1b119f25eaf333 322,330-340
+docs/17-backstage-rebuild.md
+  h_1b119f25eaf333 65,71,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "69ac85ff7c757e80d652d16de252dbb60ac1faaf",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
