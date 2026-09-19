@@ -3028,8 +3028,8 @@ packages:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
 
-  adm-zip@0.6.0:
-    resolution: {integrity: sha512-XleryMhbuksdKtofnWZ9Sk+4CUTbms4Mb/EU32SZwToAyZ5RgVos/ki8n+yr0LWHOGKuakbXTuuYNHLQjhddgg==}
+  adm-zip@0.6.1:
+    resolution: {integrity: sha512-Xwrja8nx9e5o2N1my4DsKCeKpdrnACyr1wtbPxBDgGzKzKyE9kRtBFA8mWldI+RVlD7CBZNWY/wQ2+ydwOR6kQ==}
     engines: {node: '>=14.0'}
 
   agent-base@7.1.4:
@@ -7093,7 +7093,7 @@ snapshots:
       '@types/line-column': 1.0.2
       '@types/lodash.clonedeep': 4.5.0
       '@types/seedrandom': 3.0.8
-      adm-zip: 0.6.0
+      adm-zip: 0.6.1
       antlr4ts: 0.5.0-alpha.4
       chalk: 4.1.2
       cli-progress: 3.12.0
@@ -7651,7 +7651,7 @@ snapshots:
       mime-types: 3.0.2
       negotiator: 1.1.0
 
-  adm-zip@0.6.0: {}
+  adm-zip@0.6.1: {}
 
   agent-base@7.1.4: {}
 
