@@ -1,0 +1,20 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 572-587
+src/cli/factory-skills-lock-mutation.test.ts
+  h_1b119f25eaf333 5-12,39-40,127-189
+src/cli/factory-skills-lock.test.ts
+  h_1b119f25eaf333 7,12,221-289,311-338,431-462
+src/cli/factory-skills-lock.ts
+  h_1b119f25eaf333 23-30,64,69-72,74,89-98,103-138,215-220,226-233,307-308,311-322,362-377
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "27d4bf273e88d45f793896408a34254395266d4c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
