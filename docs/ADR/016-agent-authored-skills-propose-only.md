@@ -51,10 +51,16 @@
 crosscheck 邊界 → PR 審查 → 人工 promote → CODEOWNERS
 ```
 
-1. **crosscheck 邊界**：`factory-crosscheck --propose-skill-only` 只允許 `proposals/skills/**` 與 `docs/**`；任何 `src/**`／`.dsh/**`／`.github/**` 變更即 fail-loud → `needs-human`。另校驗 frontmatter 合法（`name` kebab-case、`description` 必填，依 `docs/04` §3.2）。
-2. **PR 審查**：依 `docs/25` §4.2 的六項清單，**第 1 項為「與 `factory-stop-rules` 逐條比對，無弱化／繞過」**。
-3. **人工 promote**：`factory-skills-lock --promote <name>` 由人類執行；agent 沙箱內必然失敗。
+1. **crosscheck 邊界**：`factory-crosscheck --propose-skill-only` 只允許 `proposals/skills/**` 與 `docs/**`；任何 `src/**`／`.dsh/**`／`.github/**` 變更即 fail-loud → `needs-human`。
+2. **PR 審查**：依 `docs/25` §4.2 的七項清單，**第 1 項為「與 `factory-stop-rules` 逐條比對，無弱化／繞過」**。
+3. **人工 promote**：`factory-skills-lock --promote <name>` 由人類執行；agent 沙箱內必然失敗。同時是**唯一的內容閘門**，兩項皆 fail closed：frontmatter 合法性（`validateFrontmatter`，依 `docs/04` §3.2）與**不含具體 model id**（`detectModelIds`，見 §5.1）。
 4. **CODEOWNERS**：`.dsh/skills/` 的變更仍需 @philipz 審查。
+
+> **更正（2026-09-20）**：本節原將 frontmatter 校驗記在閘門 1。實際上
+> `factory-crosscheck.ts:183-196` 的 `proposeSkillOnly` 分支**只比對路徑**（純
+> allowlist），frontmatter 與內容校驗都在閘門 3（`factory-skills-lock.ts`）。
+> 閘門 1 管「寫到哪裡」、閘門 3 管「寫了什麼」；記在同一格會讓「內容已經有人
+> 查過」成為錯誤的安全感。`docs/25` §4.1 有同一處更正。
 
 ### 4. 放行方式比照 `agent-analyze`，不放寬監督層級
 
@@ -69,6 +75,28 @@ crosscheck 邊界 → PR 審查 → 人工 promote → CODEOWNERS
 **第一階段僅發 `::warning::` 不擋 run**；觀察穩定後由人類決定是否升為紅燈。
 
 **要解決的具體缺口**：`factory-run.yml:396` 目前是無校驗的 `cp -r "$GITHUB_WORKSPACE/.dsh/skills/." "$HOME/.dsh/skills/"`。若該 copy 不完整或機制 repo 誤刪某個 SKILL.md，**agent 會安靜地在缺少 `factory-stop-rules` 的情況下執行**——停手規則消失卻無任何紅燈。
+
+### 5.1 內容閘門：具體 model id（2026-09-20 補入）
+
+`skills-lock` 原則上只管傳輸完整性，`detectModelIds` 是**唯一的內容例外**，
+理由與 §5 同構：這類缺陷同樣是「**沒有任何東西會變紅**」的靜默失效。
+
+一份釘死 model id 的 SKILL.md 在該 id 退役之後，SKILL.md 仍在、hash 仍相符、
+`--verify` 仍 `ok: true`，agent 只是繼續收到一條指向不存在模型的指令。實證：
+兩個月內三個 id 失效（2026-08-28 `claude-fable-5`；2026-09-11 `deepseek-v4-pro`、
+`deepseek-v4-flash`），而 `docs/25` §2.4 記載過同類盲區——訊號斷了三週無人察覺。
+
+- **`--promote`**：fail closed，拋 `CliError`，不複製檔案也不寫 lock。
+- **`--verify`**：回報 `modelPins`，由 `factory-run.yml` 發 `::warning::`；
+  **不計入 `ok`**，因為 `ok` 為 false 要重新同步技能、`modelPins` 非空要改措辭，
+  處置不同的兩件事合成一個布林就分不出該做哪一件。已生效技能與人類手改都繞過
+  promote，這是它們唯一的覆蓋點。
+- **字典是 id 的形狀而非現役清單**：id 退役時會被自 `config/dsh/model-tiers.yaml`
+  移除，取自設定檔的字典會在**唯一需要生效的那一刻**失去它。變異測試 M6 釘住此點。
+- **無覆寫旗標**：可覆寫的閘門等於沒有閘門（同 `src/stop-rules` 的 no-override 立場）。
+
+正確的表達方式是指稱 tier 而非 id——模型選擇的單一事實來源是 `model-tiers.yaml`
+（`ADR-011`），skill 裡的 id 就是第二套定義（`docs/26` §1.1 約束 1 的立場）。
 
 > **重要澄清**：`skills-lock` 鎖的是**傳輸完整性**，不是**創作權限**。它保護的恰恰是「agent 拿到完整能力」，而非削減能力。加不加 lock，agent 的 skill 自造能力都是零（見脈絡的實測表）。
 
@@ -121,5 +149,5 @@ crosscheck 邊界 → PR 審查 → 人工 promote → CODEOWNERS
 | 編號 | 事項 | 處置 |
 |---|---|---|
 | ~~Q16-1~~ | ~~`proposals/` 不在 DSH 探索 rank 上為推論~~ | ✅ **已實機驗證（2026-09-06）**：以真實 `dsh --profile headless` 兩次獨立探測——對照組 `.dsh/skills/probe-visible` **被發現**（證明探測法有效）、`proposals/skills/probe-canary` **未被發現**。推論成立，維持 `proposals/skills/`。 |
-| Q16-2 | `skills-lock` 校驗何時由 warning 升為紅燈 | 觀察穩定後由人類裁決 |
+| Q16-2 | `skills-lock` 校驗何時由 warning 升為紅燈 | 觀察穩定後由人類裁決。**2026-09-20 起涵蓋兩種 warning**：hash 不符（`ok: false`）與內含 model id（`modelPins` 非空，§5.1）。兩者可分別裁決——後者在 promote 已是紅燈，`--verify` 這一路只補既有技能與人類手改 |
 | Q16-3 | 提案門檻「≥3 次」未校準 | 見 `docs/25` §3、Q23-1 |
