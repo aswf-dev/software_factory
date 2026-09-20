@@ -1,0 +1,30 @@
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 43-48
+config/factory/skills-lock.json
+  h_1b119f25eaf333 18
+src/assertion-count/count-mutation.test.ts
+  h_1b119f25eaf333 1-157
+src/assertion-count/count.test.ts
+  h_1b119f25eaf333 1-210
+src/assertion-count/count.ts
+  h_1b119f25eaf333 1-170
+src/cli/factory-crosscheck-mutation.test.ts
+  h_1b119f25eaf333 35
+src/cli/factory-crosscheck.test.ts
+  h_1b119f25eaf333 13,35,44-49,122,131,152,169,182,192,249,333,346,359,367,374,393,400,412,431,447,463,483,503,521,549-629,928
+src/cli/factory-crosscheck.ts
+  h_1b119f25eaf333 24,41-50,158,237-252,360-386,435,446-450,453-460,583
+vitest.config.ts
+  h_1b119f25eaf333 33-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ad7f5614c05455bec18a94addcd29e8c0d4c557b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
