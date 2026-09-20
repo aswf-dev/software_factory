@@ -2,7 +2,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { compareSkills, hashContent, main, validateFrontmatter, type SkillsLock } from './factory-skills-lock.js'
+import {
+  compareSkills,
+  detectModelIds,
+  hashContent,
+  main,
+  validateFrontmatter,
+  type SkillsLock,
+} from './factory-skills-lock.js'
 import { CliError } from './run-cli.js'
 
 let tmp: string
@@ -29,6 +36,8 @@ afterAll(() => {
  *  | M2 | `changed` 偵測被移除（只看名稱存在，不比 hash）                     | GREEN  | RED   |
  *  | M3 | promote 的 frontmatter 驗證被跳過（不合法也放行）                    | GREEN  | RED   |
  *  | M4 | `validateFrontmatter` 的 kebab-case 檢查被放寬                     | GREEN  | RED   |
+ *  | M5 | promote 跳過 model id 閘門（釘死模型的提案被放行）                   | GREEN  | RED   |
+ *  | M6 | `MODEL_ID_PATTERN` 改為比對「現役清單」（退役 id 不再偵測）           | GREEN  | RED   |
  *
  * 驗證方式：手改 src/cli/factory-skills-lock.ts 套用變異 → 重跑本檔變紅 → 還原 → 變綠。
  */
@@ -113,5 +122,68 @@ describe('M4 變異：validateFrontmatter 的 kebab-case 檢查被放寬', () =>
 
   it('合法 kebab-case → 無錯誤（錨定）', () => {
     expect(validateFrontmatter('---\nname: good-name\ndescription: d\n---\n')).toEqual([])
+  })
+})
+
+describe('M5 變異：promote 跳過 model id 閘門', () => {
+  /**
+   * 被釘死的模型會退役，而退役**不會讓任何東西變紅**：SKILL.md 仍在、hash 仍相符、
+   * verify 仍 ok，agent 只是繼續收到一條指向不存在模型的指令。這是與 M3 同類的
+   * 「每一步看起來都成功」失敗模式，差別在它要等到換模型那天才發作。
+   */
+  it('提案釘死 model id → 必須拒絕 promote', () => {
+    const proposals = join(tmp, 'm5-proposals')
+    mkdirSync(join(proposals, 'pin-skill'), { recursive: true })
+    writeFileSync(
+      join(proposals, 'pin-skill', 'SKILL.md'),
+      '---\nname: pin-skill\ndescription: d\n---\n一律使用 claude-opus-5',
+    )
+    const skillsDir = join(tmp, 'm5-skills')
+    mkdirSync(skillsDir, { recursive: true })
+    const lock = join(tmp, 'm5.json')
+    writeFileSync(lock, JSON.stringify({ version: 1, skills: [] }))
+
+    expect(() =>
+      main(['--promote', 'pin-skill', '--lock', lock, '--skills-dir', skillsDir, '--proposals-dir', proposals]),
+    ).toThrow(CliError)
+  })
+
+  it('同一主題改為指稱 tier → 必須放行（錨定：擋的是 id，不是「談模型」）', () => {
+    const proposals = join(tmp, 'm5b-proposals')
+    mkdirSync(join(proposals, 'tier-skill'), { recursive: true })
+    writeFileSync(
+      join(proposals, 'tier-skill', 'SKILL.md'),
+      '---\nname: tier-skill\ndescription: d\n---\n複雜任務請提高 tier（見 config/dsh/model-tiers.yaml）',
+    )
+    const skillsDir = join(tmp, 'm5b-skills')
+    mkdirSync(skillsDir, { recursive: true })
+    const lock = join(tmp, 'm5b.json')
+    writeFileSync(lock, JSON.stringify({ version: 1, skills: [] }))
+
+    expect(() =>
+      main(['--promote', 'tier-skill', '--lock', lock, '--skills-dir', skillsDir, '--proposals-dir', proposals]),
+    ).not.toThrow()
+  })
+})
+
+describe('M6 變異：model id 字典改為「現役清單」', () => {
+  /**
+   * 這是整個檢查最容易被「改好」成壞掉的地方：從 `config/dsh/model-tiers.yaml`
+   * 讀現役 id 看起來更嚴謹、更不會誤報、也符合單一事實來源的直覺。
+   *
+   * 但它在**唯一需要生效的時刻**失效——id 退役時會被自設定檔移除，字典隨即
+   * 失去它，而正是從那一刻起，釘著它的 SKILL.md 才開始造成傷害。
+   * 實證：2026-08-28 移除 claude-fable-5、2026-09-11 移除
+   * deepseek-v4-pro／deepseek-v4-flash。以下三個 id 目前都**不在**設定檔裡。
+   */
+  it.each(['deepseek-v4-pro', 'deepseek-v4-flash', 'claude-fable-5'])(
+    '已退役的 %s 仍必須被偵測',
+    (id) => {
+      expect(detectModelIds(`失敗時改用 ${id}`)).toEqual([id])
+    },
+  )
+
+  it('現役 id 同樣被偵測（錨定：不是只認退役的）', () => {
+    expect(detectModelIds('預設 qwen3.8-flash')).toEqual(['qwen3.8-flash'])
   })
 })
