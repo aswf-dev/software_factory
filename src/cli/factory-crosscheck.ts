@@ -21,6 +21,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { countAssertionDelta } from '../assertion-count/count.js'
 import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/unreported.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
@@ -37,6 +38,16 @@ export interface CrosscheckActual {
   deleted: number
   /** 工作樹未提交變更的路徑（--porcelain）。 */
   uncommitted: string[]
+  /**
+   * CI **實算**的測試斷言淨增減（`src/assertion-count`），對照 report 自報的
+   * `assertionDelta`。無分支時為 0。
+   *
+   * 取**各分支的最小值**，不是總和：stacked PR 的 02-impl 相對 base 已包含
+   * 01-test 的變更，相加會把同一批斷言算兩次，而且能讓「01 加 5、02 淨減 1」
+   * 合出正數 +4，把真正的淨減少藏起來。取最小值對單分支完全精確，對堆疊分支
+   * 則倒向「任一分支看起來在刪斷言就算數」——安全方向。
+   */
+  assertionDelta: number
 }
 
 export interface CrosscheckMismatch {
@@ -144,6 +155,7 @@ export function compareReportToActual(
   report: {
     changedPaths?: readonly string[] | undefined
     changedLines?: number | undefined
+    assertionDelta?: number | undefined
     requirements?: readonly { id: string; status: string }[] | undefined
   },
   actual: CrosscheckActual,
@@ -220,6 +232,22 @@ export function compareReportToActual(
           '。catalog-info.yaml 與 .github/factory/risk-paths.yml 必須由人類審核後親手搬檔至正位',
       })
     }
+  }
+
+  // SR6 的反向鎖（`src/assertion-count`）。SR6「絕不允許為通過測試而弱化斷言」
+  // 的輸入是 agent 自報的 assertionDelta，而該欄位是 .optional()——**漏填就等於
+  // SR6 從未存在**。這裡只鎖住那一個會讓 SR6 被繞過的方向：實算為負、自報卻沒有
+  // 說負。反方向（自報比實算保守）與任何數值差異都不進 mismatch，見
+  // adviseAssertionDelta：跨語言計數是啟發式的，比對數值必然假陽性連發。
+  if (actual.assertionDelta < 0 && !(report.assertionDelta !== undefined && report.assertionDelta < 0)) {
+    const reportedText =
+      report.assertionDelta === undefined ? '未回報' : `回報 ${report.assertionDelta}`
+    mismatches.push({
+      kind: 'assertion-delta-understated',
+      detail:
+        `CI 實算測試斷言淨減少 ${Math.abs(actual.assertionDelta)} 條，report 卻${reportedText}` +
+        '——SR6（不得為通過測試而弱化斷言）的輸入與實際不符，交還人類',
+    })
   }
 
   if (reported.length > 0 && !hasDiff && actual.branches.length === 0 && actual.uncommitted.length === 0) {
@@ -330,6 +358,33 @@ export function compareRequirementIds(
 }
 
 /**
+ * 自報 `assertionDelta` 與 CI 實算落差的 **advisory** 面（危險的那一面在
+ * `compareReportToActual` 的 `assertion-delta-understated`）。
+ *
+ * 只在「自報說淨減少、實算沒有」時發話。這是**安全方向**——自報比實算保守，
+ * SR6 會照常觸發、沒有任何規則被繞過——所以它不擋 run，只作為觀察期的落差訊號：
+ * 若這一類長期偏高，代表計數樣式漏認了某個框架，該補的是 `ASSERTION_PATTERNS`。
+ *
+ * 數值差異一律不發話。跨語言的斷言計數是啟發式的，數值相等比對會製造大量假陽性，
+ * 而假陽性會訓練人忽略訊號（`docs/25` §7「紀律失效」是同一個失敗模式）。
+ */
+export function adviseAssertionDelta(
+  reported: number | undefined,
+  measured: number,
+): CrosscheckMismatch[] {
+  if (measured < 0) return [] // 危險方向由 mismatch 處理，不重複發話
+  if (reported === undefined || reported >= 0) return []
+  return [
+    {
+      kind: 'assertion-delta-overstated',
+      detail:
+        `report 回報測試斷言淨減少 ${Math.abs(reported)} 條，CI 實算為 ${measured}` +
+        '——安全方向（SR6 仍會觸發），但計數樣式可能漏認了該專案的測試框架',
+    },
+  ]
+}
+
+/**
  * 判定本次 run 是否落在「該回報技能缺口」的情境（`null` = 無異常，不發話）。
  *
  * crosscheck **不知道終態**（judge 尚未執行），因此用兩個它看得見的代理訊號：
@@ -377,6 +432,7 @@ export function collectActualDiff(
   const paths: string[] = []
   let added = 0
   let deleted = 0
+  const perBranchAssertionDelta: number[] = []
   for (const branch of branches) {
     const names = parseDiffNameOnly(git(['diff', '--name-only', `${base}...${branch}`], target))
     for (const raw of names) {
@@ -387,9 +443,21 @@ export function collectActualDiff(
     const stat = parseShortStat(git(['diff', '--shortstat', `${base}...${branch}`], target))
     added += stat.added
     deleted += stat.deleted
+    // --unified=0：只要 +/- 行，不要脈絡行。脈絡行含斷言時兩側都會出現，
+    // 對稱地相消，但會讓輸出膨脹數倍且毫無收益。
+    perBranchAssertionDelta.push(
+      countAssertionDelta(git(['diff', '--unified=0', `${base}...${branch}`], target)).delta,
+    )
   }
   const uncommitted = parseStatusPorcelain(git(['status', '--porcelain'], target))
-  return { branches, paths, added, deleted, uncommitted }
+  return {
+    branches,
+    paths,
+    added,
+    deleted,
+    uncommitted,
+    assertionDelta: perBranchAssertionDelta.length === 0 ? 0 : Math.min(...perBranchAssertionDelta),
+  }
 }
 
 /** 讀取並驗證 report.json（契約同 factory-judge，共用 ReportSchema）。 */
@@ -512,6 +580,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   )
   // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
   const advisories = compareRequirementIds(report.requirements, requirementAnchors)
+  advisories.push(...adviseAssertionDelta(report.assertionDelta, actual.assertionDelta))
   advisories.push(
     ...adviseUnreportedSkillGap(
       detectUnreportedTrigger(report, actual, mismatches),
