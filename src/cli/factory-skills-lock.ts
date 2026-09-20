@@ -20,6 +20,14 @@
  * **`--promote` 對 agent 必然失敗**（ADR-016 §5，已實測）：沙箱 workspaceRoot 為
  * `target/`，機制 repo 路徑在其外。因此這裡不需要、也刻意不加額外的身分檢查
  * ——多一層自製檢查只會製造「看似有防護」的錯覺，真正的防護在沙箱與 CODEOWNERS。
+ *
+ * **內容閘門：具體 model id（ADR-011）。** 本檔原本只管傳輸完整性（hash），不看
+ * 內容；`detectModelIds` 是唯一的例外，理由是這類缺陷**只有在放行那一刻擋得住**：
+ * 一份釘死 model id 的 SKILL.md 在該 id 退役之後，會**安靜地**繼續指導 agent——
+ * 沒有任何既有機制會紅燈（`docs/25` §2.4 記載訊號曾斷三週無人察覺）。
+ * `--promote` 為 fail closed（拋 CliError），`--verify` 只回報 `modelPins`
+ * **不影響 `ok`**：`ok` 的既有語意是傳輸完整性，混入內容政策會讓 workflow 既有的
+ * `::warning::` 判讀失去單一意義。
  */
 import { createHash } from 'node:crypto'
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -53,13 +61,17 @@ export function hashContent(content: string): string {
 }
 
 /**
- * 掃描 skills 根目錄，回傳 name → sha256。
+ * 掃描 skills 根目錄，回傳 name → SKILL.md 內容。
  *
  * 只認 `<root>/<name>/SKILL.md` 這一種形狀（DSH 的 directory-bundle 慣例）。
  * 目錄不存在時回傳空 Map 而非拋錯——「目錄整個不見」正是 verify 要報告的
  * 情況之一，在讀取階段就中止會讓它變成無法診斷的例外。
+ *
+ * 回傳內容而非 hash，是因為 verify 現在有兩個讀者（hash 比對與 model id 掃描），
+ * 而走訪邏輯只該有一份：第二個走訪器一旦與這個分歧（例如只有一邊認得
+ * `SKILL.md` 是目錄的壞形狀），寬鬆的那一份就會成為實際生效的規則。
  */
-export function scanSkills(root: string): Map<string, string> {
+export function readSkillFiles(root: string): Map<string, string> {
   const found = new Map<string, string>()
   let entries: string[]
   try {
@@ -74,9 +86,54 @@ export function scanSkills(root: string): Map<string, string> {
     } catch {
       continue
     }
-    found.set(name, hashContent(readFileSync(file, 'utf8')))
+    found.set(name, readFileSync(file, 'utf8'))
   }
   return found
+}
+
+/** 掃描 skills 根目錄，回傳 name → sha256（ADR-016 §5 記錄的就是這個值）。 */
+export function scanSkills(root: string): Map<string, string> {
+  const found = new Map<string, string>()
+  for (const [name, content] of readSkillFiles(root)) {
+    found.set(name, hashContent(content))
+  }
+  return found
+}
+
+/** 已知的模型廠商字首。退役與否都留著——退役的 id 正是最危險的那一種。 */
+const MODEL_FAMILIES = ['claude', 'deepseek', 'qwen', 'gpt', 'gemini', 'llama', 'mistral', 'grok']
+
+/**
+ * 具體 model id 的**形狀**樣式——刻意不是「現役模型清單」。
+ *
+ * 從 `config/dsh/model-tiers.yaml` 推導現役 id 是很自然的想法，但它在**最需要
+ * 生效的那一刻恰好失效**：`deepseek-v4-pro` 於 2026-09-11 退役並自設定檔移除，
+ * 若字典來自設定檔，那一刻起它就不再被偵測——而正是那一刻起，任何釘著它的
+ * SKILL.md 才開始造成傷害。因此比對的是**形狀**（廠商字首＋版本/型號尾綴），
+ * 不是成員資格；同一取捨見 KiroCrew `lesson_validation.py` 的
+ * `MODEL_ID_LITERAL_PATTERN`（以正則釘住家族，而非枚舉現役 id）。
+ *
+ * lookbehind 排除前面接 `/` `.` `-` 或字元的情形，使 `docs/claude-key` 這類路徑
+ * 不被誤判。刻意**寬鬆地偏向誤報**：誤報的代價是 promote 時改一行措辭，
+ * 漏報的代價是一條在模型退役後仍安靜生效的錯誤 SOP。
+ */
+export const MODEL_ID_PATTERN = new RegExp(
+  `(?<![\\w/.-])(?:${MODEL_FAMILIES.join('|')})(?:-[a-z]|[-.]?\\d)[\\w.-]*`,
+  'gi',
+)
+
+/**
+ * 找出內容中所有具體 model id（小寫、去重、排序）。
+ *
+ * 尾綴的 `.` / `-` 會被剝掉，否則英文句末的 `use claude-opus-5.` 會把句點
+ * 一併報進錯誤訊息，讓人誤以為 id 本身打錯。
+ */
+export function detectModelIds(content: string): string[] {
+  const found = new Set<string>()
+  for (const m of content.matchAll(MODEL_ID_PATTERN)) {
+    found.add(m[0].replace(/[.-]+$/, '').toLowerCase())
+  }
+  return [...found].sort()
 }
 
 export type MismatchKind = 'missing' | 'extra' | 'changed'
@@ -155,11 +212,25 @@ export function validateFrontmatter(content: string): string[] {
   return errors
 }
 
+/** 某個技能內含的具體 model id（內容政策發現，非傳輸完整性問題）。 */
+export interface SkillModelPin {
+  name: string
+  ids: string[]
+}
+
 export interface VerifyOutput {
   mode: 'verify'
   ok: boolean
   mismatches: SkillMismatch[]
   checked: number
+  /**
+   * 已生效技能中被偵測到的具體 model id。
+   *
+   * **不計入 `ok`**（見檔首）：`ok` 回答的是「agent 拿到的技能是否與 lock 一致」，
+   * 這裡回答的是「技能內容是否釘死了會退役的模型」。兩者的處置不同——前者要重同步，
+   * 後者要改文字——合成一個布林會讓 workflow 無法分辨該做哪一件事。
+   */
+  modelPins: SkillModelPin[]
 }
 
 export interface UpdateOutput {
@@ -233,10 +304,22 @@ export function main(argv: string[]): SkillsLockOutput {
   const args = parseArgs(argv)
 
   if (args.mode === 'verify') {
-    const actual = scanSkills(args.skillsDir)
+    const files = readSkillFiles(args.skillsDir)
+    const actual = new Map([...files].map(([name, content]) => [name, hashContent(content)]))
     const lock = loadLock(args.lockPath)
     const mismatches = compareSkills(actual, lock)
-    return { mode: 'verify', ok: mismatches.length === 0, mismatches, checked: lock.skills.length }
+    const modelPins: SkillModelPin[] = []
+    for (const [name, content] of files) {
+      const ids = detectModelIds(content)
+      if (ids.length > 0) modelPins.push({ name, ids })
+    }
+    return {
+      mode: 'verify',
+      ok: mismatches.length === 0,
+      mismatches,
+      checked: lock.skills.length,
+      modelPins,
+    }
   }
 
   if (args.mode === 'update') {
@@ -275,6 +358,22 @@ export function main(argv: string[]): SkillsLockOutput {
     // fail closed：frontmatter 不合法的 skill 會被 DSH 靜默丟棄（docs/04 §3.2），
     // 若在此放行，結果是「promote 成功但技能從未生效」——最難察覺的失敗。
     throw new CliError(`提案 frontmatter 不合法：${errors.join('；')}`)
+  }
+  const pinned = detectModelIds(content)
+  if (pinned.length > 0) {
+    // fail closed：model id 會退役（實證：2026-08-28 claude-fable-5、2026-09-11
+    // deepseek-v4-pro／deepseek-v4-flash，兩個月內三個 id 失效），而退役不會讓
+    // SKILL.md 紅燈——它只會安靜地繼續指導 agent。模型選擇的單一事實來源是
+    // config/dsh/model-tiers.yaml（ADR-011）；skill 裡的 id 就是第二套定義，
+    // 一旦與設定檔分歧，先被 agent 讀到的那一套會成為實際生效的規則。
+    //
+    // 刻意不提供 --allow-model-id：可覆寫的閘門等於沒有閘門（同 src/stop-rules
+    // 「no override parameter by design」的立場）。真有例外，改這段程式並經 PR。
+    throw new CliError(
+      `提案含具體 model id（${pinned.join('、')}）：skill 是 SOP，模型選擇由 ` +
+        `config/dsh/model-tiers.yaml 決定（ADR-011）。請改為指稱 tier` +
+        `（low／medium／high／critical）——model id 會退役，被釘死的 skill 會在退役後靜默生效`,
+    )
   }
   const toDir = join(args.skillsDir, name)
   mkdirSync(toDir, { recursive: true })

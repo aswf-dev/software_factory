@@ -569,6 +569,22 @@ jobs:
             if [ "$(printf '%s' "$SKILLS_LOCK_OUT" | jq -r .ok)" != "true" ]; then
               echo "::warning::skills-lock 校驗未通過——技能可能未完整送達 agent（詳見上方 mismatches）"
             fi
+            # 內容政策：已生效技能釘死具體 model id（ADR-011、docs/25 §4.2 第 7 項）。
+            # 與 .ok 刻意分開判讀，因為兩者的處置不同：ok 為 false 要重新同步技能，
+            # 這裡非空則要改 SKILL.md 的措辭。合成一個布林就分不出該做哪一件事。
+            #
+            # 為何已生效的技能也要查：promote 閘門只擋新提案，既有技能與人類手改
+            # 都繞過它；而 model id 退役時不會讓任何東西變紅（SKILL.md 仍在、hash
+            # 仍相符、ok 仍為 true），它只會安靜地繼續指導 agent。
+            SKILLS_PINS=$(printf '%s' "$SKILLS_LOCK_OUT" \
+              | jq -r '[.modelPins[]? | "\(.name)=\(.ids | join(","))"] | join("; ")')
+            if [ -n "$SKILLS_PINS" ]; then
+              # ${...} 大括號為必要，不是風格：全形右括號 `）` 緊接裸 $VAR 時，
+              # bash 3.2（macOS 預設）會把它的高位位元組吃進變數名，展開成未設定的
+              # 變數——warning 仍會印出，但**唯一有用的資訊（哪個技能、哪個 id）消失**。
+              # 實測：`（$P）` → `（��`；`（${P}）` → 正常。
+              echo "::warning::skills 內含具體 model id（${SKILLS_PINS}）——模型選擇的單一事實來源是 config/dsh/model-tiers.yaml，請改為指稱 tier"
+            fi
             # 模型 tier 路由（ADR-011）：chain 來自「Select model tier」步驟的
             # model.json（primary + fallback）。每項重寫 agent-default-model 後跑 dsh；
             # provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback。

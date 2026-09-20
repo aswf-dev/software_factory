@@ -63,7 +63,7 @@
         │  agent 寫 proposals/skills/<name>/SKILL.md            │
         │  crosscheck --propose-skill-only 強制邊界              │
         │        ▼                                             │
-        │  提案 PR ─► 人類依 §4.2 六項清單審查 ─► 合併            │
+        │  提案 PR ─► 人類依 §4.2 七項清單審查 ─► 合併            │
         │        ▼  （合併後仍未生效——不在 DSH 探索路徑上）       │
         │  人類執行 factory-skills-lock --promote <name>         │
         │        ▼                                             │
@@ -264,22 +264,51 @@ SOP**。非逾時的失敗一律不登記（否則每次 `agent-error` 都會變
 **agent 端邊界**（`factory-crosscheck --propose-skill-only`）：
 - 只允許 `proposals/skills/**` 與 `docs/**` 的變更
 - 任何 `src/**`、`.dsh/**`、`.github/**` 變更 → fail-loud → `needs-human`
-- 額外校驗 frontmatter 合法（`name` kebab-case、`description` 必填，依 `docs/04` §3.2 的 DSH 規格）
+
+> **更正（2026-09-20）**：本節原記載 crosscheck「額外校驗 frontmatter 合法」。
+> 實際上 `factory-crosscheck.ts` 的 `proposeSkillOnly` 分支**只比對路徑**
+> （`:183-196` 是純 allowlist），frontmatter 與內容校驗都在 **promote（閘門 3）**：
+> `factory-skills-lock.ts` 的 `validateFrontmatter` 與 `detectModelIds`。
+> 閘門 1 管「寫到哪裡」，閘門 3 管「寫了什麼」——兩者的職責不同，記在同一格會讓
+> 「已經有人查過內容了」成為錯誤的安全感。
 
 **放行方式**：比照 `agent-analyze`（`apply-score-labels.ts:32` 的 `analyzeAllowed`）——in-loop 工作項可執行「僅提案不實作」，但**tier 不變、標籤不變、`automergeAllowed` 不變**。這不是放寬監督層級。
 
-### 4.2 promote 審查清單（六項，任一不過即不 promote）
+### 4.2 promote 審查清單（七項，任一不過即不 promote）
 
-| # | 檢查 | 不通過的後果 |
-|---|---|---|
-| 1 | 與 `factory-stop-rules` **逐條**比對，無弱化／繞過 | **停手機制失效——最嚴重** |
-| 2 | 與既有四個 factory skill 無矛盾指令 | agent 收到衝突指引，行為不可預測 |
-| 3 | frontmatter 合法（kebab-case `name`、`description` 必填） | DSH **靜默丟棄**該 skill（`docs/04` §3.2 fail closed） |
-| 4 | 內容為**可執行步驟**，非泛泛原則 | 佔用 context 卻不改變行為 |
-| 5 | 不含憑證／token／repo 專屬機密 | 安全事故 |
-| 6 | 回查 T2：原始 gap 確實重複出現 | 為單一特例增加全域負擔 |
+| # | 檢查 | 不通過的後果 | 機械化？ |
+|---|---|---|---|
+| 1 | 與 `factory-stop-rules` **逐條**比對，無弱化／繞過 | **停手機制失效——最嚴重** | 人類 |
+| 2 | 與既有 factory skill 無矛盾指令 | agent 收到衝突指引，行為不可預測 | 人類 |
+| 3 | frontmatter 合法（kebab-case `name`、`description` 必填） | DSH **靜默丟棄**該 skill（`docs/04` §3.2 fail closed） | ✅ `validateFrontmatter` |
+| 4 | 內容為**可執行步驟**，非泛泛原則 | 佔用 context 卻不改變行為 | 人類 |
+| 5 | 不含憑證／token／repo 專屬機密 | 安全事故 | 人類 |
+| 6 | 回查 T2：原始 gap 確實重複出現 | 為單一特例增加全域負擔 | 人類 |
+| 7 | **不含具體 model id**（`claude-*`／`deepseek-*`／`qwen*`…） | 該 id 退役後 skill **靜默地繼續指導 agent** | ✅ `detectModelIds` |
 
 > **第 1 項不可外包**。這是人類判斷的核心——agent 寫的 skill 可能無意間鼓勵繞過停手（例如「若測試難以通過，可調整斷言範圍」這類看似合理實則危險的措辭）。
+
+**第 7 項（2026-09-20 新增）**。`factory-skills-lock --promote` 為 fail closed：
+提案內含具體 model id 即拋 `CliError`，不複製檔案也不寫 lock。
+
+- **為什麼是硬性檢查而非審查要點**：model id 會退役，而退役**不會讓任何東西變紅**
+  ——SKILL.md 仍在、hash 仍相符、`--verify` 仍 `ok: true`，agent 只是繼續收到一條
+  指向不存在模型的指令。這與 §7「自報紀律模型相依」是同一類盲區：訊號斷了三週
+  無人察覺（§2.4）。實證：兩個月內三個 id 失效（2026-08-28 `claude-fable-5`；
+  2026-09-11 `deepseek-v4-pro`、`deepseek-v4-flash`）。
+- **怎麼改才會過**：指稱 tier（`low`／`medium`／`high`／`critical`），不指稱 id。
+  模型選擇的單一事實來源是 `config/dsh/model-tiers.yaml`（`ADR-011`）；skill 裡的
+  id 就是第二套定義，一旦與設定檔分歧，先被 agent 讀到的那一套會成為實際生效的規則
+  （同 `docs/26` §1.1 約束 1 的立場）。
+- **字典刻意不取自設定檔**：id 退役時會被自設定檔移除，取自設定檔的字典會在
+  **唯一需要生效的那一刻**失去它。因此比對的是 id 的**形狀**（廠商字首＋型號尾綴），
+  不是成員資格。此推理由變異測試 M6 釘住（`factory-skills-lock-mutation.test.ts`）。
+- **刻意不提供覆寫旗標**：可覆寫的閘門等於沒有閘門（同 `src/stop-rules` 的
+  no-override 立場）。真有例外，改程式並經 PR。
+- **已生效技能同樣會被查**：promote 只擋新提案，既有技能與人類手改都繞過它，
+  因此 `--verify` 另行回報 `modelPins`，由 `factory-run.yml` 發 `::warning::`。
+  它**不計入 `ok`**——`ok` 為 false 要重新同步技能，`modelPins` 非空要改措辭，
+  處置不同的兩件事合成一個布林就分不出該做哪一件。
 
 ### 4.3 promote 指令（人類執行，agent 永遠無法執行）
 
@@ -316,7 +345,7 @@ node dist/cli/factory-skills-lock.js --promote monorepo-test-path
 | 隨時 | Scoreboard `/skill-gaps` 查聚類 | 你 |
 | 每週（輔助） | `weekly-metrics.sh` | 你 |
 | 達門檻時 | 開 `agent-propose-skill` 工作項 | 你 |
-| 提案 PR | 依 §4.2 六項清單審查 | 你（CODEOWNERS） |
+| 提案 PR | 依 §4.2 七項清單審查 | 你（CODEOWNERS） |
 | 合併後 | `--promote` ＋ §5 驗證 | 你 |
 
 **刻意不自動化的兩點**：
@@ -358,4 +387,5 @@ node dist/cli/factory-skills-lock.js --promote monorepo-test-path
 | 2026-09-05 | 建立：定義 A/B 語意分離、T1–T3 三層偵測、四項提案門檻、六項 promote 清單、生效驗證與回退；記載 artifacts 90 天過期／Issue 留言永久的實測依據 |
 | 2026-09-06 | **T1 落地（E4）**：`skillGap` schema／留言段落／標籤／SKILL 指示完成；`category` 改為 kebab-case fail-loud（§7 同義異名風險的機械緩解）；補記 `skillGap` 不進入 pipeline 判定的設計決策 |
 | 2026-09-17 | **更正「不依賴人工紀律」的結論**：13 次 run 盤點顯示填寫紀律**模型相依**（5 筆缺口全來自 `deepseek-v4-pro` 與 `qwen3.8-flash`；claude 家族 0/4），而這兩個模型自 09-13 起不再執行（§2.4）。新增 §2.1.1 三道不依賴自報的補強、§2.5 逾時盲點與其修補；§7 風險表更正並新增「自報紀律模型相依」一列；新增 Q25-4〜Q25-6 |
+| 2026-09-20 | **§4.2 第 7 項落地：promote 拒絕具體 model id**（`factory-skills-lock.ts` 的 `detectModelIds`，fail closed，不複製檔案也不寫 lock）；`--verify` 新增 `modelPins` 回報，由 `factory-run.yml` 發 `::warning::` 且**不計入 `ok`**。**更正 §4.1**：frontmatter 校驗在閘門 3 而非閘門 1（`ADR-016` §3 有同一處更正）。字典刻意採 id 的**形狀**而非現役清單——取自設定檔的字典會在 id 退役那一刻失效，正是最需要它的時候；此推理由變異測試 M6 釘住 |
 | 2026-09-06 | **迴圈 C 落地（E5＋E6）**：`factory-skills-lock`（verify/update/promote，verify 恆 exit 0）＋`agent-propose-skill` 型別（crosscheck `--propose-skill-only` 白名單）。**Q25-1 實機驗證通過**（`proposals/` 確實不在探索 rank 上）。**紀律實證**：真實 DSH 呼叫確認 agent 會主動且格式合法地填寫 `skillGap`（§7 風險欄已更新） |

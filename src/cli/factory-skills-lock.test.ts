@@ -4,10 +4,12 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   compareSkills,
+  detectModelIds,
   hashContent,
   loadLock,
   main,
   parseArgs,
+  readSkillFiles,
   scanSkills,
   validateFrontmatter,
   type SkillsLock,
@@ -216,6 +218,75 @@ describe('validateFrontmatter', () => {
   })
 })
 
+describe('readSkillFiles', () => {
+  it('回傳內容本身（scanSkills 與 model id 掃描共用同一份走訪）', () => {
+    const root = makeSkills('rsf1', { alpha: SKILL_A })
+    expect(readSkillFiles(root).get('alpha')).toBe(SKILL_A)
+  })
+
+  it('目錄不存在 → 空 Map', () => {
+    expect(readSkillFiles(join(tmp, 'rsf-none')).size).toBe(0)
+  })
+})
+
+describe('detectModelIds（ADR-011：skill 不得釘死具體模型）', () => {
+  it('認得現役 id', () => {
+    expect(detectModelIds('critical 用 claude-opus-5')).toEqual(['claude-opus-5'])
+    expect(detectModelIds('預設 qwen3.8-flash')).toEqual(['qwen3.8-flash'])
+    expect(detectModelIds('fallback deepseek-flash')).toEqual(['deepseek-flash'])
+  })
+
+  it('認得**已退役**的 id —— 這是本檢查存在的理由', () => {
+    // deepseek-v4-pro 於 2026-09-11 自 model-tiers.yaml 移除、claude-fable-5 於
+    // 2026-08-28 移除。若字典取自設定檔，兩者此刻都已測不到——而正是此刻起，
+    // 釘著它們的 SKILL.md 才開始造成傷害。
+    expect(detectModelIds('always use deepseek-v4-pro')).toEqual(['deepseek-v4-pro'])
+    expect(detectModelIds('改用 claude-fable-5')).toEqual(['claude-fable-5'])
+    expect(detectModelIds('deepseek-v4-flash 較省')).toEqual(['deepseek-v4-flash'])
+  })
+
+  it('未使用的廠商家族也認得（換 provider 時不留漏洞）', () => {
+    expect(detectModelIds('gpt-5 / gemini-3 / mistral-7b / grok-4')).toEqual([
+      'gemini-3',
+      'gpt-5',
+      'grok-4',
+      'mistral-7b',
+    ])
+  })
+
+  it('大小寫不敏感，且正規化為小寫', () => {
+    expect(detectModelIds('Claude-Opus-5 與 GPT-5')).toEqual(['claude-opus-5', 'gpt-5'])
+  })
+
+  it('去重並排序（錯誤訊息要穩定可讀）', () => {
+    expect(detectModelIds('gpt-5 ... claude-opus-5 ... gpt-5')).toEqual(['claude-opus-5', 'gpt-5'])
+  })
+
+  it('剝除句末標點（避免把句點報成 id 的一部分）', () => {
+    expect(detectModelIds('use claude-opus-5.')).toEqual(['claude-opus-5'])
+  })
+
+  it('緊接中文字也偵測得到（無空白不構成規避）', () => {
+    expect(detectModelIds('一律使用deepseek-flash')).toEqual(['deepseek-flash'])
+  })
+
+  it('路徑中的家族字不誤判（docs/claude-key）', () => {
+    expect(detectModelIds('見 docs/claude-key 的說明')).toEqual([])
+  })
+
+  it('家族字單獨出現不誤判（"Claude Code"、"llama.cpp"）', () => {
+    expect(detectModelIds('本工廠由 Claude Code 操作，llama.cpp 為本機推論')).toEqual([])
+  })
+
+  it('指稱 tier 而非 id → 乾淨（這正是被要求改寫成的形態）', () => {
+    expect(detectModelIds('模型由 tier 決定：low／medium／high／critical，見 config/dsh/model-tiers.yaml')).toEqual([])
+  })
+
+  it('全部既有技能措辭風格的長文不誤判（無 id 即空）', () => {
+    expect(detectModelIds(SKILL_A + SKILL_B)).toEqual([])
+  })
+})
+
 describe('main --verify', () => {
   it('一致 → ok true', () => {
     const root = makeSkills('v-ok', { alpha: SKILL_A })
@@ -236,6 +307,34 @@ describe('main --verify', () => {
     const out = main(['--verify', '--lock', lock, '--skills-dir', root])
     expect(out).toMatchObject({ ok: false })
     expect(out.mode === 'verify' && out.mismatches[0]?.name).toBe('factory-stop-rules')
+  })
+
+  it('技能內無 model id → modelPins 為空', () => {
+    const root = makeSkills('v-nopin', { alpha: SKILL_A })
+    const lock = writeLock('v-nopin.json', {
+      version: 1,
+      skills: [{ name: 'alpha', sha256: hashContent(SKILL_A) }],
+    })
+    const out = main(['--verify', '--lock', lock, '--skills-dir', root])
+    expect(out.mode === 'verify' && out.modelPins).toEqual([])
+  })
+
+  it('已生效技能釘死 model id → 列入 modelPins，但 ok 不變（傳輸完整性仍然一致）', () => {
+    // ok 若被內容政策污染，workflow 既有的 ::warning:: 就無法分辨該重同步還是該改文字。
+    const pinned = '---\nname: pinned-skill\ndescription: d\n---\n測試失敗時改用 deepseek-v4-pro'
+    const root = makeSkills('v-pin', { alpha: SKILL_A, 'pinned-skill': pinned })
+    const lock = writeLock('v-pin.json', {
+      version: 1,
+      skills: [
+        { name: 'alpha', sha256: hashContent(SKILL_A) },
+        { name: 'pinned-skill', sha256: hashContent(pinned) },
+      ],
+    })
+    const out = main(['--verify', '--lock', lock, '--skills-dir', root])
+    expect(out.mode === 'verify' && out.ok).toBe(true)
+    expect(out.mode === 'verify' && out.modelPins).toEqual([
+      { name: 'pinned-skill', ids: ['deepseek-v4-pro'] },
+    ])
   })
 })
 
@@ -327,6 +426,38 @@ describe('main --promote（人類放行，docs/25 §4.3）', () => {
 
   it('名稱非 kebab-case → CliError', () => {
     expect(() => main(['--promote', 'BadName'])).toThrow(/kebab-case/)
+  })
+
+  it('提案含具體 model id → 拒絕 promote（fail closed，ADR-011）', () => {
+    const proposals = makeProposal(
+      'p8',
+      'pin-skill',
+      '---\nname: pin-skill\ndescription: d\n---\n遇到複雜任務時一律改用 claude-opus-5',
+    )
+    const skillsDir = join(tmp, 'p8-skills')
+    mkdirSync(skillsDir, { recursive: true })
+    const lock = writeLock('p8.json', { version: 1, skills: [] })
+    const args = ['--promote', 'pin-skill', '--lock', lock, '--skills-dir', skillsDir, '--proposals-dir', proposals]
+    expect(() => main(args)).toThrow(/claude-opus-5/)
+    expect(() => main(args)).toThrow(/model-tiers\.yaml/)
+    // 真的沒放行：既沒複製檔案，也沒寫進 lock
+    expect(() => readFileSync(join(skillsDir, 'pin-skill', 'SKILL.md'), 'utf8')).toThrow()
+    expect(loadLock(lock).skills).toEqual([])
+  })
+
+  it('改為指稱 tier 的同一份提案 → 放行（證明擋的是 id 不是主題）', () => {
+    const proposals = makeProposal(
+      'p9',
+      'tier-skill',
+      '---\nname: tier-skill\ndescription: d\n---\n遇到複雜任務時提高 tier（見 config/dsh/model-tiers.yaml）',
+    )
+    const skillsDir = join(tmp, 'p9-skills')
+    mkdirSync(skillsDir, { recursive: true })
+    const lock = writeLock('p9.json', { version: 1, skills: [] })
+    expect(() =>
+      main(['--promote', 'tier-skill', '--lock', lock, '--skills-dir', skillsDir, '--proposals-dir', proposals]),
+    ).not.toThrow()
+    expect(loadLock(lock).skills.map((s) => s.name)).toEqual(['tier-skill'])
   })
 
   it('重複 promote → lock 內不產生重複條目（取代而非追加）', () => {
