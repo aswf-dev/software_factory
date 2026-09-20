@@ -1,0 +1,16 @@
+docs/25-skill-authoring-loop.md
+  h_1b119f25eaf333 66,267-273,277,279-287,291-312,348,390
+docs/ADR/016-agent-authored-skills-propose-only.md
+  h_1b119f25eaf333 54-56,59-64,79-100,152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "19bdd46f25c95467b5dbce92edc571f0fdb6d90b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
