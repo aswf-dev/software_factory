@@ -1,0 +1,20 @@
+config/factory/skills-lock.json
+  h_1b119f25eaf333 6,10,14,18,22,26
+src/cli/factory-skills-lock-mutation.test.ts
+  h_1b119f25eaf333 8,10,12,44-46,196-257
+src/cli/factory-skills-lock.test.ts
+  h_1b119f25eaf333 1,12-15,43-47,102,106-108,231-332,336,401-404,414,427,440-441,479
+src/cli/factory-skills-lock.ts
+  h_1b119f25eaf333 33-41,66,71-75,77,80,83-84,87,92,94-116,118,120-165,167,172,175-176,385,389-390,460-464
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "13bd475f0d5a0ea7e048332d4320204c4f2ce8ed",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
