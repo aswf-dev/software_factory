@@ -73,7 +73,7 @@
 | `skill_gap` | `report.json` 的 `skillGap`（agent 自報） | Run factory agent |
 | `model_tier` | `.factory/model.json` 的 `tier` | Select model tier |
 | `repo`／`issue_number`／`task_type`／`run_id` | workflow inputs 與 `github.run_id` | — |
-| `skills_digest` | `config/factory/skills-lock.json` 的彙總 hash | Skills 同步步驟 |
+| `skills_digest` | `factory-skills-lock --verify` 的 `digest`（**實際載入**的技能集合彙總，非 lock 宣告）| Skills 同步步驟 |
 | `extra.skill_gap_unreported` | `crosscheck.json` 或 `judge.json` 的 `advisories`（kind `skill-gap-unreported`） | Cross-check／Judge |
 
 ### 1.3 `extra` 槽目前承載的欄位
@@ -97,6 +97,29 @@
    一筆缺口計數。它的用途是回答「訊號是真的沒有，還是模型不報」（`docs/25` §2.4）。
 
 > **注意**：`judge.json`／`crosscheck.json` 在部分終態下不存在（如 agent 逾時、crosscheck 失敗擋下 judge）。推送端**必須容忍缺檔**，以 `null` 填入而非中止。
+
+### 1.4 `skills_digest` 的三項定案（2026-09-20）
+
+**1. 彙總而非逐 skill。** 值是整個技能集合的單一 hash：`sha256` over 每個技能的
+`<name>\n<bundle sha256>\n`（名稱碼元順序）。逐 skill 會讓看板必須自己判斷「哪幾個
+變了才算版本變了」，而 §5 第 4 步問的問題是「這一次 run 的技能組合與上一次是否相同」
+——那是一個單值問題。
+
+**2. 描述「實際載入」，不是「lock 宣告」。** §1.2 的來源欄原本寫 `skills-lock.json`
+的彙總 hash，但 §1 對這個欄位的註解是「本次 run **實際載入**的 skills 版本」。兩者
+只在一種情況下不同——而那正是唯一重要的情況：`cp -r` 不完整時，lock 描述的是**應該**
+送達的東西。記下 lock 的 hash 會讓看板顯示一個 agent 從未載入過的版本，也就是把一次
+同步失敗記成一次正常 run。因此值取自 `--verify` 掃描實際目錄的結果。
+
+**3. 掃不到技能時為 `null`，不是空集合的 hash。** 空集合也有一個合法的 sha256，
+但它看起來與任何其他版本一樣真實。這是 §1.1 約束 2「不偽造數字」的同一條立場：
+`null` 讓看板顯示「無資料」，而空集合的 hash 會讓「技能一個都沒載入」看起來像是
+某個版本。
+
+**不由 agent 提供。** `factory-push-event` 原先讀 `report.skillsDigest`，而
+`report.json` 是 agent 自己寫的檔案。這個欄位的全部用途是判斷「某個 skill 放行後
+gap 是否消失」，能被受測者填寫的量測值沒有意義（`docs/06` §4.3 的同一條原則），
+因此該讀取已移除，值只從 CI 的旗標進來。變異測試 M10／M11 釘住這兩件事。
 
 ---
 
@@ -216,7 +239,7 @@ curl -s "$SCOREBOARD_URL/api/v1/events?from=<date>" | jq '[.[].run_id]'
 
 | 編號 | 事項 | 處置 |
 |---|---|---|
-| Q26-1 | `skills_digest` 的計算方式（全體 hash vs 逐 skill） | 建議全體彙總 hash；實作時定案並記於 `skills-lock.json` 格式。<br>⚠️ **2026-09-17 實測：此欄位從未接線，所有事件一律為 `null`**（`factory-push-event` 讀 `report.skillsDigest`，而沒有任何步驟寫入該欄位）。連帶後果：`docs/25` §5 生效驗證第 4 步「Scoreboard 可比對 `skills_digest` 前後」目前**做不到**。 |
+| ~~Q26-1~~ | ~~`skills_digest` 的計算方式（全體 hash vs 逐 skill）~~ | ✅ **已接線並定案（2026-09-20）**：全體彙總 hash，格式 `sha256:<hex>`，由 `factory-skills-lock --verify` 的 `digest` 產出、以 `--skills-digest` 旗標傳給 `factory-push-event`。三項定案見 §1.4。`docs/25` §5 第 4 步自此可執行。 |
 | Q26-2 | Backstage 開單事件（`source: backstage-form`）是否納入 MVP | 建議 MVP 只做 `factory-ci`；開單事件待 Backstage 解凍後再議 |
 | Q26-3 | 對帳是否自動化 | MVP 手動；若缺失率高再考慮自動告警 |
 
@@ -227,4 +250,5 @@ curl -s "$SCOREBOARD_URL/api/v1/events?from=<date>" | jq '[.[].run_id]'
 | 日期 | 變動 |
 |---|---|
 | 2026-09-05 | 建立：事件 schema v2、推送規格、冪等性、對帳、權威來源界線與隱私規則 |
+| 2026-09-20 | **Q26-1 接線並定案**：新增 §1.4（彙總而非逐 skill、描述實際載入而非 lock 宣告、掃不到時為 `null`）；§1.2 來源欄更正為 `factory-skills-lock --verify` 的 `digest`；`factory-push-event` 不再讀 `report.skillsDigest`（受測者不得填寫自己的量測值）。**schema v2 未變動，接收端零改動** |
 | 2026-09-17 | 新增 §1.3 記載 `extra` 槽目前承載的四個欄位（含新增的 `skill_gap_unreported`）；Q26-1 補記 `skills_digest` 實測恆為 `null` 且連帶使 `docs/25` §5 的生效驗證第 4 步無法執行。**schema v2 未變動，接收端零改動** |
