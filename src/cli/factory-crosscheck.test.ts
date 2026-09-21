@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CliError } from './run-cli.js'
 import {
+  adviseAssertionDelta,
   collectActualDiff,
   collectReportedPaths,
   compareReportToActual,
@@ -31,6 +32,7 @@ function fakeGit(script: {
   branches?: string
   diffNameOnly?: (branch: string) => string
   shortStat?: (branch: string) => string
+  unifiedDiff?: (branch: string) => string
   status?: string
 }): GitRunner {
   return (args, cwd) => {
@@ -39,9 +41,12 @@ function fakeGit(script: {
     if (cmd === 'diff') {
       const flag = args[1]
       const branch = (args[2] ?? '').split('...')[1] ?? ''
-      return flag === '--name-only'
-        ? (script.diffNameOnly?.(branch) ?? '')
-        : (script.shortStat?.(branch) ?? '')
+      // 逐一列舉而非 else 兜底：兜底會讓「用錯旗標」的接線錯誤靜靜拿到另一個
+      // 命令的輸出（--unified=0 曾因此收到 --shortstat 的字串仍然通過）。
+      if (flag === '--name-only') return script.diffNameOnly?.(branch) ?? ''
+      if (flag === '--shortstat') return script.shortStat?.(branch) ?? ''
+      if (flag === '--unified=0') return script.unifiedDiff?.(branch) ?? ''
+      throw new Error(`unexpected git diff flag: ${flag}`)
     }
     if (cmd === 'status') return script.status ?? ''
     throw new Error(`unexpected git call: ${args.join(' ')} (cwd=${cwd})`)
@@ -114,7 +119,7 @@ describe('路徑處理', () => {
 })
 
 describe('compareReportToActual', () => {
-  const emptyActual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [] }
+  const emptyActual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [], assertionDelta: 0 }
 
   it('完全一致 → 無 mismatch', () => {
     const actual: CrosscheckActual = {
@@ -123,6 +128,7 @@ describe('compareReportToActual', () => {
       added: 20,
       deleted: 10,
       uncommitted: [],
+      assertionDelta: 0,
     }
     expect(
       compareReportToActual(
@@ -143,6 +149,7 @@ describe('compareReportToActual', () => {
       added: 40,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       { changedPaths: ['docs/research/12-impact.md'], changedLines: 40, requirements: [{ id: 'R1', status: 'passed' }] },
@@ -159,6 +166,7 @@ describe('compareReportToActual', () => {
       added: 20,
       deleted: 5,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual({ changedPaths: ['src/a.ts', 'docs/research/12-impact.md'], changedLines: 25 }, actual, true)
     expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(true)
@@ -171,6 +179,7 @@ describe('compareReportToActual', () => {
       added: 20,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 20 }, actual, false)
     expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(false)
@@ -180,7 +189,7 @@ describe('compareReportToActual', () => {
 
   /** 建一個 propose-skill 情境的 actual（分支＋指定路徑）。 */
   function proposeActual(paths: string[]): CrosscheckActual {
-    return { branches: ['factory/12-01-propose'], paths, added: 30, deleted: 0, uncommitted: [] }
+    return { branches: ['factory/12-01-propose'], paths, added: 30, deleted: 0, uncommitted: [], assertionDelta: 0 }
   }
 
   it('propose-skill-only + 純 proposals/skills 變更 → 無 propose-skill-scope', () => {
@@ -237,7 +246,7 @@ describe('compareReportToActual', () => {
 
   /** 建一個 onboard 情境的 actual（分支＋指定路徑）。 */
   function onboardActual(paths: string[]): CrosscheckActual {
-    return { branches: ['factory/12-01-onboard'], paths, added: 40, deleted: 0, uncommitted: [] }
+    return { branches: ['factory/12-01-onboard'], paths, added: 40, deleted: 0, uncommitted: [], assertionDelta: 0 }
   }
 
   it('onboard-only + 純 proposals/onboarding 變更 → 無 onboard-scope', () => {
@@ -321,7 +330,7 @@ describe('compareReportToActual', () => {
   })
 
   it('有分支但 diff 為空 → 不觸發 no-trace，改觸發 reported-not-in-diff', () => {
-    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: [], added: 0, deleted: 0, uncommitted: [] }
+    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: [], added: 0, deleted: 0, uncommitted: [], assertionDelta: 0 }
     const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 30 }, actual)
     expect(m.some((x) => x.kind === 'no-trace')).toBe(false)
     expect(m.some((x) => x.kind === 'reported-not-in-diff')).toBe(true)
@@ -334,6 +343,7 @@ describe('compareReportToActual', () => {
       added: 5,
       deleted: 1,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual({ changedLines: 6 }, actual)
     expect(m.some((x) => x.kind === 'unreported-changes')).toBe(true)
@@ -346,6 +356,7 @@ describe('compareReportToActual', () => {
       added: 10,
       deleted: 2,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual({ changedPaths: ['src/a.ts', 'src/ghost.ts'], changedLines: 12 }, actual)
     expect(m.some((x) => x.kind === 'reported-not-in-diff')).toBe(true)
@@ -353,14 +364,14 @@ describe('compareReportToActual', () => {
   })
 
   it('diff 非空但 changedLines 缺席 → lines-missing', () => {
-    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: ['src/a.ts'], added: 5, deleted: 0, uncommitted: [] }
+    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: ['src/a.ts'], added: 5, deleted: 0, uncommitted: [], assertionDelta: 0 }
     expect(
       compareReportToActual({ changedPaths: ['src/a.ts'] }, actual).some((x) => x.kind === 'lines-missing'),
     ).toBe(true)
   })
 
   it('diff 非空但 changedLines = 0 → lines-missing', () => {
-    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: ['src/a.ts'], added: 5, deleted: 0, uncommitted: [] }
+    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: ['src/a.ts'], added: 5, deleted: 0, uncommitted: [], assertionDelta: 0 }
     expect(
       compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 0 }, actual).some(
         (x) => x.kind === 'lines-missing',
@@ -379,14 +390,14 @@ describe('compareReportToActual', () => {
 
   it('宣稱變更但工作樹有未提交變更 → 不觸發 no-trace，改觸發 uncommitted-changes', () => {
     // 第一個 no-trace 條件的第四個 conjunct（uncommitted.length === 0）在此為 false
-    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: ['src/dirty.ts'] }
+    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: ['src/dirty.ts'], assertionDelta: 0 }
     const m = compareReportToActual({ changedPaths: ['src/dirty.ts'], changedLines: 5 }, actual)
     expect(m.some((x) => x.kind === 'no-trace')).toBe(false)
     expect(m.some((x) => x.kind === 'uncommitted-changes')).toBe(true)
   })
 
   it('工作樹有未提交變更 → uncommitted-changes（未宣稱變更時也抓）', () => {
-    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: ['src/dirty.ts'] }
+    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: ['src/dirty.ts'], assertionDelta: 0 }
     const m = compareReportToActual({ changedPaths: [], changedLines: 0 }, actual)
     expect(m.some((x) => x.kind === 'uncommitted-changes')).toBe(true)
   })
@@ -398,6 +409,7 @@ describe('compareReportToActual', () => {
       added: 0,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     // report 只含 .factory 內部檔 → 排除後視為未宣稱變更；actual 也被排除 → 一致
     expect(compareReportToActual({ changedPaths: ['.factory/run/report.json'], changedLines: 0 }, actual)).toEqual([])
@@ -416,6 +428,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       { changedPaths: ['src/a.ts'], changedLines: 5, requirements: undefined },
@@ -431,6 +444,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       { changedPaths: ['src/a.ts'], changedLines: 5, requirements: [] },
@@ -446,6 +460,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       {
@@ -465,6 +480,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       {
@@ -484,6 +500,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       {
@@ -501,7 +518,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
   })
 
   it('無變更（diff 為空）時 requirements 缺席 → 不誤報 requirements-missing', () => {
-    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [] }
+    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [], assertionDelta: 0 }
     const m = compareReportToActual({ changedPaths: [], changedLines: 0, requirements: undefined }, actual)
     expect(m.some((x) => x.kind === 'requirements-missing')).toBe(false)
   })
@@ -529,6 +546,87 @@ describe('collectActualDiff', () => {
     expect(actual.paths).toEqual([])
     expect(actual.added).toBe(0)
     expect(actual.deleted).toBe(0)
+    expect(actual.assertionDelta).toBe(0)
+  })
+
+  it('assertionDelta 取各分支最小值，不是總和', () => {
+    // stacked PR：02-impl 相對 base 已包含 01-test 的變更。相加會把 01 的 +2
+    // 與 02 的 -1 合成 +1，把真正的淨減少藏起來；取最小值才看得見。
+    const git = fakeGit({
+      branches: 'factory/12-01-test\nfactory/12-02-impl\n',
+      diffNameOnly: () => 'src/a.test.ts\n',
+      shortStat: () => ' 1 file changed, 1 insertion(+)',
+      unifiedDiff: (b) =>
+        [
+          'diff --git a/src/a.test.ts b/src/a.test.ts',
+          '--- a/src/a.test.ts',
+          '+++ b/src/a.test.ts',
+          '@@ -1 +1 @@',
+          b === 'factory/12-01-test'
+            ? '+  expect(a).toBe(1)\n+  expect(b).toBe(2)'
+            : '+  expect(a).toBe(1)\n-  expect(c).toBe(3)\n-  expect(d).toBe(4)',
+        ].join('\n'),
+    })
+    const actual = collectActualDiff(git, { issueNumber: 12, base: 'software-factory', target: 'target' })
+    expect(actual.assertionDelta).toBe(-1)
+  })
+})
+
+describe('assertionDelta 反向鎖（SR6 的輸入不再只有自報）', () => {
+  const withDelta = (measured: number): CrosscheckActual => ({
+    branches: ['factory/12-01-test'],
+    paths: ['src/a.test.ts'],
+    added: 5,
+    deleted: 5,
+    uncommitted: [],
+    assertionDelta: measured,
+  })
+  const kinds = (ms: { kind: string }[]): string[] => ms.map((m) => m.kind)
+
+  it('實算淨減少、report 未回報 → mismatch（漏填等於 SR6 從未存在）', () => {
+    const out = compareReportToActual({ changedPaths: ['src/a.test.ts'] }, withDelta(-2))
+    expect(kinds(out)).toContain('assertion-delta-understated')
+    expect(out.find((m) => m.kind === 'assertion-delta-understated')?.detail).toMatch(/未回報/)
+  })
+
+  it('實算淨減少、report 回報 0 → mismatch（這是唯一能繞過 SR6 的路徑）', () => {
+    const out = compareReportToActual(
+      { changedPaths: ['src/a.test.ts'], assertionDelta: 0 },
+      withDelta(-3),
+    )
+    expect(kinds(out)).toContain('assertion-delta-understated')
+  })
+
+  it('實算淨減少、report 也回報負數 → 無 mismatch（誠實回報，交給 SR6）', () => {
+    const out = compareReportToActual(
+      { changedPaths: ['src/a.test.ts'], assertionDelta: -1 },
+      withDelta(-3),
+    )
+    expect(kinds(out)).not.toContain('assertion-delta-understated')
+  })
+
+  it('實算非負 → 無 mismatch，且數值差異不發話（避免假陽性）', () => {
+    const out = compareReportToActual(
+      { changedPaths: ['src/a.test.ts'], assertionDelta: 7 },
+      withDelta(2),
+    )
+    expect(kinds(out)).not.toContain('assertion-delta-understated')
+  })
+})
+
+describe('adviseAssertionDelta（安全方向，不擋 run）', () => {
+  it('自報淨減少、實算非負 → advisory', () => {
+    const out = adviseAssertionDelta(-2, 0)
+    expect(out.map((a) => a.kind)).toEqual(['assertion-delta-overstated'])
+  })
+
+  it('實算為負 → 不重複發話（危險方向由 mismatch 處理）', () => {
+    expect(adviseAssertionDelta(-2, -5)).toEqual([])
+  })
+
+  it('自報未填或非負 → 不發話', () => {
+    expect(adviseAssertionDelta(undefined, 3)).toEqual([])
+    expect(adviseAssertionDelta(0, 3)).toEqual([])
   })
 })
 
@@ -827,6 +925,7 @@ describe('detectUnreportedTrigger（觸發優先序）', () => {
     added: 0,
     deleted: 0,
     uncommitted: [],
+    assertionDelta: 0,
   })
 
   it('有 mismatch → crosscheck-mismatch 優先於零產出', () => {
