@@ -76,6 +76,31 @@ crosscheck 邊界 → PR 審查 → 人工 promote → CODEOWNERS
 
 **要解決的具體缺口**：`factory-run.yml:396` 目前是無校驗的 `cp -r "$GITHUB_WORKSPACE/.dsh/skills/." "$HOME/.dsh/skills/"`。若該 copy 不完整或機制 repo 誤刪某個 SKILL.md，**agent 會安靜地在缺少 `factory-stop-rules` 的情況下執行**——停手規則消失卻無任何紅燈。
 
+**`sha256` 的涵蓋範圍是整個 bundle（2026-09-20 更正）。** 原實作只雜湊
+`<name>/SKILL.md` 一個檔案，但技能是 directory bundle：`quint-modeling/SKILL.md`
+明確指示 agent 去讀 `guidelines/*.md`（progressive disclosure）。實測
+`.dsh/skills` 有 **24 個檔案而 lock 只涵蓋 6 個**——也就是說本節要解決的
+「copy 不完整導致 SOP 靜默消失」，對其中 18 個檔案完全不亮：刪掉
+`quint-modeling/guidelines/review.md`，`--verify` 仍回報 `ok: true`。
+
+現在雜湊的是 bundle 內所有一般檔案的 manifest（相對路徑＋各檔位元組雜湊，
+碼元順序排序）：
+
+- **路徑也進 manifest**，否則「把 `a.md` 改名成 `b.md`」這種會讓 SKILL.md 的
+  引用失效的變更會算出同一個 hash。
+- **排序必須是碼元順序**（不得用 `localeCompare`）：後者依 locale 而異，同一個
+  bundle 在不同 runner 上會算出不同 hash，`changed` 就變成與內容無關的隨機訊號。
+- **symlink 不納入**：跟隨它會把樹外的內容算進 bundle，而 `cp -r` 對 symlink 的
+  行為本身就依平台而異。
+- **`--promote` 雜湊複製後的目的地**，不是提案的 SKILL.md 文字。寫入單檔 hash
+  會讓下一次 `--verify` 立刻把剛放行的技能報成 `changed`——一個正常的放行動作
+  就製造一筆假告警，而假告警會訓練人忽略這個訊號。
+- 同理，`--verify` 的 model id 掃描也改為涵蓋整個 bundle：既然 bundle 是完整性
+  的單位，它就該是內容政策的單位，否則把 model id 寫進 `guidelines/` 即可繞過 §5.1。
+
+這次更正讓 lock 內**每一筆 `sha256` 都改變**（雜湊的輸入不同了），由一次
+`--update` 重算，屬預期而非漂移。
+
 ### 5.1 內容閘門：具體 model id（2026-09-20 補入）
 
 `skills-lock` 原則上只管傳輸完整性，`detectModelIds` 是**唯一的內容例外**，
