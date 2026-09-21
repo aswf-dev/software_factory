@@ -1,0 +1,14 @@
+docs/ADR/016-agent-authored-skills-propose-only.md
+  h_1b119f25eaf333 79-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bef638ed62834f6b1e14e8ab359c0e871de5983b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
