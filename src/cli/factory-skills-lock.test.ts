@@ -5,15 +5,16 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   compareSkills,
   detectModelIds,
+  hashBundle,
   hashContent,
+  listBundleFiles,
+  listSkillDirs,
   loadLock,
   main,
   parseArgs,
-  hashBundle,
-  listBundleFiles,
-  listSkillDirs,
   readSkillTexts,
   scanSkills,
+  skillsDigest,
   validateFrontmatter,
   type SkillsLock,
 } from './factory-skills-lock.js'
@@ -309,6 +310,83 @@ describe('hashBundle（整包雜湊，不只 SKILL.md）', () => {
   it('單檔 bundle 的 hash 不等於該檔內容的 hash（manifest 含路徑）', () => {
     const a = makeBundle('hb5', { 'SKILL.md': SKILL_A })
     expect(hashBundle(a)).not.toBe(hashContent(SKILL_A))
+  })
+})
+
+describe('skillsDigest（Scoreboard 的 skills_digest，Q26-1）', () => {
+  it('空集合 → null（不偽造一個看起來像版本的 hash，docs/26 §1.1 約束 2）', () => {
+    expect(skillsDigest(new Map())).toBeNull()
+  })
+
+  it('格式為 sha256:<hex>', () => {
+    expect(skillsDigest(new Map([['a', 'f'.repeat(64)]]))).toMatch(/^sha256:[0-9a-f]{64}$/)
+  })
+
+  it('相同集合 → 相同值；插入順序不影響（跨 run 才比對得起來）', () => {
+    const one = new Map([
+      ['alpha', 'a'.repeat(64)],
+      ['beta', 'b'.repeat(64)],
+    ])
+    const other = new Map([
+      ['beta', 'b'.repeat(64)],
+      ['alpha', 'a'.repeat(64)],
+    ])
+    expect(skillsDigest(one)).toBe(skillsDigest(other))
+  })
+
+  it('任一技能的 bundle 變動 → digest 改變（這是 §5 第 4 步要的訊號）', () => {
+    const before = skillsDigest(new Map([['alpha', 'a'.repeat(64)]]))
+    expect(skillsDigest(new Map([['alpha', 'c'.repeat(64)]]))).not.toBe(before)
+  })
+
+  it('技能被加入或移除 → digest 改變', () => {
+    const one = skillsDigest(new Map([['alpha', 'a'.repeat(64)]]))
+    const two = skillsDigest(
+      new Map([
+        ['alpha', 'a'.repeat(64)],
+        ['beta', 'b'.repeat(64)],
+      ]),
+    )
+    expect(two).not.toBe(one)
+  })
+
+  it('名稱也進 manifest：換名不換內容 → digest 改變', () => {
+    const a = skillsDigest(new Map([['alpha', 'a'.repeat(64)]]))
+    expect(skillsDigest(new Map([['renamed', 'a'.repeat(64)]]))).not.toBe(a)
+  })
+
+  it('verify 回報的是實際目錄的 digest', () => {
+    const root = makeSkills('dg1', { alpha: SKILL_A })
+    const lock = writeLock('dg1.json', {
+      version: 1,
+      skills: [{ name: 'alpha', sha256: bundleHash(root, 'alpha') }],
+    })
+    const out = main(['--verify', '--lock', lock, '--skills-dir', root])
+    expect(out.mode === 'verify' && out.digest).toBe(skillsDigest(scanSkills(root)))
+  })
+
+  it('同步不完整時，digest 描述**實際**而非 lock 宣告', () => {
+    // lock 宣告兩個技能、實際只有一個（cp -r 不完整）。digest 必須反映實際，
+    // 否則看板顯示一個 agent 從未載入過的版本，把同步失敗記成一次正常 run。
+    const root = makeSkills('dg2', { alpha: SKILL_A })
+    const lock = writeLock('dg2.json', {
+      version: 1,
+      skills: [
+        { name: 'alpha', sha256: bundleHash(root, 'alpha') },
+        { name: 'factory-stop-rules', sha256: 'b'.repeat(64) },
+      ],
+    })
+    const out = main(['--verify', '--lock', lock, '--skills-dir', root])
+    expect(out.mode === 'verify' && out.ok).toBe(false)
+    expect(out.mode === 'verify' && out.digest).toBe(
+      skillsDigest(new Map([['alpha', bundleHash(root, 'alpha')]])),
+    )
+  })
+
+  it('技能目錄整個不見 → digest 為 null', () => {
+    const lock = writeLock('dg3.json', { version: 1, skills: [] })
+    const out = main(['--verify', '--lock', lock, '--skills-dir', join(tmp, 'dg3-none')])
+    expect(out.mode === 'verify' && out.digest).toBeNull()
   })
 })
 

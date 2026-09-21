@@ -169,6 +169,39 @@ export function readSkillTexts(root: string): Map<string, string> {
   return found
 }
 
+/**
+ * 技能集合的彙總版本（`sha256:<hex>`），或無技能時 `null`。
+ *
+ * ## 為何是「實際」而非「宣告」
+ *
+ * `docs/26` §1.2 原本把來源寫成「`skills-lock.json` 的彙總 hash」，但同一份文件
+ * §1 對這個欄位的註解是「**本次 run 實際載入的 skills 版本**」。兩者只在一種情況
+ * 下不同——而那正是唯一重要的情況：`cp -r` 不完整時，lock 描述的是應該送達的東西，
+ * 不是送到的東西。記下 lock 的 hash 會讓看板顯示一個 agent 從未載入過的版本，
+ * 也就是把一次同步失敗記成一次正常 run。
+ *
+ * 因此這裡彙總的是 `scanSkills` 掃描**實際目錄**得到的 bundle 雜湊。
+ *
+ * ## 為何無技能時回 null 而非「空集合的 hash」
+ *
+ * 空集合也有一個合法的 sha256，但它看起來與任何其他版本一樣真實。`docs/26`
+ * §1.1 約束 2 的立場是量測失敗時「不偽造數字」——`null` 讓看板顯示「無資料」，
+ * 而一個空集合的 hash 會讓「技能一個都沒載入」看起來像是某個版本。
+ *
+ * 名稱也進 manifest，否則「刪掉 A、加上內容不同的 B」在某些組合下會與原集合
+ * 算出同一個彙總值。排序用碼元順序（不得 `localeCompare`），理由同 `hashBundle`。
+ */
+export function skillsDigest(actual: ReadonlyMap<string, string>): string | null {
+  if (actual.size === 0) return null
+  const manifest = [...actual.entries()]
+    // Map 的鍵唯一，所以不需要相等分支——寫一個永遠走不到的 `: 0` 只會變成
+    // 一條沒有測試能覆蓋的路徑。
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([name, sha]) => `${name}\n${sha}\n`)
+    .join('')
+  return `sha256:${hashContent(manifest)}`
+}
+
 /** 掃描 skills 根目錄，回傳 name → bundle sha256（lock 記錄的就是這個值）。 */
 export function scanSkills(root: string): Map<string, string> {
   const found = new Map<string, string>()
@@ -309,6 +342,14 @@ export interface VerifyOutput {
    * 後者要改文字——合成一個布林會讓 workflow 無法分辨該做哪一件事。
    */
   modelPins: SkillModelPin[]
+  /**
+   * 本次 run **實際載入**的技能集合版本（`sha256:<hex>`），供 Scoreboard 的
+   * `skills_digest`（`docs/26` §1、`ADR-015`）。掃不到任何技能時為 `null`。
+   *
+   * 為何由 verify 產出：它已經掃過 agent 真正會讀的那個目錄，所以這裡取得的是
+   * **實際**而非宣告。詳見 `skillsDigest`。
+   */
+  digest: string | null
 }
 
 export interface UpdateOutput {
@@ -396,6 +437,7 @@ export function main(argv: string[]): SkillsLockOutput {
       mismatches,
       checked: lock.skills.length,
       modelPins,
+      digest: skillsDigest(actual),
     }
   }
 

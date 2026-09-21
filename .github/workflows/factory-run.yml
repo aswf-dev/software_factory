@@ -585,6 +585,19 @@ jobs:
               # 實測：`（$P）` → `（��`；`（${P}）` → 正常。
               echo "::warning::skills 內含具體 model id（${SKILLS_PINS}）——模型選擇的單一事實來源是 config/dsh/model-tiers.yaml，請改為指稱 tier"
             fi
+            # skills_digest 接線（Q26-1／Q25-6）：本次 run **實際載入**的技能集合
+            # 版本，送進 Scoreboard 事件，讓 docs/25 §5 第 4 步「放行前後比對」
+            # 從做不到變成做得到。
+            #
+            # 值取自 --verify 的 digest，而不是 skills-lock.json 的 hash：兩者只在
+            # 「cp -r 不完整」時不同，而那正是唯一重要的情況——記下 lock 的 hash
+            # 會讓看板顯示一個 agent 從未載入過的版本。
+            #
+            # 寫進 GITHUB_ENV 而非 report.json：report.json 由 agent 自己寫，能被
+            # 受測者填寫的量測值沒有意義（factory-push-event 因此不再讀該欄位）。
+            SKILLS_DIGEST=$(printf '%s' "$SKILLS_LOCK_OUT" | jq -r '.digest // ""')
+            echo "SKILLS_DIGEST=${SKILLS_DIGEST}" >> "$GITHUB_ENV"
+            echo "skills digest: ${SKILLS_DIGEST:-<none>}"
             # 模型 tier 路由（ADR-011）：chain 來自「Select model tier」步驟的
             # model.json（primary + fallback）。每項重寫 agent-default-model 後跑 dsh；
             # provider 層失敗（429/credential/UNKNOWN_MODEL）沿 chain fallback。
@@ -959,6 +972,7 @@ jobs:
             --judge "$GITHUB_WORKSPACE/.factory/judge.json" \
             --crosscheck "$GITHUB_WORKSPACE/.factory/crosscheck.json" \
             --model "$GITHUB_WORKSPACE/.factory/model.json" \
+            --skills-digest "${SKILLS_DIGEST:-}" \
             > "$GITHUB_WORKSPACE/.factory/scoreboard-event.json" \
             || echo "::warning::scoreboard 推送失敗（不擋 run）"
 

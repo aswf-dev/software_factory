@@ -281,12 +281,25 @@ describe('buildEvent — 純資料搬運（docs/26 §2.3）', () => {
     expect(buildEvent(parseArgs(baseArgv(['--crosscheck', crosscheck])), fixedNow).crosscheck_mismatches).toEqual([])
   })
 
-  it('forwards skillsDigest when present and null when not a string', () => {
-    const withDigest = writeJson('r1.json', { skillsDigest: 'sha256:abc' })
-    expect(buildEvent(parseArgs(baseArgv(['--report', withDigest])), fixedNow).skills_digest).toBe('sha256:abc')
+  it('skills_digest 來自 --skills-digest 旗標；空字串與缺席同義', () => {
+    expect(
+      buildEvent(parseArgs(baseArgv(['--skills-digest', 'sha256:abc'])), fixedNow).skills_digest,
+    ).toBe('sha256:abc')
+    expect(buildEvent(parseArgs(baseArgv(['--skills-digest', ''])), fixedNow).skills_digest).toBeNull()
+    expect(buildEvent(parseArgs(baseArgv([])), fixedNow).skills_digest).toBeNull()
+  })
 
-    const badDigest = writeJson('r2.json', { skillsDigest: 42 })
-    expect(buildEvent(parseArgs(baseArgv(['--report', badDigest])), fixedNow).skills_digest).toBeNull()
+  it('report.json 的 skillsDigest **不被採用**（受測者不得填寫自己的量測值）', () => {
+    // 這個欄位的全部用途是判斷「某個 skill 放行後 gap 是否消失」（docs/25 §5 第 4 步）。
+    // report.json 由 agent 自己寫；能被 agent 填寫的量測值沒有意義。
+    const forged = writeJson('forged.json', { skillsDigest: 'sha256:agent-claims-this' })
+    expect(buildEvent(parseArgs(baseArgv(['--report', forged])), fixedNow).skills_digest).toBeNull()
+    expect(
+      buildEvent(
+        parseArgs(baseArgv(['--report', forged, '--skills-digest', 'sha256:ci-measured'])),
+        fixedNow,
+      ).skills_digest,
+    ).toBe('sha256:ci-measured')
   })
 
   it('ignores a non-string model tier', () => {

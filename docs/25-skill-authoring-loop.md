@@ -330,7 +330,7 @@ node dist/cli/factory-skills-lock.js --promote monorepo-test-path
 1. 執行 `factory-skills-lock --update` 更新 hash
 2. 以**產生該 gap 的原 issue 類型**重跑一次（真實或 dry_run）
 3. 確認 `skills synced:` 一行含新 skill 名稱（`factory-run.yml:397` 既有輸出）
-4. 確認該類 gap **不再出現**（Scoreboard 可比對 `skills_digest` 前後）
+4. 確認該類 gap **不再出現**（Scoreboard 比對 `skills_digest` 前後；2026-09-20 起已接線，見 `docs/26` §1.4）
 5. **無改善 → 回退**：移除 `.dsh/skills/<name>/`、更新 lock、在提案 PR 記錄結論
 
 > 呼應 `docs/08` §2.4：驗證為「完成但無效」的行動**不計入分子**。放行後不驗證，等於把 PDCA 停在 Check。
@@ -376,7 +376,7 @@ node dist/cli/factory-skills-lock.js --promote monorepo-test-path
 | Q25-3 | 技能總數上限（何時該合併或淘汰舊 skill） | 待技能數 >10 時再議 |
 | Q25-4 | `agent-timeout` 是否該計入 §3 的提案門檻 | 目前**計入**（重複逾時＝系統性落差）。但它與一般缺口的性質不同：`needed` 是佔位而非具體 SOP，達 3 次時該開的可能是路由／預算調整而非技能提案。累積後裁決 |
 | Q25-5 | 未回報 advisory 的觀察期與後續 | 第一階段僅記錄（`extra.skill_gap_unreported`）。若某模型的比率持續偏高，選項有二：換模型，或把該模型的 report 模板要求寫得更硬。**不建議**升為紅燈——那會給 agent 為過關而虛構缺口的動機 |
-| Q25-6 | `skills_digest` 未接線（一律為 `null`） | §5 生效驗證第 4 步「Scoreboard 可比對 `skills_digest` 前後」**目前做不到**。見 `docs/26` Q26-1 |
+| ~~Q25-6~~ | ~~`skills_digest` 未接線（一律為 `null`）~~ | ✅ **已接線（2026-09-20）**：值為 `factory-skills-lock --verify` 的 `digest`（實際載入的技能集合彙總），由 workflow 以 `--skills-digest` 傳入 `factory-push-event`。§5 第 4 步自此可執行。定案理由見 `docs/26` §1.4 |
 
 ---
 
@@ -387,5 +387,6 @@ node dist/cli/factory-skills-lock.js --promote monorepo-test-path
 | 2026-09-05 | 建立：定義 A/B 語意分離、T1–T3 三層偵測、四項提案門檻、六項 promote 清單、生效驗證與回退；記載 artifacts 90 天過期／Issue 留言永久的實測依據 |
 | 2026-09-06 | **T1 落地（E4）**：`skillGap` schema／留言段落／標籤／SKILL 指示完成；`category` 改為 kebab-case fail-loud（§7 同義異名風險的機械緩解）；補記 `skillGap` 不進入 pipeline 判定的設計決策 |
 | 2026-09-17 | **更正「不依賴人工紀律」的結論**：13 次 run 盤點顯示填寫紀律**模型相依**（5 筆缺口全來自 `deepseek-v4-pro` 與 `qwen3.8-flash`；claude 家族 0/4），而這兩個模型自 09-13 起不再執行（§2.4）。新增 §2.1.1 三道不依賴自報的補強、§2.5 逾時盲點與其修補；§7 風險表更正並新增「自報紀律模型相依」一列；新增 Q25-4〜Q25-6 |
+| 2026-09-20 | **Q25-6 解除**：`skills_digest` 接線完成（`--verify` 的 `digest` → `factory-push-event --skills-digest`），§5 生效驗證第 4 步自此可執行；定案理由見 `docs/26` §1.4 |
 | 2026-09-20 | **§4.2 第 7 項落地：promote 拒絕具體 model id**（`factory-skills-lock.ts` 的 `detectModelIds`，fail closed，不複製檔案也不寫 lock）；`--verify` 新增 `modelPins` 回報，由 `factory-run.yml` 發 `::warning::` 且**不計入 `ok`**。**更正 §4.1**：frontmatter 校驗在閘門 3 而非閘門 1（`ADR-016` §3 有同一處更正）。字典刻意採 id 的**形狀**而非現役清單——取自設定檔的字典會在 id 退役那一刻失效，正是最需要它的時候；此推理由變異測試 M6 釘住 |
 | 2026-09-06 | **迴圈 C 落地（E5＋E6）**：`factory-skills-lock`（verify/update/promote，verify 恆 exit 0）＋`agent-propose-skill` 型別（crosscheck `--propose-skill-only` 白名單）。**Q25-1 實機驗證通過**（`proposals/` 確實不在探索 rank 上）。**紀律實證**：真實 DSH 呼叫確認 agent 會主動且格式合法地填寫 `skillGap`（§7 風險欄已更新） |

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { buildEvent, parseArgs as parsePushArgs } from './factory-push-event.js'
 import {
   compareSkills,
   detectModelIds,
@@ -10,6 +11,7 @@ import {
   loadLock,
   main,
   scanSkills,
+  skillsDigest,
   validateFrontmatter,
   type SkillsLock,
 } from './factory-skills-lock.js'
@@ -44,6 +46,8 @@ afterAll(() => {
  *  | M7 | `scanSkills` 回到只雜湊 `SKILL.md`（bundle 其餘檔案失去保護）         | GREEN  | RED   |
  *  | M8 | bundle manifest 只含內容不含路徑（改名測不到）                       | GREEN  | RED   |
  *  | M9 | promote 寫入單檔 hash 而非 bundle hash（promote 後立刻報 changed）    | GREEN  | RED   |
+ *  | M10| `skills_digest` 改為描述 lock 宣告而非實際載入                        | GREEN  | RED   |
+ *  | M11| `skills_digest` 可由 report.json（agent 自寫）提供                    | GREEN  | RED   |
  *
  * 驗證方式：手改 src/cli/factory-skills-lock.ts 套用變異 → 重跑本檔變紅 → 還原 → 變綠。
  */
@@ -253,5 +257,54 @@ describe('M9 變異：promote 寫入單檔 hash', () => {
     const out = main(['--verify', '--lock', lock, '--skills-dir', skillsDir])
     expect(out.mode === 'verify' && out.ok).toBe(true)
     expect(loadLock(lock).skills[0]?.sha256).toBe(hashBundle(join(skillsDir, 'new-skill')))
+  })
+})
+
+describe('M10/M11 變異：skills_digest 不再是量測值', () => {
+  /**
+   * 這個欄位的全部用途是回答「某個 skill 放行之後，那一類 gap 是否消失」
+   * （`docs/25` §5 第 4 步）。它因此必須滿足兩件事，而兩件事都很容易在「看起來
+   * 更合理」的重構中被拆掉：
+   *
+   *  - **描述實際載入，不是 lock 宣告**。兩者只在 `cp -r` 不完整時不同，而那正是
+   *    唯一重要的情況：記下 lock 的 hash 會讓看板顯示一個 agent 從未載入過的版本，
+   *    把一次同步失敗記成一次正常 run。
+   *  - **不可由受測者提供**。report.json 由 agent 自己寫；能被 agent 填寫的量測值
+   *    沒有意義（同 `docs/06` §4.3「agent 不得驗證自己的產出」）。
+   *
+   * 這道不變量橫跨兩支 CLI（產出在 skills-lock、送出在 push-event），因此變異
+   * 測試也放在一起：分開放會讓「兩邊各自通過、合起來卻是一個可偽造的數字」
+   * 沒有任何一個檔案抓得到。
+   */
+  it('M10：lock 宣告兩個技能、實際只有一個 → digest 必須反映實際', () => {
+    const root = join(tmp, 'm10-skills')
+    mkdirSync(join(root, 'alpha'), { recursive: true })
+    writeFileSync(join(root, 'alpha', 'SKILL.md'), SKILL)
+    const lock = join(tmp, 'm10.json')
+    writeFileSync(
+      lock,
+      JSON.stringify({
+        version: 1,
+        skills: [
+          { name: 'alpha', sha256: hashBundle(join(root, 'alpha')) },
+          { name: 'factory-stop-rules', sha256: 'b'.repeat(64) },
+        ],
+      }),
+    )
+    const out = main(['--verify', '--lock', lock, '--skills-dir', root])
+    expect(out.mode === 'verify' && out.ok).toBe(false)
+    expect(out.mode === 'verify' && out.digest).toBe(skillsDigest(scanSkills(root)))
+  })
+
+  it('M11：report.json 宣稱的 skillsDigest 必須不被採用', () => {
+    const report = join(tmp, 'm11-report.json')
+    writeFileSync(report, JSON.stringify({ skillsDigest: 'sha256:agent-claims-this' }))
+    const argv = [
+      '--repo', 'o/r',
+      '--issue', '12',
+      '--task-type', 'agent-fix-bug',
+      '--report', report,
+    ]
+    expect(buildEvent(parsePushArgs(argv)).skills_digest).toBeNull()
   })
 })

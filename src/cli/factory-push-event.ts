@@ -30,6 +30,16 @@ export interface FactoryPushEventArgs {
   judgePath?: string | undefined
   crosscheckPath?: string | undefined
   modelPath?: string | undefined
+  /**
+   * 本次 run 實際載入的技能集合版本（`factory-skills-lock --verify` 的 `digest`）。
+   *
+   * **由 CI 以旗標傳入，刻意不從 report.json 讀。** 原實作讀
+   * `report.skillsDigest`，而 report.json 是 agent 自己寫的檔案——若這個欄位可由
+   * agent 回報，agent 就能宣稱任意的技能版本，而這個欄位的全部用途正是「用來判斷
+   * 某個 skill 放行後 gap 是否消失」（`docs/25` §5 第 4 步）。可被受測者填寫的
+   * 量測值沒有意義。空字串與缺席同義（→ `null`）。
+   */
+  skillsDigest?: string | undefined
   /** 只組裝並印出事件，不實際送出（供 CI dry_run 與本機驗證）。 */
   dryRun: boolean
 }
@@ -43,6 +53,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
   let judgePath: string | undefined
   let crosscheckPath: string | undefined
   let modelPath: string | undefined
+  let skillsDigest: string | undefined
   let dryRun = false
   const positional: string[] = []
 
@@ -62,6 +73,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
     else if (arg === '--judge') judgePath = need('--judge')
     else if (arg === '--crosscheck') crosscheckPath = need('--crosscheck')
     else if (arg === '--model') modelPath = need('--model')
+    else if (arg === '--skills-digest') skillsDigest = need('--skills-digest')
     else if (arg === '--dry-run') dryRun = true
     else if (arg.startsWith('--')) throw new CliError(`unknown argument: ${arg}`)
     else positional.push(arg)
@@ -93,6 +105,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
     judgePath,
     crosscheckPath,
     modelPath,
+    skillsDigest,
     dryRun,
   }
 }
@@ -204,7 +217,8 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
     crosscheck_mismatches: mismatches
       .map((m) => asRecord(m)?.['kind'])
       .filter((k): k is string => typeof k === 'string'),
-    skills_digest: typeof report?.['skillsDigest'] === 'string' ? report['skillsDigest'] : null,
+    // CI 量測值，非 agent 自報（見 FactoryPushEventArgs.skillsDigest）。
+    skills_digest: args.skillsDigest !== undefined && args.skillsDigest !== '' ? args.skillsDigest : null,
     // REQ id 錨定訊號（RTM）。放進 extra 而非新增頂層欄位，是為了不改動
     // schema v2——接收端（factory-scoreboard）的 extra 為前向相容槽，零改動即可
     // 收下（docs/26 §1）。累積後可統計「哪一類驗收條件最常 failed」，那是**不依賴
