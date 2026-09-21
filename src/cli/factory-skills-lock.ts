@@ -30,7 +30,15 @@
  * `::warning::` 判讀失去單一意義。
  */
 import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+  type Dirent,
+} from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { isMainModule } from './is-main-module.js'
@@ -55,47 +63,117 @@ export const DEFAULT_LOCK_PATH = 'config/factory/skills-lock.json'
 export const DEFAULT_SKILLS_DIR = '.dsh/skills'
 export const DEFAULT_PROPOSALS_DIR = 'proposals/skills'
 
-/** SKILL.md 內容的 sha256（ADR-016 §5 記錄的就是這個值）。 */
+/** 文字內容的 sha256。 */
 export function hashContent(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex')
 }
 
+/** 檔案**位元組**的 sha256。不解碼——bundle 可能含非文字檔。 */
+function hashFileBytes(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
 /**
- * 掃描 skills 根目錄，回傳 name → SKILL.md 內容。
+ * 掃描 skills 根目錄，回傳技能名清單。
  *
  * 只認 `<root>/<name>/SKILL.md` 這一種形狀（DSH 的 directory-bundle 慣例）。
- * 目錄不存在時回傳空 Map 而非拋錯——「目錄整個不見」正是 verify 要報告的
+ * 目錄不存在時回傳空陣列而非拋錯——「目錄整個不見」正是 verify 要報告的
  * 情況之一，在讀取階段就中止會讓它變成無法診斷的例外。
  *
- * 回傳內容而非 hash，是因為 verify 現在有兩個讀者（hash 比對與 model id 掃描），
- * 而走訪邏輯只該有一份：第二個走訪器一旦與這個分歧（例如只有一邊認得
+ * **「什麼算一個技能」只有這一份判定。** verify 有三個讀者（bundle 雜湊、
+ * model id 掃描、lock 比對），第二份判定一旦與這份分歧（例如只有一邊認得
  * `SKILL.md` 是目錄的壞形狀），寬鬆的那一份就會成為實際生效的規則。
  */
-export function readSkillFiles(root: string): Map<string, string> {
-  const found = new Map<string, string>()
+export function listSkillDirs(root: string): string[] {
   let entries: string[]
   try {
     entries = readdirSync(root)
   } catch {
-    return found
+    return []
   }
-  for (const name of entries.sort()) {
-    const file = join(root, name, 'SKILL.md')
+  return entries.sort().filter((name) => {
     try {
-      if (!statSync(file).isFile()) continue
+      return statSync(join(root, name, 'SKILL.md')).isFile()
     } catch {
-      continue
+      return false
     }
-    found.set(name, readFileSync(file, 'utf8'))
+  })
+}
+
+/**
+ * 技能 bundle 內的所有一般檔案，相對路徑、以 `/` 正規化、遞迴、排序。
+ *
+ * **排序必須是碼元順序（`Array.sort()` 的預設），不得用 `localeCompare`**：
+ * 後者依 locale 而異，同一個 bundle 在不同 runner 上會算出不同的 hash，
+ * 於是 `changed` 變成一個與內容無關的隨機訊號。
+ *
+ * 非一般檔案（symlink、fifo…）不納入：`Dirent.isFile()` 對 symlink 回傳 false，
+ * 跟隨它會把樹外的內容算進 bundle，而 `cp -r` 對 symlink 的行為本身就依平台而異。
+ */
+export function listBundleFiles(dir: string): string[] {
+  const out: string[] = []
+  const walk = (current: string, prefix: string): void => {
+    let entries: Dirent[]
+    try {
+      entries = readdirSync(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+      if (entry.isDirectory()) walk(join(current, entry.name), rel)
+      else if (entry.isFile()) out.push(rel)
+    }
+  }
+  walk(dir, '')
+  return out.sort()
+}
+
+/**
+ * 整個技能 bundle 的 sha256——**路徑與內容都納入**。
+ *
+ * 先前只雜湊 `<name>/SKILL.md`，但技能是 bundle：`quint-modeling` 的
+ * `guidelines/*.md` 由 SKILL.md 明確指示 agent 去讀（progressive disclosure）。
+ * 實測 `.dsh/skills` 有 24 個檔案而 lock 只涵蓋 6 個——也就是說這盞燈要抓的
+ * 「`cp -r` 不完整導致 SOP 靜默消失」，對其中 18 個檔案完全不亮：
+ * `guidelines/review.md` 整個消失，`--verify` 仍回報 `ok: true`。
+ *
+ * 路徑寫進 manifest 而不只是串接內容，否則「把 `a.md` 改名成 `b.md`」
+ * 這種會讓 SKILL.md 的引用失效的變更算出同一個 hash。
+ */
+export function hashBundle(dir: string): string {
+  const manifest = listBundleFiles(dir)
+    .map((rel) => `${rel}\n${hashFileBytes(join(dir, rel))}\n`)
+    .join('')
+  return hashContent(manifest)
+}
+
+/**
+ * 掃描 skills 根目錄，回傳 name → bundle 的可解碼文字（供 model id 掃描）。
+ *
+ * 含 NUL 位元組的檔案視為二進位而跳過：把它硬解成 UTF-8 只會產生亂碼，對內容
+ * 掃描毫無意義。它們仍計入 `hashBundle`——完整性與內容政策是兩件事。
+ */
+export function readSkillTexts(root: string): Map<string, string> {
+  const found = new Map<string, string>()
+  for (const name of listSkillDirs(root)) {
+    const dir = join(root, name)
+    const parts: string[] = []
+    for (const rel of listBundleFiles(dir)) {
+      const buf = readFileSync(join(dir, rel))
+      if (buf.includes(0)) continue
+      parts.push(buf.toString('utf8'))
+    }
+    found.set(name, parts.join('\n'))
   }
   return found
 }
 
-/** 掃描 skills 根目錄，回傳 name → sha256（ADR-016 §5 記錄的就是這個值）。 */
+/** 掃描 skills 根目錄，回傳 name → bundle sha256（lock 記錄的就是這個值）。 */
 export function scanSkills(root: string): Map<string, string> {
   const found = new Map<string, string>()
-  for (const [name, content] of readSkillFiles(root)) {
-    found.set(name, hashContent(content))
+  for (const name of listSkillDirs(root)) {
+    found.set(name, hashBundle(join(root, name)))
   }
   return found
 }
@@ -304,13 +382,12 @@ export function main(argv: string[]): SkillsLockOutput {
   const args = parseArgs(argv)
 
   if (args.mode === 'verify') {
-    const files = readSkillFiles(args.skillsDir)
-    const actual = new Map([...files].map(([name, content]) => [name, hashContent(content)]))
+    const actual = scanSkills(args.skillsDir)
     const lock = loadLock(args.lockPath)
     const mismatches = compareSkills(actual, lock)
     const modelPins: SkillModelPin[] = []
-    for (const [name, content] of files) {
-      const ids = detectModelIds(content)
+    for (const [name, text] of readSkillTexts(args.skillsDir)) {
+      const ids = detectModelIds(text)
       if (ids.length > 0) modelPins.push({ name, ids })
     }
     return {
@@ -380,7 +457,11 @@ export function main(argv: string[]): SkillsLockOutput {
   const to = join(toDir, 'SKILL.md')
   copyFileSync(from, to)
 
-  const sha256 = hashContent(content)
+  // 雜湊**複製後的目的地**，不是提案的 SKILL.md 文字。lock 記錄的是 bundle
+  // 雜湊，而 promote 目前只搬 SKILL.md；若這裡寫入單檔文字的 hash，下一次
+  // --verify 立刻把剛 promote 的技能報成 changed——一個 promote 就會製造一筆
+  // 假的完整性告警，訓練人忽略這個訊號。
+  const sha256 = hashBundle(toDir)
   const lock = ((): SkillsLock => {
     try {
       return loadLock(args.lockPath)

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -9,7 +9,10 @@ import {
   loadLock,
   main,
   parseArgs,
-  readSkillFiles,
+  hashBundle,
+  listBundleFiles,
+  listSkillDirs,
+  readSkillTexts,
   scanSkills,
   validateFrontmatter,
   type SkillsLock,
@@ -35,6 +38,11 @@ function makeSkills(dir: string, skills: Record<string, string>): string {
   }
   mkdirSync(root, { recursive: true })
   return root
+}
+
+/** 磁碟上某個技能的 bundle 雜湊——lock 記錄的就是這個值。 */
+function bundleHash(root: string, name: string): string {
+  return hashBundle(join(root, name))
 }
 
 function writeLock(name: string, lock: unknown): string {
@@ -91,11 +99,13 @@ describe('parseArgs', () => {
 })
 
 describe('scanSkills', () => {
-  it('讀出 <root>/<name>/SKILL.md 的 hash', () => {
+  it('讀出每個技能的 **bundle** 雜湊，而非只有 SKILL.md 的', () => {
     const root = makeSkills('scan1', { alpha: SKILL_A, beta: SKILL_B })
     const got = scanSkills(root)
     expect([...got.keys()].sort()).toEqual(['alpha', 'beta'])
-    expect(got.get('alpha')).toBe(hashContent(SKILL_A))
+    expect(got.get('alpha')).toBe(bundleHash(root, 'alpha'))
+    // 回歸鎖：曾經只雜湊 SKILL.md，導致 guidelines/ 等檔案不在保護範圍內
+    expect(got.get('alpha')).not.toBe(hashContent(SKILL_A))
   })
 
   it('目錄不存在 → 空 Map（不拋錯：整個目錄不見正是 verify 要報告的情況）', () => {
@@ -218,14 +228,112 @@ describe('validateFrontmatter', () => {
   })
 })
 
-describe('readSkillFiles', () => {
-  it('回傳內容本身（scanSkills 與 model id 掃描共用同一份走訪）', () => {
-    const root = makeSkills('rsf1', { alpha: SKILL_A })
-    expect(readSkillFiles(root).get('alpha')).toBe(SKILL_A)
+describe('listSkillDirs（「什麼算一個技能」的唯一判定）', () => {
+  it('只認含 SKILL.md 的子目錄，並排序', () => {
+    const root = makeSkills('lsd1', { beta: SKILL_B, alpha: SKILL_A })
+    mkdirSync(join(root, 'no-skill-md'), { recursive: true })
+    expect(listSkillDirs(root)).toEqual(['alpha', 'beta'])
+  })
+
+  it('目錄不存在 → 空陣列', () => {
+    expect(listSkillDirs(join(tmp, 'lsd-none'))).toEqual([])
+  })
+})
+
+describe('listBundleFiles', () => {
+  it('遞迴列出全部一般檔案，相對路徑以 / 正規化並排序', () => {
+    const root = makeSkills('lbf1', { alpha: SKILL_A })
+    const dir = join(root, 'alpha')
+    mkdirSync(join(dir, 'guidelines'), { recursive: true })
+    writeFileSync(join(dir, 'guidelines', 'review.md'), 'r')
+    writeFileSync(join(dir, 'guidelines', 'cli.md'), 'c')
+    expect(listBundleFiles(dir)).toEqual([
+      'SKILL.md',
+      'guidelines/cli.md',
+      'guidelines/review.md',
+    ])
+  })
+
+  it('目錄不存在 → 空陣列（不拋錯）', () => {
+    expect(listBundleFiles(join(tmp, 'lbf-none'))).toEqual([])
+  })
+
+  it('symlink 不納入（跟隨它會把樹外的內容算進 bundle）', () => {
+    const root = makeSkills('lbf2', { alpha: SKILL_A })
+    const dir = join(root, 'alpha')
+    writeFileSync(join(tmp, 'outside.md'), 'outside')
+    symlinkSync(join(tmp, 'outside.md'), join(dir, 'linked.md'))
+    expect(listBundleFiles(dir)).toEqual(['SKILL.md'])
+  })
+})
+
+describe('hashBundle（整包雜湊，不只 SKILL.md）', () => {
+  /** 建一個 bundle 並回傳其目錄。 */
+  function makeBundle(dir: string, files: Record<string, string>): string {
+    const root = join(tmp, dir)
+    for (const [rel, content] of Object.entries(files)) {
+      const full = join(root, rel)
+      mkdirSync(join(full, '..'), { recursive: true })
+      writeFileSync(full, content)
+    }
+    return root
+  }
+
+  it('改動 SKILL.md 以外的檔案 → hash 改變（這是本次補的洞）', () => {
+    const a = makeBundle('hb1', { 'SKILL.md': SKILL_A, 'guidelines/review.md': 'v1' })
+    const before = hashBundle(a)
+    writeFileSync(join(a, 'guidelines', 'review.md'), 'v2')
+    expect(hashBundle(a)).not.toBe(before)
+  })
+
+  it('刪掉 SKILL.md 以外的檔案 → hash 改變（cp -r 不完整正是要抓的事故）', () => {
+    const a = makeBundle('hb2', { 'SKILL.md': SKILL_A, 'guidelines/review.md': 'v1' })
+    const before = hashBundle(a)
+    rmSync(join(a, 'guidelines', 'review.md'))
+    expect(hashBundle(a)).not.toBe(before)
+  })
+
+  it('改名（內容不變）→ hash 改變，因為路徑也進 manifest', () => {
+    const a = makeBundle('hb3', { 'SKILL.md': SKILL_A, 'guidelines/a.md': 'x' })
+    const before = hashBundle(a)
+    rmSync(join(a, 'guidelines', 'a.md'))
+    writeFileSync(join(a, 'guidelines', 'b.md'), 'x')
+    expect(hashBundle(a)).not.toBe(before)
+  })
+
+  it('內容完全相同的兩個 bundle → hash 相同（可重現）', () => {
+    const files = { 'SKILL.md': SKILL_A, 'guidelines/review.md': 'v1' }
+    expect(hashBundle(makeBundle('hb4a', files))).toBe(hashBundle(makeBundle('hb4b', files)))
+  })
+
+  it('單檔 bundle 的 hash 不等於該檔內容的 hash（manifest 含路徑）', () => {
+    const a = makeBundle('hb5', { 'SKILL.md': SKILL_A })
+    expect(hashBundle(a)).not.toBe(hashContent(SKILL_A))
+  })
+})
+
+describe('readSkillTexts', () => {
+  it('串接整個 bundle 的文字（model id 掃描因此涵蓋 guidelines/）', () => {
+    const root = makeSkills('rst1', { alpha: SKILL_A })
+    mkdirSync(join(root, 'alpha', 'guidelines'), { recursive: true })
+    writeFileSync(join(root, 'alpha', 'guidelines', 'x.md'), '一律改用 claude-opus-5')
+    const text = readSkillTexts(root).get('alpha') ?? ''
+    expect(text).toContain(SKILL_A)
+    expect(text).toContain('claude-opus-5')
+  })
+
+  it('二進位檔（含 NUL）跳過，但仍計入 hashBundle', () => {
+    const root = makeSkills('rst2', { alpha: SKILL_A })
+    const bin = join(root, 'alpha', 'logo.bin')
+    writeFileSync(bin, Buffer.from([0x00, 0x01, 0x02]))
+    expect(readSkillTexts(root).get('alpha')).toBe(SKILL_A)
+    const before = hashBundle(join(root, 'alpha'))
+    writeFileSync(bin, Buffer.from([0x00, 0x09]))
+    expect(hashBundle(join(root, 'alpha'))).not.toBe(before)
   })
 
   it('目錄不存在 → 空 Map', () => {
-    expect(readSkillFiles(join(tmp, 'rsf-none')).size).toBe(0)
+    expect(readSkillTexts(join(tmp, 'rst-none')).size).toBe(0)
   })
 })
 
@@ -290,7 +398,10 @@ describe('detectModelIds（ADR-011：skill 不得釘死具體模型）', () => {
 describe('main --verify', () => {
   it('一致 → ok true', () => {
     const root = makeSkills('v-ok', { alpha: SKILL_A })
-    const lock = writeLock('v-ok.json', { version: 1, skills: [{ name: 'alpha', sha256: hashContent(SKILL_A) }] })
+    const lock = writeLock('v-ok.json', {
+      version: 1,
+      skills: [{ name: 'alpha', sha256: bundleHash(root, 'alpha') }],
+    })
     const out = main(['--verify', '--lock', lock, '--skills-dir', root])
     expect(out).toMatchObject({ mode: 'verify', ok: true, checked: 1 })
   })
@@ -300,7 +411,7 @@ describe('main --verify', () => {
     const lock = writeLock('v-missing.json', {
       version: 1,
       skills: [
-        { name: 'alpha', sha256: hashContent(SKILL_A) },
+        { name: 'alpha', sha256: bundleHash(root, 'alpha') },
         { name: 'factory-stop-rules', sha256: hashContent(SKILL_B) },
       ],
     })
@@ -313,7 +424,7 @@ describe('main --verify', () => {
     const root = makeSkills('v-nopin', { alpha: SKILL_A })
     const lock = writeLock('v-nopin.json', {
       version: 1,
-      skills: [{ name: 'alpha', sha256: hashContent(SKILL_A) }],
+      skills: [{ name: 'alpha', sha256: bundleHash(root, 'alpha') }],
     })
     const out = main(['--verify', '--lock', lock, '--skills-dir', root])
     expect(out.mode === 'verify' && out.modelPins).toEqual([])
@@ -326,8 +437,8 @@ describe('main --verify', () => {
     const lock = writeLock('v-pin.json', {
       version: 1,
       skills: [
-        { name: 'alpha', sha256: hashContent(SKILL_A) },
-        { name: 'pinned-skill', sha256: hashContent(pinned) },
+        { name: 'alpha', sha256: bundleHash(root, 'alpha') },
+        { name: 'pinned-skill', sha256: bundleHash(root, 'pinned-skill') },
       ],
     })
     const out = main(['--verify', '--lock', lock, '--skills-dir', root])
@@ -365,7 +476,7 @@ describe('main --update', () => {
     const out = main(['--update', '--lock', lock, '--skills-dir', root])
     expect(out.mode === 'update' && out.skills[0]).toEqual({
       name: 'alpha',
-      sha256: hashContent(SKILL_A),
+      sha256: bundleHash(root, 'alpha'),
       lastChangedPR: 77,
     })
   })

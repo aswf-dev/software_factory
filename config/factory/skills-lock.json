@@ -3,27 +3,27 @@
   "skills": [
     {
       "name": "factory-pr-stacking",
-      "sha256": "45331d17c5d90a8dc2c1089208df1cafa56e52e36fe4c4bec4b09805e15e1f47"
+      "sha256": "a90da2478bdca6c313d319f1fde18f8a5771f4daf4f3e4002418937b8391e901"
     },
     {
       "name": "factory-self-review",
-      "sha256": "9e93c1b8c23d00f2b60c7628f943cb7846a226e89daf170305577131fed67113"
+      "sha256": "90b0213e17f2d2134e63d1d24a047ff33346f761fa67706e3a4d1378953da83c"
     },
     {
       "name": "factory-stop-rules",
-      "sha256": "0fbc87cd0edbb4bc816e838ba4569db1fe5aa89ab29f8664e8b230afaac2a34c"
+      "sha256": "bf60289abd6f8a4e59932d9e6c008a069e01da811b51a08e866ec665cd79a10f"
     },
     {
       "name": "factory-workflow",
-      "sha256": "ae54e24c6bd261127256a5a8dbe7b73ba46ab73a6a3dc233ce62302ddad102f8"
+      "sha256": "804e76774451f5bc20ff357ae36ae3940fbf4730da933c6c52d42e17044301df"
     },
     {
       "name": "quint-lang",
-      "sha256": "2b4436d7db1a4d33e1fa0b92a403862ed273409f0399b7e225298dd310668613"
+      "sha256": "bb62b7f9a3f3c355060b65dbd047df5016b6add4ff6d2ed27bcda69d6025a250"
     },
     {
       "name": "quint-modeling",
-      "sha256": "77fe492adc3bcefd0f554a0fdb7ffd5b02e7d3f6e4f9abe6e7df1d82ddb4db61"
+      "sha256": "16a2bb19aca383617da5e350f62b4d03d8620d7aef485283a910418643c0052e"
     }
   ]
 }
