@@ -1,0 +1,28 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 588-600,975
+docs/25-skill-authoring-loop.md
+  h_1b119f25eaf333 333,379,390
+docs/26-scoreboard-integration.md
+  h_1b119f25eaf333 76,101-123,242,253
+src/cli/factory-push-event.test.ts
+  h_1b119f25eaf333 284-302
+src/cli/factory-push-event.ts
+  h_1b119f25eaf333 33-42,56,76,108,220-221
+src/cli/factory-skills-lock-mutation.test.ts
+  h_1b119f25eaf333 5,14,49-50,262-310
+src/cli/factory-skills-lock.test.ts
+  h_1b119f25eaf333 8,10-11,17,316-392
+src/cli/factory-skills-lock.ts
+  h_1b119f25eaf333 172-204,345-352,440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3edbdf23f73dc67bd0b54669e7aa23cdfb197314",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
