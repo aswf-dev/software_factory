@@ -7,7 +7,7 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.6.0",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
@@ -20,7 +20,7 @@
     "coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.1.5-rc.1",
+    "@deepseek-ai/dsh": "0.1.7-rc.1",
     "@informalsystems/quint": "0.32.0",
     "@types/node": "26.5.1",
     "@vitest/coverage-v8": "4.1.11",
