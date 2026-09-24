@@ -1,0 +1,14 @@
+pnpm-lock.yaml
+  h_1b119f25eaf333 1-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "53a5c60f19c33ae5ba2a7d112506dd61d1aee50b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
