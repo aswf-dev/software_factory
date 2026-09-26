@@ -1,0 +1,58 @@
+src/cli/factory-spec-phase.test.ts
+  s_8e84f713421083::t_53740a61e4f318 1-91,93-130,136-213
+  s_8e84f713421083::t_d6e5d3c23fdc31 92
+  s_8e84f713421083::t_e15a0c907737b9 131-135
+.github/workflows/factory-run.yml
+  s_8e84f713421083::t_fff84346127fc6 200-206,373-414,457-462,717-719,839-849,915,920
+src/write-spec/policy.ts
+  s_8e84f713421083::t_37ce14d59761c8 1-21
+src/cli/factory-model.test.ts
+  s_8e84f713421083::t_3e5f07c67ea0de 263-289
+src/cli/factory-judge.ts
+  s_8e84f713421083::t_c370ac671a667a 23,139-140,170-182,187-190,239,243-251
+backstage/templates/factory-work-item/template.yaml
+  s_8e84f713421083::t_0ae5bb2359ede0 108
+src/write-spec/phase.ts
+  s_8e84f713421083::t_0e592f386ea831 1-140
+src/write-spec/phase.test.ts
+  s_8e84f713421083::t_84d8d95461f6ff 1-147
+src/cli/factory-spec-phase.ts
+  s_8e84f713421083::t_a0381f52e16ca0 1-190
+src/cli/factory-judge.test.ts
+  s_8e84f713421083::t_c370ac671a667a 81-93,353-369
+  s_8e84f713421083::t_3073d51c91ab5b 370
+src/write-spec/intake.test.ts
+  s_8e84f713421083::t_a2abbc8e6b1bdc 43-45,47-53,96,106
+test/adversarial/factory-assets.test.ts
+  s_8e84f713421083::t_d675eaa3168822 1661-1721
+src/write-spec/intake.ts
+  s_8e84f713421083::t_777d91a2092887 6-8,30,66-70,100
+src/write-spec/policy.test.ts
+  s_8e84f713421083::t_37ce14d59761c8 1-28
+docs/ADR/018-intent-driven-write-spec.md
+  s_8e84f713421083::t_34c242997f214a 112
+  s_8e84f713421083::t_91d915dc1cb3ab 5,71,75-76,96,106,211-213,222-224,230
+.github/ISSUE_TEMPLATE/factory-work-item.yml
+  s_8e84f713421083::t_0ae5bb2359ede0 66
+src/cli/factory-model.ts
+  s_8e84f713421083::t_3e5f07c67ea0de 37-42,63,82-87,92,127-138
+  s_8e84f713421083::t_7b2c0cb63a1ecb 139
+src/labels.ts
+  s_8e84f713421083::t_fbae82a9f6d2c0 28,43-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "afadf3139e393d27a125c8e97543ce527fa09b19",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "unknown"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
