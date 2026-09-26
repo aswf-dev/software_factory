@@ -1,0 +1,35 @@
+src/write-spec/verify.test.ts
+  s_8e84f713421083::t_858269e7f52dec 37-39,47-48,86,98,103,121-128
+docs/ADR/018-intent-driven-write-spec.md
+  s_8e84f713421083::t_c9963f676ea1b6 5,35,95,108,113,116
+test/adversarial/factory-assets.test.ts
+  s_8e84f713421083::t_644818294157af 1829-1830,1836
+.github/factory/task-template-write-spec.txt
+  s_8e84f713421083::t_644818294157af 32,47-51,63
+src/write-spec/verify.ts
+  s_8e84f713421083::t_2011679324d22f 9-11,167-168,175-181,264
+config/factory/skills-lock.json
+  s_8e84f713421083::t_bebadf3936dd9a 18
+src/cli/factory-spec-verify.test.ts
+  s_8e84f713421083::t_bd45cc62fa44ee 38-39
+src/cli/factory-spec-verify.ts
+  s_8e84f713421083::t_bebadf3936dd9a 146
+.dsh/skills/factory-workflow/SKILL.md
+  s_8e84f713421083::t_644818294157af 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6862b0c3cb36739b64d00ba4d78e50a6eef8ae0a",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "unknown"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
