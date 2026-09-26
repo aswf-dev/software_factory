@@ -20,7 +20,7 @@
     "coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.1.7-rc.1",
+    "@deepseek-ai/dsh": "0.1.7-rc.2",
     "@informalsystems/quint": "0.32.0",
     "@types/node": "26.5.1",
     "@vitest/coverage-v8": "4.1.11",
