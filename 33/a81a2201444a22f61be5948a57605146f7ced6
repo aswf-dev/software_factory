@@ -1,0 +1,24 @@
+docs/ADR/018-intent-driven-write-spec.md
+  s_8e84f713421083::t_5ff1793a66af8f 3
+  s_8e84f713421083::t_8581c9cbdfe111 6
+docs/28-write-spec-runbook.md
+  s_8e84f713421083::t_412eacc82ecece 1-353
+mkdocs.yml
+  s_8e84f713421083::t_8581c9cbdfe111 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "33a81a2201444a22f61be5948a57605146f7ced6",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "unknown"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
