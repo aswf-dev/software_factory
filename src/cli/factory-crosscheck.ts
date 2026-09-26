@@ -23,6 +23,14 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { countAssertionDelta } from '../assertion-count/count.js'
 import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/unreported.js'
+import { isValidSpecName } from '../write-spec/intake.js'
+import {
+  checkClosingKeywords,
+  checkSourceSnapshot,
+  checkSpecScope,
+  specPaths,
+  type SpecPhase,
+} from '../write-spec/scope.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, formatCliError } from './run-cli.js'
@@ -479,9 +487,25 @@ export interface CrosscheckCliPaths {
 }
 
 /**
+ * agent-write-spec 模式的輸入（ADR-018 §9 護欄①、§12）。階段與規格名稱由
+ * factory-run 依 Issue 狀態推導後傳入；PR 描述與 source.md 快照由 workflow
+ * 以 gh 取得、寫成檔案——crosscheck 本身維持只讀本地資料。
+ */
+export interface WriteSpecArgs {
+  phase: SpecPhase
+  specName: string
+  /** CI 寫入的 source.md 快照；不變量階段必填。 */
+  sourceSnapshotPath?: string | undefined
+  /** JSON 字串陣列：本工作項各 factory PR 的描述。 */
+  prBodiesPath: string
+}
+
+/**
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
- *  [--propose-skill-only] [--onboard-only]`。
+ *  [--propose-skill-only] [--onboard-only]
+ *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
+ *   [--source-snapshot <file>]]`。
  */
 export function parseArgs(argv: string[]): {
   issueNumber: number
@@ -491,6 +515,7 @@ export function parseArgs(argv: string[]): {
   proposeSkillOnly: boolean
   onboardOnly: boolean
   requirementAnchors: string[]
+  writeSpec?: WriteSpecArgs | undefined
 } {
   const positional: string[] = []
   let base = 'software-factory'
@@ -499,6 +524,15 @@ export function parseArgs(argv: string[]): {
   let proposeSkillOnly = false
   let onboardOnly = false
   let requirementAnchors: string[] = []
+  let specPhase: string | undefined
+  let specName: string | undefined
+  let sourceSnapshotPath: string | undefined
+  let prBodiesPath: string | undefined
+  const value = (i: number, flag: string): string => {
+    const v = argv[i]
+    if (v === undefined || v.startsWith('--')) throw new CliError(`${flag} requires a value`)
+    return v
+  }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--base') {
@@ -521,6 +555,14 @@ export function parseArgs(argv: string[]): {
         throw new CliError('--requirement-anchors requires a comma-separated id list')
       }
       requirementAnchors = v.split(',').map((s) => s.trim()).filter((s) => s !== '')
+    } else if (arg === '--write-spec-phase') {
+      specPhase = value(++i, arg)
+    } else if (arg === '--spec-name') {
+      specName = value(++i, arg)
+    } else if (arg === '--source-snapshot') {
+      sourceSnapshotPath = value(++i, arg)
+    } else if (arg === '--pr-bodies') {
+      prBodiesPath = value(++i, arg)
     } else if (!arg.startsWith('--')) {
       positional.push(arg)
     } else {
@@ -535,6 +577,7 @@ export function parseArgs(argv: string[]): {
       ['--analyze-only', analyzeOnly],
       ['--propose-skill-only', proposeSkillOnly],
       ['--onboard-only', onboardOnly],
+      ['--write-spec-phase', specPhase !== undefined],
     ] as const
   )
     .filter(([, on]) => on)
@@ -548,6 +591,21 @@ export function parseArgs(argv: string[]): {
   }
   const reportPath = positional[1]
   if (reportPath === undefined) throw new CliError('reportPath is required')
+  // write-spec：指定了階段，其餘輸入就必須齊全——接線漏傳某個參數時，
+  // 寧可紅燈，也不要讓對應的檢查被悄悄跳過。
+  let writeSpec: WriteSpecArgs | undefined
+  if (specPhase !== undefined) {
+    if (specPhase !== 'invariants' && specPhase !== 'model') {
+      throw new CliError(`--write-spec-phase must be invariants or model, got ${specPhase}`)
+    }
+    if (specName === undefined) throw new CliError('--write-spec-phase requires --spec-name')
+    if (!isValidSpecName(specName)) throw new CliError(`--spec-name is not a valid spec name: ${specName}`)
+    if (prBodiesPath === undefined) throw new CliError('--write-spec-phase requires --pr-bodies')
+    if (specPhase === 'invariants' && sourceSnapshotPath === undefined) {
+      throw new CliError('--write-spec-phase invariants requires --source-snapshot')
+    }
+    writeSpec = { phase: specPhase, specName, sourceSnapshotPath, prBodiesPath }
+  }
   return {
     issueNumber,
     reportPath,
@@ -556,7 +614,30 @@ export function parseArgs(argv: string[]): {
     proposeSkillOnly,
     onboardOnly,
     requirementAnchors,
+    writeSpec,
   }
+}
+
+/** 讀 --pr-bodies：必須是字串陣列，否則 fail-loud（格式錯誤不得等同「沒有 PR」）。 */
+function loadPrBodies(path: string): string[] {
+  const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
+  if (!Array.isArray(raw) || !raw.every((b) => typeof b === 'string')) {
+    throw new CliError(`--pr-bodies (${path}) must be a JSON array of strings`)
+  }
+  return raw
+}
+
+/** 各 factory 分支上某檔案的內容；分支上沒有該檔（git show 非零結束）就不列入。 */
+function readOnBranches(git: GitRunner, target: string, branches: readonly string[], path: string): string[] {
+  const out: string[] = []
+  for (const branch of branches) {
+    try {
+      out.push(git(['show', `${branch}:${path}`], target))
+    } catch {
+      // 該分支沒有此檔
+    }
+  }
+  return out
 }
 
 export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput {
@@ -568,6 +649,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     proposeSkillOnly,
     onboardOnly,
     requirementAnchors,
+    writeSpec,
   } = parseArgs(argv)
   const report = loadReport(reportPath)
   const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
@@ -580,6 +662,24 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   )
   // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
   const advisories = compareRequirementIds(report.requirements, requirementAnchors)
+  if (writeSpec !== undefined) {
+    const { phase, specName } = writeSpec
+    mismatches.push(
+      ...checkSpecScope(phase, specName, actual.paths.filter((p) => !isFactoryInternal(p))),
+    )
+    mismatches.push(
+      ...checkSourceSnapshot(
+        phase,
+        readOnBranches(git, paths.target, actual.branches, specPaths(specName).source),
+        writeSpec.sourceSnapshotPath === undefined
+          ? undefined
+          : readFileSync(writeSpec.sourceSnapshotPath, 'utf8'),
+      ),
+    )
+    const closing = checkClosingKeywords(phase, issueNumber, loadPrBodies(writeSpec.prBodiesPath))
+    mismatches.push(...closing.mismatches)
+    advisories.push(...closing.advisories)
+  }
   advisories.push(...adviseAssertionDelta(report.assertionDelta, actual.assertionDelta))
   advisories.push(
     ...adviseUnreportedSkillGap(

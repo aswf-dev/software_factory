@@ -34,6 +34,8 @@ function fakeGit(script: {
   shortStat?: (branch: string) => string
   unifiedDiff?: (branch: string) => string
   status?: string
+  /** `git show <branch>:<path>`；回傳 undefined 代表該分支沒有此檔（真實 git 會非零結束）。 */
+  show?: (ref: string) => string | undefined
 }): GitRunner {
   return (args, cwd) => {
     const cmd = args[0]
@@ -49,6 +51,11 @@ function fakeGit(script: {
       throw new Error(`unexpected git diff flag: ${flag}`)
     }
     if (cmd === 'status') return script.status ?? ''
+    if (cmd === 'show' && script.show !== undefined) {
+      const content = script.show(args[1] ?? '')
+      if (content === undefined) throw new Error(`fatal: path does not exist in '${args[1]}'`)
+      return content
+    }
     throw new Error(`unexpected git call: ${args.join(' ')} (cwd=${cwd})`)
   }
 }
@@ -949,5 +956,148 @@ describe('detectUnreportedTrigger（觸發優先序）', () => {
   /** .factory/ 內部檔不算產出——否則每次 run 都因為 run 目錄而不被視為零產出。 */
   it('實際 diff 只有 .factory/ 內部檔 → 仍視為零產出', () => {
     expect(detectUnreportedTrigger({ changedPaths: [] }, actual(['.factory/run/report.json']), [])).toBe('no-output')
+  })
+})
+
+/* ── agent-write-spec 模式（ADR-018 §9 護欄①、§12）──────────────────────── */
+
+describe('parseArgs：write-spec 旗標', () => {
+  const base = ['12', 'r.json']
+  it('完整的不變量階段旗標 → 解析出 writeSpec', () => {
+    const a = parseArgs([
+      ...base,
+      '--write-spec-phase', 'invariants',
+      '--spec-name', 'redlock',
+      '--source-snapshot', 's.md',
+      '--pr-bodies', 'p.json',
+    ])
+    expect(a.writeSpec).toEqual({
+      phase: 'invariants',
+      specName: 'redlock',
+      sourceSnapshotPath: 's.md',
+      prBodiesPath: 'p.json',
+    })
+  })
+  it('模型階段不需要 --source-snapshot', () => {
+    const a = parseArgs([...base, '--write-spec-phase', 'model', '--spec-name', 'redlock', '--pr-bodies', 'p.json'])
+    expect(a.writeSpec?.sourceSnapshotPath).toBeUndefined()
+  })
+  it('未指定階段 → writeSpec 為 undefined', () => {
+    expect(parseArgs(base).writeSpec).toBeUndefined()
+  })
+  it('階段值不合法 → CliError', () => {
+    expect(() => parseArgs([...base, '--write-spec-phase', 'draft', '--spec-name', 'a', '--pr-bodies', 'p'])).toThrow(CliError)
+  })
+  it('缺 --spec-name、--pr-bodies，或不變量階段缺 --source-snapshot → CliError（接線漏傳必須紅燈）', () => {
+    expect(() => parseArgs([...base, '--write-spec-phase', 'model', '--pr-bodies', 'p'])).toThrow(/--spec-name/)
+    expect(() => parseArgs([...base, '--write-spec-phase', 'model', '--spec-name', 'a'])).toThrow(/--pr-bodies/)
+    expect(() =>
+      parseArgs([...base, '--write-spec-phase', 'invariants', '--spec-name', 'a', '--pr-bodies', 'p']),
+    ).toThrow(/--source-snapshot/)
+  })
+  it('規格名稱不合法 → CliError', () => {
+    expect(() =>
+      parseArgs([...base, '--write-spec-phase', 'model', '--spec-name', '../x', '--pr-bodies', 'p']),
+    ).toThrow(CliError)
+  })
+  it('旗標缺值 → CliError', () => {
+    for (const flag of ['--write-spec-phase', '--spec-name', '--source-snapshot', '--pr-bodies']) {
+      expect(() => parseArgs([...base, flag]), flag).toThrow(CliError)
+    }
+  })
+  it('與其他僅產出模式互斥', () => {
+    expect(() =>
+      parseArgs([...base, '--analyze-only', '--write-spec-phase', 'model', '--spec-name', 'a', '--pr-bodies', 'p']),
+    ).toThrow(/不可同時指定/)
+  })
+})
+
+describe('main：write-spec 模式', () => {
+  let dir: string
+  let reportPath: string
+  let snapshotPath: string
+  let bodiesPath: string
+  const SNAPSHOT = '# Redlock 規格\n\n第 3 步：經過時間必須小於有效期。\n'
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'factory-crosscheck-spec-'))
+    reportPath = join(dir, 'report.json')
+    snapshotPath = join(dir, 'source.md')
+    bodiesPath = join(dir, 'pr-bodies.json')
+    writeFileSync(snapshotPath, SNAPSHOT)
+  })
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const invariantsRun = (opts: { paths: string[]; bodies: string[]; source?: string | undefined }) => {
+    writeFileSync(reportPath, makeReport({ changedPaths: opts.paths, changedLines: 20 }))
+    writeFileSync(bodiesPath, JSON.stringify(opts.bodies))
+    return main(
+      [
+        '12', reportPath, '--target', 'target',
+        '--write-spec-phase', 'invariants', '--spec-name', 'redlock',
+        '--source-snapshot', snapshotPath, '--pr-bodies', bodiesPath,
+      ],
+      fakeGit({
+        branches: 'factory/12-01-spec\n',
+        diffNameOnly: () => opts.paths.join('\n'),
+        shortStat: () => ' 2 files changed, 20 insertions(+)',
+        show: (ref) => (ref === 'factory/12-01-spec:specs/redlock/source.md' ? opts.source : undefined),
+      }),
+    )
+  }
+  const OK_PATHS = ['specs/redlock/invariants.qnt', 'specs/redlock/source.md']
+
+  it('範圍、快照、Refs 都正確 → ok', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12'], source: SNAPSHOT })
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+  it('不變量 PR 寫 Closes #12 → mismatch', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Closes #12'], source: SNAPSHOT })
+    expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-closes-in-invariants')
+    expect(out.ok).toBe(false)
+  })
+  it('越界寫了 model.qnt → write-spec-scope', () => {
+    const out = invariantsRun({
+      paths: [...OK_PATHS, 'specs/redlock/model.qnt'],
+      bodies: ['Refs #12'],
+      source: SNAPSHOT,
+    })
+    expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-scope')
+  })
+  it('source.md 被改寫 → write-spec-source-tampered', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12'], source: SNAPSHOT + '（agent 加註）\n' })
+    expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-source-tampered')
+  })
+  it('分支上沒有 source.md → write-spec-source-missing', () => {
+    const out = invariantsRun({ paths: ['specs/redlock/invariants.qnt'], bodies: ['Refs #12'], source: undefined })
+    expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-source-missing')
+  })
+  it('模型階段：沒寫 Closes → 只有 advisory，不擋 run', () => {
+    const paths = ['specs/redlock/model.qnt', 'specs/redlock/verify.yml']
+    writeFileSync(reportPath, makeReport({ changedPaths: paths, changedLines: 20 }))
+    writeFileSync(bodiesPath, JSON.stringify(['Refs #12']))
+    const out = main(
+      ['12', reportPath, '--target', 'target', '--write-spec-phase', 'model', '--spec-name', 'redlock', '--pr-bodies', bodiesPath],
+      fakeGit({
+        branches: 'factory/12-01-model\n',
+        diffNameOnly: () => paths.join('\n'),
+        shortStat: () => ' 2 files changed, 20 insertions(+)',
+      }),
+    )
+    expect(out.ok).toBe(true)
+    expect(out.advisories.map((a) => a.kind)).toContain('write-spec-model-no-closes')
+  })
+  it('--pr-bodies 不是字串陣列 → CliError', () => {
+    writeFileSync(reportPath, makeReport())
+    writeFileSync(bodiesPath, JSON.stringify({ body: 'Refs #12' }))
+    expect(() =>
+      main(
+        ['12', reportPath, '--target', 'target', '--write-spec-phase', 'model', '--spec-name', 'redlock', '--pr-bodies', bodiesPath],
+        fakeGit({}),
+      ),
+    ).toThrow(CliError)
   })
 })
