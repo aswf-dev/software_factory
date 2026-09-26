@@ -10,12 +10,15 @@
  * factory-assets 釘住兩邊逐字一致）。本模組是格式的「可測試參考實作」——
  * round-trip 測試證明 buildIssueBody 的產出可直接通過 factory-issue-check。
  */
-import { DOD_LABELS } from '../cli/factory-issue-check.js'
+import { DOD_LABELS, NO_RESPONSE } from '../cli/factory-issue-check.js'
 
 export interface FactoryIssueBodyInput {
   taskType: string
   requirement: string
   targetRepo: string
+  /** agent-write-spec 專用（ADR-018 §5）；其他類型不帶，輸出 `_No response_`。 */
+  specName?: string | undefined
+  specSource?: string | undefined
 }
 
 /** Issue 標題：一律帶 `[factory] ` 前綴（與 ISSUE_TEMPLATE 的 title 模式一致）。 */
@@ -42,6 +45,16 @@ export function buildIssueBody(input: FactoryIssueBodyInput): string {
     '### 目標 repo（預設本 repo）',
     '',
     input.targetRepo,
+    '',
+    // 規格欄位一律輸出；未填時比照 GitHub 表單的選填空值輸出 `_No response_`，
+    // 讓兩個入口的 body 結構相同，issue-check 也以同一規則視為未填。
+    '### 規格名稱',
+    '',
+    input.specName ?? NO_RESPONSE,
+    '',
+    '### 規格來源',
+    '',
+    input.specSource ?? NO_RESPONSE,
     '',
   ].join('\n')
 }

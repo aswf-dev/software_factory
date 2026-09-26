@@ -260,3 +260,30 @@ describe('main — 輸入錯誤 fail-loud', () => {
     expect(() => main(['--issue', issue, '--tiers', bad, '--providers', providersPath])).toThrow(CliError)
   })
 })
+
+/**
+ * ADR-018：write-spec 兩個階段的計算強度由階段決定，而不是由 Issue 文字的關鍵字。
+ * Issue 內文幾乎必然提到 Quint／形式化，若照字面判定，便宜的不變量階段也會被
+ * 升到 critical；反之模型階段一定要跑模型檢查，必須拿到 heavy-verify 的預算。
+ */
+describe('main — write-spec 階段（--spec-phase）', () => {
+  const heavyText = '以 quint 建立可執行規格並用 apalache 模型檢查不變量'
+  it('不變量階段：即使文字命中 heavy-verify 也不升 critical', () => {
+    const issue = fixture('spec-inv.json', issueJson(heavyText))
+    const r = main(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath, '--spec-phase', 'invariants'])
+    expect(r.tier).not.toBe('critical')
+    expect(r.escalation).toBeUndefined()
+  })
+  it('模型階段：文字沒命中也強制 heavy-verify → critical', () => {
+    const issue = fixture('spec-model.json', issueJson('為單一工具函式補測試'))
+    const r = main(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath, '--spec-phase', 'model'])
+    expect(r.tier).toBe('critical')
+    expect(r.escalation).toBe('heavy-verify')
+  })
+  it('--spec-phase 值不合法、或沒有 --issue → CliError', () => {
+    expect(() => parseArgs(['--spec-phase', 'draft'])).toThrow(CliError)
+    expect(() => main(['--tiers', tiersPath, '--providers', providersPath, '--spec-phase', 'model'])).toThrow(
+      /--issue/,
+    )
+  })
+})

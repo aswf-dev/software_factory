@@ -78,6 +78,19 @@ describe('parseArgs', () => {
   it('多餘的位置參數 → 拋錯，不靜默忽略', () => {
     expect(() => parseArgs(['a', 'b', 'c', 'd'])).toThrow('unexpected argument: d')
   })
+
+  it('--task-type 可放在任何位置，不佔位置參數', () => {
+    expect(parseArgs(['--task-type', 'agent-write-spec', 'r.json', 'c.yaml', 'p.yml'])).toEqual({
+      reportPath: 'r.json',
+      catalogPath: 'c.yaml',
+      riskPathsPath: 'p.yml',
+      taskType: 'agent-write-spec',
+    })
+  })
+
+  it('--task-type 缺值 → CliError', () => {
+    expect(() => parseArgs(['r.json', '--task-type'])).toThrow('--task-type requires a value')
+  })
 })
 
 describe('loadReport', () => {
@@ -306,6 +319,16 @@ describe('loadReport', () => {
     expect(() => loadReport(path)).toThrow(CliError)
   })
 
+  it('openQuestions：接受字串陣列（含空陣列，交由 crosscheck 判定）與 { none }；拒絕其他欄位', () => {
+    const base = { issueNumber: 1, invocation: { exitCode: 0 } }
+    expect(loadReport(report('oq-list.json', { ...base, openQuestions: ['a'] })).openQuestions).toEqual(['a'])
+    expect(loadReport(report('oq-empty.json', { ...base, openQuestions: [] })).openQuestions).toEqual([])
+    expect(loadReport(report('oq-none.json', { ...base, openQuestions: { none: '無歧義' } })).openQuestions).toEqual({
+      none: '無歧義',
+    })
+    expect(() => loadReport(report('oq-bad.json', { ...base, openQuestions: { none: 'x', extra: 1 } }))).toThrow(CliError)
+  })
+
   it('skillGap 缺 needed → CliError', () => {
     const path = report('gap-no-needed.json', {
       issueNumber: 1,
@@ -335,6 +358,24 @@ describe('main', () => {
     expect(result.outcome).toBe('ready-to-automerge')
     expect(result.dshResult?.outcome).toBe('completed')
     expect(result.labels).not.toContain('needs-human')
+  })
+
+  it('agent-write-spec：即使計分允許自動合併，也降為 ready-for-review（ADR-018 護欄②）', () => {
+    const { result } = main([
+      report('automerge-write-spec.json', {
+        issueNumber: 202,
+        invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+        changedPaths: ['src/util/format.test.ts'],
+        changedLines: 40,
+        assertionDelta: 6,
+      }),
+      catalog,
+      riskPaths,
+      '--task-type',
+      'agent-write-spec',
+    ])
+    expect(result.outcome).toBe('ready-for-review')
+    expect(result.summary).toContain('ADR-018')
   })
 
   it('改到 guardrail（.github/workflows）→ needs-human + SR3', () => {
