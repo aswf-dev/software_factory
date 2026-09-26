@@ -1658,3 +1658,64 @@ describe('write-spec 開單欄位四處同步（ADR-018 §11）', () => {
     expect(w).toContain('--target-root target')
   })
 })
+
+/**
+ * ADR-018 §12：write-spec 的階段判定接線。這些性質一旦被無聲破壞，順序保證就會
+ * 失效，而且 run 照樣是綠的——所以用解析後的 workflow 結構釘住，而不是字串比對。
+ */
+describe('write-spec 階段判定接線（ADR-018 §12）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  type Step = { name?: string; id?: string; if?: string; run?: string }
+  const wf = () =>
+    load(read('.github/workflows/factory-run.yml')) as {
+      on: { workflow_dispatch: { inputs: Record<string, unknown> } }
+      jobs: { run: { steps: Step[] } }
+    }
+  const steps = () => wf().jobs.run.steps
+  const indexOf = (pred: (s: Step) => boolean): number => {
+    const i = steps().findIndex(pred)
+    expect(i, '找不到預期的步驟').toBeGreaterThanOrEqual(0)
+    return i
+  }
+  const phaseIdx = () => indexOf((s) => s.id === 'specphase')
+
+  it('階段判定只在 write-spec 執行，並呼叫 factory-spec-phase', () => {
+    const s = steps()[phaseIdx()]!
+    expect(s.if).toBe("steps.tasktype.outputs.value == 'agent-write-spec'")
+    expect(s.run).toContain('dist/cli/factory-spec-phase.js')
+    expect(s.run).toContain('--snapshot-out .factory/spec-source-snapshot.md')
+  })
+  it('順序：所有 checkout 之後、計分與 agent 之前（快照不被蓋掉、拒絕時零 LLM 成本）', () => {
+    const p = phaseIdx()
+    expect(indexOf((s) => s.name === 'Ensure base branch checked out in target')).toBeLessThan(p)
+    expect(indexOf((s) => s.name === 'Verify app token write access (target repo)')).toBeLessThan(p)
+    expect(p).toBeLessThan(indexOf((s) => s.id === 'score'))
+    expect(p).toBeLessThan(indexOf((s) => s.id === 'model'))
+    expect(p).toBeLessThan(indexOf((s) => s.name === 'Run factory agent'))
+  })
+  it('拒絕時留言並以非零結束（agent 不會啟動）', () => {
+    const run = steps()[phaseIdx()]!.run!
+    expect(run).toMatch(/if \[ "\$DECISION" = "refuse" \]; then[\s\S]*?gh issue comment[\s\S]*?exit 1/)
+  })
+  it('沒有「指定階段」的 dispatch input（不留跳過第一階段的後門）', () => {
+    const inputs = Object.keys(wf().on.workflow_dispatch.inputs)
+    expect(inputs.filter((k) => /spec|phase/i.test(k))).toEqual([])
+  })
+  it('階段往下傳：選模型、任務模板、crosscheck、judge', () => {
+    const byId = (id: string) => steps().find((s) => s.id === id)!.run!
+    expect(byId('model')).toContain('--spec-phase ${{ steps.specphase.outputs.phase }}')
+    const agent = steps().find((s) => s.name === 'Run factory agent')!.run!
+    expect(agent).toContain('s|<SPEC_PHASE>|${{ steps.specphase.outputs.phase }}|g')
+    expect(agent).toContain('s|<SPEC_NAME>|${{ steps.specphase.outputs.spec_name }}|g')
+    const cc = byId('crosscheck')
+    expect(cc).toContain('--write-spec-phase ${{ steps.specphase.outputs.phase }}')
+    expect(cc).toContain('--pr-bodies .factory/pr-bodies.json')
+    expect(cc).toContain('--source-snapshot .factory/spec-source-snapshot.md')
+    expect(byId('judge')).toContain('--task-type "${{ steps.tasktype.outputs.value }}"')
+  })
+  it('人貼的兩個 spec 標籤也預先建立（不存在就貼不上）', () => {
+    const w = read('.github/workflows/factory-run.yml')
+    expect(w).toContain('gh label create "spec/approved"')
+    expect(w).toContain('gh label create "spec/model-declined"')
+  })
+})

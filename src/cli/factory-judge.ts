@@ -20,6 +20,7 @@ import { runWorkItem, type AgentRun, type PipelineResult } from '../pipeline/run
 import { adviseUnreportedSkillGap, type SkillGapAdvisory } from '../skill-gap/unreported.js'
 import { UsageReportSchema } from '../usage/report-schema.js'
 import { loadScoreInput } from './factory-score.js'
+import { applyWriteSpecMergePolicy } from '../write-spec/policy.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, runCli } from './run-cli.js'
 
@@ -135,6 +136,8 @@ export interface JudgeCliPaths {
   reportPath: string
   catalogPath: string
   riskPathsPath: string
+  /** 工單類型；目前只用於 write-spec 的類型層級合併政策（ADR-018 護欄②）。 */
+  taskType?: string | undefined
 }
 
 export interface JudgeCliOutput {
@@ -164,14 +167,27 @@ const DEFAULT_PATHS: JudgeCliPaths = {
  * 也不要讓人以為判定用的是自己指定的那份檔案。
  */
 export function parseArgs(argv: string[]): JudgeCliPaths {
-  const extra = argv[3]
+  const positional: string[] = []
+  let taskType: string | undefined
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] as string
+    if (arg === '--task-type') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new CliError('--task-type requires a value')
+      taskType = v
+    } else {
+      positional.push(arg)
+    }
+  }
+  const extra = positional[3]
   if (extra !== undefined) {
     throw new CliError(`unexpected argument: ${extra}`)
   }
   return {
-    reportPath: argv[0] ?? DEFAULT_PATHS.reportPath,
-    catalogPath: argv[1] ?? DEFAULT_PATHS.catalogPath,
-    riskPathsPath: argv[2] ?? DEFAULT_PATHS.riskPathsPath,
+    reportPath: positional[0] ?? DEFAULT_PATHS.reportPath,
+    catalogPath: positional[1] ?? DEFAULT_PATHS.catalogPath,
+    riskPathsPath: positional[2] ?? DEFAULT_PATHS.riskPathsPath,
+    taskType,
   }
 }
 
@@ -220,16 +236,19 @@ function toAgentRun(report: FactoryReport): AgentRun {
 }
 
 export function main(argv: string[], tokenBudget?: number): JudgeCliOutput {
-  const { reportPath, catalogPath, riskPathsPath } = parseArgs(argv)
+  const { reportPath, catalogPath, riskPathsPath, taskType } = parseArgs(argv)
   const report = loadReport(reportPath)
   const { annotations, hardRulePatterns } = loadScoreInput(catalogPath, riskPathsPath)
 
-  const result = runWorkItem({
-    issueNumber: report.issueNumber,
-    initial: { annotations, hardRulePatterns },
-    runAgent: () => toAgentRun(report),
-    tokenBudget,
-  })
+  const result = applyWriteSpecMergePolicy(
+    runWorkItem({
+      issueNumber: report.issueNumber,
+      initial: { annotations, hardRulePatterns },
+      runAgent: () => toAgentRun(report),
+      tokenBudget,
+    }),
+    taskType,
+  )
   // needs-human 卻沒回報技能缺口 → advisory（docs/25 §2.1）。
   // judge 是唯一知道**真實終態**的元件，因此涵蓋停手規則等 crosscheck 看不到的
   // needs-human 成因（實證：run 34457060253，11 個 changedPaths、終態 needs-human、

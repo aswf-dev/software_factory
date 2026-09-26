@@ -197,6 +197,13 @@ jobs:
           gh label create "needs-human"        --color "b60205" --force
           gh label create "ready"              --color "0e8a16" --force
           gh label create "skill-gap"          --color "fbca04" --force
+          # agent-write-spec 狀態機（ADR-018 §3、Q29）。approved／model-declined 由人貼上，
+          # 但必須先存在，人才貼得上去——一併建立。
+          gh label create "spec/phase-invariants" --color "c5def5" --force
+          gh label create "spec/approved"         --color "0e8a16" --force
+          gh label create "spec/phase-model"      --color "5319e7" --force
+          gh label create "spec/model-declined"   --color "cccccc" --force
+          gh label create "spec/model-outdated"   --color "e99695" --force
           echo "factory labels ensured ($GH_REPO)"
 
       # 集中式 Issue 格式檢查（ADR-012）：檢查邏輯只存在機制 repo（dist CLI），
@@ -363,6 +370,48 @@ jobs:
 
       # Step 2 — 初始計分（agent 啟動前，docs/06 §5.1）。
       # catalog/risk-paths 讀目標 repo（target/），不再是本 repo 根。
+      # ADR-018 §12：agent-write-spec 的階段判定——在任何 LLM 成本發生前執行。
+      # 階段完全由狀態推導（Issue 標籤、spec/approved 的貼標者、進行中的 PR、trunk 上
+      # 的 invariants.qnt），不提供指定階段的 input。放在所有 checkout 之後：
+      # invariants.qnt 的存在性要看 trunk，CI 寫入的 source.md 也不能被 checkout -B 蓋掉。
+      # 拒絕時比照「格式不合規」：留言說明後以 exit 1 停止（agent 未啟動，守衛不動作）。
+      - name: Resolve write-spec phase (ADR-018)
+        id: specphase
+        if: steps.tasktype.outputs.value == 'agent-write-spec'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          set -euo pipefail
+          mkdir -p .factory
+          node dist/cli/factory-spec-phase.js "${{ inputs.issue_number }}" \
+            --repo "${{ inputs.repo }}" --target target \
+            --snapshot-out .factory/spec-source-snapshot.md \
+            > .factory/spec-phase.json
+          cat .factory/spec-phase.json
+          DECISION=$(jq -r .decision .factory/spec-phase.json)
+          REASON=$(jq -r .reason .factory/spec-phase.json)
+          if [ "$DECISION" = "refuse" ]; then
+            printf '🛑 **規格流程停止派工**（ADR-018 §12，run: %s）：%s\n\nagent 未啟動，未產生 LLM 成本。\n' \
+              "${{ github.run_id }}" "$REASON" > .factory/spec-phase-comment.txt
+            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/spec-phase-comment.txt
+            echo "::error::write-spec 階段判定拒絕派工：$REASON"
+            exit 1
+          fi
+          ADD=$(jq -r '.labelsToAdd | join(",")' .factory/spec-phase.json)
+          REMOVE=$(jq -r '.labelsToRemove | join(",")' .factory/spec-phase.json)
+          if [ -n "$ADD" ]; then gh issue edit "${{ inputs.issue_number }}" --add-label "$ADD"; fi
+          if [ -n "$REMOVE" ]; then gh issue edit "${{ inputs.issue_number }}" --remove-label "$REMOVE"; fi
+          SPEC_NAME=$(jq -r .specName .factory/spec-phase.json)
+          # agent 讀取的階段資訊（任務模板另以 <SPEC_PHASE>／<SPEC_NAME> 帶入）
+          mkdir -p target/.factory/run
+          jq '{phase: .decision, specName, sourceKind}' .factory/spec-phase.json > target/.factory/run/spec.json
+          printf '📐 **規格流程**（ADR-018，run: %s）：%s（規格 `specs/%s/`）\n' \
+            "${{ github.run_id }}" "$REASON" "$SPEC_NAME" > .factory/spec-phase-comment.txt
+          gh issue comment "${{ inputs.issue_number }}" --body-file .factory/spec-phase-comment.txt
+          echo "phase=$DECISION" >> "$GITHUB_OUTPUT"
+          echo "spec_name=$SPEC_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Initial score
         id: score
         run: |
@@ -405,7 +454,12 @@ jobs:
         run: |
           mkdir -p .factory
           gh issue view "${{ inputs.issue_number }}" --json body > .factory/issue.json
-          node dist/cli/factory-model.js \
+          # write-spec：計算強度由階段決定（不變量不升級、模型強制 heavy-verify，ADR-018）
+          SPEC_PHASE_FLAG=""
+          if [ -n "${{ steps.specphase.outputs.phase }}" ]; then
+            SPEC_PHASE_FLAG="--spec-phase ${{ steps.specphase.outputs.phase }}"
+          fi
+          node dist/cli/factory-model.js $SPEC_PHASE_FLAG \
             --issue .factory/issue.json \
             --score .factory/score.json \
             --tiers config/dsh/model-tiers.yaml \
@@ -660,7 +714,9 @@ jobs:
                 --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
                 "$(sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
                         -e "s|<REPO>|${{ inputs.repo }}|" \
-                        -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" "$TEMPLATE")" \
+                        -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" \
+                        -e "s|<SPEC_PHASE>|${{ steps.specphase.outputs.phase }}|g" \
+                        -e "s|<SPEC_NAME>|${{ steps.specphase.outputs.spec_name }}|g" "$TEMPLATE")" \
                 > .factory/run/stdout.txt 2> .factory/run/stderr.txt
               code=$?
               ELAPSED=$(( $(date +%s) - STARTED_AT ))
@@ -780,6 +836,17 @@ jobs:
             # docs/；任何 .dsh/、src/、.github/ 變更 → fail-loud → needs-human。
             # 兩個旗標互斥（CLI 會拒絕同時指定），故此處用 elif 而非各自獨立判斷。
             ANALYZE_FLAG="--propose-skill-only"
+          elif [ "${{ steps.tasktype.outputs.value }}" = "agent-write-spec" ]; then
+            # write-spec（ADR-018 §9 護欄①、§12）：階段白名單、source.md 快照、關閉關鍵字。
+            # crosscheck 只讀本地資料：本工作項各 factory PR 的描述在此以 gh 取得、寫檔傳入。
+            gh pr list --state open --limit 200 --json headRefName,body \
+              | jq --arg i "${{ inputs.issue_number }}" \
+                  '[.[] | select((.headRefName | startswith("factory/" + $i + "-")) or (.headRefName | startswith("factory/" + $i + "/"))) | .body]' \
+              > .factory/pr-bodies.json
+            ANALYZE_FLAG="--write-spec-phase ${{ steps.specphase.outputs.phase }} --spec-name ${{ steps.specphase.outputs.spec_name }} --pr-bodies .factory/pr-bodies.json"
+            if [ "${{ steps.specphase.outputs.phase }}" = "invariants" ]; then
+              ANALYZE_FLAG="$ANALYZE_FLAG --source-snapshot .factory/spec-source-snapshot.md"
+            fi
           fi
           # REQ id 錨定（RTM）：由 Issue body 的驗收條目重建 REQ-n 清單，交給
           # crosscheck 比對 report.requirements[].id。**advisory**——對不上不擋 run
@@ -845,10 +912,12 @@ jobs:
         env:
           TOKEN_BUDGET: ${{ inputs.token_budget }}
         run: |
+          # --task-type：write-spec 一律不自動合併（ADR-018 護欄②，計分之後套用）
           node dist/cli/factory-judge.js \
             target/.factory/run/report.json \
             target/catalog-info.yaml \
             target/.github/factory/risk-paths.yml \
+            --task-type "${{ steps.tasktype.outputs.value }}" \
             > .factory/judge.json
           cat .factory/judge.json
 

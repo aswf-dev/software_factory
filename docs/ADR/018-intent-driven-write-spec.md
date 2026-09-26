@@ -2,7 +2,7 @@
 
 - **狀態**：已接受（實作待後續 stacked PR）
 - **日期**：2026-09-26
-- **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q30）
+- **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q30；實作期間補裁 Q31–Q33）
 - **對應**：`ADR-008`（Quint 神諭橋）、`ADR-009`（Backstage 統一入口）、`ADR-011`（heavy-verify 升級）、`ADR-012`（集中執行）、`ADR-016`（產出與生效分離）、`docs/06` §4.3、`docs/21` §2.1、`docs/10` Q21-1／Q21-2
 
 ## 脈絡
@@ -68,11 +68,12 @@ write-spec 新增**兩個必填欄位**，缺漏就判為不合規、不派工�
 | 欄位 | 內容 |
 |---|---|
 | **規格名稱** | 決定 `specs/<name>/` 的目錄名稱，也因此固定了 `invariants.qnt` 的路徑 |
-| **規格來源** | repo 內的檔案路徑、固定版本的 URL，或 `issue` |
+| **規格來源** | repo 內的檔案路徑，或 `issue`。**不接受 URL**（Q32） |
 
 其他類型沒有這兩個欄位；意圖以既有的 PRD 欄位為準。
 
-- **格式檢查**：只做格式與存在性檢查，**零網路請求**。repo 內的路徑必須存在於 trunk；URL 必須是**固定版本**（permalink、帶 commit 或版號），浮動網址直接拒絕。
+- **格式檢查**：只做格式與存在性檢查，**零網路請求**。repo 內的路徑必須存在於 trunk；不得是絕對路徑或以 `..` 指向 repo 外。
+- **不接受 URL**（Q32，實作期間補裁）：網頁原文多為 HTML，夾雜導覽與樣式，「逐字引用」在實務上難以對齊；有版本的網頁可以先存檔進 repo 再引用，多一種來源只會多一條不好驗證的路徑。issue-check 對 URL 一律判不合規，並提示先存檔進 repo。
 - **沒有規格書時**：填 `issue`。run 開始時由 **CI**（不是 agent）把當下的 PRD 欄位原文寫入 `specs/<name>/source.md`，附上 Issue 編號與擷取時間。
 
 ### 6. 產出形式（Q14、Q19）
@@ -92,7 +93,7 @@ specs/<name>/
 - 由 **factory-run 集中驗證**（呼應 ADR-012）；目標 repo 不放 workflow。
 - `verify.yml` 只宣告「**要跑什麼**」，**不得宣告預期結果**。每條不變量的結果一律由 CI 計算：
   - **成立**：必須附 witness，證明危險狀態可達。
-  - **違反**：必須附反例 ITF，並**回放到真實程式**。
+  - **違反**：必須附反例 ITF，記為「**候選發現（未回放）**」；回放方式見 §8 規則 2。
   - **逾時**：照實記錄。
 - 工單的成敗取決於**證據是否完整**，不是不變量是否成立。在 as-is 階段，違反本身就是發現。
 - 不變量階段的驗證：`invariants.qnt` 能單獨通過 typecheck，而且每個 `INV_*` 都有 source 註解。
@@ -102,13 +103,13 @@ specs/<name>/
 寫進 `task-template-write-spec.txt` 和 `factory-workflow` skill。vendored 的 `quint-lang`、`quint-modeling` 鎖在官方 commit（ADR-008），**不修改**。
 
 1. **設定範圍以程式實際接受的輸入為準**：`verify.yml` 的每個實例常數都要附 `domain_justification`，寫出程式碼中的檢查位置（`file:line`），或註明「程式未限制」。程式沒有限制時，必須涵蓋邊界值和奇偶兩種情況。CI 只檢查欄位是否存在，內容由人審查。
-2. **每一條反例都必須回放到真實程式**，重現後才算數。
+2. **每一條反例都必須回放到真實程式**，重現後才算數。**回放由後續的 `agent-fix-bug` 工單完成**（Q31，實作期間補裁）：它的 `01-test` 層寫出重現反例的**紅燈測試**，這就是回放；重現成功才是確認的 bug，重現不了就標為模型假象。理由：模型階段的白名單不允許寫測試程式，而回放方式隨專案而異，CI 做不出通用機制；紅燈測試本身就是最可靠的回放證據，也直接沿用 docs/07「01-test 必須先紅燈」的紀律。
 
 ### 9. 四道護欄全部落地（Q4、Q11、Q12）
 
 | 護欄 | 落地形式 |
 |---|---|
-| ① 機械限制變更範圍 | `factory-crosscheck` 依 factory-run 推導出的階段套用白名單：<br>・`invariants`：只允許 `specs/<name>/invariants.qnt`、`docs/**`<br>・`model`：只允許 `model.qnt`、`instances.qnt`、`verify.yml`、`docs/**`<br>・`invariants.qnt`、`source.md` 不得修改；`source.md` 必須和 CI 快照逐字元一致；`traces/` 只能由 CI 寫入<br>・**關閉關鍵字**：不變量階段的 PR 必須寫 `Refs #N`（寫 `Closes #N` 會在第一階段就關掉 Issue），模型階段的 PR 才寫 `Closes #N`<br>・越界即標為 needs-human |
+| ① 機械限制變更範圍 | `factory-crosscheck` 依 factory-run 推導出的階段套用白名單：<br>・`invariants`：只允許 `specs/<name>/invariants.qnt`、`specs/<name>/source.md`（CI 寫入、由 agent 原封不動提交）、`docs/**`<br>・`model`：只允許 `model.qnt`、`instances.qnt`、`verify.yml`、`docs/**`<br>・`invariants.qnt`、`source.md` 不得修改；`source.md` 必須和 CI 快照逐字元一致；`traces/` 只能由 CI 寫入<br>・**關閉關鍵字**：不變量階段的 PR 必須寫 `Refs #N`（寫 `Closes #N` 會在第一階段就關掉 Issue），模型階段的 PR 才寫 `Closes #N`<br>・越界即標為 needs-human |
 | ② 類型層級禁止自動合併 | write-spec 一律不得自動合併 |
 | ③ `spec/approved` | 由 **CODEOWNERS 的人類**在合併不變量 PR 之後，貼在 **Issue** 上。factory-run 以 Issue timeline API 驗證貼標者；機器人或 App 貼的一律視為未核准。它擋的是模型階段的派工 |
 | ④ 未決事項 | `report.json` 必填 `openQuestions[]`（可以是空陣列加理由）；PR README 必須有「未決事項」章節。由 judge 做 fail-loud 檢查（沿用 `requirements` 必填欄位的先例，docs/20 B1） |
@@ -207,6 +208,9 @@ specs/<name>/
 | 不變量以 Markdown 撰寫，再由模型工單翻譯成 `.qnt` | 翻譯步驟由寫模型的 agent 自己完成，正是要堵住的漏洞 |
 | 沿用 `INV_VIOLATED_*` 前綴，由 agent 宣告預期結果 | 那是修復後回歸閘門用的慣例；在 as-is 階段讓 agent 宣告預期，等於允許把發現標成綠燈 |
 | 由 CI 抓取 URL 驗證規格來源 | 結果會隨外部狀態改變，破壞 issue-check「零成本、可重現」的原則 |
+| 支援 URL 來源，由 CI 在 factory-run 下載原文寫入快照 | 網頁 HTML 夾雜導覽與樣式，逐字引用難以對齊；先存檔進 repo 即可（Q32） |
+| 放寬模型階段白名單，讓 agent 寫回放測試 | 回放方式隨專案而異，會把專案專屬的測試混進規格工單；由 fix-bug 工單的紅燈測試回放更可靠（Q31） |
+| 在 `src/scoring` 依工單類型禁止自動合併 | 計分以 Quint 規格驗證（ADR-008），只讀客觀來源；工單類型不是計分輸入。改在 judge 取得計分結果之後套用 |
 | 把 UPPAAL 放進 CI | 整個工廠只用過一次，而且是人工；工具需要授權與桌面安裝；agent 做模型檢查的牆鐘時間已被證實難以控制 |
 
 ## 實作順序與驗收
@@ -215,10 +219,12 @@ specs/<name>/
 2. **Stacked PR 實作**（依序）：
    1. **開單入口與 issue-check**：依 §11 在四處同步新增「規格名稱」「規格來源」欄位，並加上欄位一致性的對抗性測試；issue-check 實作 Q8 門檻與 Q15 格式檢查。Backstage 的條件式欄位需在瀏覽器實測，不行就退回選填。
    2. crosscheck：依階段套用白名單，並檢查關閉關鍵字（不變量階段 `Refs`、模型階段 `Closes`）。
-   3. factory-run：§12 的階段判定表與標籤轉換、寫入 `source.md` 快照、驗證 `spec/approved` 的貼標者、事件驅動的過期偵測、依 `verify.yml` 集中驗證、類型層級禁止自動合併。
+   3. factory-run（Q33：拆成兩個 PR）：
+      - **3a**：§12 的階段判定表與標籤轉換（`factory-spec-phase` CLI）、寫入 `source.md` 快照、驗證 `spec/approved` 的貼標者、事件驅動的過期偵測、依階段選 tier（不變量階段不套用 heavy-verify、模型階段強制套用）、類型層級禁止自動合併（judge 在計分之後套用）、帶參數呼叫 crosscheck。
+      - **3b**：`verify.yml` 的 schema 與集中驗證執行器（Quint／Apalache、逐項逾時、witness 可達性、反例 ITF 寫回分支）。
    4. judge：新增 `openQuestions` 的 fail-loud 檢查。
    5. 模板與 skill：`task-template-write-spec.txt` 與 `factory-workflow` skill 寫入兩條建模規則和兩個階段的說明；`factory-pr-stacking` skill 依階段區分 `Refs`／`Closes`。放在最後，確保 agent 看到的說明和已經生效的機制一致。
 3. **驗收試點：重跑 node-redlock**（上游 `afe5cf9`）。
    - 第一次派工（不變量階段）：不變量引用 redis.io 規格的 repo 內存檔。
    - 核准後第二次派工（模型階段）：模型設定 `NODES ∈ {2,3,4}`。
-   - **驗收標準**：找到偶數節點平票 hang，並重現 F1、F5，三者都完成回放到真實程式。
+   - **驗收標準**：找到偶數節點平票 hang，並重現 F1、F5；三者再各開一張 fix-bug 工單，由紅燈測試完成回放到真實程式（Q31）。
