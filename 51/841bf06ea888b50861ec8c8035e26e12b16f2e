@@ -1,0 +1,42 @@
+.github/ISSUE_TEMPLATE/factory-work-item.yml
+  s_8e84f713421083::t_1a9ecc156d1b32 53-67
+backstage/templates/factory-work-item/template.yaml
+  s_8e84f713421083::t_ef26e8035c9ef4 88-112,138-145
+src/write-spec/intake.ts
+  s_8e84f713421083::t_14cd24424f4285 1-19,28-160
+  s_8e84f713421083::t_ef26e8035c9ef4 20-27
+src/cli/factory-issue-check.ts
+  s_8e84f713421083::t_4de300b19e3ace 26-27,39-44,69-82,408-409,439,453-457,464-473,475,484,486,502-516,518-519,521-526,575-583,596-599,619-620,629-632,640-643,662-671
+src/write-spec/intake.test.ts
+  s_8e84f713421083::t_36ddb8618ba259 1-177
+vitest.config.ts
+  s_8e84f713421083::t_ee1b409cc27d39 86-94
+.github/workflows/factory-run.yml
+  s_8e84f713421083::t_58209c80742a0b 216-218,224-225
+test/adversarial/factory-assets.test.ts
+  s_8e84f713421083::t_42876148794a03 13-15,1591-1659
+  s_8e84f713421083::t_d00d013fcf6d42 1660
+src/factory-draft/issue-body.ts
+  s_8e84f713421083::t_5679835ee0334c 13,19-21,49-58
+src/factory-draft/issue-body.test.ts
+  s_8e84f713421083::t_5679835ee0334c 58-82
+src/cli/factory-issue-check.test.ts
+  s_8e84f713421083::t_54c3f3bf0f08d9 726-823,825-833,835-870
+  s_8e84f713421083::t_4297734d798388 824,834
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51841bf06ea888b50861ec8c8035e26e12b16f2e",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
