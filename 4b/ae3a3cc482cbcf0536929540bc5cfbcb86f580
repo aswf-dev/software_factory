@@ -1,0 +1,32 @@
+docs/ADR/README.md
+  s_8e84f713421083::t_4663939071eb63 50
+docs/21-candidate-work-item-types.md
+  s_8e84f713421083::t_b0b288b803cc63 11,21,191
+  s_8e84f713421083::t_800af2542db124 138
+  s_8e84f713421083::t_a03a8c9233138f 19
+  s_8e84f713421083::t_26ac12033c3c47 199-200
+  s_8e84f713421083::t_e0c5762ce95843 57-59,63-71
+docs/ADR/008-quint-formal-verification.md
+  s_8e84f713421083::t_d2417cd37c8b77 29-33
+docs/ADR/018-intent-driven-write-spec.md
+  s_8e84f713421083::t_67dbbaa8b5c838 1-26,28-159
+  s_8e84f713421083::t_da7f9cedd2f5a3 27
+docs/10-open-questions.md
+  s_8e84f713421083::t_0ffad9c77720fc 21,124,128-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4bae3a3cc482cbcf0536929540bc5cfbcb86f580",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "unknown"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
