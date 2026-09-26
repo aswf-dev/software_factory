@@ -1,0 +1,42 @@
+src/write-spec/verify.test.ts
+  s_8e84f713421083::t_f1901d138e5a35 78,92
+  s_8e84f713421083::t_c0fd7cdeb71e06 1-74,80-91,93-201
+  s_8e84f713421083::t_524b5ae2fec91c 75-77,79
+.github/workflows/factory-run.yml
+  s_8e84f713421083::t_dcb0663c6a9fea 177-186,917-958,966,1004
+  s_8e84f713421083::t_e0bc3e9b4b8cd7 89-92
+test/adversarial/factory-assets.test.ts
+  s_8e84f713421083::t_0cb9ed99cea324 938-942
+  s_8e84f713421083::t_e0bc3e9b4b8cd7 1069-1080,1738-1769
+  s_8e84f713421083::t_5a6cc41d50c7ba 1770
+src/write-spec/verify.ts
+  s_8e84f713421083::t_5f6b22b32b3945 1-270
+src/cli/factory-spec-verify.test.ts
+  s_8e84f713421083::t_f78c9247192f0a 1-178,192-196,214-218
+  s_8e84f713421083::t_524b5ae2fec91c 197-204,213
+  s_8e84f713421083::t_4bd4f3ca080272 179-191
+  s_8e84f713421083::t_f1901d138e5a35 205-212
+src/cli/factory-spec-verify.ts
+  s_8e84f713421083::t_524b5ae2fec91c 217
+  s_8e84f713421083::t_b99d0b4fd1652e 1-44,46-148,150-216,218-236
+  s_8e84f713421083::t_f78c9247192f0a 149
+  s_8e84f713421083::t_f1901d138e5a35 45
+docs/ADR/018-intent-driven-write-spec.md
+  s_8e84f713421083::t_e6194f6e84a091 101-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "06a74f876a8956ab760c4059abe0446e04817dc2",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
