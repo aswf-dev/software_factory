@@ -26,6 +26,7 @@ nav:
   - 多 agent 複合風險治理（Q05-5）: 24-q05-5-multi-agent-composite-risk.md
   - 技能撰寫迴圈: 25-skill-authoring-loop.md
   - Scoreboard 事件契約: 26-scoreboard-integration.md
+  - write-spec 操作手冊: 28-write-spec-runbook.md
   - 架構決策記錄（ADR）: ADR/README.md
   - 詞彙表: GLOSSARY.md
 plugins:
