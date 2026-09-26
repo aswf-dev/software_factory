@@ -63,5 +63,5 @@ body:
     id: spec_source
     attributes:
       label: 規格來源
-      description: 僅 agent-write-spec 必填。repo 內路徑、固定版本的 https URL（含 commit SHA 或版號），或填 issue（以本 Issue 的 PRD 為規格，由 CI 快照）。
+      description: 僅 agent-write-spec 必填。repo 內路徑（例如 docs/specs/redlock.md；網頁請先存檔進 repo），或填 issue（以本 Issue 的 PRD 為規格，由 CI 快照）。不接受 URL。
       placeholder: docs/specs/redlock.md

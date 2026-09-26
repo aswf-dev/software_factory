@@ -150,3 +150,41 @@ export function checkClosingKeywords(
         ],
   }
 }
+
+/** report.openQuestions 的形狀：至少一條待決問題，或明確宣告沒有並附理由。 */
+export type OpenQuestions = readonly string[] | { none: string }
+
+const OPEN_QUESTIONS_SECTION_RE = /^#{2,4}\s*未決事項/m
+
+/**
+ * 護欄④（ADR-018 §9）：規格工作的誤解會被下游放大，所以 agent 必須把「沒想清楚
+ * 的地方」寫出來，而不是默默挑一個解讀。兩處都要有：report 的 `openQuestions`
+ * （機器可讀），以及 PR 描述的「未決事項」章節（審查者一定會看到）。
+ * 空陣列不算回答——沒有未決事項時必須寫明理由。
+ */
+export function checkOpenQuestions(
+  openQuestions: OpenQuestions | undefined,
+  prBodies: readonly string[],
+): SpecFinding[] {
+  const findings: SpecFinding[] = []
+  const valid =
+    openQuestions !== undefined &&
+    (Array.isArray(openQuestions)
+      ? openQuestions.length > 0 && openQuestions.every((q) => q.trim() !== '')
+      : (openQuestions as { none: string }).none.trim() !== '')
+  if (!valid) {
+    findings.push({
+      kind: 'write-spec-open-questions-missing',
+      detail:
+        'report.json 缺少有效的 `openQuestions`：請列出至少一條未決事項（字串陣列），' +
+        '或在確實沒有時寫 `{ "none": "<理由>" }`——空陣列不算回答',
+    })
+  }
+  if (!prBodies.some((b) => OPEN_QUESTIONS_SECTION_RE.test(b))) {
+    findings.push({
+      kind: 'write-spec-open-questions-section',
+      detail: 'PR 描述沒有「未決事項」章節（`## 未決事項`）——審查者必須在 PR 上看得到尚未釐清的地方',
+    })
+  }
+  return findings
+}

@@ -26,6 +26,7 @@ import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/u
 import { isValidSpecName } from '../write-spec/intake.js'
 import {
   checkClosingKeywords,
+  checkOpenQuestions,
   checkSourceSnapshot,
   checkSpecScope,
   specPaths,
@@ -676,9 +677,12 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
           : readFileSync(writeSpec.sourceSnapshotPath, 'utf8'),
       ),
     )
-    const closing = checkClosingKeywords(phase, issueNumber, loadPrBodies(writeSpec.prBodiesPath))
+    const prBodies = loadPrBodies(writeSpec.prBodiesPath)
+    const closing = checkClosingKeywords(phase, issueNumber, prBodies)
     mismatches.push(...closing.mismatches)
     advisories.push(...closing.advisories)
+    // 護欄④（ADR-018 §9）：先例（requirements 必填）在 crosscheck；PR 描述也只有這裡拿得到
+    mismatches.push(...checkOpenQuestions(report.openQuestions, prBodies))
   }
   advisories.push(...adviseAssertionDelta(report.assertionDelta, actual.assertionDelta))
   advisories.push(

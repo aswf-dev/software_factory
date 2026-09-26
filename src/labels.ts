@@ -25,6 +25,7 @@
  */
 import { TIER_LABEL } from './scoring/types.js'
 import { NEEDS_HUMAN_LABEL } from './stop-rules/types.js'
+import { SPEC_LABELS } from './write-spec/phase.js'
 
 /** 技能缺口分類訊號（docs/25 §3）；不影響終態，只用於聚類。 */
 export const SKILL_GAP_LABEL = 'skill-gap'
@@ -39,4 +40,9 @@ export const FACTORY_LABELS: readonly string[] = [
   ...Object.values(TIER_LABEL),
   NEEDS_HUMAN_LABEL,
   SKILL_GAP_LABEL,
+  // agent-write-spec 狀態機中由工廠貼上的三個（ADR-018 §12）。
+  // spec/approved、spec/model-declined 由人貼上，不在此列（仍由 workflow 預先建立）。
+  SPEC_LABELS.phaseInvariants,
+  SPEC_LABELS.phaseModel,
+  SPEC_LABELS.outdated,
 ]

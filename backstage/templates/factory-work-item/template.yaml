@@ -105,7 +105,7 @@ spec:
                 specSource:
                   title: 規格來源
                   type: string
-                  description: repo 內路徑、固定版本的 https URL（含 commit SHA 或版號），或填 issue（以本 Issue 的 PRD 為規格，由 CI 快照）
+                  description: repo 內路徑（例如 docs/specs/redlock.md；網頁請先存檔進 repo），或填 issue（以本 Issue 的 PRD 為規格，由 CI 快照）。不接受 URL
               required: [specName, specSource]
             - properties:
                 taskType:

@@ -1030,8 +1030,10 @@ describe('main：write-spec 模式', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  const invariantsRun = (opts: { paths: string[]; bodies: string[]; source?: string | undefined }) => {
-    writeFileSync(reportPath, makeReport({ changedPaths: opts.paths, changedLines: 20 }))
+  const OPEN_QS = { openQuestions: ['時鐘漂移上限未定'] }
+  const SECTION = '\n\n## 未決事項\n\n- 時鐘漂移上限未定'
+  const invariantsRun = (opts: { paths: string[]; bodies: string[]; source?: string | undefined; report?: Record<string, unknown> }) => {
+    writeFileSync(reportPath, makeReport({ changedPaths: opts.paths, changedLines: 20, ...(opts.report ?? OPEN_QS) }))
     writeFileSync(bodiesPath, JSON.stringify(opts.bodies))
     return main(
       [
@@ -1050,35 +1052,35 @@ describe('main：write-spec 模式', () => {
   const OK_PATHS = ['specs/redlock/invariants.qnt', 'specs/redlock/source.md']
 
   it('範圍、快照、Refs 都正確 → ok', () => {
-    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12'], source: SNAPSHOT })
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12' + SECTION], source: SNAPSHOT })
     expect(out.mismatches).toEqual([])
     expect(out.ok).toBe(true)
   })
   it('不變量 PR 寫 Closes #12 → mismatch', () => {
-    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Closes #12'], source: SNAPSHOT })
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Closes #12' + SECTION], source: SNAPSHOT })
     expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-closes-in-invariants')
     expect(out.ok).toBe(false)
   })
   it('越界寫了 model.qnt → write-spec-scope', () => {
     const out = invariantsRun({
       paths: [...OK_PATHS, 'specs/redlock/model.qnt'],
-      bodies: ['Refs #12'],
+      bodies: ['Refs #12' + SECTION],
       source: SNAPSHOT,
     })
     expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-scope')
   })
   it('source.md 被改寫 → write-spec-source-tampered', () => {
-    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12'], source: SNAPSHOT + '（agent 加註）\n' })
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12' + SECTION], source: SNAPSHOT + '（agent 加註）\n' })
     expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-source-tampered')
   })
   it('分支上沒有 source.md → write-spec-source-missing', () => {
-    const out = invariantsRun({ paths: ['specs/redlock/invariants.qnt'], bodies: ['Refs #12'], source: undefined })
+    const out = invariantsRun({ paths: ['specs/redlock/invariants.qnt'], bodies: ['Refs #12' + SECTION], source: undefined })
     expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-source-missing')
   })
   it('模型階段：沒寫 Closes → 只有 advisory，不擋 run', () => {
     const paths = ['specs/redlock/model.qnt', 'specs/redlock/verify.yml']
-    writeFileSync(reportPath, makeReport({ changedPaths: paths, changedLines: 20 }))
-    writeFileSync(bodiesPath, JSON.stringify(['Refs #12']))
+    writeFileSync(reportPath, makeReport({ changedPaths: paths, changedLines: 20, ...OPEN_QS }))
+    writeFileSync(bodiesPath, JSON.stringify(['Refs #12' + SECTION]))
     const out = main(
       ['12', reportPath, '--target', 'target', '--write-spec-phase', 'model', '--spec-name', 'redlock', '--pr-bodies', bodiesPath],
       fakeGit({
@@ -1089,6 +1091,18 @@ describe('main：write-spec 模式', () => {
     )
     expect(out.ok).toBe(true)
     expect(out.advisories.map((a) => a.kind)).toContain('write-spec-model-no-closes')
+  })
+  it('缺未決事項（report 與 PR 章節）→ 兩條 mismatch（ADR-018 護欄④）', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12'], source: SNAPSHOT, report: {} })
+    expect(out.mismatches.map((m) => m.kind)).toEqual([
+      'write-spec-open-questions-missing',
+      'write-spec-open-questions-section',
+    ])
+    expect(out.ok).toBe(false)
+  })
+  it('空陣列而非 { none } → 明確的 mismatch，而不是 report 格式錯誤', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12' + SECTION], source: SNAPSHOT, report: { openQuestions: [] } })
+    expect(out.mismatches.map((m) => m.kind)).toEqual(['write-spec-open-questions-missing'])
   })
   it('--pr-bodies 不是字串陣列 → CliError', () => {
     writeFileSync(reportPath, makeReport())

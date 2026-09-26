@@ -34,6 +34,12 @@ export interface ModelCliPaths {
   providersPath: string
   tier: ModelTier | 'auto'
   provider: string
+  /**
+   * agent-write-spec 的階段（ADR-018）：由 factory-spec-phase 推導後傳入。
+   * 不變量階段一律不套用 heavy-verify、模型階段一律套用——計算強度由階段決定，
+   * 不由 Issue 文字的關鍵字決定（內文幾乎必然提到 Quint／形式化）。
+   */
+  specPhase?: 'invariants' | 'model' | undefined
 }
 
 const DEFAULT_TIERS_PATH = 'config/dsh/model-tiers.yaml'
@@ -54,6 +60,7 @@ export function parseArgs(argv: string[]): ModelCliPaths {
   let providersPath = DEFAULT_PROVIDERS_PATH
   let tier: ModelTier | 'auto' = 'auto'
   let provider = 'auto'
+  let specPhase: 'invariants' | 'model' | undefined
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--issue') {
@@ -72,11 +79,17 @@ export function parseArgs(argv: string[]): ModelCliPaths {
       tier = value as ModelTier | 'auto'
     } else if (arg === '--provider') {
       provider = requireValue(argv, ++i, '--provider')
+    } else if (arg === '--spec-phase') {
+      const value = requireValue(argv, ++i, '--spec-phase')
+      if (value !== 'invariants' && value !== 'model') {
+        throw new CliError(`--spec-phase 必須是 invariants|model，收到 "${value}"`)
+      }
+      specPhase = value
     } else {
       throw new CliError(`unknown argument: ${arg}`)
     }
   }
-  return { issuePath, scorePath, tiersPath, providersPath, tier, provider }
+  return { issuePath, scorePath, tiersPath, providersPath, tier, provider, specPhase }
 }
 
 /** 讀 JSON 檔並回傳 parsed 值；檔案缺失/格式錯誤 → CliError（絕不靜默）。 */
@@ -110,6 +123,19 @@ export function main(argv: string[]): ModelResolution {
       taskType: extractField(body, 'task_type'),
       requirement: extractField(body, 'requirement'),
     })
+  }
+  if (paths.specPhase !== undefined) {
+    if (analysis === undefined) throw new CliError('--spec-phase requires --issue')
+    analysis = {
+      ...analysis,
+      computationalIntensity: paths.specPhase === 'model' ? 'heavy-verify' : 'standard',
+      evidence: [
+        ...analysis.evidence,
+        paths.specPhase === 'model'
+          ? 'write-spec 模型階段：強制 heavy-verify（ADR-018）'
+          : 'write-spec 不變量階段：不套用 heavy-verify（ADR-018）',
+      ],
+    }
   }
 
   let catalogComplexity: string | undefined
