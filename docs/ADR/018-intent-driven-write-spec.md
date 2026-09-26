@@ -2,7 +2,7 @@
 
 - **狀態**：已接受（實作待後續 stacked PR）
 - **日期**：2026-09-26
-- **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q21）
+- **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q30）
 - **對應**：`ADR-008`（Quint 神諭橋）、`ADR-009`（Backstage 統一入口）、`ADR-011`（heavy-verify 升級）、`ADR-012`（集中執行）、`ADR-016`（產出與生效分離）、`docs/06` §4.3、`docs/21` §2.1、`docs/10` Q21-1／Q21-2
 
 ## 脈絡
@@ -46,11 +46,16 @@ TypeScript 沒有可以實際投入生產的演繹驗證器；把程式轉寫成
 
 保留「可執行規格」的語意。`docs/21` §2.1 改寫為這個語意，並結案 Q21-1、Q21-2。「規格／設計草稿」若日後需要，另開一個新類型。
 
-### 3. 規格書驅動，拆成兩張工單、兩個 run（Q3、Q10、Q13）
+### 3. 規格書驅動：一張 Issue、兩個 run（Q3、Q10'、Q24、Q29）
 
-- 維持**單一類型** `agent-write-spec`，新增必填欄位「**規格階段**」：`invariants`（不變量）或 `model`（as-is 模型）。
-- **不變量工單**先執行；它的 PR 合併、取得 `spec/approved` 後，才可以派發**模型工單**。
-- 這是 `docs/06` §4.3 和 ADR-008「不得以自撰規格驗證自撰程式碼」的延伸：寫不變量的人，和寫模型的人，不是同一個 run。
+- 維持**單一類型** `agent-write-spec`。同一張 Issue 依序派工兩次：
+  1. **不變量階段**：從規格書萃取不變量。
+  2. **模型階段**：依程式碼撰寫 as-is 模型，並執行模型檢查。
+- **階段由 factory-run 依狀態推導**，開單時不填、派工時也不能指定（判定規則見 §12）。
+- 兩個階段之間**必須經過人工核准**：人合併不變量 PR 之後，在 **Issue** 上貼 `spec/approved`，才能跑模型階段。
+- 這是 `docs/06` §4.3 和 ADR-008「不得以自撰規格驗證自撰程式碼」的延伸：寫不變量和寫模型的是兩個不同的 run，中間隔著一次人工核准。
+- **只保證「不會被遺忘」，不保證自動執行**：模型階段會被升為 critical tier，是整座工廠最貴的 run，何時執行由人決定；不變量也可能直接暴露設計問題，讓人決定不做模型。另外，跨 repo 事件收不到（docs/16），核准後自動派工在技術上也做不到。
+- **狀態以 Issue 標籤表示**：`spec/phase-invariants` → `spec/approved`（由人貼上）→ `spec/phase-model` → 完成時關閉；另有 `spec/model-declined`（放棄）與 `spec/model-outdated`（過期）。
 
 ### 4. 使用門檻（Q8）
 
@@ -58,11 +63,14 @@ TypeScript 沒有可以實際投入生產的演繹驗證器；把程式轉寫成
 
 ### 5. 規格來源（Q9''、Q15、Q18）
 
-| 工單 | 規格來源欄位 |
+write-spec 新增**兩個必填欄位**，缺漏就判為不合規、不派工，不產生 LLM 成本：
+
+| 欄位 | 內容 |
 |---|---|
-| write-spec，規格階段 = `invariants` | **必填**。缺漏就判為不合規、不派工，不產生 LLM 成本 |
-| write-spec，規格階段 = `model` | 不填；改為**必填「已核准不變量路徑」**；前置 PR 沒有 `spec/approved` 就拒絕派工 |
-| 其他類型 | 沒有這個欄位；意圖以既有的 PRD 欄位為準 |
+| **規格名稱** | 決定 `specs/<name>/` 的目錄名稱，也因此固定了 `invariants.qnt` 的路徑 |
+| **規格來源** | repo 內的檔案路徑、固定版本的 URL，或 `issue` |
+
+其他類型沒有這兩個欄位；意圖以既有的 PRD 欄位為準。
 
 - **格式檢查**：只做格式與存在性檢查，**零網路請求**。repo 內的路徑必須存在於 trunk；URL 必須是**固定版本**（permalink、帶 commit 或版號），浮動網址直接拒絕。
 - **沒有規格書時**：填 `issue`。run 開始時由 **CI**（不是 agent）把當下的 PRD 欄位原文寫入 `specs/<name>/source.md`，附上 Issue 編號與擷取時間。
@@ -100,9 +108,9 @@ specs/<name>/
 
 | 護欄 | 落地形式 |
 |---|---|
-| ① 機械限制變更範圍 | `factory-crosscheck` 新增兩個階段模式：<br>・`invariants`：只允許 `specs/<name>/invariants.qnt`、`docs/**`<br>・`model`：只允許 `model.qnt`、`instances.qnt`、`verify.yml`、`docs/**`<br>・`invariants.qnt`、`source.md` 不得修改；`source.md` 必須和 CI 快照逐字元一致；`traces/` 只能由 CI 寫入<br>・越界即標為 needs-human |
+| ① 機械限制變更範圍 | `factory-crosscheck` 依 factory-run 推導出的階段套用白名單：<br>・`invariants`：只允許 `specs/<name>/invariants.qnt`、`docs/**`<br>・`model`：只允許 `model.qnt`、`instances.qnt`、`verify.yml`、`docs/**`<br>・`invariants.qnt`、`source.md` 不得修改；`source.md` 必須和 CI 快照逐字元一致；`traces/` 只能由 CI 寫入<br>・**關閉關鍵字**：不變量階段的 PR 必須寫 `Refs #N`（寫 `Closes #N` 會在第一階段就關掉 Issue），模型階段的 PR 才寫 `Closes #N`<br>・越界即標為 needs-human |
 | ② 類型層級禁止自動合併 | write-spec 一律不得自動合併 |
-| ③ `spec/approved` | 由 **CODEOWNERS 的人類**在合併不變量 PR 時貼上。機器人不得貼標，由 CI 驗證貼標者身分。它擋的是模型工單的派工 |
+| ③ `spec/approved` | 由 **CODEOWNERS 的人類**在合併不變量 PR 之後，貼在 **Issue** 上。factory-run 以 Issue timeline API 驗證貼標者；機器人或 App 貼的一律視為未核准。它擋的是模型階段的派工 |
 | ④ 未決事項 | `report.json` 必填 `openQuestions[]`（可以是空陣列加理由）；PR README 必須有「未決事項」章節。由 judge 做 fail-loud 檢查（沿用 `requirements` 必填欄位的先例，docs/20 B1） |
 
 ### 10. UPPAAL 不納入 CI（Q5）
@@ -111,7 +119,7 @@ specs/<name>/
 
 ### 11. 開單入口同步（Q22、Q23）
 
-新增的三個欄位（**規格階段**、**規格來源**、**已核准不變量路徑**）必須在四處同步，否則會重演 #238 的漂移事件（新增 task_type 時漏改 Backstage，表單永遠開不出該類型）：
+新增的兩個欄位（**規格名稱**、**規格來源**）必須在四處同步，否則會重演 #238 的漂移事件（新增 task_type 時漏改 Backstage，表單永遠開不出該類型）：
 
 | 位置 | 改動 |
 |---|---|
@@ -120,9 +128,43 @@ specs/<name>/
 | `src/factory-draft/issue-body.ts`（`buildIssueBody`） | 與 Backstage 內文格式逐字對齊，並維持與 `checkIssue` 的往返測試 |
 | `src/cli/factory-issue-check.ts`（`FIELD_TITLES`） | 讀取欄位並做必填與格式檢查（Q9''、Q15） |
 
-- **表單呈現**：Backstage 用 rjsf 的 `dependencies`／`oneOf` 做**條件式欄位**：只有選 `agent-write-spec` 才出現「規格階段」；選 `invariants` 時出現「規格來源」，選 `model` 時出現「已核准不變量路徑」。模板開頭記載 rjsf 跨欄位讀取「仍待瀏覽器實測」，**如果條件渲染行不通，就退回三個欄位一律顯示為選填**。
+- **表單呈現**：Backstage 用 rjsf 的 `dependencies`／`oneOf` 做**條件式欄位**：只有選 `agent-write-spec` 才出現這兩個欄位。模板開頭記載 rjsf 跨欄位讀取「仍待瀏覽器實測」，**如果條件渲染行不通，就退回兩個欄位一律顯示為選填**。
 - **必填判斷的權威在 issue-check**：表單只負責讓人容易填對；即使條件渲染失敗，正確性也不受影響。
-- **新增對抗性測試**：比照現有的「Backstage enum 與 workflow options 一致」測試，釘住三個欄位的標題在上述四處逐字一致。
+- **新增對抗性測試**：比照現有的「Backstage enum 與 workflow options 一致」測試，釘住兩個欄位的標題在上述四處逐字一致。
+
+### 12. 順序保證與追蹤（Q26'''、Q27、Q28、Q30）
+
+**階段判定表**：每次派工時，factory-run 在任何 LLM 成本發生前，依 Issue 標籤與 trunk 上的檔案決定本次的動作：
+
+| 狀態 | 本次派工 |
+|---|---|
+| 沒有 `spec/approved`，也沒有尚未合併的不變量 PR | ▶ 跑**不變量階段** |
+| 不變量 PR 已開、還沒合併 | ⛔ 拒絕（避免重複產出） |
+| 有 `spec/approved`，但 trunk 上沒有 `specs/<name>/invariants.qnt` | ⛔ 拒絕（狀態不一致） |
+| 有 `spec/approved`，trunk 上也有 `invariants.qnt` | ▶ 跑**模型階段**，自動套用 heavy-verify tier |
+| 有 `spec/model-declined`，或 Issue 已關閉 | ⛔ 拒絕 |
+
+**其餘三層保證**：
+
+- **同一張 Issue 不會有兩個 run 同時執行**：沿用現有的 concurrency group `factory-<repo>-<issue>`（`cancel-in-progress: false`），第二次派工會排隊，開始時重新判斷狀態。
+- **`spec/approved` 必須是人貼的**（§9 護欄③）。
+- **agent 無法越過自己的階段**：階段由 CI 寫進任務描述，crosscheck 依階段套用白名單（§9 護欄①）。
+
+**人工例外一律用標籤處理，不提供強制指定階段的 input**（Q30）。強制指定的 input 等於留下「跳過第一階段」的後門；調整標籤則會留在 Issue timeline，可以稽核：
+
+- **重做不變量**：重新打開 Issue（如已關閉）、移除 `spec/approved`，再派工。
+- **放棄模型階段**（Q27）：貼上 `spec/model-declined`，並留言說明理由，以區分「刻意不做」和「忘了做」。
+
+**過期偵測在事件發生當下進行，不靠排程**（Q28）：不變量只有「重跑不變量階段」這一條正規修改路徑。factory-run 跑不變量階段時，如果這張 Issue 有 `spec/phase-model` 的紀錄，就當場貼上 `spec/model-outdated`。繞過工廠直接手動修改 `invariants.qnt` 不在偵測範圍內，但那屬於人的刻意行為，會經過 PR 審查。
+
+**待辦與停滯**（Q26'''）：
+
+- **待辦就是一直開著的 Issue**：不變量 PR 寫的是 `Refs`，所以 Issue 會一直開到模型階段完成。
+- **查詢方式**：用一條跨 repo 的固定搜尋，例如 `is:open label:spec/approved -label:spec/phase-model -label:spec/model-declined user:philipz org:agent-playground`。
+- **不做排程**：write-spec 只用於高風險模組（§4），使用量極低，不值得為它建立排程、納管 repo 清單和看板。
+- **升級條件**：一旦出現第一筆「已核准超過 14 天仍未派工模型」的工單，就新增每日排程掃描。
+
+**終態標籤**：judge 的 `state/*` 標籤一律以**最新一次 run** 為準（直接覆蓋）；目前在哪個階段，由 `spec/phase-*` 表示。
 
 ## 後果
 
@@ -135,11 +177,13 @@ specs/<name>/
 
 ### 負面
 
-- 每次都需要兩張工單，加上一次人工核准，前置時間變長。
+- 同一張 Issue 需要派工兩次，中間加上一次人工核准，前置時間變長。
 - 不變量工單需要先設計好抽象狀態詞彙，會稍微讀到程式碼（但不變量本身只能引用規格）。
 - factory-run、issue-check、crosscheck、judge 都要改，實作面廣，而且全部位於 H5 路徑，只能由人實作。
 - `domain_justification` 的內容無法機械判斷，品質仍然取決於人工審查。
-- 新欄位要四處同步（§11），而且 Backstage 的條件式欄位依賴尚未經瀏覽器實測的 rjsf 行為；若退回「一律顯示為選填」，其他類型的使用者會看到三個與自己無關的欄位。
+- 新欄位要四處同步（§11），而且 Backstage 的條件式欄位依賴尚未經瀏覽器實測的 rjsf 行為；若退回「一律顯示為選填」，其他類型的使用者會看到兩個與自己無關的欄位。
+- 停滯仍要靠人發現，直到觸發 §12 的升級條件為止。
+- `factory-pr-stacking` skill 目前一律要求 `Closes #N`，需要依階段區分，並由 crosscheck 機械檢查。
 
 ### 中性
 
@@ -153,7 +197,12 @@ specs/<name>/
 |---|---|
 | 引入 Dafny，以人工轉寫的方式驗證 TS | 轉寫版和真實程式會漂移，本質上是陷阱 B；TS 沒有原生的演繹驗證器 |
 | 以 `docs/21` 為準，把可執行規格類型改名 | 實作已有 enum、模板、skill、對抗性測試與使用紀錄，改名成本高於改文件 |
-| 新增一個獨立的 `agent-intent-spec` 類型 | 會重複一整套接線；用「規格階段」欄位就能在單一類型內分流 |
+| 新增一個獨立的 `agent-intent-spec` 類型 | 會重複一整套接線；在單一類型內依狀態推導階段即可分流 |
+| 兩張子 Issue 加一個父 Issue（GitHub sub-issues） | 要建立 3 張 Issue 並設定子 Issue 關係，Backstage 模板變複雜；三個核心保障（獨立性、人工核准、tier 分開）要求的是兩個 run，不是兩張 Issue |
+| 以「規格階段」欄位由人指定階段 | 人可能選錯，也等於提供跳過第一階段的途徑；階段可以完全由狀態推導 |
+| 不變量核准後自動派工模型階段 | 收不到跨 repo 事件，技術上做不到；而且模型階段是最貴的 run，應由人決定何時執行 |
+| 提供強制指定階段的 input | 會成為跳過第一階段的後門，讓 §12 的判定表失效 |
+| 每日排程掃描加看板 Issue | 需要第一個 cron workflow、掃描 CLI 與一份會漂移的納管 repo 清單；以目前的使用量不划算。保留為升級選項 |
 | 同一個 run 寫不變量和模型，只靠逐字引用和人工審查 | 同一個 agent 可以同時調整兩邊，讓結果剛好一致；沒有機械上的防護 |
 | 不變量以 Markdown 撰寫，再由模型工單翻譯成 `.qnt` | 翻譯步驟由寫模型的 agent 自己完成，正是要堵住的漏洞 |
 | 沿用 `INV_VIOLATED_*` 前綴，由 agent 宣告預期結果 | 那是修復後回歸閘門用的慣例；在 as-is 階段讓 agent 宣告預期，等於允許把發現標成綠燈 |
@@ -164,12 +213,12 @@ specs/<name>/
 
 1. **本 ADR**，同步更新 `docs/21` §1／§2.1／§4、`docs/10`（結案 Q21-1、Q21-2）、ADR-008 補記。
 2. **Stacked PR 實作**（依序）：
-   1. **開單入口與 issue-check**：依 §11 在四處同步新增「規格階段」「規格來源」「已核准不變量路徑」欄位，並加上欄位一致性的對抗性測試；issue-check 實作 Q8 門檻與 Q15 格式檢查。Backstage 的條件式欄位需在瀏覽器實測，不行就退回選填。
-   2. crosscheck：新增兩個階段模式。
-   3. factory-run：寫入 `source.md` 快照、檢查 `spec/approved` 與貼標者身分、依 `verify.yml` 集中驗證、類型層級禁止自動合併。
+   1. **開單入口與 issue-check**：依 §11 在四處同步新增「規格名稱」「規格來源」欄位，並加上欄位一致性的對抗性測試；issue-check 實作 Q8 門檻與 Q15 格式檢查。Backstage 的條件式欄位需在瀏覽器實測，不行就退回選填。
+   2. crosscheck：依階段套用白名單，並檢查關閉關鍵字（不變量階段 `Refs`、模型階段 `Closes`）。
+   3. factory-run：§12 的階段判定表與標籤轉換、寫入 `source.md` 快照、驗證 `spec/approved` 的貼標者、事件驅動的過期偵測、依 `verify.yml` 集中驗證、類型層級禁止自動合併。
    4. judge：新增 `openQuestions` 的 fail-loud 檢查。
-   5. 模板與 `factory-workflow` skill：寫入兩條建模規則和兩個階段的說明（放在最後，確保 agent 看到的說明和已經生效的機制一致）。
+   5. 模板與 skill：`task-template-write-spec.txt` 與 `factory-workflow` skill 寫入兩條建模規則和兩個階段的說明；`factory-pr-stacking` skill 依階段區分 `Refs`／`Closes`。放在最後，確保 agent 看到的說明和已經生效的機制一致。
 3. **驗收試點：重跑 node-redlock**（上游 `afe5cf9`）。
-   - 第一張工單的不變量引用 redis.io 規格的 repo 內存檔。
-   - 第二張工單的模型設定 `NODES ∈ {2,3,4}`。
+   - 第一次派工（不變量階段）：不變量引用 redis.io 規格的 repo 內存檔。
+   - 核准後第二次派工（模型階段）：模型設定 `NODES ∈ {2,3,4}`。
    - **驗收標準**：找到偶數節點平票 hang，並重現 F1、F5，三者都完成回放到真實程式。

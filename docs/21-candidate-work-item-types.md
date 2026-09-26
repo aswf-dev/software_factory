@@ -60,13 +60,13 @@
 
 | 面向 | 內容 |
 |---|---|
-| 定義 | 可執行規格型：拆成兩張工單、兩個 run，以必填欄位「**規格階段**」區分。<br>・`invariants`：從**規格書**（或 CI 快照的 Issue PRD）萃取不變量，逐字引用出處。<br>・`model`：依**程式碼**撰寫 as-is 模型，import 已核准的不變量，執行模型檢查。<br>**不改 `src/`**（修復另開工單） |
+| 定義 | 可執行規格型：**一張 Issue、兩個 run**，階段由 factory-run 依 Issue 標籤與 trunk 狀態推導（開單時不填、派工時不能指定）。<br>・不變量階段：從**規格書**（或 CI 快照的 Issue PRD）萃取不變量，逐字引用出處。<br>・模型階段：依**程式碼**撰寫 as-is 模型，import 已核准的不變量，執行模型檢查。<br>開單時必填「規格名稱」「規格來源」。**不改 `src/`**（修復另開工單） |
 | 依據 | ADR-008（神諭橋）、ADR-018；`docs/06` §4.3（不得以自撰規格驗證自撰程式碼） |
 | 使用門檻 | 目標路徑命中 H 規則，或目標 repo 有 `factory.io/quint-spec` 標註（issue-check 機械判定） |
 | 風險 | **產出物低／流程位置高**（`docs/19` §6.6 第 3 點）：一份誤解的不變量，會讓後續的模型與修復全部對錯的目標發力。對策：不變量逐字引用規格，並由人工核准 |
 | 護欄①（原「draft 標記」） | 改為**機械限制變更範圍**：crosscheck 依階段套用白名單，越界即標為 needs-human |
 | 護欄② | **類型層級禁止自動合併** |
-| 護欄③ `spec/approved` | **由 CODEOWNERS 的人類在合併不變量 PR 時貼上**，機器人不得貼標（由 CI 驗證貼標者）。擋的是模型工單的派工 |
+| 護欄③ `spec/approved` | **由 CODEOWNERS 的人類在合併不變量 PR 之後貼在 Issue 上**，機器人不得貼標（由 CI 以 timeline API 驗證貼標者）。擋的是模型階段的派工 |
 | 護欄④ 未決事項 | `report.json` 必填 `openQuestions[]`，PR README 必須有「未決事項」章節，由 judge 做 fail-loud 檢查 |
 | 狀態 | 決策已定（ADR-018）；實作待後續 stacked PR；驗收試點為重跑 node-redlock |
 
