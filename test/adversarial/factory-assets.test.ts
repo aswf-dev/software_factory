@@ -1768,3 +1768,74 @@ describe('write-spec 集中驗證接線（ADR-018 §7）', () => {
     expect(cache).toBeLessThan(idx((s) => s.name === 'Install and build'))
   })
 })
+
+/**
+ * 任務模板的佔位字由 workflow 以 sed 替換。sed 沒有 `g` 旗標時每行只換第一個——
+ * 同一行寫兩個 `<ISSUE>`，第二個就原樣送進 agent（2.5 撰寫時實際踩到）。
+ * 這條直接解析 workflow 的替換式（含旗標），套到**所有**模板上檢查。
+ */
+describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標）', () => {
+  const workflow = read('.github/workflows/factory-run.yml')
+  const agentStep = workflow.slice(workflow.indexOf('name: Run factory agent'))
+  const rules = [...agentStep.matchAll(/-e "s(.)(<[A-Z_]+>)\1[^"]*?\1(g?)"/g)].map((m) => ({
+    token: m[2] as string,
+    global: m[3] === 'g',
+  }))
+  const render = (text: string): string =>
+    text
+      .split('\n')
+      .map((line) =>
+        rules.reduce(
+          (l, r) => (r.global ? l.split(r.token).join('X') : l.replace(r.token, 'X')),
+          line,
+        ),
+      )
+      .join('\n')
+
+  it('解析得到 workflow 的五個佔位字替換式', () => {
+    expect(rules.map((r) => r.token).sort()).toEqual(['<BASE_BRANCH>', '<ISSUE>', '<REPO>', '<SPEC_NAME>', '<SPEC_PHASE>'])
+  })
+  it('每個任務模板替換後都沒有殘留佔位字', () => {
+    const dir = join(ROOT, '.github/factory')
+    for (const f of readdirSync(dir).filter((n) => n.startsWith('task-template') && n.endsWith('.txt'))) {
+      const leftover = render(read(`.github/factory/${f}`)).match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME)>/g)
+      expect(leftover, `${f} 替換後仍殘留 ${leftover?.join(', ')}`).toBeNull()
+    }
+  })
+})
+
+/** ADR-018 步驟 2.5：agent 看得到的作業規則必須涵蓋 2.1–2.4 已生效的每一道機制。 */
+describe('write-spec 作業規則（ADR-018 步驟 2.5）', () => {
+  const t = read('.github/factory/task-template-write-spec.txt')
+  const wf = read('.dsh/skills/factory-workflow/SKILL.md')
+  it('模板帶入 CI 判定的階段與規格名稱', () => {
+    expect(t).toContain('<SPEC_PHASE>')
+    expect(t).toContain('<SPEC_NAME>')
+    expect(t).toContain('.factory/run/spec.json')
+  })
+  it('模板涵蓋各項機制：白名單、快照、source 引用、export、domain_justification、反例、關閉關鍵字、未決事項', () => {
+    for (const rule of [
+      'specs/<SPEC_NAME>/invariants.qnt',
+      '原封不動',
+      '// source:',
+      'export invariants.*',
+      'domain_justification',
+      '不得宣告預期結果',
+      '候選發現',
+      '`Refs #<ISSUE>`',
+      '`Closes #<ISSUE>`',
+      '## 未決事項',
+      'openQuestions',
+    ]) {
+      expect(t, `模板缺少：${rule}`).toContain(rule)
+    }
+  })
+  it('factory-workflow skill 同步說明兩個階段、export 與 openQuestions', () => {
+    for (const rule of ['ADR-018', 'export invariants.*', 'openQuestions', '`Refs #<issue>`', 'domain_justification']) {
+      expect(wf, `factory-workflow 缺少：${rule}`).toContain(rule)
+    }
+  })
+  it('factory-pr-stacking 的 Closes 規則有 write-spec 不變量階段的例外', () => {
+    expect(read('.dsh/skills/factory-pr-stacking/SKILL.md')).toMatch(/agent-write-spec 的不變量階段改寫 `Refs #<編號>`/)
+  })
+})

@@ -52,6 +52,7 @@ gh stack submit --auto
 - **拆分上限 200–300 行**（撰寫指引，非閘門）；超過則再拆。
 - **不可跨風險層級**：高風險變更單獨成 PR，不與低風險混在一起。
 - 每顆 PR 描述含：做什麼（一句話）、為什麼這樣做、在疊中的位置、審查重點、`Closes #<編號>`。
+  **例外：agent-write-spec 的不變量階段改寫 `Refs #<編號>`**，不得用任何關閉關鍵字（Closes／Fixes／Resolves）——同一張 Issue 還要跑模型階段，關閉關鍵字會讓 Issue 在合併時被關掉（ADR-018；crosscheck 會檢查）。
 
 ## 不適用 stacking 的情況
 
