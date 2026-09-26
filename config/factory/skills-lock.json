@@ -3,7 +3,7 @@
   "skills": [
     {
       "name": "factory-pr-stacking",
-      "sha256": "a90da2478bdca6c313d319f1fde18f8a5771f4daf4f3e4002418937b8391e901"
+      "sha256": "2eb97b1259757fe2bdc301683c9b6467f306b27ca3bc4d9a198041ddc2ca03b6"
     },
     {
       "name": "factory-self-review",
@@ -15,7 +15,7 @@
     },
     {
       "name": "factory-workflow",
-      "sha256": "804e76774451f5bc20ff357ae36ae3940fbf4730da933c6c52d42e17044301df"
+      "sha256": "415082f867f3ac53ef5ba2b14df234f2e262802143f2ba194cc21d89d5cc54be"
     },
     {
       "name": "quint-lang",

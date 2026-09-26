@@ -935,7 +935,11 @@ describe('factory-run 逾時捕獲與診斷（2026-08-21 run #32491052696 實測
     // A1 後 agent step 的 timeout 改為計算式（綁 agent-timeout 輸出），不再有字面
     // 數字；此處只驗證「若非計算式則必須 ≥ 40」。計算式的下限由下面
     // 「agent 逾時預算動態化」describe 逐條釘住（含 ≥50 分的回歸鎖）。
-    const agentStep = c.slice(c.indexOf('name: Run factory agent'))
+    // 只切出 agent 步驟本身（到下一個步驟為止）——否則會誤抓到後續步驟的逾時
+    //（例如 ADR-018 的集中驗證步驟 35 分）。
+    const start = c.indexOf('name: Run factory agent')
+    const next = c.indexOf('\n      - name:', start)
+    const agentStep = c.slice(start, next === -1 ? undefined : next)
     const literal = agentStep.match(/timeout-minutes: (\d+)/)
     if (literal) {
       expect(Number(literal[1])).toBeGreaterThanOrEqual(40)
@@ -1061,6 +1065,18 @@ describe('job 逾時上限涵蓋 heavy-verify step 預算（A1）', () => {
     const budgets = [...read('.github/workflows/factory-run.yml').matchAll(/EFFECTIVE=(\d+)/g)].map((m) => Number(m[1]))
     const maxStep = Math.max(...budgets) + 5 // step = EFFECTIVE + 5
     expect(jobTimeout, `job 逾時 ${jobTimeout} 必須大於最大 step 逾時 ${maxStep}`).toBeGreaterThan(maxStep)
+  })
+  it('write-spec 模型階段：agent 與集中驗證都用滿時，job 上限仍放得下（ADR-018 §7）', () => {
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const wf = load(read('.github/workflows/factory-run.yml')) as {
+      jobs: { run: { 'timeout-minutes': number; steps: { id?: string; 'timeout-minutes'?: unknown }[] } }
+    }
+    const budgets = [...read('.github/workflows/factory-run.yml').matchAll(/EFFECTIVE=(\d+)/g)].map((m) => Number(m[1]))
+    const agentStep = Math.max(...budgets) + 5
+    const verifyStep = wf.jobs.run.steps.find((st) => st.id === 'specverify')?.['timeout-minutes']
+    expect(typeof verifyStep, '集中驗證步驟必須有自己的 timeout-minutes').toBe('number')
+    // 其餘步驟（setup/usage/judge/上傳）沿用 A1 的 35 分餘裕
+    expect(wf.jobs.run['timeout-minutes']).toBeGreaterThanOrEqual(agentStep + (verifyStep as number) + 35)
   })
 })
 
@@ -1717,5 +1733,109 @@ describe('write-spec 階段判定接線（ADR-018 §12）', () => {
     const w = read('.github/workflows/factory-run.yml')
     expect(w).toContain('gh label create "spec/approved"')
     expect(w).toContain('gh label create "spec/model-declined"')
+  })
+})
+
+/** ADR-018 §7：集中驗證的接線。 */
+describe('write-spec 集中驗證接線（ADR-018 §7）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  type Step = { name?: string; id?: string; if?: string; run?: string; uses?: string }
+  const steps = () => (load(read('.github/workflows/factory-run.yml')) as { jobs: { run: { steps: Step[] } } }).jobs.run.steps
+  const idx = (pred: (s: Step) => boolean): number => steps().findIndex(pred)
+
+  it('只在 write-spec 且 crosscheck 通過後執行，位於 crosscheck 與 judge 之間', () => {
+    const v = idx((s) => s.id === 'specverify')
+    expect(v).toBeGreaterThan(idx((s) => s.id === 'crosscheck'))
+    expect(v).toBeLessThan(idx((s) => s.id === 'judge'))
+    const step = steps()[v]!
+    expect(step.if).toBe("steps.specphase.outputs.phase != '' && steps.crosscheck.outcome == 'success'")
+    expect(step.run).toContain('dist/cli/factory-spec-verify.js --phase "$PHASE" --spec-name "$SPEC"')
+  })
+  it('驗證失敗時 judge 與終態標籤都不執行（不會對不完整的證據給出終態）', () => {
+    for (const id of ['judge']) {
+      expect(steps().find((s) => s.id === id)!.if).toContain("steps.specverify.outcome == 'success' || steps.specverify.outcome == 'skipped'")
+    }
+    expect(steps().find((s) => s.name === 'Apply judge labels and comment')!.if).toContain('steps.specverify.outcome')
+  })
+  it('反例 ITF 只寫 traces/ 並推回分支；失敗時貼 needs-human', () => {
+    const run = steps().find((s) => s.id === 'specverify')!.run!
+    expect(run).toContain('git -C target add -A "specs/${SPEC}/traces"')
+    expect(run).toMatch(/if \[ "\$code" -ne 0 \]; then[\s\S]*?--add-label needs-human[\s\S]*?exit 1/)
+  })
+  it('Quint 工具鏈快取在安裝之前（避免並行下載撞 rate limit）', () => {
+    const cache = idx((s) => s.uses === 'actions/cache@v6' && s.name === 'Cache Quint toolchain')
+    expect(cache).toBeGreaterThanOrEqual(0)
+    expect(cache).toBeLessThan(idx((s) => s.name === 'Install and build'))
+  })
+})
+
+/**
+ * 任務模板的佔位字由 workflow 以 sed 替換。sed 沒有 `g` 旗標時每行只換第一個——
+ * 同一行寫兩個 `<ISSUE>`，第二個就原樣送進 agent（2.5 撰寫時實際踩到）。
+ * 這條直接解析 workflow 的替換式（含旗標），套到**所有**模板上檢查。
+ */
+describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標）', () => {
+  const workflow = read('.github/workflows/factory-run.yml')
+  const agentStep = workflow.slice(workflow.indexOf('name: Run factory agent'))
+  const rules = [...agentStep.matchAll(/-e "s(.)(<[A-Z_]+>)\1[^"]*?\1(g?)"/g)].map((m) => ({
+    token: m[2] as string,
+    global: m[3] === 'g',
+  }))
+  const render = (text: string): string =>
+    text
+      .split('\n')
+      .map((line) =>
+        rules.reduce(
+          (l, r) => (r.global ? l.split(r.token).join('X') : l.replace(r.token, 'X')),
+          line,
+        ),
+      )
+      .join('\n')
+
+  it('解析得到 workflow 的五個佔位字替換式', () => {
+    expect(rules.map((r) => r.token).sort()).toEqual(['<BASE_BRANCH>', '<ISSUE>', '<REPO>', '<SPEC_NAME>', '<SPEC_PHASE>'])
+  })
+  it('每個任務模板替換後都沒有殘留佔位字', () => {
+    const dir = join(ROOT, '.github/factory')
+    for (const f of readdirSync(dir).filter((n) => n.startsWith('task-template') && n.endsWith('.txt'))) {
+      const leftover = render(read(`.github/factory/${f}`)).match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME)>/g)
+      expect(leftover, `${f} 替換後仍殘留 ${leftover?.join(', ')}`).toBeNull()
+    }
+  })
+})
+
+/** ADR-018 步驟 2.5：agent 看得到的作業規則必須涵蓋 2.1–2.4 已生效的每一道機制。 */
+describe('write-spec 作業規則（ADR-018 步驟 2.5）', () => {
+  const t = read('.github/factory/task-template-write-spec.txt')
+  const wf = read('.dsh/skills/factory-workflow/SKILL.md')
+  it('模板帶入 CI 判定的階段與規格名稱', () => {
+    expect(t).toContain('<SPEC_PHASE>')
+    expect(t).toContain('<SPEC_NAME>')
+    expect(t).toContain('.factory/run/spec.json')
+  })
+  it('模板涵蓋各項機制：白名單、快照、source 引用、export、domain_justification、反例、關閉關鍵字、未決事項', () => {
+    for (const rule of [
+      'specs/<SPEC_NAME>/invariants.qnt',
+      '原封不動',
+      '// source:',
+      'export invariants.*',
+      'domain_justification',
+      '不得宣告預期結果',
+      '候選發現',
+      '`Refs #<ISSUE>`',
+      '`Closes #<ISSUE>`',
+      '## 未決事項',
+      'openQuestions',
+    ]) {
+      expect(t, `模板缺少：${rule}`).toContain(rule)
+    }
+  })
+  it('factory-workflow skill 同步說明兩個階段、export 與 openQuestions', () => {
+    for (const rule of ['ADR-018', 'export invariants.*', 'openQuestions', '`Refs #<issue>`', 'domain_justification']) {
+      expect(wf, `factory-workflow 缺少：${rule}`).toContain(rule)
+    }
+  })
+  it('factory-pr-stacking 的 Closes 規則有 write-spec 不變量階段的例外', () => {
+    expect(read('.dsh/skills/factory-pr-stacking/SKILL.md')).toMatch(/agent-write-spec 的不變量階段改寫 `Refs #<編號>`/)
   })
 })
