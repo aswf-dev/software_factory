@@ -1,6 +1,6 @@
 # ADR-018：`agent-write-spec` 改為規格書驅動——不變量出自意圖、模型出自程式碼
 
-- **狀態**：已接受（實作待後續 stacked PR）
+- **狀態**：已接受；實作完成於 stacked PR #315（開單入口）→ #316（crosscheck）→ #317（階段判定）→ #318（集中驗證）→ #319（未決事項）→ #320（作業規則）。驗收試點（node-redlock）待執行
 - **日期**：2026-09-26
 - **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q30；實作期間補裁 Q31–Q33）
 - **對應**：`ADR-008`（Quint 神諭橋）、`ADR-009`（Backstage 統一入口）、`ADR-011`（heavy-verify 升級）、`ADR-012`（集中執行）、`ADR-016`（產出與生效分離）、`docs/06` §4.3、`docs/21` §2.1、`docs/10` Q21-1／Q21-2
@@ -130,7 +130,7 @@ checks:             # schema 拒絕任何未知欄位，因此無法宣告預期
 | ① 機械限制變更範圍 | `factory-crosscheck` 依 factory-run 推導出的階段套用白名單：<br>・`invariants`：只允許 `specs/<name>/invariants.qnt`、`specs/<name>/source.md`（CI 寫入、由 agent 原封不動提交）、`docs/**`<br>・`model`：只允許 `model.qnt`、`instances.qnt`、`verify.yml`、`docs/**`<br>・`invariants.qnt`、`source.md` 不得修改；`source.md` 必須和 CI 快照逐字元一致；`traces/` 只能由 CI 寫入<br>・**關閉關鍵字**：不變量階段的 PR 必須寫 `Refs #N`（寫 `Closes #N` 會在第一階段就關掉 Issue），模型階段的 PR 才寫 `Closes #N`<br>・越界即標為 needs-human |
 | ② 類型層級禁止自動合併 | write-spec 一律不得自動合併 |
 | ③ `spec/approved` | 由 **CODEOWNERS 的人類**在合併不變量 PR 之後，貼在 **Issue** 上。factory-run 以 Issue timeline API 驗證貼標者；機器人或 App 貼的一律視為未核准。它擋的是模型階段的派工 |
-| ④ 未決事項 | `report.json` 必填 `openQuestions[]`（可以是空陣列加理由）；PR README 必須有「未決事項」章節。由 judge 做 fail-loud 檢查（沿用 `requirements` 必填欄位的先例，docs/20 B1） |
+| ④ 未決事項 | `report.json` 必填 `openQuestions`：至少一條未決事項的字串陣列，或確實沒有時寫 `{ "none": "<理由>" }`（空陣列不算回答）；PR 描述必須有「未決事項」章節（`##`–`####` 標題）。由 **crosscheck** 的 write-spec 模式做 fail-loud 檢查——`requirements` 必填欄位的先例（docs/20 B1）本來就在 crosscheck，而 PR 描述也只有 crosscheck 拿得到；crosscheck 失敗時 judge 不執行並交還人類，效果與原先寫的「由 judge 檢查」相同（2.4 實作時更正） |
 
 ### 10. UPPAAL 不納入 CI（Q5）
 
@@ -240,7 +240,7 @@ checks:             # schema 拒絕任何未知欄位，因此無法宣告預期
    3. factory-run（Q33：拆成兩個 PR）：
       - **3a**：§12 的階段判定表與標籤轉換（`factory-spec-phase` CLI）、寫入 `source.md` 快照、驗證 `spec/approved` 的貼標者、事件驅動的過期偵測、依階段選 tier（不變量階段不套用 heavy-verify、模型階段強制套用）、類型層級禁止自動合併（judge 在計分之後套用）、帶參數呼叫 crosscheck。
       - **3b**：`verify.yml` 的 schema 與集中驗證執行器（Quint／Apalache、逐項逾時、witness 可達性、反例 ITF 寫回分支）。
-   4. judge：新增 `openQuestions` 的 fail-loud 檢查。
+   4. crosscheck：新增 `openQuestions` 與 PR「未決事項」章節的 fail-loud 檢查（原寫 judge，實作時更正，理由見 §9 護欄④）。
    5. 模板與 skill：`task-template-write-spec.txt` 與 `factory-workflow` skill 寫入兩條建模規則和兩個階段的說明；`factory-pr-stacking` skill 依階段區分 `Refs`／`Closes`。放在最後，確保 agent 看到的說明和已經生效的機制一致。
 3. **驗收試點：重跑 node-redlock**（上游 `afe5cf9`）。
    - 第一次派工（不變量階段）：不變量引用 redis.io 規格的 repo 內存檔。

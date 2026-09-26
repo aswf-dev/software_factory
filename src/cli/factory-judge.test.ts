@@ -319,6 +319,16 @@ describe('loadReport', () => {
     expect(() => loadReport(path)).toThrow(CliError)
   })
 
+  it('openQuestions：接受字串陣列（含空陣列，交由 crosscheck 判定）與 { none }；拒絕其他欄位', () => {
+    const base = { issueNumber: 1, invocation: { exitCode: 0 } }
+    expect(loadReport(report('oq-list.json', { ...base, openQuestions: ['a'] })).openQuestions).toEqual(['a'])
+    expect(loadReport(report('oq-empty.json', { ...base, openQuestions: [] })).openQuestions).toEqual([])
+    expect(loadReport(report('oq-none.json', { ...base, openQuestions: { none: '無歧義' } })).openQuestions).toEqual({
+      none: '無歧義',
+    })
+    expect(() => loadReport(report('oq-bad.json', { ...base, openQuestions: { none: 'x', extra: 1 } }))).toThrow(CliError)
+  })
+
   it('skillGap 缺 needed → CliError', () => {
     const path = report('gap-no-needed.json', {
       issueNumber: 1,
