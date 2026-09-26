@@ -68,7 +68,7 @@
 | 護欄② | **類型層級禁止自動合併** |
 | 護欄③ `spec/approved` | **由 CODEOWNERS 的人類在合併不變量 PR 之後貼在 Issue 上**，機器人不得貼標（由 CI 以 timeline API 驗證貼標者）。擋的是模型階段的派工 |
 | 護欄④ 未決事項 | `report.json` 必填 `openQuestions[]`，PR README 必須有「未決事項」章節，由 judge 做 fail-loud 檢查 |
-| 狀態 | 決策已定（ADR-018）；實作待後續 stacked PR；驗收試點為重跑 node-redlock |
+| 狀態 | 決策已定（ADR-018）；實作完成於 stacked PR #315–#320；驗收試點（重跑 node-redlock）待執行 |
 
 ### 2.2 `agent-refactor`（重構）— P1
 
