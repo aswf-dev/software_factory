@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkClosingKeywords,
+  checkOpenQuestions,
   checkSourceSnapshot,
   checkSpecScope,
   findClosingReferences,
@@ -124,5 +125,39 @@ describe('checkClosingKeywords', () => {
     const r = checkClosingKeywords('model', 7, ['Refs #7'])
     expect(r.mismatches).toEqual([])
     expect(r.advisories.map((a) => a.kind)).toEqual(['write-spec-model-no-closes'])
+  })
+})
+
+describe('checkOpenQuestions（ADR-018 §9 護欄④）', () => {
+  const SECTION = '## 摘要\n\nRefs #7\n\n## 未決事項\n\n- 時鐘漂移上限未定'
+  it('有未決事項清單、PR 有章節 → 無 mismatch', () => {
+    expect(checkOpenQuestions(['時鐘漂移上限未定'], [SECTION])).toEqual([])
+  })
+  it('明確宣告沒有未決事項並附理由 → 無 mismatch', () => {
+    expect(checkOpenQuestions({ none: '規格第 3–5 步已完整涵蓋，無歧義' }, ['### 未決事項\n\n無'])).toEqual([])
+  })
+  it('report 沒有 openQuestions → mismatch', () => {
+    expect(checkOpenQuestions(undefined, [SECTION]).map((m) => m.kind)).toEqual(['write-spec-open-questions-missing'])
+  })
+  it('空陣列（沒有附理由）或含空白條目 → mismatch，並說明正確寫法', () => {
+    const empty = checkOpenQuestions([], [SECTION])
+    expect(empty.map((m) => m.kind)).toEqual(['write-spec-open-questions-missing'])
+    expect(empty[0]!.detail).toContain('{ "none": "<理由>" }')
+    expect(checkOpenQuestions(['  '], [SECTION]).map((m) => m.kind)).toEqual(['write-spec-open-questions-missing'])
+  })
+  it('none 的理由是空白 → mismatch', () => {
+    expect(checkOpenQuestions({ none: '   ' }, [SECTION]).map((m) => m.kind)).toEqual(['write-spec-open-questions-missing'])
+  })
+  it('所有 PR 描述都沒有「未決事項」章節 → mismatch（標題層級 ## 到 ####）', () => {
+    expect(checkOpenQuestions(['x'], ['## 摘要\n\n未決事項寫在內文不算']).map((m) => m.kind)).toEqual([
+      'write-spec-open-questions-section',
+    ])
+    expect(checkOpenQuestions(['x'], ['#### 未決事項'])).toEqual([])
+  })
+  it('report 與 PR 兩邊都缺 → 兩條 mismatch', () => {
+    expect(checkOpenQuestions(undefined, []).map((m) => m.kind)).toEqual([
+      'write-spec-open-questions-missing',
+      'write-spec-open-questions-section',
+    ])
   })
 })

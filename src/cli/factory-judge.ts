@@ -105,6 +105,13 @@ export const ReportSchema = z.object({
     )
     .optional(),
   /**
+   * agent-write-spec 的未決事項（ADR-018 §9 護欄④）：字串陣列，或 `{ none: 理由 }`。
+   * 形狀在此放寬（空陣列、空白條目都收下），內容是否合規由 crosscheck 的
+   * write-spec 模式判定——這樣 agent 交出空陣列時，得到的是「缺少理由」的明確
+   * mismatch，而不是整份 report 格式錯誤、看不出原因的崩潰。其他類型不讀此欄位。
+   */
+  openQuestions: z.union([z.array(z.string()), z.object({ none: z.string() }).strict()]).optional(),
+  /**
    * CI 實測的 token 用量與成本（factory-usage 寫回，docs/04 §5）。
    *
    * 與 tokensUsed（agent 自報，SR7 用）不同：usage 是 CI 於 run 結束後回放
