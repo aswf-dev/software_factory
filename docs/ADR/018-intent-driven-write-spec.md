@@ -98,6 +98,24 @@ specs/<name>/
 - 工單的成敗取決於**證據是否完整**，不是不變量是否成立。在 as-is 階段，違反本身就是發現。
 - 不變量階段的驗證：`invariants.qnt` 能單獨通過 typecheck，而且每個 `INV_*` 都有 source 註解。
 
+**`verify.yml` 格式與判定細節**（2.3b 實作時依 Quint 0.32.0 實測確定）：
+
+```yaml
+instances:          # 每個常數都要附 domain_justification（Q21），否則不合規
+  - { module: even, constants: { N: { value: "2", domain_justification: "src/index.ts 未限制節點數" } } }
+checks:             # schema 拒絕任何未知欄位，因此無法宣告預期結果
+  - { instance: even, invariant: INV_settles, mode: run, max_steps: 12,
+      max_samples: 10000, timeout_seconds: 600, witnesses: [WIT_tie] }
+```
+
+- **每條不變量都必須至少有一項檢查**；全部檢查的逾時總和上限 1800 秒。
+- `mode: run` 以 `quint run --witnesses` 一次取得違反與 witness 次數；`mode: verify`（Apalache）不回報 witness，成立時 CI 另以 `quint run` 量測可達性。
+- **witness 可達性以「每條不變量」彙總**，不逐項判定：同一條不變量在某個實例上本來就不可能到達危險狀態（例如奇數節點不會平票），只要**至少一個實例**可達即可；全部不可達才算假綠燈嫌疑。
+- 判定優先序：違反 > 執行錯誤 > 逾時 > 成立／假綠燈。錯誤與假綠燈交還人類；違反與逾時只記錄。
+- `traces/` 由 CI 在每次模型階段開始時清空，只保留本次違反的 ITF，並以 CI 身分提交回分支。
+- **`model.qnt` 必須 `export invariants.*`**：只 `import` 的話，`instances.qnt` 的實例模組看不到不變量（`QNT404`）。這條要寫進 2.5 的模板規則。
+- factory-run 的 job 逾時由 150 分調為 **185 分**：模型階段的 agent（上限 115 分）與集中驗證（上限 35 分）可能在同一個 run 內都用滿。
+
 ### 8. 兩條建模規則（Q7、Q21）
 
 寫進 `task-template-write-spec.txt` 和 `factory-workflow` skill。vendored 的 `quint-lang`、`quint-modeling` 鎖在官方 commit（ADR-008），**不修改**。
