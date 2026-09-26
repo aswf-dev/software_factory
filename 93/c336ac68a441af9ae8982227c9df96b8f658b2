@@ -1,0 +1,32 @@
+.dsh/skills/factory-workflow/SKILL.md
+  s_8e84f713421083::t_498d5ae39b490b 31-32,95
+docs/21-candidate-work-item-types.md
+  s_8e84f713421083::t_5d9c8ffac75384 71
+.github/factory/task-template-write-spec.txt
+  s_8e84f713421083::t_6c9bb4f46ff55e 4-9,18,20-34,37-38,40-69,73-74,76-83
+  s_8e84f713421083::t_c76ccabc016d01 19,35-36,39
+docs/ADR/018-intent-driven-write-spec.md
+  s_8e84f713421083::t_5d9c8ffac75384 3
+.dsh/skills/factory-pr-stacking/SKILL.md
+  s_8e84f713421083::t_498d5ae39b490b 55
+test/adversarial/factory-assets.test.ts
+  s_8e84f713421083::t_13d76d32716e05 1771-1841
+config/factory/skills-lock.json
+  s_8e84f713421083::t_d34cd9ba7794a6 6,18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "93c336ac68a441af9ae8982227c9df96b8f658b2",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
