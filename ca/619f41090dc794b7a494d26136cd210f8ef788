@@ -1,0 +1,26 @@
+src/write-spec/scope.test.ts
+  s_8e84f713421083::t_904559dfff9c84 1-128
+src/cli/factory-crosscheck.test.ts
+  s_8e84f713421083::t_73499eb430af77 37-38,54-58,961-1103
+src/cli/factory-crosscheck.ts
+  s_8e84f713421083::t_4cb82962532d26 26-33,489-502,518,527-535,558-565,580,594-608,617-625,627-640,652,665-682
+  s_8e84f713421083::t_49690d1430f188 506-508
+src/write-spec/scope.ts
+  s_8e84f713421083::t_e5b95735a1f280 1-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ca619f41090dc794b7a494d26136cd210f8ef788",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
