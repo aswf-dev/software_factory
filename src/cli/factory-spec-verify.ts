@@ -143,7 +143,7 @@ function runCheck(quint: QuintRunner, specDir: string, check: VerifyCheck, trace
   }
   rmSync(tmpPath, { force: true })
 
-  // verify（Apalache）不回報 witness：成立時另以 quint run 量測危險狀態是否可達
+  // verify（Apalache）不回報 witness：成立時另以 quint run 量測情境 witness 是否可達
   if (check.mode === 'verify' && parsed.status === 'holds') {
     const w = quint(['run', 'instances.qnt', `--main=${check.instance}`, ...witnessArgs], { cwd: specDir, timeoutMs })
     parsed = parseQuintOutput(w.exitCode, w.output, w.timedOut)

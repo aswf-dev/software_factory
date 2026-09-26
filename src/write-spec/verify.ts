@@ -6,6 +6,9 @@
  * 拒絕任何未知欄位。每條不變量的結果一律由 CI 計算：
  * - 違反：候選發現（未回放）；回放由後續 fix-bug 的紅燈測試完成（Q31）。
  * - 成立：必須至少在一個實例上有 witness 可達，否則是假綠燈嫌疑（陷阱 C）。
+ *   witness 是**情境**（不變量要保護的前提確實發生，例如「所有票都已回來」），
+ *   只能定義在 model.qnt（Q34）：若 witness 等於不變量的否定，不變量成立時它必然
+ *   不可達，正確的不變量會一律被判為假綠燈。
  * - 逾時：照實記錄。
  * 工單的成敗取決於證據是否完整，不是不變量是否成立。
  *
@@ -161,14 +164,21 @@ export function parseVerifyConfig(
   }
 
   const invariants = extractValNames(ctx.invariantsText, 'INV_')
-  const vals = new Set(extractValNames(`${ctx.invariantsText}\n${ctx.modelText}`, ''))
+  const modelWitnesses = new Set(extractValNames(ctx.modelText, 'WIT_'))
+  const invariantVals = new Set(extractValNames(ctx.invariantsText, ''))
   for (const check of config.checks) {
     if (!declared.has(check.instance)) errors.push(`檢查引用未宣告的實例：\`${check.instance}\``)
     if (!invariants.includes(check.invariant)) {
       errors.push(`檢查引用不存在的不變量：\`${check.invariant}\`（必須是 invariants.qnt 的 INV_*）`)
     }
     for (const w of check.witnesses) {
-      if (!vals.has(w)) errors.push(`witness \`${w}\` 不存在於 invariants.qnt 或 model.qnt`)
+      if (modelWitnesses.has(w)) continue
+      errors.push(
+        invariantVals.has(w)
+          ? `witness \`${w}\` 定義在 invariants.qnt——情境 witness 必須由模型階段定義在 model.qnt（Q34）：` +
+              '不變量階段的 WIT_* 描述的是違反本身，不變量成立時必然不可達，會把正確的不變量誤判為假綠燈'
+          : `witness \`${w}\` 不存在於 model.qnt（必須是 model.qnt 的 \`val WIT_*\`，Q34）`,
+      )
     }
   }
   for (const inv of invariants) {
@@ -251,7 +261,7 @@ export function judgeEvidence(results: readonly InvariantResult[]): {
     if (r.status === 'vacuous') {
       mismatches.push({
         kind: 'write-spec-vacuous',
-        detail: `\`${r.invariant}\` 在所有實例都成立，但沒有任何 witness 可達——可能是模型到不了危險狀態（假綠燈）`,
+        detail: `\`${r.invariant}\` 在所有實例都成立，但沒有任何 witness 可達——可能是模型到不了不變量要保護的情境（假綠燈）`,
       })
     } else if (r.status === 'error') {
       mismatches.push({ kind: 'write-spec-check-error', detail: `\`${r.invariant}\` 的檢查執行失敗，詳見 run log` })

@@ -1826,12 +1826,14 @@ describe('write-spec 作業規則（ADR-018 步驟 2.5）', () => {
       '`Closes #<ISSUE>`',
       '## 未決事項',
       'openQuestions',
+      '情境 witness',
+      '不得**寫成不變量的否定',
     ]) {
       expect(t, `模板缺少：${rule}`).toContain(rule)
     }
   })
   it('factory-workflow skill 同步說明兩個階段、export 與 openQuestions', () => {
-    for (const rule of ['ADR-018', 'export invariants.*', 'openQuestions', '`Refs #<issue>`', 'domain_justification']) {
+    for (const rule of ['ADR-018', 'export invariants.*', 'openQuestions', '`Refs #<issue>`', 'domain_justification', '情境 witness']) {
       expect(wf, `factory-workflow 缺少：${rule}`).toContain(rule)
     }
   })
