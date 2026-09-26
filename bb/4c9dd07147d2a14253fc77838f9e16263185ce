@@ -1,0 +1,33 @@
+src/write-spec/scope.test.ts
+  s_8e84f713421083::t_646c93cef3f564 7,130-162
+  s_8e84f713421083::t_ed1256b668a070 163
+src/cli/factory-crosscheck.test.ts
+  s_8e84f713421083::t_d52ccefd3d298f 1033-1036,1055,1060,1067,1073,1077,1082-1083,1095-1106
+docs/ADR/018-intent-driven-write-spec.md
+  s_8e84f713421083::t_e94d2d89005025 133,243
+src/cli/factory-judge.test.ts
+  s_8e84f713421083::t_e94d2d89005025 322-331
+src/cli/factory-judge.ts
+  s_8e84f713421083::t_d52ccefd3d298f 108-113
+  s_8e84f713421083::t_0411d38a445f95 107
+src/write-spec/scope.ts
+  s_8e84f713421083::t_4558d90167e243 153-190
+src/cli/factory-crosscheck.ts
+  s_8e84f713421083::t_d52ccefd3d298f 29,680-681,684-685
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bb4c9dd07147d2a14253fc77838f9e16263185ce",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
