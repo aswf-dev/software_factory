@@ -22,7 +22,6 @@ const INVARIANTS = [
   '  val INV_a = v < N',
   '  // source: spec §4',
   '  val INV_b = v <= N',
-  '  val WIT_w = v == N',
   '}',
 ].join('\n')
 
@@ -36,7 +35,8 @@ function makeSpec(files: Record<string, string>): string {
 
 const MODEL_FILES = (verify: string): Record<string, string> => ({
   'invariants.qnt': INVARIANTS,
-  'model.qnt': 'module model { import invariants.* from "./invariants"\n export invariants.* }',
+  // 情境 witness 由模型階段定義在 model.qnt（Q34）
+  'model.qnt': 'module model { import invariants.* from "./invariants"\n export invariants.*\n val WIT_w = v == N }',
   'instances.qnt': 'module odd { import model(N = 3).* from "./model" }\nmodule even { import model(N = 2).* from "./model" }',
   'verify.yml': verify,
 })

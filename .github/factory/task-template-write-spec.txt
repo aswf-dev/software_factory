@@ -29,8 +29,7 @@
      // 「經過時間必須小於鎖的有效期，才算取得鎖」
      val INV_neverHandsOutExpiredLock = ...
      ```
-   - 一併定義 `val WIT_*`：描述每條不變量所防範的**危險狀態**（例如「平票」「鎖已過期仍被交出」）。
-     下一階段會用它們證明危險狀態確實可達，避免假綠燈。
+   - **不要定義 `val WIT_*`**：witness 描述的是程式行為下的情境，由模型階段寫在 `model.qnt`（見第 6 點）。
    - 必須通過 `npx quint typecheck specs/<SPEC_NAME>/invariants.qnt`（CI 會重跑）。
    - PR 描述結尾寫 **`Refs #<ISSUE>`**。
      **不得**以 `Closes`／`Fixes`／`Resolves` 等關閉關鍵字引用本 Issue：
@@ -45,6 +44,11 @@
      export invariants.*
      ```
      **少了 `export` 這一行，`instances.qnt` 的實例會看不到不變量（`QNT404`）**，CI 驗證會失敗。
+   - **情境 witness（`val WIT_*`，定義在 `model.qnt`）**：每條 `INV_*` 至少一個，描述該不變量**要保護的情境確實發生**，
+     用正面敘述寫，例如「所有節點的票都已回來」「兩個 client 同時爭取同一資源」「有 client 持有未過期的鎖」。
+     **不得**寫成不變量的否定（例如「平票而且卡住」）：那描述的是違反本身，不變量成立時必然不可達，
+     CI 會把正確的不變量判為假綠燈。也**不得**在初始狀態就成立——那證明不了任何動作真的發生過。
+     `verify.yml` 只能引用 `model.qnt` 的 witness；名稱不可與 `invariants.qnt` 既有的定義重複（Quint 會報名稱衝突）。
    - `instances.qnt` 每個實例一個模組：`module even { import model(N = 2, CLIENTS = Set(1, 2)).* from "./model" }`。
    - **建模規則 1：設定範圍以程式實際接受的輸入為準**。`verify.yml` 裡每個實例常數都要寫 `domain_justification`：
      程式碼中的檢查位置（`file:line`），或「程式未限制」。**程式沒有限制時，實例必須涵蓋邊界值與奇偶兩種情況**
@@ -56,7 +60,7 @@
        - { module: even, constants: { N: { value: "2", domain_justification: "src/index.ts 未限制節點數" } } }
      checks:
        - { instance: even, invariant: INV_settles, mode: run, max_steps: 12, max_samples: 10000,
-           timeout_seconds: 300, witnesses: [WIT_tie] }
+           timeout_seconds: 300, witnesses: [WIT_allVotesIn] }
      ```
      每條 `INV_*` 至少一項檢查；每項至少一個 witness；逾時總和不超過 1800 秒。
      `mode: run` 為隨機模擬，`mode: verify` 以 Apalache 窮盡到 `max_steps`（較慢）。

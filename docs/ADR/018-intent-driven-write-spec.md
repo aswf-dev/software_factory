@@ -2,7 +2,7 @@
 
 - **狀態**：已接受；實作完成於 stacked PR #315（開單入口）→ #316（crosscheck）→ #317（階段判定）→ #318（集中驗證）→ #319（未決事項）→ #320（作業規則）。驗收試點（node-redlock）待執行
 - **日期**：2026-09-26
-- **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q30；實作期間補裁 Q31–Q33）
+- **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q30；實作期間補裁 Q31–Q33；試點補裁 Q34）
 - **對應**：`ADR-008`（Quint 神諭橋）、`ADR-009`（Backstage 統一入口）、`ADR-011`（heavy-verify 升級）、`ADR-012`（集中執行）、`ADR-016`（產出與生效分離）、`docs/06` §4.3、`docs/21` §2.1、`docs/10` Q21-1／Q21-2
 
 ## 脈絡
@@ -32,7 +32,7 @@
 |---|---|
 | A. 建模時的假設把 bug 排除掉 | 所有實例都是 `NODES = Set(1,2,3)`，而且 `redlockAssumptions` 斷言 `NODES.size() % 2 == 1`。程式本身接受任意 N，所以**偶數節點平票時 `acquire()` 永久 pending** 被漏掉。FM-Agent（Opus 5.5、qwen）後來各自獨立找到這個 bug |
 | B. 模型保真度不足 | as-is 的 F7 反例是**模型假象**（README 自行更正） |
-| C. 假綠燈 | 「不變量成立 ≠ 實作正確」，因此每一條不變量都需要一個 witness，證明危險狀態確實可達 |
+| C. 假綠燈 | 「不變量成立 ≠ 實作正確」，因此每一條不變量都需要一個 witness，證明它要保護的情境確實可達 |
 
 ## 決策
 
@@ -92,7 +92,7 @@ specs/<name>/
 
 - 由 **factory-run 集中驗證**（呼應 ADR-012）；目標 repo 不放 workflow。
 - `verify.yml` 只宣告「**要跑什麼**」，**不得宣告預期結果**。每條不變量的結果一律由 CI 計算：
-  - **成立**：必須附 witness，證明危險狀態可達。
+  - **成立**：必須附 witness，證明不變量要保護的情境可達（Q34：情境 witness 定義在 `model.qnt`）。
   - **違反**：必須附反例 ITF，記為「**候選發現（未回放）**」；回放方式見 §8 規則 2。
   - **逾時**：照實記錄。
 - 工單的成敗取決於**證據是否完整**，不是不變量是否成立。在 as-is 階段，違反本身就是發現。
@@ -105,14 +105,15 @@ instances:          # 每個常數都要附 domain_justification（Q21），否�
   - { module: even, constants: { N: { value: "2", domain_justification: "src/index.ts 未限制節點數" } } }
 checks:             # schema 拒絕任何未知欄位，因此無法宣告預期結果
   - { instance: even, invariant: INV_settles, mode: run, max_steps: 12,
-      max_samples: 10000, timeout_seconds: 600, witnesses: [WIT_tie] }
+      max_samples: 10000, timeout_seconds: 600, witnesses: [WIT_allVotesIn] }
 ```
 
 - **每條不變量都必須至少有一項檢查**；全部檢查的逾時總和上限 1800 秒。
 - `mode: run` 以 `quint run --witnesses` 一次取得違反與 witness 次數；`mode: verify`（Apalache）不回報 witness，成立時 CI 另以 `quint run` 量測可達性。
-- **witness 可達性以「每條不變量」彙總**，不逐項判定：同一條不變量在某個實例上本來就不可能到達危險狀態（例如奇數節點不會平票），只要**至少一個實例**可達即可；全部不可達才算假綠燈嫌疑。
+- **witness 可達性以「每條不變量」彙總**，不逐項判定：同一條不變量要保護的情境，在某個實例上可能本來就不會發生，只要**至少一個實例**可達即可；全部不可達才算假綠燈嫌疑。
 - 判定優先序：違反 > 執行錯誤 > 逾時 > 成立／假綠燈。錯誤與假綠燈交還人類；違反與逾時只記錄。
 - `traces/` 由 CI 在每次模型階段開始時清空，只保留本次違反的 ITF，並以 CI 身分提交回分支。
+- **witness 是情境，只能定義在 `model.qnt`**（Q34，2026-09-26 試點補裁）：witness 以正面敘述描述不變量要保護的情境確實發生（例如「所有節點的票都已回來」），**不得**是不變量的否定。試點 tradingbot-tw/node-redlock#1 的不變量階段依原規則「定義危險狀態的 `WIT_*`」，7 條全部寫成 `¬INV`：這種 witness 在不變量成立時必然不可達（Quint 0.32.0 實測：`INV_settles` 成立時 `WIT_tie` 0/200 條軌跡，情境 witness `WIT_allVotesIn` 200/200），正確的不變量會一律被判為假綠燈。情境是否可達取決於程式行為，因此由模型階段定義；`verify.yml` 引用 `invariants.qnt` 的 `WIT_*` 時 CI 判為不合規。不變量階段不再定義 `WIT_*`。
 - **`model.qnt` 必須 `export invariants.*`**：只 `import` 的話，`instances.qnt` 的實例模組看不到不變量（`QNT404`）。這條要寫進 2.5 的模板規則。
 - factory-run 的 job 逾時由 150 分調為 **185 分**：模型階段的 agent（上限 115 分）與集中驗證（上限 35 分）可能在同一個 run 內都用滿。
 

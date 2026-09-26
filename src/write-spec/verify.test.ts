@@ -34,6 +34,9 @@ const INSTANCES = [
   '}',
 ].join('\n')
 
+// 情境 witness 由模型階段定義在 model.qnt（Q34）
+const MODEL = '  val WIT_allVotesIn = votesFor + votesAgainst == N'
+
 const VALID = `
 instances:
   - module: even
@@ -41,8 +44,8 @@ instances:
       N: { value: "2", domain_justification: "src/index.ts 未限制節點數" }
       CLIENTS: { value: "Set(1, 2)", domain_justification: "程式未限制" }
 checks:
-  - { instance: even, invariant: INV_settles, mode: run, max_steps: 4, timeout_seconds: 60, witnesses: [WIT_tie] }
-  - { instance: even, invariant: INV_bounded, mode: verify, max_steps: 4, timeout_seconds: 60, witnesses: [WIT_tie] }
+  - { instance: even, invariant: INV_settles, mode: run, max_steps: 4, timeout_seconds: 60, witnesses: [WIT_allVotesIn] }
+  - { instance: even, invariant: INV_bounded, mode: verify, max_steps: 4, timeout_seconds: 60, witnesses: [WIT_allVotesIn] }
 `
 
 describe('extractValNames', () => {
@@ -80,7 +83,7 @@ describe('extractInstanceConstants', () => {
 })
 
 describe('parseVerifyConfig', () => {
-  const ctx = { invariantsText: INVARIANTS, modelText: '', instancesText: INSTANCES }
+  const ctx = { invariantsText: INVARIANTS, modelText: MODEL, instancesText: INSTANCES }
   it('合法清單 → 無錯誤，套用預設值', () => {
     const r = parseVerifyConfig(VALID, ctx)
     expect(r.errors).toEqual([])
@@ -92,12 +95,12 @@ describe('parseVerifyConfig', () => {
     expect(parseVerifyConfig('42', ctx).errors.join()).toContain('(root)')
   })
   it('不允許宣告預期結果（未知欄位一律拒絕）', () => {
-    const withExpect = VALID.replace('witnesses: [WIT_tie] }\n  - {', 'witnesses: [WIT_tie], expect: holds }\n  - {')
+    const withExpect = VALID.replace('witnesses: [WIT_allVotesIn] }\n  - {', 'witnesses: [WIT_allVotesIn], expect: holds }\n  - {')
     expect(parseVerifyConfig(withExpect, ctx).errors.join()).toMatch(/schema/)
   })
   it('引用未宣告的實例、不存在的不變量或 witness → 錯誤', () => {
     const bad = VALID.replace('instance: even, invariant: INV_settles', 'instance: nope, invariant: INV_missing').replace(
-      'witnesses: [WIT_tie] }\n  - {',
+      'witnesses: [WIT_allVotesIn] }\n  - {',
       'witnesses: [WIT_nope] }\n  - {',
     )
     const errs = parseVerifyConfig(bad, ctx).errors.join('\n')
@@ -115,12 +118,14 @@ describe('parseVerifyConfig', () => {
     const ghost = VALID.replace('  - module: even', '  - module: ghost').replaceAll('instance: even', 'instance: ghost')
     expect(parseVerifyConfig(ghost, ctx).errors.join()).toMatch(/ghost.*instances\.qnt/)
   })
-  it('witness 可以定義在 model.qnt', () => {
-    const r = parseVerifyConfig(VALID.replaceAll('WIT_tie', 'WIT_model'), {
-      ...ctx,
-      modelText: '  val WIT_model = true',
-    })
-    expect(r.errors).toEqual([])
+  it('witness 必須定義在 model.qnt：引用 invariants.qnt 的 WIT_* → 錯誤並說明原因（Q34）', () => {
+    const errs = parseVerifyConfig(VALID.replaceAll('WIT_allVotesIn', 'WIT_tie'), ctx).errors.join('\n')
+    expect(errs).toMatch(/WIT_tie.*invariants\.qnt.*model\.qnt/)
+    expect(errs).toContain('必然不可達')
+  })
+  it('model.qnt 沒有 witness 時，錯誤訊息指向 model.qnt', () => {
+    const errs = parseVerifyConfig(VALID, { ...ctx, modelText: '' }).errors.join('\n')
+    expect(errs).toMatch(/WIT_allVotesIn.*不存在於 model\.qnt/)
   })
   it('實例名稱重複、或逾時總和超過上限 → 錯誤', () => {
     const dup = VALID.replace(
