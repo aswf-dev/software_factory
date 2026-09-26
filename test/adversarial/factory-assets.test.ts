@@ -10,7 +10,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DOD_LABELS } from '../../src/cli/factory-issue-check.js'
+import { DOD_LABELS, FIELD_TITLES } from '../../src/cli/factory-issue-check.js'
+import { buildIssueBody } from '../../src/factory-draft/issue-body.js'
+import { SPEC_NAME_MAX, SPEC_NAME_PATTERN } from '../../src/write-spec/intake.js'
 // Issue #287：三軸合法值的單一真相來源。測試若重打字串，測試自己就是下一個漂移點。
 import { BUSINESS_CRITICALITY, COMPLEXITY, RISK_PROFILE } from '../../src/scoring/types.js'
 
@@ -1584,5 +1586,75 @@ describe('G1 終態守衛保存 skillGap（judge/labels 失敗時的唯一入 Is
     // 格式契約只能有一份（見 render.ts 檔首）：第二套一旦分歧，聚類器會把
     // 新舊留言分到不同解析分支，docs/25 §3 的「≥3 次」門檻永遠達不到。
     expect(src).not.toContain('### 🧩')
+  })
+})
+
+/**
+ * ADR-018 §11：write-spec 的兩個開單欄位要在四處逐字一致，否則重演 #238——
+ * 新增 task_type 時漏改 Backstage，表單永遠開不出該類型。這裡的漂移同樣無聲：
+ * 標題差一個字，issue-check 就永遠讀不到欄位、永遠判「缺規格名稱」。
+ */
+describe('write-spec 開單欄位四處同步（ADR-018 §11）', () => {
+  const SPEC_FIELDS = ['spec_name', 'spec_source'] as const
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  type BsParams = {
+    properties: { taskType: { enum: string[] } }
+    dependencies: {
+      taskType: {
+        oneOf: {
+          properties: Record<string, { title?: string; enum?: string[]; pattern?: string; maxLength?: number }>
+          required?: string[]
+        }[]
+      }
+    }
+  }
+  const bsParams = (): BsParams =>
+    (load(read('backstage/templates/factory-work-item/template.yaml')) as {
+      spec: { parameters: BsParams[] }
+    }).spec.parameters[0]!
+
+  it('FIELD_TITLES 有兩個欄位', () => {
+    for (const f of SPEC_FIELDS) expect(FIELD_TITLES[f], f).toBeTruthy()
+  })
+  it('ISSUE_TEMPLATE：以欄位標題作為 label（GitHub 以 label 當 ### 標題）', () => {
+    const yml = load(read('.github/ISSUE_TEMPLATE/factory-work-item.yml')) as {
+      body: { id?: string; attributes: { label: string } }[]
+    }
+    for (const f of SPEC_FIELDS) {
+      const item = yml.body.find((b) => b.id === f)
+      expect(item, `ISSUE_TEMPLATE 缺 ${f}`).toBeDefined()
+      expect(item!.attributes.label).toBe(FIELD_TITLES[f])
+    }
+  })
+  it('Backstage：body 含兩個 ### 標題，且未填時輸出 _No response_', () => {
+    const t = read('backstage/templates/factory-work-item/template.yaml')
+    expect(t).toContain(`### ${FIELD_TITLES.spec_name}\n\n          \${{ parameters.specName or '_No response_' }}`)
+    expect(t).toContain(`### ${FIELD_TITLES.spec_source}\n\n          \${{ parameters.specSource or '_No response_' }}`)
+  })
+  it('buildIssueBody：輸出兩個 ### 標題', () => {
+    const body = buildIssueBody({ taskType: 'agent-add-tests', requirement: 'x', targetRepo: 'o/r' })
+    for (const f of SPEC_FIELDS) expect(body).toContain(`### ${FIELD_TITLES[f]}`)
+  })
+  it('Backstage 條件分支：write-spec 分支必填兩欄位、標題一致；另一分支恰為其餘類型', () => {
+    const p = bsParams()
+    const [writeSpec, others] = p.dependencies.taskType.oneOf
+    expect(writeSpec!.properties.taskType!.enum).toEqual(['agent-write-spec'])
+    expect(writeSpec!.required).toEqual(['specName', 'specSource'])
+    expect(writeSpec!.properties.specName!.title).toBe(FIELD_TITLES.spec_name)
+    expect(writeSpec!.properties.specSource!.title).toBe(FIELD_TITLES.spec_source)
+    // 其餘分支必須與主 enum 同步：新增類型時漏改這裡，選那個類型就沒有分支可匹配
+    expect(others!.properties.taskType!.enum).toEqual(
+      p.properties.taskType.enum.filter((t) => t !== 'agent-write-spec'),
+    )
+  })
+  it('Backstage 規格名稱的 pattern／maxLength 與 issue-check 同一份規則', () => {
+    const spec = bsParams().dependencies.taskType.oneOf[0]!.properties.specName!
+    expect(spec.pattern).toBe(SPEC_NAME_PATTERN)
+    expect(spec.maxLength).toBe(SPEC_NAME_MAX)
+  })
+  it('factory-run 呼叫 issue-check 時傳入目標 repo 的 catalog 與 checkout 根目錄', () => {
+    const w = read('.github/workflows/factory-run.yml')
+    expect(w).toContain('--catalog target/catalog-info.yaml')
+    expect(w).toContain('--target-root target')
   })
 })

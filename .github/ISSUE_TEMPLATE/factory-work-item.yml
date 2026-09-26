@@ -50,3 +50,18 @@ body:
       label: 目標 repo（預設本 repo）
       description: owner/name；其他 repo 時請一併指定 base_branch
       placeholder: philipz/software_factory
+  # agent-write-spec 專用（ADR-018 §5、§11）。GitHub 原生表單不支援條件欄位，
+  # 故一律顯示為選填；是否必填由 factory-issue-check 判定（只有 write-spec 必填）。
+  # 標題與 Backstage 模板、buildIssueBody、FIELD_TITLES 逐字一致（factory-assets 釘住）。
+  - type: input
+    id: spec_name
+    attributes:
+      label: 規格名稱
+      description: 僅 agent-write-spec 必填。kebab-case 小寫英數（例如 redlock），決定 specs/<name>/ 目錄。
+      placeholder: redlock
+  - type: input
+    id: spec_source
+    attributes:
+      label: 規格來源
+      description: 僅 agent-write-spec 必填。repo 內路徑、固定版本的 https URL（含 commit SHA 或版號），或填 issue（以本 Issue 的 PRD 為規格，由 CI 快照）。
+      placeholder: docs/specs/redlock.md

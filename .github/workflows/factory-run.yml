@@ -213,11 +213,16 @@ jobs:
           # --risk-paths 讀目標 repo（target/ 已於前一步 checkout）：事前風險路徑
           # 比對為 advisory（只留言，不改紅綠燈）——初始計分收不到 changedPaths，
           # 此提示是 agent 啟動前唯一的風險訊號（factory-scoreboard#3 實證）。
+          # --catalog／--target-root（ADR-018 §4、§5）：agent-write-spec 的使用門檻
+          #（H 規則或 quint-spec 標註）與規格來源存在性，只有在這裡拿得到目標 repo
+          # 的設定與檔案樹，故在 dispatch 時強制判定；機制 repo 的 issues 事件只做提示。
           node dist/cli/factory-issue-check.js \
             "${{ inputs.issue_number }}" \
             --tiers config/dsh/model-tiers.yaml \
             --providers config/dsh/settings.providers.yaml \
             --risk-paths target/.github/factory/risk-paths.yml \
+            --catalog target/catalog-info.yaml \
+            --target-root target \
             > .factory/issue-check.txt 2>&1 || true
           cat .factory/issue-check.txt
           gh issue comment "${{ inputs.issue_number }}" --body-file .factory/issue-check.txt
