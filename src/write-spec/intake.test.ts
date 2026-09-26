@@ -40,28 +40,17 @@ describe('classifySpecSource', () => {
     expect(classifySpecSource('issue')).toEqual({ kind: 'issue' })
     expect(classifySpecSource('Issue')).toEqual({ kind: 'issue' })
   })
-  it('GitHub permalink（路徑含 40 位 commit SHA）→ 固定版本 URL', () => {
-    const url =
-      'https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567/docs/spec.md'
-    expect(classifySpecSource(url)).toEqual({ kind: 'url' })
-  })
-  it('路徑含版號段（v1.2.3 或 1.2）→ 固定版本 URL', () => {
-    expect(classifySpecSource('https://example.com/spec/v1.2.3/index.html')).toEqual({ kind: 'url' })
-    expect(classifySpecSource('https://example.com/docs/2.0/lock')).toEqual({ kind: 'url' })
-  })
-  it('浮動 URL（latest、無版本）→ 錯誤，並提示先存檔進 repo', () => {
-    const r = classifySpecSource(
+  it('任何 URL 一律拒絕，並提示先存檔進 repo（Q32：網頁原文難以逐字引用）', () => {
+    for (const url of [
+      'https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567/docs/spec.md',
       'https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/',
-    )
-    expect(r.kind).toBe('url')
-    expect(r.error).toMatch(/固定版本/)
-  })
-  it('http（非 https）→ 錯誤', () => {
-    expect(classifySpecSource('http://example.com/v1.0/spec').error).toMatch(/https/)
-  })
-  it('其他 scheme 或無法解析的 URL → 錯誤', () => {
-    expect(classifySpecSource('ftp://example.com/v1.0/spec').error).toBeDefined()
-    expect(classifySpecSource('https://').error).toBeDefined()
+      'http://example.com/v1.0/spec',
+      'ftp://example.com/spec',
+    ]) {
+      const r = classifySpecSource(url)
+      expect(r.kind, url).toBe('path')
+      expect(r.error, url).toMatch(/存檔進 repo/)
+    }
   })
   it('repo 內相對路徑 → path', () => {
     expect(classifySpecSource('docs/specs/redlock.md')).toEqual({ kind: 'path' })
@@ -104,7 +93,7 @@ describe('reviewSpecIntake：repo 內路徑存在性（零網路）', () => {
     expect(r.errors).toEqual([])
     expect(r.deferred.join()).toMatch(/存在性/)
   })
-  it('來源是 issue 或 URL 時不查檔案', () => {
+  it('來源是 issue 或（被拒絕的）URL 時不查檔案', () => {
     let called = false
     const ctx = {
       ...KNOWN,
@@ -114,11 +103,7 @@ describe('reviewSpecIntake：repo 內路徑存在性（零網路）', () => {
       },
     }
     reviewSpecIntake('redlock', 'issue', ctx)
-    reviewSpecIntake(
-      'redlock',
-      'https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567/a.md',
-      ctx,
-    )
+    reviewSpecIntake('redlock', 'https://example.com/v1.0/spec', ctx)
     expect(called).toBe(false)
   })
 })

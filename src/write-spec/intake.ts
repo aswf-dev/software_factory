@@ -3,8 +3,9 @@
  *
  * `agent-write-spec` 開單時必填兩個欄位：
  * - **規格名稱**：決定 `specs/<name>/` 目錄，也因此固定了 `invariants.qnt` 的路徑。
- * - **規格來源**：不變量必須逐字引用的意圖出處。三種形式：
- *   `issue`（由 CI 快照 PRD 欄位）、repo 內相對路徑、固定版本的 https URL。
+ * - **規格來源**：不變量必須逐字引用的意圖出處。兩種形式：
+ *   `issue`（由 CI 快照 PRD 欄位）或 repo 內相對路徑。**不接受 URL**（Q32）：網頁
+ *   原文多為 HTML，逐字引用難以對齊；有版本的網頁請先存檔進 repo 再引用。
  *
  * 另外檢查使用門檻：Issue 宣告的目標路徑命中 risk-paths 的 H 規則，或目標 repo
  * 的 catalog 有 `factory.io/quint-spec` 標註。write-spec 只用於高風險模組。
@@ -26,10 +27,7 @@ export const SPEC_NAME_PATTERN = '^[a-z0-9]+(-[a-z0-9]+)*$'
 export const SPEC_NAME_MAX = 64
 const SPEC_NAME_RE = new RegExp(SPEC_NAME_PATTERN)
 
-/** URL 路徑中代表「固定版本」的段落：40 位 commit SHA，或版號（v1.2.3／1.2）。 */
-const PINNED_SEGMENT_RES: readonly RegExp[] = [/^[0-9a-f]{40}$/, /^v?\d+\.\d+(?:\.\d+)?$/]
-
-export type SpecSourceKind = 'issue' | 'path' | 'url'
+export type SpecSourceKind = 'issue' | 'path'
 
 export interface SpecSourceClassification {
   kind: SpecSourceKind
@@ -65,25 +63,12 @@ export function classifySpecSource(raw: string): SpecSourceClassification {
   if (value.toLowerCase() === 'issue') return { kind: 'issue' }
 
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
-    if (!value.toLowerCase().startsWith('https://')) {
-      return { kind: 'url', error: `規格來源 URL 只接受 https：\`${value}\`` }
+    return {
+      kind: 'path',
+      error:
+        `規格來源不接受 URL：\`${value}\`。網頁原文難以逐字引用——請先把規格存檔進 repo（例如 \`docs/specs/\`），` +
+        '再填 repo 內路徑；或填 `issue`，以本 Issue 的 PRD 作為規格。',
     }
-    let segments: string[]
-    try {
-      segments = new URL(value).pathname.split('/').filter((s) => s.length > 0)
-    } catch {
-      return { kind: 'url', error: `規格來源 URL 無法解析：\`${value}\`` }
-    }
-    const pinned = segments.some((s) => PINNED_SEGMENT_RES.some((re) => re.test(s)))
-    if (!pinned) {
-      return {
-        kind: 'url',
-        error:
-          `規格來源 URL 必須是固定版本（路徑含 40 位 commit SHA 或版號），否則日後的逐字引用會對不上原文：\`${value}\`。` +
-          '沒有版本的網頁（例如 `/latest/`）請先存檔進 repo，再填 repo 內路徑。',
-      }
-    }
-    return { kind: 'url' }
   }
 
   const normalized = value.replace(/\\/g, '/')
@@ -112,7 +97,7 @@ export function reviewSpecIntake(
 
   let sourceKind: SpecSourceKind | undefined
   if (specSource === undefined) {
-    errors.push('缺「規格來源」（repo 內路徑、固定版本 https URL，或 `issue`）')
+    errors.push('缺「規格來源」（repo 內路徑，或 `issue`）')
   } else {
     const c = classifySpecSource(specSource)
     sourceKind = c.kind
