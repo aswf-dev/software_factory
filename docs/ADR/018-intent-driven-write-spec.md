@@ -3,7 +3,7 @@
 - **狀態**：已接受（實作待後續 stacked PR）
 - **日期**：2026-09-26
 - **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q21）
-- **對應**：`ADR-008`（Quint 神諭橋）、`ADR-011`（heavy-verify 升級）、`ADR-012`（集中執行）、`ADR-016`（產出與生效分離）、`docs/06` §4.3、`docs/21` §2.1、`docs/10` Q21-1／Q21-2
+- **對應**：`ADR-008`（Quint 神諭橋）、`ADR-009`（Backstage 統一入口）、`ADR-011`（heavy-verify 升級）、`ADR-012`（集中執行）、`ADR-016`（產出與生效分離）、`docs/06` §4.3、`docs/21` §2.1、`docs/10` Q21-1／Q21-2
 
 ## 脈絡
 
@@ -109,6 +109,21 @@ specs/<name>/
 
 時間性質（例如時鐘跳躍、多時鐘）如果 Quint 表達不了，可以由人使用 UPPAAL，作為人工例外路徑（見 ADR-008 補記）。write-spec 工單**不得**要求 agent 使用 UPPAAL。
 
+### 11. 開單入口同步（Q22、Q23）
+
+新增的三個欄位（**規格階段**、**規格來源**、**已核准不變量路徑**）必須在四處同步，否則會重演 #238 的漂移事件（新增 task_type 時漏改 Backstage，表單永遠開不出該類型）：
+
+| 位置 | 改動 |
+|---|---|
+| `backstage/templates/factory-work-item/template.yaml` | 新增表單參數，並把欄位寫進 Issue 內文（ADR-009、ADR-012 的主要開單入口） |
+| `.github/ISSUE_TEMPLATE/factory-work-item.yml` | 新增為選填欄位，說明中寫明「僅 write-spec 必填」（GitHub 原生表單不支援條件欄位） |
+| `src/factory-draft/issue-body.ts`（`buildIssueBody`） | 與 Backstage 內文格式逐字對齊，並維持與 `checkIssue` 的往返測試 |
+| `src/cli/factory-issue-check.ts`（`FIELD_TITLES`） | 讀取欄位並做必填與格式檢查（Q9''、Q15） |
+
+- **表單呈現**：Backstage 用 rjsf 的 `dependencies`／`oneOf` 做**條件式欄位**：只有選 `agent-write-spec` 才出現「規格階段」；選 `invariants` 時出現「規格來源」，選 `model` 時出現「已核准不變量路徑」。模板開頭記載 rjsf 跨欄位讀取「仍待瀏覽器實測」，**如果條件渲染行不通，就退回三個欄位一律顯示為選填**。
+- **必填判斷的權威在 issue-check**：表單只負責讓人容易填對；即使條件渲染失敗，正確性也不受影響。
+- **新增對抗性測試**：比照現有的「Backstage enum 與 workflow options 一致」測試，釘住三個欄位的標題在上述四處逐字一致。
+
 ## 後果
 
 ### 正面
@@ -124,6 +139,7 @@ specs/<name>/
 - 不變量工單需要先設計好抽象狀態詞彙，會稍微讀到程式碼（但不變量本身只能引用規格）。
 - factory-run、issue-check、crosscheck、judge 都要改，實作面廣，而且全部位於 H5 路徑，只能由人實作。
 - `domain_justification` 的內容無法機械判斷，品質仍然取決於人工審查。
+- 新欄位要四處同步（§11），而且 Backstage 的條件式欄位依賴尚未經瀏覽器實測的 rjsf 行為；若退回「一律顯示為選填」，其他類型的使用者會看到三個與自己無關的欄位。
 
 ### 中性
 
@@ -148,7 +164,7 @@ specs/<name>/
 
 1. **本 ADR**，同步更新 `docs/21` §1／§2.1／§4、`docs/10`（結案 Q21-1、Q21-2）、ADR-008 補記。
 2. **Stacked PR 實作**（依序）：
-   1. issue-check：新增「規格階段」「規格來源」「已核准不變量路徑」欄位，以及 Q8 門檻、Q15 格式檢查。
+   1. **開單入口與 issue-check**：依 §11 在四處同步新增「規格階段」「規格來源」「已核准不變量路徑」欄位，並加上欄位一致性的對抗性測試；issue-check 實作 Q8 門檻與 Q15 格式檢查。Backstage 的條件式欄位需在瀏覽器實測，不行就退回選填。
    2. crosscheck：新增兩個階段模式。
    3. factory-run：寫入 `source.md` 快照、檢查 `spec/approved` 與貼標者身分、依 `verify.yml` 集中驗證、類型層級禁止自動合併。
    4. judge：新增 `openQuestions` 的 fail-loud 檢查。
