@@ -1,0 +1,22 @@
+docs/ADR/018-intent-driven-write-spec.md
+  s_8e84f713421083::t_cfff8f711bb989 167
+  s_8e84f713421083::t_4f0781b1f1df74 142
+  s_8e84f713421083::t_eb922f34212627 112-126
+  s_8e84f713421083::t_566b573f9929e9 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a5faa0a1aaecb545c78f26091863a4e829bc65a0",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
