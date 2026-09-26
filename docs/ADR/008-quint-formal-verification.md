@@ -26,3 +26,8 @@
 - 新增 `specs/scoring/score.qnt`、`.github/factory/quint-paths.yml`、`.github/workflows/quint-verify.yml`（required check `quint-verify`）、`test/quint/scoring-oracle.test.ts`。
 - `@informalsystems/quint@0.32.0` 加入 devDependencies（精確鎖版）。
 - Phase B（驗證 agent 產出的工作項）隨第 2 期另立計畫；屆時評估 quint-connect-ts 與 ITF 測試向量兩種橋。
+
+## 補記（2026-09-26）：Phase B 方向與 UPPAAL 例外路徑
+
+- **Phase B 方向由 ADR-018 決定**：`agent-write-spec` 改為規格書驅動，拆成「不變量」與「as-is 模型」兩張工單；目標 repo 的 `.qnt` 由 factory-run 依 `specs/<name>/verify.yml` 集中驗證。本 ADR 的原則維持不變：同一個 run 內，agent 不得以自撰規格驗證自撰程式碼；vendored 的 `quint-lang`、`quint-modeling` 仍鎖在上述官方 commit，不修改。
+- **UPPAAL 為人工例外路徑，不納入 CI**：時間性質（時鐘跳躍、多個獨立時鐘）如果 Quint 的單一時鐘表達不了，可以由人使用 UPPAAL 時間自動機加上 TCTL 查詢。先例是 agent-playground/node-redlock 的 F9（`specs/uppaal/`）。write-spec 工單**不得**要求 agent 使用 UPPAAL。

@@ -47,6 +47,7 @@
 | [ADR-015](015-factory-scoreboard-platform.md) | Factory Scoreboard 管理平台（平台／Astro 前端／設計風格） | 已接受 | `22`、`26`、Q22-1～9 |
 | [ADR-016](016-agent-authored-skills-propose-only.md) | agent 撰寫技能——「產出」與「生效」分離 | 已接受 | `25`、`04` §3.2、`05` §1.1、`06` §4.3 |
 | [ADR-017](017-backstage-work-item-history.md) | Backstage 解凍擴大——工作項歷史唯讀查閱 | 已接受 | `ADR-009`、`03` §3.4 |
+| [ADR-018](018-intent-driven-write-spec.md) | `agent-write-spec` 改為規格書驅動——不變量出自意圖、模型出自程式碼 | 已接受（實作待後續 PR） | `ADR-008`、`21` §2.1、Q21-1／Q21-2 |
 
 ## 何時該寫新的 ADR
 
