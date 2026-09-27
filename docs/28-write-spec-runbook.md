@@ -337,7 +337,7 @@ gh issue close <N> -R <owner>/<repo> -c "模型 PR #<M> 已合併至 software-fa
 | 時間性質 | 時鐘跳躍、多時鐘等 Quint 表達不了 | 依 ADR-008 由人使用 UPPAAL（人工例外，不納入 CI） |
 | 目標 repo lint | prettier 等格式化工具會掃到逐字保留的規格產物 | 目標 repo 加 `.prettierignore` 排除 `specs/`、`docs/specs/` |
 | 沙箱中的 yarn | 目標 repo 位於機制 repo 之下，yarn 1.x 會讀到父層 `packageManager` 而拒絕執行 | agent 以 `npx tsc` 等價驗證；已回報為 skill-gap |
-| 模型路由 | 2026-09-26 發現：DSH 升級到 0.1.7-rc.1（2026-09-24）後，`agent-default-model` 未被採用，所有 run 實際都用 DSH 內建的 `deepseek-official/deepseek-flash`，critical tier 未生效 | 修復前，以 Issue 留言的「Token 用量」段落確認實際模型 |
+| 模型路由 | 2026-09-24～27：DSH 0.1.7-rc.1 不再讀 `settings.yaml`，所有 run 實際都用內建的 `deepseek-official/deepseek-flash`，critical tier 未生效。已修正為以 `--patch` 帶入（`factory-dsh-patch`），並在每次 run 比對實際 route | 本手冊 §15 的試點與 spring-modulith-orders 各 run 都發生在修正前，實際模型皆為 deepseek-flash |
 | 不自動重新驗證 | 程式修改後，模型不會自動重建或重跑 | 受 `quint-spec` 標註的模組被修改後，另開 write-spec 工單重跑模型階段 |
 | 合併到 main | 工廠只讀寫 `software-factory`；是否合併到 main 由人決定 | 合併前確認目標 repo 的 CI（含外部服務的整合測試）通過，並評估規格書授權 |
 
@@ -354,4 +354,4 @@ gh issue close <N> -R <owner>/<repo> -c "模型 PR #<M> 已合併至 software-fa
 | 候選發現 | 偶數節點平票 acquire 永久 pending；acquire 交出已過期的鎖；extend 交出已過期的鎖 |
 | 回放 | Issue #4–#6（PR #7–#9、#11–#13、#15–#17）：三者皆紅燈重現並修復；本機重跑確認紅燈→綠燈 |
 | 未抓到 | 重試被自己上次留下的 key 擋住——模型重試換新 token，程式實際沿用同一個 value |
-| 總成本 | 約 USD $0.56（全部實際由 deepseek-flash 執行，見 §14「模型路由」） |
+| 總成本 | 約 USD $0.56（全部實際由 deepseek-flash 執行——路由修正前，見 §14「模型路由」） |
