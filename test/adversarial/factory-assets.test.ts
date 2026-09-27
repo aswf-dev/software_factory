@@ -1330,6 +1330,22 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(v).toContain('--patch "$WORK/model.patch.yml"')
     expect(v).not.toContain('home/settings.yaml')
   })
+  it('dsh-sandbox-probe 以 --patch 帶入模型路由（claude-opus-5-5），不再寫 settings.yaml', () => {
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const probe = read('.github/workflows/dsh-sandbox-probe.yml')
+    expect(probe).toContain('--patch "$GITHUB_WORKSPACE/config/dsh/probe.patch.yml"')
+    expect(probe).not.toContain('.dsh/settings.yaml"')
+    const rows = load(read('config/dsh/probe.patch.yml')) as { id: string; config: Record<string, unknown> }[]
+    expect(rows.find((r) => r.id === 'agent-default-model')?.config).toEqual({
+      provider: 'anthropic',
+      model: 'claude-opus-5-5',
+    })
+    // opus-5-5 不在 pi-ai 0.85.1 目錄：必須手動宣告，否則 UNKNOWN_MODEL
+    const piAi = rows.find((r) => r.id === 'llm-pi-ai')?.config as {
+      providers: { anthropic: { models?: { id: string }[] } }
+    }
+    expect(piAi.providers.anthropic.models?.map((m) => m.id)).toContain('claude-opus-5-5')
+  })
   it('實際 route 必須與要求一致：factory-run 比對 session log，verify-models 不只看回覆內容', () => {
     const c = read('.github/workflows/factory-run.yml')
     expect(c).toContain('.factory/attempted-routes.txt')
