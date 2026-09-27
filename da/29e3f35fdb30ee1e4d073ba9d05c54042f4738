@@ -1,0 +1,27 @@
+test/adversarial/factory-assets.test.ts
+  s_8e84f713421083::t_d92b3953b4e52c 1350-1363
+src/cli/write-report.ts
+  s_8e84f713421083::t_d92b3953b4e52c 29-30,38
+.github/workflows/factory-run.yml
+  s_8e84f713421083::t_d92b3953b4e52c 688,763-773
+src/cli/write-report.test.ts
+  s_8e84f713421083::t_d92b3953b4e52c 308-309
+src/cli/factory-judge.ts
+  s_8e84f713421083::t_d92b3953b4e52c 46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "da29e3f35fdb30ee1e4d073ba9d05c54042f4738",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
