@@ -65,11 +65,22 @@ tiers:
     # 平手品質。明設 max 讓「最高 tier」名實相符。
     # 注意：opus-5 只接受 off / xhigh / max（pi-ai catalog 的 thinkingLevelMap），
     # 不接受 low / medium / high——填錯會以 UNSUPPORTED_REASONING_EFFORT 失敗。
+    #
+    # 2026-09-27 用戶裁決：primary 改為 claude-opus-5-5，opus-5 退為第一順位 fallback。
+    # opus-5-5 不在 DSH 0.1.7-rc.1 綁定的 pi-ai 0.85.1 目錄（0.87.1 起收錄）：升級前
+    # 會在 ~2 秒內以 UNKNOWN_MODEL 失敗（未發出網路請求），命中 provider 層 fallback
+    # 而改用 opus-5——行為與改動前相同；DSH 升級到收錄 opus-5-5 的 pi-ai 後自動生效，
+    # 不需再改設定。刻意不在 settings.providers.yaml 手動宣告：models 清單會整個取代
+    # anthropic route 的內建目錄，連 opus-5／sonnet-5 都得自行維護參數。
+    # opus-5-5 支援 low～max 全部 effort；維持 max 與 opus-5 同一品質基準。
     primary:
       provider: anthropic
-      model: claude-opus-5
+      model: claude-opus-5-5
       reasoningEffort: max
     fallback:
+      - provider: anthropic
+        model: claude-opus-5
+        reasoningEffort: max
       - provider: deepseek
         model: deepseek-flash
       - provider: qwen

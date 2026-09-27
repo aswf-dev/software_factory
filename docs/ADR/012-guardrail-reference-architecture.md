@@ -29,7 +29,8 @@ private、目標 repo 為 public**——跨 user-account 的 private reusable wo
 2. **Skills 走共享 root**：factory skills（factory-*、quint-*）單一事實來源在機制 repo 的
    `.dsh/skills/`。CI 端 factory-run 在 dsh 啟動前同步到 `$HOME/.dsh/skills`（DSH rank 400 user-dsh）；
    本機端執行 `scripts/setup-local-dsh.sh`（以自身位置推導絕對路徑、冪等合併
-   `~/.dsh/settings.yaml` 的 `skill-filesystem.customSkillDirs`，rank 300；可在雲端 VM 重現）。
+   `~/.dsh/cordis.patch.yml` 的 `skill-filesystem.customSkillDirs`，rank 300；可在雲端 VM 重現）。
+   （2026-09-27 補記：原寫入 `~/.dsh/settings.yaml`，DSH 0.1.7 已移除該檔，改寫 home 層級 patch。）
    目標 repo 的 `.dsh/skills/` **刪除**。
 3. **Task-template 走既有 fallback**：factory-run 已實作「目標 repo 無模板 → fallback 機制 repo」
    （L337-338 先例）——目標 repo 的 `.github/factory/task-template-*.txt` **刪除**。

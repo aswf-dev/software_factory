@@ -483,7 +483,7 @@ ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
 |---|---|---|
 | low / medium | **qwen3.8-flash**（2026-08-27 起為預設） | deepseek-flash |
 | high | deepseek-flash（2026-09-11 起；原 deepseek-v4-pro） | claude-sonnet-5 → qwen3.8-flash |
-| critical | **claude-opus-5** + `reasoningEffort: max`（最高 tier） | deepseek-flash → qwen3.8-flash |
+| critical | **claude-opus-5-5** + `reasoningEffort: max`（最高 tier；2026-09-27 起。DSH 綁定的 pi-ai 收錄前以 `UNKNOWN_MODEL` 秒退，自動改用下一項） | claude-opus-5（max）→ deepseek-flash → qwen3.8-flash |
 
 > **fallback 的角色（2026-09-11 更正）**：本表原稱 fallback 為「品質擔保」——第三方基準不支持這個說法。Artificial Analysis Intelligence Index v4.3：deepseek-flash **40** 分 > Sonnet 5 **38** 分，且 agentic 指標差距明顯（AutomationBench 69% vs 37%），Sonnet 成本卻高約 19 倍。fallback 只在 **provider 層失敗**時觸發，作用是「換一家供應商把同一件事做完」，**不是升級**。
 >
@@ -506,7 +506,7 @@ critical 額外條件：分析為 high 且初始計分 `score.total ≥ 4`（rev
 ### 7.3 接線（factory-run.yml）
 
 1. **Select model tier 步驟**（Initial score 後、agent 前；零 LLM 成本）：`gh issue view --json body` → `factory-model` CLI → `.factory/model.json`（含 `tier`/`reason`/`chain`）。
-2. **agent 步驟**：以 `jq -c '.chain[]'` 迭代 chain，每項把 `agent-default-model: {provider, model[, reasoningEffort]}` 寫入 `$HOME/.dsh/settings.yaml` 後跑 dsh。**provider 層失敗**（`RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL`）沿 chain fallback；**任務層失敗不重試**（§4.2 不變）。
+2. **agent 步驟**：以 `jq -c '.chain[]'` 迭代 chain，每項以 `factory-dsh-patch` 產生模型 patch（覆寫 `agent-default-model: {provider, model[, reasoningEffort]}` 與 `llm-pi-ai`），經 `dsh --patch` 帶入後跑 dsh（DSH 0.1.7 已移除 `settings.yaml`；2026-09-24～27 因此全數落到內建 `deepseek-official`，#327 修正）。Measure usage 步驟另比對 session log 的實際 route，不符即標 `::error`。**provider 層失敗**（`RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL`）沿 chain fallback；**任務層失敗不重試**（§4.2 不變）。
 3. **factory-issue-check 留言**同步回報：格式合規 ＋ 📊 複雜度分析（等級＋判據）＋ 🤖 建議模型（tier＋primary＋fallback）。留言與實際路由共用同一解析核心（邏輯一致），但**輸入不同**：留言階段**不計分**，故 tier 天花板為 high；factory-run 會加上初始計分，複雜度 high 且總分 ≥ 4 時升級為 critical。因此 tier=high 時留言會多一行 **⚠️ 實際執行可能升級**（指名 critical 模型與門檻，取自 `model-tiers.yaml`）。實際路由以 `.factory/model.json` 為準。
 
    > **誠實揭露（2026-09-11 修正）**：本節原稱兩者「永不打架」——不成立。實測 [fubon-tradingbot#611](https://github.com/philipz/fubon-tradingbot/issues/611#issuecomment-5632704780) 留言 `deepseek-flash`、實跑 `claude-opus-5`。又因 `total ≥ 5` 即 in-loop（agent 不啟動），critical 實際上只在**恰好 4 分**時觸發。
