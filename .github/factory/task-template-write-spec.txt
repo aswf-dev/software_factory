@@ -1,9 +1,12 @@
 處理 GitHub Issue #<ISSUE>（repo: <REPO>，工廠 trunk 分支: <BASE_BRANCH>）。
 
 1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules。
-   本單為**可執行規格（executable spec）**工作項：交付物是 `.qnt` 等規格檔與其驗證證據，
-   通常**不改 `src/`**（規格描述現況；修復另開工單）。
-   **輸出紀律（重要）**：設計/推導/思考過程**不要輸出到 stdout**——直接撰寫目標檔案（規格/測試/實作）；stdout 只用於簡短進度與最終摘要（PR 編號、驗證結果、.factory/run/report.json 摘要）。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
+   本單為**可執行規格（executable spec）**工作項，採「一張 Issue、兩個 run」（ADR-018）：
+   先寫**不變量**（出自規格書），經人工核准後，下一次派工才寫 **as-is 模型**（出自程式碼）。
+   **本次階段：`<SPEC_PHASE>`；規格名稱：`<SPEC_NAME>`**（CI 已寫入 `.factory/run/spec.json`，兩者一致）。
+   **只做本次階段的工作**。階段由 CI 依 Issue 狀態判定，你不得自行切換，也不得替另一個階段預先產出。
+   **不改 `src/`**：規格描述現況；發現的問題另開工單修復。
+   **輸出紀律（重要）**：設計/推導/思考過程**不要輸出到 stdout**——直接撰寫目標檔案；stdout 只用於簡短進度與最終摘要（PR 編號、驗證結果、.factory/run/report.json 摘要）。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
 2. 若環境變數 GH_TOKEN 不存在，先執行：
    export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)
    export GH_REPO=$(cat .factory/run/repo 2>/dev/null)
@@ -12,17 +15,75 @@
 4. **先建分支並及早提交（硬規則，34735315950 事故）**：建立工作分支後，**每完成一個檔案就 commit 一次**，
    不要等全部做完才提交。實測事故：agent 在 50 分鐘內把規格寫出來卻從未 commit，
    逾時被砍後 branch 不存在、**整場產出歸零**。早提交讓逾時只損失最後一段，不是全部。
-5. **模型檢查的牆鐘預算（硬規則）**：`verify`／模型檢查（Apalache/TLC/Z3 等）每次執行
-   可能數分鐘且只能序列嘗試。規則：
-   - 先用**縮小規模**（較小 const、較小 `--max-steps`）量測單次牆鐘，再放大；
+
+5. **不變量階段**（本次階段為 `invariants` 時適用）：
+   - **只能修改**：`specs/<SPEC_NAME>/invariants.qnt`、`specs/<SPEC_NAME>/source.md`、`docs/**`。
+     CI 會以白名單檢查，越界即交還人類。
+   - **`source.md` 由 CI 寫入**（規格書或 Issue PRD 的快照）：**原封不動地提交，不得修改任何一個字元**。
+     CI 會逐字元比對。
+   - **不變量只能出自 `source.md`，不能出自程式碼**。程式碼只能用來取得狀態詞彙（型別、狀態變數的名稱與簽章）。
+     照著實作寫出的不變量，會把實作的缺陷一起當成「正確」。
+   - 每個 `val INV_*` 的正上方都要有註解區塊，第一行是 `// source: <出處> §<節>`，接著**逐字引用**原文：
+     ```
+     // source: source.md §3
+     // 「經過時間必須小於鎖的有效期，才算取得鎖」
+     val INV_neverHandsOutExpiredLock = ...
+     ```
+   - **不要定義 `val WIT_*`**：witness 描述的是程式行為下的情境，由模型階段寫在 `model.qnt`（見第 6 點）。
+   - 必須通過 `npx quint typecheck specs/<SPEC_NAME>/invariants.qnt`（CI 會重跑）。
+   - PR 描述結尾寫 **`Refs #<ISSUE>`**。
+     **不得**以 `Closes`／`Fixes`／`Resolves` 等關閉關鍵字引用本 Issue：
+     這張 Issue 還要跑模型階段，寫了關閉關鍵字，合併時 Issue 就會被關掉。
+
+6. **模型階段**（本次階段為 `model` 時適用）：
+   - **只能修改**：`specs/<SPEC_NAME>/model.qnt`、`instances.qnt`、`verify.yml`、`docs/**`。
+     `invariants.qnt` 與 `source.md` **已核准，不得修改**；`traces/` **只能由 CI 寫入**。
+   - `model.qnt` 依**程式碼現況**建模，包含缺陷。第一行必須是：
+     ```
+     import invariants.* from "./invariants"
+     export invariants.*
+     ```
+     **少了 `export` 這一行，`instances.qnt` 的實例會看不到不變量（`QNT404`）**，CI 驗證會失敗。
+   - **情境 witness（`val WIT_*`，定義在 `model.qnt`）**：每條 `INV_*` 至少一個，描述該不變量**要保護的情境確實發生**，
+     用正面敘述寫，例如「所有節點的票都已回來」「兩個 client 同時爭取同一資源」「有 client 持有未過期的鎖」。
+     **不得**寫成不變量的否定（例如「平票而且卡住」）：那描述的是違反本身，不變量成立時必然不可達，
+     CI 會把正確的不變量判為假綠燈。也**不得**在初始狀態就成立——那證明不了任何動作真的發生過。
+     `verify.yml` 只能引用 `model.qnt` 的 witness；名稱不可與 `invariants.qnt` 既有的定義重複（Quint 會報名稱衝突）。
+   - `instances.qnt` 每個實例一個模組：`module even { import model(N = 2, CLIENTS = Set(1, 2)).* from "./model" }`。
+   - **建模規則 1：設定範圍以程式實際接受的輸入為準**。`verify.yml` 裡每個實例常數都要寫 `domain_justification`：
+     程式碼中的檢查位置（`file:line`），或「程式未限制」。**程式沒有限制時，實例必須涵蓋邊界值與奇偶兩種情況**
+     （例如節點數取 2、3、4）。**不得**寫程式本身沒有檢查的 `assume`／`assert` 來縮小範圍。
+     實例：Redlock 規格「建議」奇數節點，但程式接受任意數量；只測奇數就會漏掉偶數節點的缺陷。
+   - `verify.yml` 格式（**不得宣告預期結果**，CI 拒絕任何未知欄位）：
+     ```yaml
+     instances:
+       - { module: even, constants: { N: { value: "2", domain_justification: "src/index.ts 未限制節點數" } } }
+     checks:
+       - { instance: even, invariant: INV_settles, mode: run, max_steps: 12, max_samples: 10000,
+           timeout_seconds: 300, witnesses: [WIT_allVotesIn] }
+     ```
+     每條 `INV_*` 至少一項檢查；每項至少一個 witness；逾時總和不超過 1800 秒。
+     `mode: run` 為隨機模擬，`mode: verify` 以 Apalache 窮盡到 `max_steps`（較慢）。
+   - **建模規則 2：反例是「候選發現」，不是已確認的缺陷**。CI 會依 `verify.yml` 重新執行並判定結果；
+     找到反例時**不要修改模型讓它消失**，也不要修改 `src/`。在 PR 描述逐條列出反例，並建議開
+     `agent-fix-bug` 工單，由它的紅燈測試回放到真實程式（ADR-018 Q31）。
+   - PR 描述結尾寫 **`Closes #<ISSUE>`**：模型階段完成即為本工作項的終點。
+
+7. **模型檢查的牆鐘預算（硬規則）**：`quint run`／`quint verify` 每次可能數分鐘，且只能序列嘗試。規則：
+   - 先用**縮小規模**（較小的常數、較小的 `--max-steps`）量測單次牆鐘，再放大；
    - 同一條命令**最多重試 3 次最佳化**。若 3 次後仍超出 Issue 給的牆鐘上限，
      **停手並交還人類**（依 factory-stop-rules），附上：已量測的牆鐘、嘗試過的模型變體、
      以及「降界需要什麼」。**不得**用沉默的無限迭代把 run 燒到逾時——那正是事故的根因。
-   - 反例類（`INV_VIOLATED_*`）通常很快（深度淺）；真不變式的窮盡證明才是慢的那條，先做快的。
-6. 每一條 Issue 驗收命令都要**實際執行並貼出可觀察結果**（退出碼、牆鐘秒數、反例檔）。
+   - 找到違反的檢查通常很快（深度淺）；不變量成立時的窮盡證明才是慢的那條，先做快的。
+8. 每一條 Issue 驗收命令都要**實際執行並貼出可觀察結果**（退出碼、牆鐘秒數、反例檔）。
    量不到就誠實記錄「量不到＋原因」，不得虛構數字。
-7. 依 factory-pr-stacking 拆分（規格與 README 通常單層即可）。
-8. 完成後在 Issue 留言回報 PR 編號，並依 factory-workflow 寫出 .factory/run/report.json。
-9. **完成後立即停止**：report.json 寫完即為工作項終點——不要繼續任何額外工作（重跑測試、額外驗證、自我檢查、輸出思考）。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
+9. **未決事項（兩個階段都要，缺漏即交還人類）**：
+   - PR 描述必須有 `## 未決事項` 章節：列出規格中有歧義、你無法確定解讀的地方。
+   - `.factory/run/report.json` 必須有 `openQuestions`：字串陣列（至少一條），
+     或確實沒有時寫 `{ "none": "<理由>" }`。**空陣列不算回答**。
+   不要默默挑一個解讀——規格的誤解會被下游放大。
+10. 依 factory-pr-stacking 拆分（規格通常單層即可）。
+11. 完成後在 Issue 留言回報 PR 編號，並依 factory-workflow 寫出 .factory/run/report.json。
+12. **完成後立即停止**：report.json 寫完即為工作項終點——不要繼續任何額外工作（重跑測試、額外驗證、自我檢查、輸出思考）。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
 
 若觸發任何停手規則，依該規則處理後結束。

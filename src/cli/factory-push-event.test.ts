@@ -281,12 +281,25 @@ describe('buildEvent — 純資料搬運（docs/26 §2.3）', () => {
     expect(buildEvent(parseArgs(baseArgv(['--crosscheck', crosscheck])), fixedNow).crosscheck_mismatches).toEqual([])
   })
 
-  it('forwards skillsDigest when present and null when not a string', () => {
-    const withDigest = writeJson('r1.json', { skillsDigest: 'sha256:abc' })
-    expect(buildEvent(parseArgs(baseArgv(['--report', withDigest])), fixedNow).skills_digest).toBe('sha256:abc')
+  it('skills_digest 來自 --skills-digest 旗標；空字串與缺席同義', () => {
+    expect(
+      buildEvent(parseArgs(baseArgv(['--skills-digest', 'sha256:abc'])), fixedNow).skills_digest,
+    ).toBe('sha256:abc')
+    expect(buildEvent(parseArgs(baseArgv(['--skills-digest', ''])), fixedNow).skills_digest).toBeNull()
+    expect(buildEvent(parseArgs(baseArgv([])), fixedNow).skills_digest).toBeNull()
+  })
 
-    const badDigest = writeJson('r2.json', { skillsDigest: 42 })
-    expect(buildEvent(parseArgs(baseArgv(['--report', badDigest])), fixedNow).skills_digest).toBeNull()
+  it('report.json 的 skillsDigest **不被採用**（受測者不得填寫自己的量測值）', () => {
+    // 這個欄位的全部用途是判斷「某個 skill 放行後 gap 是否消失」（docs/25 §5 第 4 步）。
+    // report.json 由 agent 自己寫；能被 agent 填寫的量測值沒有意義。
+    const forged = writeJson('forged.json', { skillsDigest: 'sha256:agent-claims-this' })
+    expect(buildEvent(parseArgs(baseArgv(['--report', forged])), fixedNow).skills_digest).toBeNull()
+    expect(
+      buildEvent(
+        parseArgs(baseArgv(['--report', forged, '--skills-digest', 'sha256:ci-measured'])),
+        fixedNow,
+      ).skills_digest,
+    ).toBe('sha256:ci-measured')
   })
 
   it('ignores a non-string model tier', () => {
@@ -466,5 +479,55 @@ describe('requirements 訊號（REQ 錨定 → extra 槽）', () => {
   it('無 report／無 crosscheck → extra 為空物件（向後相容）', () => {
     const e = buildEvent(parseArgs(baseArgv()))
     expect(e.extra).toEqual({})
+  })
+})
+
+/**
+ * 「該回報卻沒回報技能缺口」→ extra.skill_gap_unreported（docs/25 §2.1）。
+ *
+ * 訊號可能來自 crosscheck（mismatch／零產出）或 judge（needs-human）。以單一
+ * 布林送出而非兩個陣列：同一次 run 兩邊可能各發一條，布林由構造上就不重複。
+ */
+describe('未回報技能缺口訊號（→ extra 槽）', () => {
+  const ADV = [{ kind: 'skill-gap-unreported', detail: '不應外流的細節' }]
+
+  it('crosscheck 發出 → extra.skill_gap_unreported = true', () => {
+    const cc = writeJson('cc-gap.json', { mismatches: [], advisories: ADV })
+    const e = buildEvent(parseArgs([...baseArgv(), '--crosscheck', cc]))
+    expect(e.extra['skill_gap_unreported']).toBe(true)
+    expect(JSON.stringify(e)).not.toContain('不應外流的細節')
+  })
+
+  it('judge 發出 → extra.skill_gap_unreported = true', () => {
+    const judge = writeJson('j-gap.json', {
+      result: { outcome: 'needs-human', labels: [], summary: '' },
+      advisories: ADV,
+    })
+    const e = buildEvent(parseArgs([...baseArgv(), '--judge', judge]))
+    expect(e.extra['skill_gap_unreported']).toBe(true)
+  })
+
+  it('兩邊同時發出 → 仍是單一 true（不重複計數）', () => {
+    const cc = writeJson('cc-both.json', { mismatches: [], advisories: ADV })
+    const judge = writeJson('j-both.json', {
+      result: { outcome: 'needs-human', labels: [], summary: '' },
+      advisories: ADV,
+    })
+    const e = buildEvent(parseArgs([...baseArgv(), '--crosscheck', cc, '--judge', judge]))
+    expect(e.extra['skill_gap_unreported']).toBe(true)
+  })
+
+  it('只有其他 kind 的 advisory → 不設此欄位（不製造 false 噪音）', () => {
+    const cc = writeJson('cc-other.json', {
+      mismatches: [],
+      advisories: [{ kind: 'requirements-uncovered', detail: 'x' }],
+    })
+    const e = buildEvent(parseArgs([...baseArgv(), '--crosscheck', cc]))
+    expect(e.extra['skill_gap_unreported']).toBeUndefined()
+    expect(e.extra['requirement_advisories']).toEqual(['requirements-uncovered'])
+  })
+
+  it('缺檔／無 advisories → 不設此欄位', () => {
+    expect(buildEvent(parseArgs(baseArgv())).extra['skill_gap_unreported']).toBeUndefined()
   })
 })

@@ -55,3 +55,28 @@ describe('buildIssueBody 的輸入收斂', () => {
     )
   })
 })
+
+describe('buildIssueBody：agent-write-spec 欄位（ADR-018 §11）', () => {
+  it('非 write-spec：規格欄位輸出 `_No response_`（與 GitHub 表單的選填空值一致），仍合規', () => {
+    const body = buildIssueBody(INPUT)
+    expect(body).toContain('### 規格名稱\n\n_No response_')
+    expect(body).toContain('### 規格來源\n\n_No response_')
+    expect(extractField(body, 'spec_name')).toBeUndefined()
+    expect(checkIssue(body).ok).toBe(true)
+  })
+  it('write-spec 帶兩個欄位 → extractField 抽回原值，round-trip 合規', () => {
+    const body = buildIssueBody({
+      ...INPUT,
+      taskType: 'agent-write-spec',
+      specName: 'scoring',
+      specSource: 'issue',
+    })
+    expect(extractField(body, 'spec_name')).toBe('scoring')
+    expect(extractField(body, 'spec_source')).toBe('issue')
+    expect(checkIssue(body).ok).toBe(true)
+  })
+  it('write-spec 未帶欄位 → round-trip 判為不合規（缺欄位不派工）', () => {
+    const body = buildIssueBody({ ...INPUT, taskType: 'agent-write-spec' })
+    expect(checkIssue(body).ok).toBe(false)
+  })
+})

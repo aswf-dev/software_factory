@@ -169,8 +169,8 @@ export function loadTiers(path: string, declaredProviders: readonly string[]): T
   return tiers
 }
 
-/** 讀 settings.providers.yaml 並回傳已宣告的 provider route 清單。 */
-export function loadDeclaredProviders(path: string): string[] {
+/** 讀 settings.providers.yaml 並回傳 `llm-pi-ai` 區段（DSH llm-pi-ai entry 的 config）。 */
+export function loadPiAiConfig(path: string): { providers: Record<string, unknown> } {
   const raw = loadYamlFile(path, 'settings.providers')
   const parsed = ProvidersSchema.safeParse(raw)
   if (!parsed.success) {
@@ -178,7 +178,12 @@ export function loadDeclaredProviders(path: string): string[] {
       `settings.providers (${path}) is invalid: 需 llm-pi-ai.providers 為 provider route dict`,
     )
   }
-  return Object.keys(parsed.data['llm-pi-ai'].providers)
+  return parsed.data['llm-pi-ai']
+}
+
+/** 讀 settings.providers.yaml 並回傳已宣告的 provider route 清單。 */
+export function loadDeclaredProviders(path: string): string[] {
+  return Object.keys(loadPiAiConfig(path).providers)
 }
 
 /** 依偏好 provider 過濾並去重：偏好項目前置，其餘依序，重複項目只留第一個。 */

@@ -102,17 +102,22 @@ while read -r P M EFFORT; do
     fi
   fi
 
-  # L2：以 repo 實際 providers 設定 + agent-default-model 跑一次 headless 推論。
+  # L2：以 repo 實際 providers 設定 + 本模型的 patch 跑一次 headless 推論。
   #     這是決定性關卡——L1 過不代表 L2 過（pi-ai catalog 可能沒有該 id）。
-  cp "$WORK/providers.yaml" "$WORK/home/settings.yaml"
-  {
-    printf 'agent-default-model:\n  provider: %s\n  model: %s\n' "$P" "$M"
-    # 與 factory-run.yml 寫 settings 的方式一致（僅在 chain 宣告 effort 時才寫）
-    [ "$EFFORT" != "-" ] && printf '  reasoningEffort: %s\n' "$EFFORT"
-  } >> "$WORK/home/settings.yaml"
-  OUT="$(DSH_HOME="$WORK/home" npx dsh --profile headless 'Reply with exactly: PING' 2>&1)"
-  if printf '%s' "$OUT" | grep -q 'PING'; then
+  #     patch 產生方式與 factory-run.yml 相同（DSH 0.1.7 不再讀 settings.yaml）。
+  rm -rf "$WORK/home" && mkdir -p "$WORK/home"
+  node dist/cli/factory-dsh-patch.js --provider "$P" --model "$M" \
+    $([ "$EFFORT" != "-" ] && printf -- '--effort %s' "$EFFORT") \
+    --providers "$WORK/providers.yaml" --out "$WORK/model.patch.yml" >/dev/null
+  OUT="$(DSH_HOME="$WORK/home" npx dsh --profile headless --patch "$WORK/model.patch.yml" 'Reply with exactly: PING' 2>&1)"
+  # 回覆 PING 還不夠：2026-09 路由失效期間，請求全落到內建 deepseek-official 仍會回 PING。
+  # 以 session log 確認實際 route 就是要求的 provider/model。
+  ROUTE="$(node dist/cli/factory-usage.js --sessions-root "$WORK/home/sessions" --pricing config/dsh/pricing.yaml 2>/dev/null \
+    | jq -r '[.usage.routes[]? | "\(.provider)/\(.model)"] | unique | join(",")')"
+  if printf '%s' "$OUT" | grep -q 'PING' && [ "$ROUTE" = "$P/$M" ]; then
     L2="OK"; NOTE=""
+  elif printf '%s' "$OUT" | grep -q 'PING'; then
+    L2="FAIL"; NOTE="route=${ROUTE:-unknown}（要求 $P/$M）"
   else
     L2="FAIL"
     NOTE="$(printf '%s' "$OUT" | grep -oE '(UNKNOWN_MODEL|UNSUPPORTED_REASONING_EFFORT|MISSING_CREDENTIAL|AUTH|RATE_LIMIT|INVALID_CONFIG)[^\"]*' | head -1)"

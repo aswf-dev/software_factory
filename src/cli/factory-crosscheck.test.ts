@@ -10,10 +10,12 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CliError } from './run-cli.js'
 import {
+  adviseAssertionDelta,
   collectActualDiff,
   collectReportedPaths,
   compareReportToActual,
   compareRequirementIds,
+  detectUnreportedTrigger,
   isFactoryInternal,
   main,
   normalizePath,
@@ -30,7 +32,10 @@ function fakeGit(script: {
   branches?: string
   diffNameOnly?: (branch: string) => string
   shortStat?: (branch: string) => string
+  unifiedDiff?: (branch: string) => string
   status?: string
+  /** `git show <branch>:<path>`；回傳 undefined 代表該分支沒有此檔（真實 git 會非零結束）。 */
+  show?: (ref: string) => string | undefined
 }): GitRunner {
   return (args, cwd) => {
     const cmd = args[0]
@@ -38,11 +43,19 @@ function fakeGit(script: {
     if (cmd === 'diff') {
       const flag = args[1]
       const branch = (args[2] ?? '').split('...')[1] ?? ''
-      return flag === '--name-only'
-        ? (script.diffNameOnly?.(branch) ?? '')
-        : (script.shortStat?.(branch) ?? '')
+      // 逐一列舉而非 else 兜底：兜底會讓「用錯旗標」的接線錯誤靜靜拿到另一個
+      // 命令的輸出（--unified=0 曾因此收到 --shortstat 的字串仍然通過）。
+      if (flag === '--name-only') return script.diffNameOnly?.(branch) ?? ''
+      if (flag === '--shortstat') return script.shortStat?.(branch) ?? ''
+      if (flag === '--unified=0') return script.unifiedDiff?.(branch) ?? ''
+      throw new Error(`unexpected git diff flag: ${flag}`)
     }
     if (cmd === 'status') return script.status ?? ''
+    if (cmd === 'show' && script.show !== undefined) {
+      const content = script.show(args[1] ?? '')
+      if (content === undefined) throw new Error(`fatal: path does not exist in '${args[1]}'`)
+      return content
+    }
     throw new Error(`unexpected git call: ${args.join(' ')} (cwd=${cwd})`)
   }
 }
@@ -113,7 +126,7 @@ describe('路徑處理', () => {
 })
 
 describe('compareReportToActual', () => {
-  const emptyActual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [] }
+  const emptyActual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [], assertionDelta: 0 }
 
   it('完全一致 → 無 mismatch', () => {
     const actual: CrosscheckActual = {
@@ -122,6 +135,7 @@ describe('compareReportToActual', () => {
       added: 20,
       deleted: 10,
       uncommitted: [],
+      assertionDelta: 0,
     }
     expect(
       compareReportToActual(
@@ -142,6 +156,7 @@ describe('compareReportToActual', () => {
       added: 40,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       { changedPaths: ['docs/research/12-impact.md'], changedLines: 40, requirements: [{ id: 'R1', status: 'passed' }] },
@@ -158,6 +173,7 @@ describe('compareReportToActual', () => {
       added: 20,
       deleted: 5,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual({ changedPaths: ['src/a.ts', 'docs/research/12-impact.md'], changedLines: 25 }, actual, true)
     expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(true)
@@ -170,6 +186,7 @@ describe('compareReportToActual', () => {
       added: 20,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 20 }, actual, false)
     expect(m.some((x) => x.kind === 'analyze-code-change')).toBe(false)
@@ -179,7 +196,7 @@ describe('compareReportToActual', () => {
 
   /** 建一個 propose-skill 情境的 actual（分支＋指定路徑）。 */
   function proposeActual(paths: string[]): CrosscheckActual {
-    return { branches: ['factory/12-01-propose'], paths, added: 30, deleted: 0, uncommitted: [] }
+    return { branches: ['factory/12-01-propose'], paths, added: 30, deleted: 0, uncommitted: [], assertionDelta: 0 }
   }
 
   it('propose-skill-only + 純 proposals/skills 變更 → 無 propose-skill-scope', () => {
@@ -236,7 +253,7 @@ describe('compareReportToActual', () => {
 
   /** 建一個 onboard 情境的 actual（分支＋指定路徑）。 */
   function onboardActual(paths: string[]): CrosscheckActual {
-    return { branches: ['factory/12-01-onboard'], paths, added: 40, deleted: 0, uncommitted: [] }
+    return { branches: ['factory/12-01-onboard'], paths, added: 40, deleted: 0, uncommitted: [], assertionDelta: 0 }
   }
 
   it('onboard-only + 純 proposals/onboarding 變更 → 無 onboard-scope', () => {
@@ -320,7 +337,7 @@ describe('compareReportToActual', () => {
   })
 
   it('有分支但 diff 為空 → 不觸發 no-trace，改觸發 reported-not-in-diff', () => {
-    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: [], added: 0, deleted: 0, uncommitted: [] }
+    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: [], added: 0, deleted: 0, uncommitted: [], assertionDelta: 0 }
     const m = compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 30 }, actual)
     expect(m.some((x) => x.kind === 'no-trace')).toBe(false)
     expect(m.some((x) => x.kind === 'reported-not-in-diff')).toBe(true)
@@ -333,6 +350,7 @@ describe('compareReportToActual', () => {
       added: 5,
       deleted: 1,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual({ changedLines: 6 }, actual)
     expect(m.some((x) => x.kind === 'unreported-changes')).toBe(true)
@@ -345,6 +363,7 @@ describe('compareReportToActual', () => {
       added: 10,
       deleted: 2,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual({ changedPaths: ['src/a.ts', 'src/ghost.ts'], changedLines: 12 }, actual)
     expect(m.some((x) => x.kind === 'reported-not-in-diff')).toBe(true)
@@ -352,14 +371,14 @@ describe('compareReportToActual', () => {
   })
 
   it('diff 非空但 changedLines 缺席 → lines-missing', () => {
-    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: ['src/a.ts'], added: 5, deleted: 0, uncommitted: [] }
+    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: ['src/a.ts'], added: 5, deleted: 0, uncommitted: [], assertionDelta: 0 }
     expect(
       compareReportToActual({ changedPaths: ['src/a.ts'] }, actual).some((x) => x.kind === 'lines-missing'),
     ).toBe(true)
   })
 
   it('diff 非空但 changedLines = 0 → lines-missing', () => {
-    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: ['src/a.ts'], added: 5, deleted: 0, uncommitted: [] }
+    const actual: CrosscheckActual = { branches: ['factory/12-01-test'], paths: ['src/a.ts'], added: 5, deleted: 0, uncommitted: [], assertionDelta: 0 }
     expect(
       compareReportToActual({ changedPaths: ['src/a.ts'], changedLines: 0 }, actual).some(
         (x) => x.kind === 'lines-missing',
@@ -378,14 +397,14 @@ describe('compareReportToActual', () => {
 
   it('宣稱變更但工作樹有未提交變更 → 不觸發 no-trace，改觸發 uncommitted-changes', () => {
     // 第一個 no-trace 條件的第四個 conjunct（uncommitted.length === 0）在此為 false
-    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: ['src/dirty.ts'] }
+    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: ['src/dirty.ts'], assertionDelta: 0 }
     const m = compareReportToActual({ changedPaths: ['src/dirty.ts'], changedLines: 5 }, actual)
     expect(m.some((x) => x.kind === 'no-trace')).toBe(false)
     expect(m.some((x) => x.kind === 'uncommitted-changes')).toBe(true)
   })
 
   it('工作樹有未提交變更 → uncommitted-changes（未宣稱變更時也抓）', () => {
-    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: ['src/dirty.ts'] }
+    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: ['src/dirty.ts'], assertionDelta: 0 }
     const m = compareReportToActual({ changedPaths: [], changedLines: 0 }, actual)
     expect(m.some((x) => x.kind === 'uncommitted-changes')).toBe(true)
   })
@@ -397,6 +416,7 @@ describe('compareReportToActual', () => {
       added: 0,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     // report 只含 .factory 內部檔 → 排除後視為未宣稱變更；actual 也被排除 → 一致
     expect(compareReportToActual({ changedPaths: ['.factory/run/report.json'], changedLines: 0 }, actual)).toEqual([])
@@ -415,6 +435,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       { changedPaths: ['src/a.ts'], changedLines: 5, requirements: undefined },
@@ -430,6 +451,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       { changedPaths: ['src/a.ts'], changedLines: 5, requirements: [] },
@@ -445,6 +467,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       {
@@ -464,6 +487,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       {
@@ -483,6 +507,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
       added: 5,
       deleted: 0,
       uncommitted: [],
+      assertionDelta: 0,
     }
     const m = compareReportToActual(
       {
@@ -500,7 +525,7 @@ describe('compareReportToActual — requirements 驗證（G8）', () => {
   })
 
   it('無變更（diff 為空）時 requirements 缺席 → 不誤報 requirements-missing', () => {
-    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [] }
+    const actual: CrosscheckActual = { branches: [], paths: [], added: 0, deleted: 0, uncommitted: [], assertionDelta: 0 }
     const m = compareReportToActual({ changedPaths: [], changedLines: 0, requirements: undefined }, actual)
     expect(m.some((x) => x.kind === 'requirements-missing')).toBe(false)
   })
@@ -528,6 +553,87 @@ describe('collectActualDiff', () => {
     expect(actual.paths).toEqual([])
     expect(actual.added).toBe(0)
     expect(actual.deleted).toBe(0)
+    expect(actual.assertionDelta).toBe(0)
+  })
+
+  it('assertionDelta 取各分支最小值，不是總和', () => {
+    // stacked PR：02-impl 相對 base 已包含 01-test 的變更。相加會把 01 的 +2
+    // 與 02 的 -1 合成 +1，把真正的淨減少藏起來；取最小值才看得見。
+    const git = fakeGit({
+      branches: 'factory/12-01-test\nfactory/12-02-impl\n',
+      diffNameOnly: () => 'src/a.test.ts\n',
+      shortStat: () => ' 1 file changed, 1 insertion(+)',
+      unifiedDiff: (b) =>
+        [
+          'diff --git a/src/a.test.ts b/src/a.test.ts',
+          '--- a/src/a.test.ts',
+          '+++ b/src/a.test.ts',
+          '@@ -1 +1 @@',
+          b === 'factory/12-01-test'
+            ? '+  expect(a).toBe(1)\n+  expect(b).toBe(2)'
+            : '+  expect(a).toBe(1)\n-  expect(c).toBe(3)\n-  expect(d).toBe(4)',
+        ].join('\n'),
+    })
+    const actual = collectActualDiff(git, { issueNumber: 12, base: 'software-factory', target: 'target' })
+    expect(actual.assertionDelta).toBe(-1)
+  })
+})
+
+describe('assertionDelta 反向鎖（SR6 的輸入不再只有自報）', () => {
+  const withDelta = (measured: number): CrosscheckActual => ({
+    branches: ['factory/12-01-test'],
+    paths: ['src/a.test.ts'],
+    added: 5,
+    deleted: 5,
+    uncommitted: [],
+    assertionDelta: measured,
+  })
+  const kinds = (ms: { kind: string }[]): string[] => ms.map((m) => m.kind)
+
+  it('實算淨減少、report 未回報 → mismatch（漏填等於 SR6 從未存在）', () => {
+    const out = compareReportToActual({ changedPaths: ['src/a.test.ts'] }, withDelta(-2))
+    expect(kinds(out)).toContain('assertion-delta-understated')
+    expect(out.find((m) => m.kind === 'assertion-delta-understated')?.detail).toMatch(/未回報/)
+  })
+
+  it('實算淨減少、report 回報 0 → mismatch（這是唯一能繞過 SR6 的路徑）', () => {
+    const out = compareReportToActual(
+      { changedPaths: ['src/a.test.ts'], assertionDelta: 0 },
+      withDelta(-3),
+    )
+    expect(kinds(out)).toContain('assertion-delta-understated')
+  })
+
+  it('實算淨減少、report 也回報負數 → 無 mismatch（誠實回報，交給 SR6）', () => {
+    const out = compareReportToActual(
+      { changedPaths: ['src/a.test.ts'], assertionDelta: -1 },
+      withDelta(-3),
+    )
+    expect(kinds(out)).not.toContain('assertion-delta-understated')
+  })
+
+  it('實算非負 → 無 mismatch，且數值差異不發話（避免假陽性）', () => {
+    const out = compareReportToActual(
+      { changedPaths: ['src/a.test.ts'], assertionDelta: 7 },
+      withDelta(2),
+    )
+    expect(kinds(out)).not.toContain('assertion-delta-understated')
+  })
+})
+
+describe('adviseAssertionDelta（安全方向，不擋 run）', () => {
+  it('自報淨減少、實算非負 → advisory', () => {
+    const out = adviseAssertionDelta(-2, 0)
+    expect(out.map((a) => a.kind)).toEqual(['assertion-delta-overstated'])
+  })
+
+  it('實算為負 → 不重複發話（危險方向由 mismatch 處理）', () => {
+    expect(adviseAssertionDelta(-2, -5)).toEqual([])
+  })
+
+  it('自報未填或非負 → 不發話', () => {
+    expect(adviseAssertionDelta(undefined, 3)).toEqual([])
+    expect(adviseAssertionDelta(0, 3)).toEqual([])
   })
 })
 
@@ -739,5 +845,273 @@ describe('main（fake git runner）', () => {
     }
     main(['12', reportPath, '--target', 'target'], git)
     expect(sawCwd).toBe('target')
+  })
+})
+
+/**
+ * 「該回報卻沒回報技能缺口」advisory（docs/25 §2.1）。
+ *
+ * 動機（2026-09-17 盤點）：`skillGap` 缺席有兩種含義——「確實沒有」與「遇到了
+ * 但沒回報」——而資料上完全相同。實證：run 35098422118 以 crosscheck
+ * `requirements-missing` 收場卻無 skillGap；run 34586354343 needs-human、
+ * 零產出、亦無 skillGap。本組測試釘住 advisory 的觸發與**不觸發**邊界。
+ */
+describe('未回報技能缺口 advisory', () => {
+  let dir: string
+  let reportPath: string
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'crosscheck-gap-'))
+    reportPath = join(dir, 'report.json')
+  })
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const GAP = { category: 'ci-sandbox-vitest-run', needed: 'x' }
+  const cleanGit = fakeGit({
+    branches: 'factory/12-01-test\n',
+    diffNameOnly: () => 'src/a.ts\n',
+    shortStat: () => ' 1 file changed, 30 insertions(+)',
+  })
+  /** 零產出：無分支、無 diff。 */
+  const emptyGit = fakeGit({ branches: '' })
+  const run = (report: string, git: GitRunner): ReturnType<typeof main> => {
+    writeFileSync(reportPath, report)
+    return main(['12', reportPath, '--target', 'target'], git)
+  }
+  const kinds = (out: ReturnType<typeof main>): string[] => out.advisories.map((a) => a.kind)
+
+  it('一致且有產出、無缺口回報 → 不發話（乾淨 run 不該被打擾）', () => {
+    const out = run(makeReport(), cleanGit)
+    expect(out.ok).toBe(true)
+    expect(kinds(out)).not.toContain('skill-gap-unreported')
+  })
+
+  it('crosscheck mismatch 且未回報 → 發 advisory（judge 在此情境不會執行）', () => {
+    const out = run(makeReport({ changedPaths: ['src/ghost.ts'] }), cleanGit)
+    expect(out.ok).toBe(false)
+    expect(kinds(out)).toContain('skill-gap-unreported')
+  })
+
+  it('零產出且未回報 → 發 advisory（停手的代理訊號）', () => {
+    const out = run(makeReport({ changedPaths: [], changedLines: 0 }), emptyGit)
+    expect(out.ok).toBe(true)
+    expect(kinds(out)).toContain('skill-gap-unreported')
+  })
+
+  it('零產出但已回報缺口 → 不發話（agent 已盡責）', () => {
+    const out = run(makeReport({ changedPaths: [], changedLines: 0, skillGap: GAP }), emptyGit)
+    expect(kinds(out)).not.toContain('skill-gap-unreported')
+  })
+
+  /**
+   * `skillGap: null` 與缺席同義（ReportSchema 的 nullish transform）。若這裡把
+   * null 當成「已回報」，claude-sonnet-5 那種明寫 null 的 run（34456925126）
+   * 就會靜默豁免，advisory 形同虛設。
+   */
+  it('skillGap 為 null → 仍視為未回報', () => {
+    const out = run(makeReport({ changedPaths: [], changedLines: 0, skillGap: null }), emptyGit)
+    expect(kinds(out)).toContain('skill-gap-unreported')
+  })
+
+  /** advisory 絕不影響 ok：零產出情境下 ok 必須維持 true。 */
+  it('advisory 不改變 ok（第一階段觀察期，不擋 run）', () => {
+    const out = run(makeReport({ changedPaths: [], changedLines: 0 }), emptyGit)
+    expect(out.advisories.length).toBeGreaterThan(0)
+    expect(out.ok).toBe(true)
+    expect(out.mismatches).toEqual([])
+  })
+})
+
+describe('detectUnreportedTrigger（觸發優先序）', () => {
+  const actual = (paths: string[]): CrosscheckActual => ({
+    branches: [],
+    paths,
+    added: 0,
+    deleted: 0,
+    uncommitted: [],
+    assertionDelta: 0,
+  })
+
+  it('有 mismatch → crosscheck-mismatch 優先於零產出', () => {
+    expect(
+      detectUnreportedTrigger({ changedPaths: [] }, actual([]), [{ kind: 'k', detail: 'd' }]),
+    ).toBe('crosscheck-mismatch')
+  })
+
+  it('無 mismatch 且雙方皆無變更 → no-output', () => {
+    expect(detectUnreportedTrigger({ changedPaths: [] }, actual([]), [])).toBe('no-output')
+  })
+
+  it('report 宣告無變更但實際有 diff → 不觸發（那是 mismatch 的職責）', () => {
+    expect(detectUnreportedTrigger({ changedPaths: [] }, actual(['src/a.ts']), [])).toBeNull()
+  })
+
+  it('report 有變更 → 不觸發', () => {
+    expect(detectUnreportedTrigger({ changedPaths: ['src/a.ts'] }, actual([]), [])).toBeNull()
+  })
+
+  /** .factory/ 內部檔不算產出——否則每次 run 都因為 run 目錄而不被視為零產出。 */
+  it('實際 diff 只有 .factory/ 內部檔 → 仍視為零產出', () => {
+    expect(detectUnreportedTrigger({ changedPaths: [] }, actual(['.factory/run/report.json']), [])).toBe('no-output')
+  })
+})
+
+/* ── agent-write-spec 模式（ADR-018 §9 護欄①、§12）──────────────────────── */
+
+describe('parseArgs：write-spec 旗標', () => {
+  const base = ['12', 'r.json']
+  it('完整的不變量階段旗標 → 解析出 writeSpec', () => {
+    const a = parseArgs([
+      ...base,
+      '--write-spec-phase', 'invariants',
+      '--spec-name', 'redlock',
+      '--source-snapshot', 's.md',
+      '--pr-bodies', 'p.json',
+    ])
+    expect(a.writeSpec).toEqual({
+      phase: 'invariants',
+      specName: 'redlock',
+      sourceSnapshotPath: 's.md',
+      prBodiesPath: 'p.json',
+    })
+  })
+  it('模型階段不需要 --source-snapshot', () => {
+    const a = parseArgs([...base, '--write-spec-phase', 'model', '--spec-name', 'redlock', '--pr-bodies', 'p.json'])
+    expect(a.writeSpec?.sourceSnapshotPath).toBeUndefined()
+  })
+  it('未指定階段 → writeSpec 為 undefined', () => {
+    expect(parseArgs(base).writeSpec).toBeUndefined()
+  })
+  it('階段值不合法 → CliError', () => {
+    expect(() => parseArgs([...base, '--write-spec-phase', 'draft', '--spec-name', 'a', '--pr-bodies', 'p'])).toThrow(CliError)
+  })
+  it('缺 --spec-name、--pr-bodies，或不變量階段缺 --source-snapshot → CliError（接線漏傳必須紅燈）', () => {
+    expect(() => parseArgs([...base, '--write-spec-phase', 'model', '--pr-bodies', 'p'])).toThrow(/--spec-name/)
+    expect(() => parseArgs([...base, '--write-spec-phase', 'model', '--spec-name', 'a'])).toThrow(/--pr-bodies/)
+    expect(() =>
+      parseArgs([...base, '--write-spec-phase', 'invariants', '--spec-name', 'a', '--pr-bodies', 'p']),
+    ).toThrow(/--source-snapshot/)
+  })
+  it('規格名稱不合法 → CliError', () => {
+    expect(() =>
+      parseArgs([...base, '--write-spec-phase', 'model', '--spec-name', '../x', '--pr-bodies', 'p']),
+    ).toThrow(CliError)
+  })
+  it('旗標缺值 → CliError', () => {
+    for (const flag of ['--write-spec-phase', '--spec-name', '--source-snapshot', '--pr-bodies']) {
+      expect(() => parseArgs([...base, flag]), flag).toThrow(CliError)
+    }
+  })
+  it('與其他僅產出模式互斥', () => {
+    expect(() =>
+      parseArgs([...base, '--analyze-only', '--write-spec-phase', 'model', '--spec-name', 'a', '--pr-bodies', 'p']),
+    ).toThrow(/不可同時指定/)
+  })
+})
+
+describe('main：write-spec 模式', () => {
+  let dir: string
+  let reportPath: string
+  let snapshotPath: string
+  let bodiesPath: string
+  const SNAPSHOT = '# Redlock 規格\n\n第 3 步：經過時間必須小於有效期。\n'
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'factory-crosscheck-spec-'))
+    reportPath = join(dir, 'report.json')
+    snapshotPath = join(dir, 'source.md')
+    bodiesPath = join(dir, 'pr-bodies.json')
+    writeFileSync(snapshotPath, SNAPSHOT)
+  })
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const OPEN_QS = { openQuestions: ['時鐘漂移上限未定'] }
+  const SECTION = '\n\n## 未決事項\n\n- 時鐘漂移上限未定'
+  const invariantsRun = (opts: { paths: string[]; bodies: string[]; source?: string | undefined; report?: Record<string, unknown> }) => {
+    writeFileSync(reportPath, makeReport({ changedPaths: opts.paths, changedLines: 20, ...(opts.report ?? OPEN_QS) }))
+    writeFileSync(bodiesPath, JSON.stringify(opts.bodies))
+    return main(
+      [
+        '12', reportPath, '--target', 'target',
+        '--write-spec-phase', 'invariants', '--spec-name', 'redlock',
+        '--source-snapshot', snapshotPath, '--pr-bodies', bodiesPath,
+      ],
+      fakeGit({
+        branches: 'factory/12-01-spec\n',
+        diffNameOnly: () => opts.paths.join('\n'),
+        shortStat: () => ' 2 files changed, 20 insertions(+)',
+        show: (ref) => (ref === 'factory/12-01-spec:specs/redlock/source.md' ? opts.source : undefined),
+      }),
+    )
+  }
+  const OK_PATHS = ['specs/redlock/invariants.qnt', 'specs/redlock/source.md']
+
+  it('範圍、快照、Refs 都正確 → ok', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12' + SECTION], source: SNAPSHOT })
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+  it('不變量 PR 寫 Closes #12 → mismatch', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Closes #12' + SECTION], source: SNAPSHOT })
+    expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-closes-in-invariants')
+    expect(out.ok).toBe(false)
+  })
+  it('越界寫了 model.qnt → write-spec-scope', () => {
+    const out = invariantsRun({
+      paths: [...OK_PATHS, 'specs/redlock/model.qnt'],
+      bodies: ['Refs #12' + SECTION],
+      source: SNAPSHOT,
+    })
+    expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-scope')
+  })
+  it('source.md 被改寫 → write-spec-source-tampered', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12' + SECTION], source: SNAPSHOT + '（agent 加註）\n' })
+    expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-source-tampered')
+  })
+  it('分支上沒有 source.md → write-spec-source-missing', () => {
+    const out = invariantsRun({ paths: ['specs/redlock/invariants.qnt'], bodies: ['Refs #12' + SECTION], source: undefined })
+    expect(out.mismatches.map((m) => m.kind)).toContain('write-spec-source-missing')
+  })
+  it('模型階段：沒寫 Closes → 只有 advisory，不擋 run', () => {
+    const paths = ['specs/redlock/model.qnt', 'specs/redlock/verify.yml']
+    writeFileSync(reportPath, makeReport({ changedPaths: paths, changedLines: 20, ...OPEN_QS }))
+    writeFileSync(bodiesPath, JSON.stringify(['Refs #12' + SECTION]))
+    const out = main(
+      ['12', reportPath, '--target', 'target', '--write-spec-phase', 'model', '--spec-name', 'redlock', '--pr-bodies', bodiesPath],
+      fakeGit({
+        branches: 'factory/12-01-model\n',
+        diffNameOnly: () => paths.join('\n'),
+        shortStat: () => ' 2 files changed, 20 insertions(+)',
+      }),
+    )
+    expect(out.ok).toBe(true)
+    expect(out.advisories.map((a) => a.kind)).toContain('write-spec-model-no-closes')
+  })
+  it('缺未決事項（report 與 PR 章節）→ 兩條 mismatch（ADR-018 護欄④）', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12'], source: SNAPSHOT, report: {} })
+    expect(out.mismatches.map((m) => m.kind)).toEqual([
+      'write-spec-open-questions-missing',
+      'write-spec-open-questions-section',
+    ])
+    expect(out.ok).toBe(false)
+  })
+  it('空陣列而非 { none } → 明確的 mismatch，而不是 report 格式錯誤', () => {
+    const out = invariantsRun({ paths: OK_PATHS, bodies: ['Refs #12' + SECTION], source: SNAPSHOT, report: { openQuestions: [] } })
+    expect(out.mismatches.map((m) => m.kind)).toEqual(['write-spec-open-questions-missing'])
+  })
+  it('--pr-bodies 不是字串陣列 → CliError', () => {
+    writeFileSync(reportPath, makeReport())
+    writeFileSync(bodiesPath, JSON.stringify({ body: 'Refs #12' }))
+    expect(() =>
+      main(
+        ['12', reportPath, '--target', 'target', '--write-spec-phase', 'model', '--spec-name', 'redlock', '--pr-bodies', bodiesPath],
+        fakeGit({}),
+      ),
+    ).toThrow(CliError)
   })
 })

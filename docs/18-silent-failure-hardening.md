@@ -17,7 +17,13 @@
 |---|---|---|---|
 | **G1** | agent 成功但 judge/apply-labels 步驟 crash（如 report 格式錯、gh API 錯）→ Issue 無 needs-human、無終態留言，最後一則輸出還印「執行完成」 | `factory-run.yml` 只有 agent-failure 的 handler，沒有 judge-failure 的 handler | ✅ 已修 |
 | **G2** | job 級 `timeout-minutes` 或取消會**直接終止 job**，job 內任何 step（含 `always()`）都不會執行 → Issue 停留在無終態狀態 | 無任何機制 | ✅ 已修 |
-| **G3** | report.json 是 agent 自報；judge 的 zod 只驗證形狀、不驗證真實性——`changedPaths`/`changedLines` 造假或漏報不會被發現（SR6/SR4/重計分都建立在錯誤輸入上） | `factory-judge` 無交叉驗證 | ✅ 已修 |
+| **G3** | report.json 是 agent 自報；judge 的 zod 只驗證形狀、不驗證真實性——`changedPaths`/`changedLines` 造假或漏報不會被發現（SR6/SR4/重計分都建立在錯誤輸入上） | `factory-judge` 無交叉驗證 | ✅ 已修（**2026-09-20 補齊 `assertionDelta`**，見 §2.3.1） |
+
+> **G3 的「已修」曾經只修了一半（2026-09-20 更正）。** 上表 G3 自己點名 SR6 是
+> 受害者之一，但 §2.3 落地的交叉驗證只涵蓋 `changedPaths` / `changedLines`——
+> **SR6 的輸入 `assertionDelta` 整整沒有任何比對**，而且它是 `.optional()`，
+> 漏填就等於 SR6 從未存在。補強見 §2.3.1。這一列在此保留原文並加註，而不是
+> 改寫成「本來就涵蓋」：一個被記成已修的半套補強，比記成未修更難被再次發現。
 
 未實作（P2，見 §4）：G4 紅燈證據未留存、G6 無獨立測試重跑
 step（G5 已於 #200 實作、G8 已於 #199 落地，見 §4 註）。
@@ -84,6 +90,7 @@ mismatch 規則（雙向，任一觸發即 fail-loud → 貼 needs-human）：
 | `lines-missing` | diff 非空但 changedLines 缺席或為 0 |
 | `lines-without-diff` | 宣稱有行數但 diff 為空 |
 | `uncommitted-changes` | 工作樹仍有未提交變更 |
+| `assertion-delta-understated` | CI 實算測試斷言**淨減少**，report 卻未回報或回報非負（§2.3.1） |
 
 **接線順序**：agent 成功 → crosscheck →（成功才放行）judge → labels。crosscheck 失敗
 時其自身貼 needs-human 並 exit 1，judge/apply-labels 因 `steps.crosscheck.outcome`
@@ -93,6 +100,38 @@ dry_run 模式跳過 crosscheck（stub 不建分支）。
 **不做**：changedLines 數值精確比對（agent 計數口徑可能不同，會誤傷）；PR 是否真的
 推送（需網路；`factory-rescore` 已在 PR 層用真實 diff 獨立重計分，高風險隱藏變更仍
 會被 PR 層攔截）。
+
+### 2.3.1 SR6 的第二個輸入（`assertionDelta` 實算，2026-09-20）
+
+**位置**：`src/assertion-count/count.ts`（新模組，100% branch 測試）、
+`factory-crosscheck` 的 `assertion-delta-understated`。
+
+**補的是哪個洞**：SR6「絕不允許為通過測試而弱化斷言」是少數幾條安全性等級的
+停手規則，但它的輸入 `assertionDelta` 由 agent 自報，而 §2.3 的交叉驗證不含它。
+更關鍵的是該欄位為 `.optional()`——**攻擊路徑不是回報假數字，而是根本不填**：
+缺席時 SR6 的條件 `delta < 0` 永遠不成立，刪光斷言＋不回報是一條完全乾淨的通路。
+
+這與 `docs/25` §2.4 的教訓是同一件事。那次盤點以 13 次 run 證明**自報紀律是模型
+相依的**（5 筆 `skillGap` 全來自兩個模型，claude 家族 0/4），於是加了三道不依賴
+自報的補強（§2.1.1）。`assertionDelta` 是同一類自報，後果更重——它直接決定停不停手。
+
+**怎麼算**：從 `git diff --unified=0 <base>...<branch>` 的加減行中，只在**測試檔**
+內比對一組保守列舉的斷言樣式（`expect(`、`assert`、`assert_eq!`、`XCTAssert*`、
+`t.Error*`／`t.Fatal*`）。各分支取**最小值**而非總和——stacked PR 的 02-impl 相對
+base 已包含 01-test 的變更，相加會把「01 加 2、02 淨減 1」合成 +1，真正的淨減少被
+自己的前一層蓋掉。
+
+**只比對方向，不比對數值**，與上面「不做 changedLines 精確比對」同一個理由，而且
+更必要：跨語言的斷言計數必然是啟發式的。只有「實算為負而自報沒有說負」這一個
+方向 fail-loud——那是 SR6 唯一會被繞過的那一面。反方向（自報比實算保守）是
+**安全方向**，SR6 照常觸發，因此只留 `assertion-delta-overstated` advisory，
+作為「計數樣式漏認了某個測試框架」的觀察訊號。
+
+**每一處不確定都倒向少算**：認不出的測試檔、被剝除的行註解、未列舉的框架，結果
+都是 delta 偏大（偏向不觸發）。寧可漏報也不要用一個猜出來的負數擋下誠實的 run
+——假陽性會訓練人忽略訊號，那比沒有訊號更糟（`docs/25` §7「紀律失效」）。
+
+**刻意不提供覆寫旗標**（同 `src/stop-rules` 的 no-override 立場）。
 
 ---
 

@@ -723,3 +723,148 @@ describe('REQ id 錨定（RTM 語意補實）', () => {
     expect(lines.join('\n')).not.toContain(long)
   })
 })
+
+/* ── agent-write-spec 開單欄位（ADR-018 §4、§5、§11）────────────────────── */
+
+const writeSpecBody = (fields: { name?: string; source?: string; prd?: string }): string =>
+  [
+    '### 任務類型',
+    '',
+    'agent-write-spec',
+    '',
+    '### 需求描述（PRD）',
+    '',
+    fields.prd ?? '目標模組 / 檔案：src/scoring/score.ts\n做什麼：形式化計分不變量',
+    '',
+    '### 驗收標準（DoD）',
+    '',
+    '- [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）',
+    '- [x] 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）',
+    '- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）',
+    '',
+    '### 目標 repo（預設本 repo）',
+    '',
+    'philipz/software_factory',
+    '',
+    '### 規格名稱',
+    '',
+    fields.name ?? '_No response_',
+    '',
+    '### 規格來源',
+    '',
+    fields.source ?? '_No response_',
+    '',
+  ].join('\n')
+
+const SCORING_RULES = { H1: ['src/scoring/**'] }
+
+describe('extractField：GitHub 表單的選填空值', () => {
+  it('`_No response_`（選填欄位未填）視為未填', () => {
+    expect(extractField(writeSpecBody({}), 'spec_name')).toBeUndefined()
+    expect(extractField(writeSpecBody({ name: 'redlock' }), 'spec_name')).toBe('redlock')
+  })
+})
+
+describe('checkIssue：agent-write-spec', () => {
+  it('非 write-spec 類型 → 不做規格欄位檢查（spec 為 undefined）', () => {
+    const r = checkIssue(COMPLIANT, SCORING_RULES, { quintSpecAnnotated: false, fileExists: () => false })
+    expect(r.spec).toBeUndefined()
+    expect(r.ok).toBe(true)
+  })
+  it('write-spec 缺兩個欄位 → 不合規', () => {
+    const r = checkIssue(writeSpecBody({}), SCORING_RULES, { quintSpecAnnotated: true, fileExists: () => true })
+    expect(r.ok).toBe(false)
+    expect(r.missing).toEqual([])
+    expect(r.spec?.errors).toHaveLength(2)
+  })
+  it('write-spec 欄位齊全、命中 H 規則 → 合規', () => {
+    const r = checkIssue(writeSpecBody({ name: 'scoring', source: 'issue' }), SCORING_RULES, {
+      quintSpecAnnotated: false,
+      fileExists: () => true,
+    })
+    expect(r.ok).toBe(true)
+    expect(r.spec?.errors).toEqual([])
+  })
+  it('write-spec 非高風險（沒命中 H 規則、沒有標註）→ 不合規', () => {
+    const r = checkIssue(
+      writeSpecBody({ name: 'docs', source: 'issue', prd: '目標模組 / 檔案：docs/a.md' }),
+      SCORING_RULES,
+      { quintSpecAnnotated: false, fileExists: () => true },
+    )
+    expect(r.ok).toBe(false)
+    expect(r.spec?.errors.join()).toMatch(/高風險/)
+  })
+  it('未提供 hardRules 與規格情境（機制 repo 的 issues 事件）→ 門檻與存在性延後，不判錯', () => {
+    const r = checkIssue(writeSpecBody({ name: 'scoring', source: 'docs/spec.md' }))
+    expect(r.ok).toBe(true)
+    expect(r.spec?.deferred).toHaveLength(2)
+  })
+})
+
+describe('buildCheckComment：agent-write-spec', () => {
+  it('規格欄位不合規 → 留言含「格式不合規」（workflow 以此紅燈停派）並逐條列出原因', () => {
+    const c = buildCheckComment(
+      checkIssue(writeSpecBody({}), SCORING_RULES, { quintSpecAnnotated: true, fileExists: () => true }),
+    )
+    expect(c).toContain('格式不合規')
+    expect(c).toContain('規格名稱')
+    expect(c).toContain('規格來源')
+    expect(c).not.toContain('可 dispatch')
+  })
+  it('同時缺必填欄位與規格欄位 → 兩者都列出', () => {
+    const body = writeSpecBody({}).replace('- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）', '')
+    const c = buildCheckComment(checkIssue(body, SCORING_RULES, { quintSpecAnnotated: true, fileExists: () => true }))
+    expect(c).toContain('`acceptance`')
+    expect(c).toContain('缺「規格名稱」')
+  })
+  it('合規 → 列出規格名稱、來源與目錄；延後項以提示呈現', () => {
+    const c = buildCheckComment(checkIssue(writeSpecBody({ name: 'scoring', source: 'docs/spec.md' })))
+    expect(c).toContain('格式合規')
+    expect(c).toContain('`specs/scoring/`')
+    expect(c).toContain('💡 **dispatch 時才判定的項目**')
+  })
+  it('合規且無延後項 → 不出提示行', () => {
+    const c = buildCheckComment(
+      checkIssue(writeSpecBody({ name: 'scoring', source: 'issue' }), SCORING_RULES, {
+        quintSpecAnnotated: false,
+        fileExists: () => true,
+      }),
+    )
+    expect(c).toContain('`specs/scoring/`')
+    expect(c).not.toContain('dispatch 時才判定')
+  })
+})
+
+describe('parseCheckArgs：規格情境旗標', () => {
+  it('--catalog 與 --target-root', () => {
+    const { paths } = parseCheckArgs(['12', '--catalog', 'target/catalog-info.yaml', '--target-root', 'target'])
+    expect(paths.catalogPath).toBe('target/catalog-info.yaml')
+    expect(paths.targetRoot).toBe('target')
+  })
+})
+
+describe('main：規格情境（catalog 與目標 repo 檔案樹）', () => {
+  it('讀 catalog 標註與目標 repo 檔案存在性', () => {
+    const root = mkdtempSync(join(tmpdir(), 'target-'))
+    writeFileSync(join(root, 'catalog-info.yaml'), 'metadata:\n  annotations:\n    factory.io/quint-spec: specs/\n')
+    writeFileSync(join(root, 'spec.md'), '# spec')
+    const riskPaths = join(root, 'risk-paths.yml')
+    writeFileSync(riskPaths, 'hard_rules:\n  H1: ["src/scoring/**"]\n')
+    const run = (source: string): ReturnType<typeof main> =>
+      main(
+        ['7', '--risk-paths', riskPaths, '--catalog', join(root, 'catalog-info.yaml'), '--target-root', root],
+        () => JSON.stringify({ body: writeSpecBody({ name: 'scoring', source }) }),
+      )
+    expect(run('spec.md').result.ok).toBe(true)
+    expect(run('missing.md').result.ok).toBe(false)
+  })
+  it('只給 --catalog 不給 --target-root → 存在性延後', () => {
+    const root = mkdtempSync(join(tmpdir(), 'target-'))
+    writeFileSync(join(root, 'catalog-info.yaml'), 'metadata:\n  annotations:\n    factory.io/quint-spec: specs/\n')
+    const out = main(['7', '--catalog', join(root, 'catalog-info.yaml')], () =>
+      JSON.stringify({ body: writeSpecBody({ name: 'scoring', source: 'docs/spec.md' }) }),
+    )
+    expect(out.result.ok).toBe(true)
+    expect(out.result.spec?.deferred.join()).toMatch(/存在性/)
+  })
+})

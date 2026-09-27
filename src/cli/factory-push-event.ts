@@ -17,6 +17,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { hasUnreportedSkillGapAdvisory } from '../skill-gap/unreported.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError } from './run-cli.js'
 
@@ -29,6 +30,16 @@ export interface FactoryPushEventArgs {
   judgePath?: string | undefined
   crosscheckPath?: string | undefined
   modelPath?: string | undefined
+  /**
+   * 本次 run 實際載入的技能集合版本（`factory-skills-lock --verify` 的 `digest`）。
+   *
+   * **由 CI 以旗標傳入，刻意不從 report.json 讀。** 原實作讀
+   * `report.skillsDigest`，而 report.json 是 agent 自己寫的檔案——若這個欄位可由
+   * agent 回報，agent 就能宣稱任意的技能版本，而這個欄位的全部用途正是「用來判斷
+   * 某個 skill 放行後 gap 是否消失」（`docs/25` §5 第 4 步）。可被受測者填寫的
+   * 量測值沒有意義。空字串與缺席同義（→ `null`）。
+   */
+  skillsDigest?: string | undefined
   /** 只組裝並印出事件，不實際送出（供 CI dry_run 與本機驗證）。 */
   dryRun: boolean
 }
@@ -42,6 +53,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
   let judgePath: string | undefined
   let crosscheckPath: string | undefined
   let modelPath: string | undefined
+  let skillsDigest: string | undefined
   let dryRun = false
   const positional: string[] = []
 
@@ -61,6 +73,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
     else if (arg === '--judge') judgePath = need('--judge')
     else if (arg === '--crosscheck') crosscheckPath = need('--crosscheck')
     else if (arg === '--model') modelPath = need('--model')
+    else if (arg === '--skills-digest') skillsDigest = need('--skills-digest')
     else if (arg === '--dry-run') dryRun = true
     else if (arg.startsWith('--')) throw new CliError(`unknown argument: ${arg}`)
     else positional.push(arg)
@@ -92,6 +105,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
     judgePath,
     crosscheckPath,
     modelPath,
+    skillsDigest,
     dryRun,
   }
 }
@@ -203,13 +217,14 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
     crosscheck_mismatches: mismatches
       .map((m) => asRecord(m)?.['kind'])
       .filter((k): k is string => typeof k === 'string'),
-    skills_digest: typeof report?.['skillsDigest'] === 'string' ? report['skillsDigest'] : null,
+    // CI 量測值，非 agent 自報（見 FactoryPushEventArgs.skillsDigest）。
+    skills_digest: args.skillsDigest !== undefined && args.skillsDigest !== '' ? args.skillsDigest : null,
     // REQ id 錨定訊號（RTM）。放進 extra 而非新增頂層欄位，是為了不改動
     // schema v2——接收端（factory-scoreboard）的 extra 為前向相容槽，零改動即可
     // 收下（docs/26 §1）。累積後可統計「哪一類驗收條件最常 failed」，那是**不依賴
     // agent 自報 skillGap** 的技能缺口訊號（docs/25 §2.3 T3）。
     // 只送 id，不送條文內容（隱私，docs/26 §1.1 約束 3）。
-    extra: buildRequirementExtra(report, crosscheck),
+    extra: buildRequirementExtra(report, crosscheck, judge),
   }
 }
 
@@ -221,6 +236,7 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
 export function buildRequirementExtra(
   report: Record<string, unknown> | undefined,
   crosscheck: Record<string, unknown> | undefined,
+  judge?: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   const extra: Record<string, unknown> = {}
 
@@ -239,6 +255,20 @@ export function buildRequirementExtra(
     extra['requirement_advisories'] = advisories
       .map((a) => asRecord(a)?.['kind'])
       .filter((k): k is string => typeof k === 'string')
+  }
+
+  // 「該回報卻沒回報技能缺口」：以單一布林送出，而非把兩邊的 advisory 陣列
+  // 都塞進事件。理由有二：
+  //  1. crosscheck 與 judge 可能對**同一次 run** 各發一條（例如零產出 ＋
+  //     needs-human），送陣列會讓後台需要自行去重；布林由構造上就不重複。
+  //  2. 兩處的 detail 對聚類沒有額外價值——真正要聚類的是缺口本身（skill_gap），
+  //     這裡只需要知道「這次 run 屬於缺口訊號可能漏掉的那一類」。
+  // 不發生時**不寫入欄位**（不製造 `false` 噪音，與本函式其他欄位同慣例）。
+  if (
+    hasUnreportedSkillGapAdvisory(crosscheck?.['advisories']) ||
+    hasUnreportedSkillGapAdvisory(judge?.['advisories'])
+  ) {
+    extra['skill_gap_unreported'] = true
   }
   return extra
 }

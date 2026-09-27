@@ -78,6 +78,19 @@ describe('parseArgs', () => {
   it('多餘的位置參數 → 拋錯，不靜默忽略', () => {
     expect(() => parseArgs(['a', 'b', 'c', 'd'])).toThrow('unexpected argument: d')
   })
+
+  it('--task-type 可放在任何位置，不佔位置參數', () => {
+    expect(parseArgs(['--task-type', 'agent-write-spec', 'r.json', 'c.yaml', 'p.yml'])).toEqual({
+      reportPath: 'r.json',
+      catalogPath: 'c.yaml',
+      riskPathsPath: 'p.yml',
+      taskType: 'agent-write-spec',
+    })
+  })
+
+  it('--task-type 缺值 → CliError', () => {
+    expect(() => parseArgs(['r.json', '--task-type'])).toThrow('--task-type requires a value')
+  })
 })
 
 describe('loadReport', () => {
@@ -306,6 +319,16 @@ describe('loadReport', () => {
     expect(() => loadReport(path)).toThrow(CliError)
   })
 
+  it('openQuestions：接受字串陣列（含空陣列，交由 crosscheck 判定）與 { none }；拒絕其他欄位', () => {
+    const base = { issueNumber: 1, invocation: { exitCode: 0 } }
+    expect(loadReport(report('oq-list.json', { ...base, openQuestions: ['a'] })).openQuestions).toEqual(['a'])
+    expect(loadReport(report('oq-empty.json', { ...base, openQuestions: [] })).openQuestions).toEqual([])
+    expect(loadReport(report('oq-none.json', { ...base, openQuestions: { none: '無歧義' } })).openQuestions).toEqual({
+      none: '無歧義',
+    })
+    expect(() => loadReport(report('oq-bad.json', { ...base, openQuestions: { none: 'x', extra: 1 } }))).toThrow(CliError)
+  })
+
   it('skillGap 缺 needed → CliError', () => {
     const path = report('gap-no-needed.json', {
       issueNumber: 1,
@@ -335,6 +358,24 @@ describe('main', () => {
     expect(result.outcome).toBe('ready-to-automerge')
     expect(result.dshResult?.outcome).toBe('completed')
     expect(result.labels).not.toContain('needs-human')
+  })
+
+  it('agent-write-spec：即使計分允許自動合併，也降為 ready-for-review（ADR-018 護欄②）', () => {
+    const { result } = main([
+      report('automerge-write-spec.json', {
+        issueNumber: 202,
+        invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+        changedPaths: ['src/util/format.test.ts'],
+        changedLines: 40,
+        assertionDelta: 6,
+      }),
+      catalog,
+      riskPaths,
+      '--task-type',
+      'agent-write-spec',
+    ])
+    expect(result.outcome).toBe('ready-for-review')
+    expect(result.summary).toContain('ADR-018')
   })
 
   it('改到 guardrail（.github/workflows）→ needs-human + SR3', () => {
@@ -464,5 +505,61 @@ describe('isMainModule', () => {
     const entry = join(tmp, 'entry.js')
     writeFileSync(entry, '')
     expect(isMainModule(entry, realpathSync(entry))).toBe(true)
+  })
+})
+
+/**
+ * needs-human 卻未回報技能缺口 → advisory（docs/25 §2.1）。
+ *
+ * judge 是唯一知道**真實終態**的元件，因此負責 crosscheck 看不到的成因：
+ * 停手規則造成的 needs-human，且 agent 仍有產出（實證 run 34457060253：
+ * 11 個 changedPaths、終態 needs-human、無 skillGap——零產出代理訊號抓不到它）。
+ */
+describe('未回報技能缺口 advisory（judge 端）', () => {
+  const failing = { issueNumber: 301, invocation: { exitCode: 1, stdout: '', stderr: 'boom' } }
+  const clean = {
+    issueNumber: 302,
+    invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+    changedPaths: ['src/util/format.test.ts'],
+    changedLines: 40,
+    assertionDelta: 6,
+    hasAcceptanceCriteria: true,
+  }
+
+  it('needs-human 且未回報 → 發一條 advisory', () => {
+    const out = main([report('adv-nh.json', failing), catalog, riskPaths])
+    expect(out.result.outcome).toBe('needs-human')
+    expect(out.advisories.map((a) => a.kind)).toEqual(['skill-gap-unreported'])
+  })
+
+  it('needs-human 但已回報 → 不發話', () => {
+    const out = main([
+      report('adv-nh-gap.json', { ...failing, skillGap: { category: 'a-b', needed: 'x' } }),
+      catalog,
+      riskPaths,
+    ])
+    expect(out.result.outcome).toBe('needs-human')
+    expect(out.advisories).toEqual([])
+  })
+
+  it('非 needs-human 終態 → 不發話（乾淨 run 不該被打擾）', () => {
+    const out = main([report('adv-ok.json', clean), catalog, riskPaths])
+    expect(out.result.outcome).not.toBe('needs-human')
+    expect(out.advisories).toEqual([])
+  })
+
+  /**
+   * 契約釘死：advisory 與終態判定分屬兩側。同一份 report 下，
+   * advisory 的有無**不得**改變 result 的任何一欄（M7 的延伸）。
+   */
+  it('advisory 不影響 result 任何一欄', () => {
+    const withoutGap = main([report('adv-cmp-a.json', failing), catalog, riskPaths])
+    const withGap = main([
+      report('adv-cmp-b.json', { ...failing, skillGap: { category: 'a-b', needed: 'x' } }),
+      catalog,
+      riskPaths,
+    ])
+    expect(withoutGap.advisories).not.toEqual(withGap.advisories)
+    expect(withoutGap.result).toEqual(withGap.result)
   })
 })

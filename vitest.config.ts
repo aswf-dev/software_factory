@@ -30,6 +30,17 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // SR6's second input. SR6 decides whether a run that weakened its tests
+        // stops, and its FIRST input is self-reported by the agent (and optional,
+        // so omitting it silences the rule entirely). An untested branch here is
+        // therefore a hole in the only check that does not rest on the agent's
+        // own account of what it did.
+        'src/assertion-count/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
         // The CLIs are the CI entry points that compute oversight scores before
         // the agent starts, so an untested branch here is an unverified
         // permission decision (docs/06 §5.1).
@@ -67,6 +78,15 @@ export default defineConfig({
         // under backstage/plugins/**, outside both tsconfig.json and this file's
         // test scope, so a branch missed here has no second net to catch it.
         'src/work-item-history/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
+        // write-spec decides whether a spec work item may be dispatched at all
+        // (high-risk gate, spec source) and, later, which phase it runs
+        // (docs/ADR/018); an untested branch is an unverified permission path.
+        'src/write-spec/**/*.ts': {
           lines: 100,
           functions: 100,
           branches: 100,

@@ -21,6 +21,17 @@
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { countAssertionDelta } from '../assertion-count/count.js'
+import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/unreported.js'
+import { isValidSpecName } from '../write-spec/intake.js'
+import {
+  checkClosingKeywords,
+  checkOpenQuestions,
+  checkSourceSnapshot,
+  checkSpecScope,
+  specPaths,
+  type SpecPhase,
+} from '../write-spec/scope.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, formatCliError } from './run-cli.js'
@@ -36,6 +47,16 @@ export interface CrosscheckActual {
   deleted: number
   /** 工作樹未提交變更的路徑（--porcelain）。 */
   uncommitted: string[]
+  /**
+   * CI **實算**的測試斷言淨增減（`src/assertion-count`），對照 report 自報的
+   * `assertionDelta`。無分支時為 0。
+   *
+   * 取**各分支的最小值**，不是總和：stacked PR 的 02-impl 相對 base 已包含
+   * 01-test 的變更，相加會把同一批斷言算兩次，而且能讓「01 加 5、02 淨減 1」
+   * 合出正數 +4，把真正的淨減少藏起來。取最小值對單分支完全精確，對堆疊分支
+   * 則倒向「任一分支看起來在刪斷言就算數」——安全方向。
+   */
+  assertionDelta: number
 }
 
 export interface CrosscheckMismatch {
@@ -143,6 +164,7 @@ export function compareReportToActual(
   report: {
     changedPaths?: readonly string[] | undefined
     changedLines?: number | undefined
+    assertionDelta?: number | undefined
     requirements?: readonly { id: string; status: string }[] | undefined
   },
   actual: CrosscheckActual,
@@ -219,6 +241,22 @@ export function compareReportToActual(
           '。catalog-info.yaml 與 .github/factory/risk-paths.yml 必須由人類審核後親手搬檔至正位',
       })
     }
+  }
+
+  // SR6 的反向鎖（`src/assertion-count`）。SR6「絕不允許為通過測試而弱化斷言」
+  // 的輸入是 agent 自報的 assertionDelta，而該欄位是 .optional()——**漏填就等於
+  // SR6 從未存在**。這裡只鎖住那一個會讓 SR6 被繞過的方向：實算為負、自報卻沒有
+  // 說負。反方向（自報比實算保守）與任何數值差異都不進 mismatch，見
+  // adviseAssertionDelta：跨語言計數是啟發式的，比對數值必然假陽性連發。
+  if (actual.assertionDelta < 0 && !(report.assertionDelta !== undefined && report.assertionDelta < 0)) {
+    const reportedText =
+      report.assertionDelta === undefined ? '未回報' : `回報 ${report.assertionDelta}`
+    mismatches.push({
+      kind: 'assertion-delta-understated',
+      detail:
+        `CI 實算測試斷言淨減少 ${Math.abs(actual.assertionDelta)} 條，report 卻${reportedText}` +
+        '——SR6（不得為通過測試而弱化斷言）的輸入與實際不符，交還人類',
+    })
   }
 
   if (reported.length > 0 && !hasDiff && actual.branches.length === 0 && actual.uncommitted.length === 0) {
@@ -328,6 +366,62 @@ export function compareRequirementIds(
   return out
 }
 
+/**
+ * 自報 `assertionDelta` 與 CI 實算落差的 **advisory** 面（危險的那一面在
+ * `compareReportToActual` 的 `assertion-delta-understated`）。
+ *
+ * 只在「自報說淨減少、實算沒有」時發話。這是**安全方向**——自報比實算保守，
+ * SR6 會照常觸發、沒有任何規則被繞過——所以它不擋 run，只作為觀察期的落差訊號：
+ * 若這一類長期偏高，代表計數樣式漏認了某個框架，該補的是 `ASSERTION_PATTERNS`。
+ *
+ * 數值差異一律不發話。跨語言的斷言計數是啟發式的，數值相等比對會製造大量假陽性，
+ * 而假陽性會訓練人忽略訊號（`docs/25` §7「紀律失效」是同一個失敗模式）。
+ */
+export function adviseAssertionDelta(
+  reported: number | undefined,
+  measured: number,
+): CrosscheckMismatch[] {
+  if (measured < 0) return [] // 危險方向由 mismatch 處理，不重複發話
+  if (reported === undefined || reported >= 0) return []
+  return [
+    {
+      kind: 'assertion-delta-overstated',
+      detail:
+        `report 回報測試斷言淨減少 ${Math.abs(reported)} 條，CI 實算為 ${measured}` +
+        '——安全方向（SR6 仍會觸發），但計數樣式可能漏認了該專案的測試框架',
+    },
+  ]
+}
+
+/**
+ * 判定本次 run 是否落在「該回報技能缺口」的情境（`null` = 無異常，不發話）。
+ *
+ * crosscheck **不知道終態**（judge 尚未執行），因此用兩個它看得見的代理訊號：
+ *
+ *  1. 自身抓到 mismatch → 這次必然 needs-human。**這一格只有 crosscheck 能補**：
+ *     workflow 的 judge 步驟要求 crosscheck 成功，crosscheck 失敗時 judge 根本
+ *     不會執行（實證：run 35098422118 的步驟列表無 Judge terminal state）。
+ *  2. 零產出（report 宣告無變更且實際 diff 也是空的）→ 通常代表 agent 停手。
+ *     實證：run 34586354343（needs-human、changedPaths 0、無 skillGap）。
+ *
+ * mismatch 優先於零產出：前者是更明確的失敗訊號，detail 也更有助於查因。
+ *
+ * **已知未涵蓋**：judge 因停手規則判 needs-human、但 agent 確實有產出的情況
+ * （實證：run 34457060253，11 個 changedPaths、終態 needs-human、無 skillGap）
+ * ——那要由 `factory-judge` 端的 `needs-human` 觸發補上，本函式看不到終態。
+ */
+export function detectUnreportedTrigger(
+  report: { changedPaths?: readonly string[] | undefined },
+  actual: CrosscheckActual,
+  mismatches: readonly CrosscheckMismatch[],
+): UnreportedTrigger | null {
+  if (mismatches.length > 0) return 'crosscheck-mismatch'
+  const reported = collectReportedPaths(report.changedPaths)
+  const actualPaths = actual.paths.filter((p) => !isFactoryInternal(p))
+  if (reported.length === 0 && actualPaths.length === 0) return 'no-output'
+  return null
+}
+
 /** 從目標 repo checkout 收集 git 事實。 */
 export function collectActualDiff(
   git: GitRunner,
@@ -347,6 +441,7 @@ export function collectActualDiff(
   const paths: string[] = []
   let added = 0
   let deleted = 0
+  const perBranchAssertionDelta: number[] = []
   for (const branch of branches) {
     const names = parseDiffNameOnly(git(['diff', '--name-only', `${base}...${branch}`], target))
     for (const raw of names) {
@@ -357,9 +452,21 @@ export function collectActualDiff(
     const stat = parseShortStat(git(['diff', '--shortstat', `${base}...${branch}`], target))
     added += stat.added
     deleted += stat.deleted
+    // --unified=0：只要 +/- 行，不要脈絡行。脈絡行含斷言時兩側都會出現，
+    // 對稱地相消，但會讓輸出膨脹數倍且毫無收益。
+    perBranchAssertionDelta.push(
+      countAssertionDelta(git(['diff', '--unified=0', `${base}...${branch}`], target)).delta,
+    )
   }
   const uncommitted = parseStatusPorcelain(git(['status', '--porcelain'], target))
-  return { branches, paths, added, deleted, uncommitted }
+  return {
+    branches,
+    paths,
+    added,
+    deleted,
+    uncommitted,
+    assertionDelta: perBranchAssertionDelta.length === 0 ? 0 : Math.min(...perBranchAssertionDelta),
+  }
 }
 
 /** 讀取並驗證 report.json（契約同 factory-judge，共用 ReportSchema）。 */
@@ -381,9 +488,25 @@ export interface CrosscheckCliPaths {
 }
 
 /**
+ * agent-write-spec 模式的輸入（ADR-018 §9 護欄①、§12）。階段與規格名稱由
+ * factory-run 依 Issue 狀態推導後傳入；PR 描述與 source.md 快照由 workflow
+ * 以 gh 取得、寫成檔案——crosscheck 本身維持只讀本地資料。
+ */
+export interface WriteSpecArgs {
+  phase: SpecPhase
+  specName: string
+  /** CI 寫入的 source.md 快照；不變量階段必填。 */
+  sourceSnapshotPath?: string | undefined
+  /** JSON 字串陣列：本工作項各 factory PR 的描述。 */
+  prBodiesPath: string
+}
+
+/**
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
- *  [--propose-skill-only] [--onboard-only]`。
+ *  [--propose-skill-only] [--onboard-only]
+ *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
+ *   [--source-snapshot <file>]]`。
  */
 export function parseArgs(argv: string[]): {
   issueNumber: number
@@ -393,6 +516,7 @@ export function parseArgs(argv: string[]): {
   proposeSkillOnly: boolean
   onboardOnly: boolean
   requirementAnchors: string[]
+  writeSpec?: WriteSpecArgs | undefined
 } {
   const positional: string[] = []
   let base = 'software-factory'
@@ -401,6 +525,15 @@ export function parseArgs(argv: string[]): {
   let proposeSkillOnly = false
   let onboardOnly = false
   let requirementAnchors: string[] = []
+  let specPhase: string | undefined
+  let specName: string | undefined
+  let sourceSnapshotPath: string | undefined
+  let prBodiesPath: string | undefined
+  const value = (i: number, flag: string): string => {
+    const v = argv[i]
+    if (v === undefined || v.startsWith('--')) throw new CliError(`${flag} requires a value`)
+    return v
+  }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--base') {
@@ -423,6 +556,14 @@ export function parseArgs(argv: string[]): {
         throw new CliError('--requirement-anchors requires a comma-separated id list')
       }
       requirementAnchors = v.split(',').map((s) => s.trim()).filter((s) => s !== '')
+    } else if (arg === '--write-spec-phase') {
+      specPhase = value(++i, arg)
+    } else if (arg === '--spec-name') {
+      specName = value(++i, arg)
+    } else if (arg === '--source-snapshot') {
+      sourceSnapshotPath = value(++i, arg)
+    } else if (arg === '--pr-bodies') {
+      prBodiesPath = value(++i, arg)
     } else if (!arg.startsWith('--')) {
       positional.push(arg)
     } else {
@@ -437,6 +578,7 @@ export function parseArgs(argv: string[]): {
       ['--analyze-only', analyzeOnly],
       ['--propose-skill-only', proposeSkillOnly],
       ['--onboard-only', onboardOnly],
+      ['--write-spec-phase', specPhase !== undefined],
     ] as const
   )
     .filter(([, on]) => on)
@@ -450,6 +592,21 @@ export function parseArgs(argv: string[]): {
   }
   const reportPath = positional[1]
   if (reportPath === undefined) throw new CliError('reportPath is required')
+  // write-spec：指定了階段，其餘輸入就必須齊全——接線漏傳某個參數時，
+  // 寧可紅燈，也不要讓對應的檢查被悄悄跳過。
+  let writeSpec: WriteSpecArgs | undefined
+  if (specPhase !== undefined) {
+    if (specPhase !== 'invariants' && specPhase !== 'model') {
+      throw new CliError(`--write-spec-phase must be invariants or model, got ${specPhase}`)
+    }
+    if (specName === undefined) throw new CliError('--write-spec-phase requires --spec-name')
+    if (!isValidSpecName(specName)) throw new CliError(`--spec-name is not a valid spec name: ${specName}`)
+    if (prBodiesPath === undefined) throw new CliError('--write-spec-phase requires --pr-bodies')
+    if (specPhase === 'invariants' && sourceSnapshotPath === undefined) {
+      throw new CliError('--write-spec-phase invariants requires --source-snapshot')
+    }
+    writeSpec = { phase: specPhase, specName, sourceSnapshotPath, prBodiesPath }
+  }
   return {
     issueNumber,
     reportPath,
@@ -458,7 +615,30 @@ export function parseArgs(argv: string[]): {
     proposeSkillOnly,
     onboardOnly,
     requirementAnchors,
+    writeSpec,
   }
+}
+
+/** 讀 --pr-bodies：必須是字串陣列，否則 fail-loud（格式錯誤不得等同「沒有 PR」）。 */
+function loadPrBodies(path: string): string[] {
+  const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
+  if (!Array.isArray(raw) || !raw.every((b) => typeof b === 'string')) {
+    throw new CliError(`--pr-bodies (${path}) must be a JSON array of strings`)
+  }
+  return raw
+}
+
+/** 各 factory 分支上某檔案的內容；分支上沒有該檔（git show 非零結束）就不列入。 */
+function readOnBranches(git: GitRunner, target: string, branches: readonly string[], path: string): string[] {
+  const out: string[] = []
+  for (const branch of branches) {
+    try {
+      out.push(git(['show', `${branch}:${path}`], target))
+    } catch {
+      // 該分支沒有此檔
+    }
+  }
+  return out
 }
 
 export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput {
@@ -470,6 +650,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     proposeSkillOnly,
     onboardOnly,
     requirementAnchors,
+    writeSpec,
   } = parseArgs(argv)
   const report = loadReport(reportPath)
   const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
@@ -482,6 +663,34 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   )
   // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
   const advisories = compareRequirementIds(report.requirements, requirementAnchors)
+  if (writeSpec !== undefined) {
+    const { phase, specName } = writeSpec
+    mismatches.push(
+      ...checkSpecScope(phase, specName, actual.paths.filter((p) => !isFactoryInternal(p))),
+    )
+    mismatches.push(
+      ...checkSourceSnapshot(
+        phase,
+        readOnBranches(git, paths.target, actual.branches, specPaths(specName).source),
+        writeSpec.sourceSnapshotPath === undefined
+          ? undefined
+          : readFileSync(writeSpec.sourceSnapshotPath, 'utf8'),
+      ),
+    )
+    const prBodies = loadPrBodies(writeSpec.prBodiesPath)
+    const closing = checkClosingKeywords(phase, issueNumber, prBodies)
+    mismatches.push(...closing.mismatches)
+    advisories.push(...closing.advisories)
+    // 護欄④（ADR-018 §9）：先例（requirements 必填）在 crosscheck；PR 描述也只有這裡拿得到
+    mismatches.push(...checkOpenQuestions(report.openQuestions, prBodies))
+  }
+  advisories.push(...adviseAssertionDelta(report.assertionDelta, actual.assertionDelta))
+  advisories.push(
+    ...adviseUnreportedSkillGap(
+      detectUnreportedTrigger(report, actual, mismatches),
+      report.skillGap !== undefined,
+    ),
+  )
   return {
     issueNumber,
     ok: mismatches.length === 0,

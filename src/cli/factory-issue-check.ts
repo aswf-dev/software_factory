@@ -23,7 +23,8 @@
  * 合規判定與計分邏輯。
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { load } from 'js-yaml'
 import { minimatch } from 'minimatch'
 import { analyzeComplexity, type ComplexityAnalysis } from '../issue-analysis/complexity.js'
@@ -35,6 +36,12 @@ import {
   type ModelEntry,
   type ModelTier,
 } from '../model-tier/resolve.js'
+import {
+  loadQuintSpecAnnotated,
+  reviewSpecIntake,
+  type SpecIntakeContext,
+  type SpecIntakeReview,
+} from '../write-spec/intake.js'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 
@@ -59,6 +66,20 @@ export const FIELD_TITLES: Record<string, string> = {
   task_type: '任務類型',
   requirement: '需求描述（PRD）',
   acceptance: '驗收標準（DoD）',
+  // agent-write-spec 專用（ADR-018 §5、§11）：其他類型留空（`_No response_`）。
+  // 標題在 Backstage 模板、ISSUE_TEMPLATE、buildIssueBody 四處逐字一致
+  //（對抗性測試 factory-assets 釘住）。
+  spec_name: '規格名稱',
+  spec_source: '規格來源',
+}
+
+/** GitHub Issue Forms 對未填選填欄位輸出的字樣；Backstage 模板比照輸出，一律視為未填。 */
+export const NO_RESPONSE = '_No response_'
+
+/** write-spec 開單欄位檢查所需、只在 dispatch 時才有的目標 repo 情境。 */
+export interface SpecCheckContext {
+  quintSpecAnnotated?: boolean | undefined
+  fileExists?: ((relPath: string) => boolean) | undefined
 }
 
 /**
@@ -384,6 +405,8 @@ export interface CheckResult {
   risk?: RiskPathReview | undefined
   /** 驗收條件的穩定編號（advisory；RTM 錨點，供 report.requirements[].id 沿用）。 */
   requirements: RequirementAnchor[]
+  /** agent-write-spec 的規格欄位審查（ADR-018）；其他類型為 undefined。errors 非空即不合規。 */
+  spec?: SpecIntakeReview | undefined
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -413,7 +436,7 @@ export function extractField(body: string, field: string): string | undefined {
   const m = body.match(re)
   if (!m) return undefined
   const value = m[1]?.trim()
-  return value && value.length > 0 ? value : undefined
+  return value && value.length > 0 && value !== NO_RESPONSE ? value : undefined
 }
 
 /**
@@ -427,15 +450,29 @@ export function hasCheckedAcceptance(body: string): boolean {
   return DOD_LABELS.every((label) => value.includes(`- [x] ${label}`))
 }
 
-export function checkIssue(body: string, hardRules?: HardRulePatterns): CheckResult {
+export function checkIssue(
+  body: string,
+  hardRules?: HardRulePatterns,
+  specCtx: SpecCheckContext = {},
+): CheckResult {
   const missing: RequiredField[] = []
   if (extractField(body, 'task_type') === undefined) missing.push('task_type')
   if (extractField(body, 'requirement') === undefined) missing.push('requirement')
   if (!hasCheckedAcceptance(body)) missing.push('acceptance')
   const taskType = extractField(body, 'task_type')
   const dod = checkDodSpecificity(body)
+  const risk = hardRules === undefined ? undefined : checkRiskPaths(body, hardRules)
+  // write-spec 專用檢查（ADR-018 §4、§5）：缺欄位、格式錯誤、非高風險模組皆為不合規。
+  const spec =
+    taskType === 'agent-write-spec'
+      ? reviewSpecIntake(extractField(body, 'spec_name'), extractField(body, 'spec_source'), {
+          riskHits: risk?.hits.length,
+          quintSpecAnnotated: specCtx.quintSpecAnnotated,
+          fileExists: specCtx.fileExists,
+        } satisfies SpecIntakeContext)
+      : undefined
   return {
-    ok: missing.length === 0,
+    ok: missing.length === 0 && (spec?.errors.length ?? 0) === 0,
     missing,
     taskType,
     analysis: analyzeComplexity({
@@ -444,8 +481,9 @@ export function checkIssue(body: string, hardRules?: HardRulePatterns): CheckRes
     }),
     dod,
     // 未提供 hardRules（既有呼叫端／設定缺失）→ undefined，留言完全不提風險段落
-    risk: hardRules === undefined ? undefined : checkRiskPaths(body, hardRules),
+    risk,
     requirements: buildRequirementAnchors(dod),
+    spec,
   }
 }
 
@@ -461,11 +499,31 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
       `✅ **Issue 格式合規**（factory-issue-check）：任務類型 \`${r.taskType}\`、需求、DoD 齊全。`,
     )
   } else {
+    if (r.missing.length > 0) {
+      lines.push(
+        `❌ **Issue 格式不合規**（factory-issue-check）：缺 ` +
+          r.missing.map((f) => `\`${f}\``).join('、') +
+          '。請依 `.github/ISSUE_TEMPLATE/factory-work-item.yml` 表單補齊後再編輯 Issue（編輯會重新檢查）。',
+      )
+    }
+    if (r.spec !== undefined && r.spec.errors.length > 0) {
+      lines.push(
+        '❌ **Issue 格式不合規**（factory-issue-check）：`agent-write-spec` 的規格欄位未通過檢查（ADR-018）：',
+        ...r.spec.errors.map((e) => `- ${e}`),
+      )
+    }
+  }
+  if (r.ok && r.spec !== undefined) {
     lines.push(
-      `❌ **Issue 格式不合規**（factory-issue-check）：缺 ` +
-        r.missing.map((f) => `\`${f}\``).join('、') +
-        '。請依 `.github/ISSUE_TEMPLATE/factory-work-item.yml` 表單補齊後再編輯 Issue（編輯會重新檢查）。',
+      `📐 **規格流程**（ADR-018）：規格名稱 \`${r.spec.specName}\` → \`specs/${r.spec.specName}/\`；` +
+        `規格來源 \`${r.spec.specSource}\`（${r.spec.sourceKind}）。`,
     )
+    if (r.spec.deferred.length > 0) {
+      lines.push(
+        '💡 **dispatch 時才判定的項目**（此處缺少目標 repo 的設定）：',
+        ...r.spec.deferred.map((d) => `- ${d}`),
+      )
+    }
   }
   lines.push(`📊 **複雜度分析**：${r.analysis.complexity}（判據：${r.analysis.evidence.join('；')}）`)
   // B5（34735315950 事故）：計算強度是與複雜度正交的第二個軸，且它會同時決定
@@ -514,6 +572,15 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
   return lines.join('\n')
 }
 
+/** 路徑是否為既有的一般檔案（目錄或不存在皆為 false）。 */
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
 /** gh CLI 注入點（測試以 fake 取代）。 */
 export type GhRunner = (args: string[]) => string
 
@@ -526,6 +593,10 @@ export interface IssueCheckPaths {
   providersPath: string
   /** risk-paths.yml；未指定 → 不做事前風險比對（向後相容）。 */
   riskPathsPath?: string | undefined
+  /** 目標 repo 的 catalog-info.yaml；未指定 → write-spec 門檻延後判定。 */
+  catalogPath?: string | undefined
+  /** 目標 repo 的 checkout 根目錄；未指定 → write-spec 規格來源存在性延後判定。 */
+  targetRoot?: string | undefined
 }
 
 const DEFAULT_TIERS_PATH = 'config/dsh/model-tiers.yaml'
@@ -545,6 +616,8 @@ export function parseCheckArgs(argv: string[]): { issueNumber: string; paths: Is
   let tiersPath = DEFAULT_TIERS_PATH
   let providersPath = DEFAULT_PROVIDERS_PATH
   let riskPathsPath: string | undefined
+  let catalogPath: string | undefined
+  let targetRoot: string | undefined
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--tiers') {
@@ -553,6 +626,10 @@ export function parseCheckArgs(argv: string[]): { issueNumber: string; paths: Is
       providersPath = requireValue(argv, ++i, '--providers')
     } else if (arg === '--risk-paths') {
       riskPathsPath = requireValue(argv, ++i, '--risk-paths')
+    } else if (arg === '--catalog') {
+      catalogPath = requireValue(argv, ++i, '--catalog')
+    } else if (arg === '--target-root') {
+      targetRoot = requireValue(argv, ++i, '--target-root')
     } else if (issueNumber === undefined) {
       issueNumber = arg
     } else {
@@ -560,7 +637,10 @@ export function parseCheckArgs(argv: string[]): { issueNumber: string; paths: Is
     }
   }
   if (issueNumber === undefined) throw new CliError('issueNumber is required')
-  return { issueNumber, paths: { tiersPath, providersPath, riskPathsPath } }
+  return {
+    issueNumber,
+    paths: { tiersPath, providersPath, riskPathsPath, catalogPath, targetRoot },
+  }
 }
 
 export function main(
@@ -579,7 +659,16 @@ export function main(
   // 留言完全不提風險段落（不因設定缺失而誤報，也不因此紅燈）。
   const hardRules =
     paths.riskPathsPath === undefined ? undefined : loadHardRules(paths.riskPathsPath)
-  const result = checkIssue(body, hardRules)
+  // write-spec 情境（ADR-018）：只有 factory-run 會 checkout 目標 repo 並傳入這兩個旗標；
+  // 機制 repo 的 issues 事件沒有這些資料 → 門檻與存在性延後到 dispatch 時判定。
+  const targetRoot = paths.targetRoot
+  const specCtx: SpecCheckContext = {
+    quintSpecAnnotated:
+      paths.catalogPath === undefined ? undefined : loadQuintSpecAnnotated(paths.catalogPath),
+    fileExists:
+      targetRoot === undefined ? undefined : (rel) => isFile(join(targetRoot, rel)),
+  }
+  const result = checkIssue(body, hardRules, specCtx)
 
   // 建議模型：與 factory-run 共用的解析核心。設定檔損壞 → fail-loud（CliError），
   // 絕不靜默讓建議消失（guardrail 設定錯誤必須紅燈，docs/05）。

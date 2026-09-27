@@ -32,6 +32,7 @@ const actualOf = (paths: string[]): CrosscheckActual => ({
   added: 20,
   deleted: 0,
   uncommitted: [],
+  assertionDelta: 0,
 })
 
 /** 以 propose-skill 模式比對，回傳是否觸發範圍違規。 */

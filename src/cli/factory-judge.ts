@@ -17,8 +17,10 @@
 import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { runWorkItem, type AgentRun, type PipelineResult } from '../pipeline/run-work-item.js'
+import { adviseUnreportedSkillGap, type SkillGapAdvisory } from '../skill-gap/unreported.js'
 import { UsageReportSchema } from '../usage/report-schema.js'
 import { loadScoreInput } from './factory-score.js'
+import { applyWriteSpecMergePolicy } from '../write-spec/policy.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, runCli } from './run-cli.js'
 
@@ -103,6 +105,13 @@ export const ReportSchema = z.object({
     )
     .optional(),
   /**
+   * agent-write-spec 的未決事項（ADR-018 §9 護欄④）：字串陣列，或 `{ none: 理由 }`。
+   * 形狀在此放寬（空陣列、空白條目都收下），內容是否合規由 crosscheck 的
+   * write-spec 模式判定——這樣 agent 交出空陣列時，得到的是「缺少理由」的明確
+   * mismatch，而不是整份 report 格式錯誤、看不出原因的崩潰。其他類型不讀此欄位。
+   */
+  openQuestions: z.union([z.array(z.string()), z.object({ none: z.string() }).strict()]).optional(),
+  /**
    * CI 實測的 token 用量與成本（factory-usage 寫回，docs/04 §5）。
    *
    * 與 tokensUsed（agent 自報，SR7 用）不同：usage 是 CI 於 run 結束後回放
@@ -134,11 +143,22 @@ export interface JudgeCliPaths {
   reportPath: string
   catalogPath: string
   riskPathsPath: string
+  /** 工單類型；目前只用於 write-spec 的類型層級合併政策（ADR-018 護欄②）。 */
+  taskType?: string | undefined
 }
 
 export interface JudgeCliOutput {
   report: FactoryReport
   result: PipelineResult
+  /**
+   * Advisory 發現：**不影響 `result` 的任何一欄**，與 `factory-crosscheck` 的
+   * `advisories` 同性質（第一階段觀察期，不擋 run）。
+   *
+   * 放在 `result` 之外是刻意的：`result` 是終態判定，advisory 只是給人看的提醒。
+   * 兩者混在一起，日後就會有人以為 advisory 參與判定——M7 變異測試釘住的正是
+   * 「skillGap 不得影響終態」，advisory 必須留在同一側（不判定的那一側）。
+   */
+  advisories: SkillGapAdvisory[]
 }
 
 const DEFAULT_PATHS: JudgeCliPaths = {
@@ -154,14 +174,27 @@ const DEFAULT_PATHS: JudgeCliPaths = {
  * 也不要讓人以為判定用的是自己指定的那份檔案。
  */
 export function parseArgs(argv: string[]): JudgeCliPaths {
-  const extra = argv[3]
+  const positional: string[] = []
+  let taskType: string | undefined
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] as string
+    if (arg === '--task-type') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new CliError('--task-type requires a value')
+      taskType = v
+    } else {
+      positional.push(arg)
+    }
+  }
+  const extra = positional[3]
   if (extra !== undefined) {
     throw new CliError(`unexpected argument: ${extra}`)
   }
   return {
-    reportPath: argv[0] ?? DEFAULT_PATHS.reportPath,
-    catalogPath: argv[1] ?? DEFAULT_PATHS.catalogPath,
-    riskPathsPath: argv[2] ?? DEFAULT_PATHS.riskPathsPath,
+    reportPath: positional[0] ?? DEFAULT_PATHS.reportPath,
+    catalogPath: positional[1] ?? DEFAULT_PATHS.catalogPath,
+    riskPathsPath: positional[2] ?? DEFAULT_PATHS.riskPathsPath,
+    taskType,
   }
 }
 
@@ -210,17 +243,28 @@ function toAgentRun(report: FactoryReport): AgentRun {
 }
 
 export function main(argv: string[], tokenBudget?: number): JudgeCliOutput {
-  const { reportPath, catalogPath, riskPathsPath } = parseArgs(argv)
+  const { reportPath, catalogPath, riskPathsPath, taskType } = parseArgs(argv)
   const report = loadReport(reportPath)
   const { annotations, hardRulePatterns } = loadScoreInput(catalogPath, riskPathsPath)
 
-  const result = runWorkItem({
-    issueNumber: report.issueNumber,
-    initial: { annotations, hardRulePatterns },
-    runAgent: () => toAgentRun(report),
-    tokenBudget,
-  })
-  return { report, result }
+  const result = applyWriteSpecMergePolicy(
+    runWorkItem({
+      issueNumber: report.issueNumber,
+      initial: { annotations, hardRulePatterns },
+      runAgent: () => toAgentRun(report),
+      tokenBudget,
+    }),
+    taskType,
+  )
+  // needs-human 卻沒回報技能缺口 → advisory（docs/25 §2.1）。
+  // judge 是唯一知道**真實終態**的元件，因此涵蓋停手規則等 crosscheck 看不到的
+  // needs-human 成因（實證：run 34457060253，11 個 changedPaths、終態 needs-human、
+  // 無 skillGap——crosscheck 的零產出代理訊號抓不到它）。
+  const advisories = adviseUnreportedSkillGap(
+    result.outcome === 'needs-human' ? 'needs-human' : null,
+    report.skillGap !== undefined,
+  )
+  return { report, result, advisories }
 }
 
 /**

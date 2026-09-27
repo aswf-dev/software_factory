@@ -62,15 +62,15 @@ cd backstage-app && yarn install   # → Backstage 1.53.0
 
 | # | 項目 | 檔案 | 內容 |
 |---|---|---|---|
-| 1 | GitHub OAuth 登入（唯一登入，移除 guest） | `packages/app/src/App.tsx` | `SignInPageBlueprint.make`（github-auth-provider）+ `createFrontendModule({ pluginId: 'app' })`；backend 註冊 `plugin-auth-backend-module-github-provider`；signIn resolver `emailMatchingUserEntityProfileEmail` |
+| 1 | GitHub OAuth 登入（唯一登入，移除 guest） | `packages/app/src/App.tsx` | `SignInPageBlueprint.make`（github-auth-provider）+ `createFrontendModule({ pluginId: 'app' })`；backend 註冊 `plugin-auth-backend-module-github-provider`；signIn resolver `usernameMatchingUserEntityName`（GitHub 登入名 → User entity `metadata.name`） |
 | 2 | **PR Board 插件** | `packages/app/package.json` + `App.tsx` | `yarn --cwd packages/app add @backstage-community/plugin-github-pull-requests-board@1.3.1`；App.tsx `features` 加 `githubPullRequestsBoardPlugin`（自 `/alpha` default import）；Group 頁 Overview 卡片 + Pull Requests 分頁 |
 | 3 | **Roadmap 插件** | `packages/app/package.json`、`packages/backend/package.json`、`packages/backend/src/index.ts` | `yarn --cwd packages/app add @rothenbergt/backstage-plugin-roadmap@2.3.0`；`yarn --cwd packages/backend add @rothenbergt/backstage-plugin-roadmap-backend@1.0.1`；`backend.add(import('@rothenbergt/backstage-plugin-roadmap-backend'))`；前端自動發現（`app.packages: all`） |
 | 4 | Sidebar 選單 | `packages/app/src/modules/nav/Sidebar.tsx` | Menu group 加 DSH 與 Roadmap 項（`SidebarItem`，Map icon）——roadmap page 擴充未設 title，不會自動產生 nav item |
 | 5 | **DB 持久化** | `app-config.yaml` | `backend.database.connection.directory: ./backstage-db`（**不可用檔案路徑字串**——Backstage 1.53 基底連線拒絕，見踩坑） |
 | 6 | Roadmap 設定 | `app-config.yaml` | `roadmap.adminUsers: [group:default/factory-team]`（通知收件人；權限由 allow-all policy 決定） |
-| 7 | Catalog locations | `app-config.yaml` | software_factory / fubon-tradingbot / spring-modulith-orders 的 `catalog-info.yaml`、Template（`agent-add-tests`、`factory-work-item`）、`users.yaml`（User/Group）；**url 型 ref 不得含斜線**（用 `main` 或 commit SHA） |
+| 7 | Catalog locations | `app-config.yaml` | software_factory / fubon-tradingbot / spring-modulith-orders 的 `catalog-info.yaml`、Template（`agent-add-tests`、`factory-work-item`）；`users.yaml`（User/Group）改 `type: file` 讀 backstage-app 本地（部署組態）；**url 型 ref 不得含斜線**（用 `main` 或 commit SHA） |
 | 8 | factory-draft（選用，ADR-009） | 見 `backstage/plugins/README.md` | link: portal 依賴 + `backstage/plugins/node_modules` 橋接 symlink + backend.add + App.tsx field extension |
-| 9 | 團隊白名單 | software_factory repo `backstage/users.yaml` | User `philipz` + Group `factory-team` |
+| 9 | 團隊白名單（**部署組態**） | backstage-app repo 根目錄 `users.yaml` | User `philipz`、`tradingbot-tw` + Group `factory-team`（User `metadata.name` 必須等於 GitHub 登入名，signIn resolver 靠它比對）。2026-09-19 自 software_factory `backstage/users.yaml` 移入——白名單隨部署與使用者而異，不屬產品 repo |
 
 ### 4. 啟動與驗證
 
