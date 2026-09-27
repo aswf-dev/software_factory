@@ -7,8 +7,8 @@
  *
  *   { tier, complexity, complexitySource, evidence, reason, selected, chain }
  *
- * bash 端以 `jq -c '.chain[]'` 迭代 chain，逐項寫 `agent-default-model` 到
- * `$HOME/.dsh/settings.yaml` 後跑 dsh；provider 層失敗沿 chain fallback。
+ * bash 端以 `jq -c '.chain[]'` 迭代 chain，逐項以 factory-dsh-patch 產生模型 patch、
+ * 經 `dsh --patch` 帶入後跑 dsh；provider 層失敗沿 chain fallback。
  *
  * 與 factory-issue-check 共用同一解析核心（src/model-tier/resolve.ts）：
  * 檢查留言的建議與實際路由永遠一致。

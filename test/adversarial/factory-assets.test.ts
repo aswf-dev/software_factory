@@ -1329,6 +1329,12 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
       expect(c).toContain('dist/cli/factory-dsh-patch.js')
       expect(c, `${f} 的 dsh 呼叫必須帶入 model patch`).toContain('--patch "$GITHUB_WORKSPACE/.factory/model.patch.yml"')
     }
+    // 本機 skills 設定：寫 home 層級 patch；舊的 settings.yaml 在 headless 下不載入
+    //（2026-09-27 本機以假 provider 攔截請求實測：patch → 請求含 factory-workflow；
+    // settings.yaml → 不含，且檔案被改名為 settings.yaml.imported）
+    const local = read('scripts/setup-local-dsh.sh')
+    expect(local).toContain('PATCH="$DSH_HOME/cordis.patch.yml"')
+    expect(local).not.toContain('SETTINGS="$DSH_HOME/settings.yaml"')
     const v = read('scripts/verify-models.sh')
     expect(v).toContain('dist/cli/factory-dsh-patch.js')
     expect(v).toContain('--patch "$WORK/model.patch.yml"')

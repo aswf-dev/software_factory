@@ -1,7 +1,8 @@
 # DSH 多 provider 設定（Q04-8：可切換 provider 避開個別 rate limit）。
 #
-# 由 factory-run.yml 拷貝至 $HOME/.dsh/settings.yaml，並依 model_provider input
-# 附加 agent-default-model。credential 只放 env 參照（apiKeyEnv），金鑰永不入檔
+# factory-run.yml 每次嘗試以 factory-dsh-patch 把本檔的 `llm-pi-ai` 區段連同該次的
+# agent-default-model 轉成 Cordis patch，再以 `dsh --patch` 帶入（DSH 0.1.7 已移除
+# settings.yaml，見 src/model-tier/dsh-patch.ts）。credential 只放 env 參照（apiKeyEnv），金鑰永不入檔
 # （docs/05 §3.1）。未設定對應 secret 的 provider 若被選用，會以
 # MISSING_CREDENTIAL 明確失敗而非靜默使用其他金鑰。
 #
