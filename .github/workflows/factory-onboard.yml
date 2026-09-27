@@ -240,14 +240,15 @@ jobs:
             P=$(printf '%s' "$ENTRY" | jq -r .provider)
             MODEL=$(printf '%s' "$ENTRY" | jq -r .model)
             EFFORT=$(printf '%s' "$ENTRY" | jq -r '.reasoningEffort // empty')
-            cp "$GITHUB_WORKSPACE/config/dsh/settings.providers.yaml" "$HOME/.dsh/settings.yaml"
-            {
-              printf 'agent-default-model:\n  provider: %s\n  model: %s\n' "$P" "$MODEL"
-              [ -n "$EFFORT" ] && printf '  reasoningEffort: %s\n' "$EFFORT"
-            } >> "$HOME/.dsh/settings.yaml"
+            # DSH 0.1.7 不再讀 settings.yaml，模型路由改以 patch 帶入（同 factory-run.yml）
+            node "$GITHUB_WORKSPACE/dist/cli/factory-dsh-patch.js" \
+              --provider "$P" --model "$MODEL" ${EFFORT:+--effort "$EFFORT"} \
+              --providers "$GITHUB_WORKSPACE/config/dsh/settings.providers.yaml" \
+              --out "$GITHUB_WORKSPACE/.factory/model.patch.yml" > /dev/null
             echo "trying model routing: $P/$MODEL"
             "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
               --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
+              --patch "$GITHUB_WORKSPACE/.factory/model.patch.yml" \
               "$(sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
                       -e "s|<REPO>|${{ inputs.repo }}|" \
                       -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" "$TEMPLATE")" \

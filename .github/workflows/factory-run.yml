@@ -695,12 +695,16 @@ jobs:
               P=$(printf '%s' "$ENTRY" | jq -r .provider)
               MODEL=$(printf '%s' "$ENTRY" | jq -r .model)
               EFFORT=$(printf '%s' "$ENTRY" | jq -r '.reasoningEffort // empty')
-              cp "$GITHUB_WORKSPACE/config/dsh/settings.providers.yaml" "$HOME/.dsh/settings.yaml"
-              {
-                printf 'agent-default-model:\n  provider: %s\n  model: %s\n' \
-                  "$P" "$MODEL"
-                [ -n "$EFFORT" ] && printf '  reasoningEffort: %s\n' "$EFFORT"
-              } >> "$HOME/.dsh/settings.yaml"
+              # DSH 0.1.7 移除了 $HOME/.dsh/settings.yaml（只在啟動後非同步匯入一次，
+              # headless 來不及生效）：2026-09-24 升級後所有 run 都落回內建的
+              # deepseek-official。改以 Cordis patch 覆寫 agent-default-model 與
+              # llm-pi-ai，並用 --patch 帶入（見 src/model-tier/dsh-patch.ts）。
+              node "$GITHUB_WORKSPACE/dist/cli/factory-dsh-patch.js" \
+                --provider "$P" --model "$MODEL" ${EFFORT:+--effort "$EFFORT"} \
+                --providers "$GITHUB_WORKSPACE/config/dsh/settings.providers.yaml" \
+                --out "$GITHUB_WORKSPACE/.factory/model.patch.yml" > /dev/null
+              # 供 Measure usage 比對「要求 vs 實際」route（防路由再次無聲失效）
+              echo "$P/$MODEL" >> "$GITHUB_WORKSPACE/.factory/attempted-routes.txt"
               ATTEMPT=$((ATTEMPT + 1))
               LAST_PROVIDER="$P"
               echo "trying model routing: $P/$MODEL${EFFORT:+ (effort=$EFFORT)} (attempt=$ATTEMPT, remaining=${REMAINING_SEC}s)"
@@ -725,6 +729,7 @@ jobs:
               timeout --signal=TERM --kill-after=30s "$ATTEMPT_TIMEOUT" \
                 "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
                 --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
+                --patch "$GITHUB_WORKSPACE/.factory/model.patch.yml" \
                 "$(sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
                         -e "s|<REPO>|${{ inputs.repo }}|" \
                         -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" \
@@ -815,6 +820,23 @@ jobs:
             > "$GITHUB_WORKSPACE/target/.factory/run/usage.json" \
             || echo "::warning::usage 量測失敗（不擋 run；Issue 留言將不含用量段落）"
           ls -la target/.factory/run/usage.md 2>/dev/null || true
+          # 路由比對：session log 的實際 route 必須都在本次嘗試過的 route 之內。
+          # 2026-09-24～27 DSH 0.1.7 忽略工廠設定，全部 run 落到內建 deepseek-official，
+          # 而沒有任何一處提示——不符時標 ::error 並寫進 Issue 留言的用量段落。
+          ACTUAL=$(jq -r '[.usage.routes[]? | "\(.provider)/\(.model)"] | unique | .[]' \
+            "$GITHUB_WORKSPACE/target/.factory/run/usage.json" 2>/dev/null || true)
+          MISMATCH=""
+          for R in $ACTUAL; do
+            grep -qxF "$R" "$GITHUB_WORKSPACE/.factory/attempted-routes.txt" 2>/dev/null || MISMATCH="$MISMATCH $R"
+          done
+          if [ -n "$MISMATCH" ]; then
+            REQUESTED=$(paste -sd, "$GITHUB_WORKSPACE/.factory/attempted-routes.txt" 2>/dev/null || echo "（無紀錄）")
+            echo "::error::模型路由不符：要求 $REQUESTED，實際${MISMATCH}"
+            printf '\n> ⚠️ **模型路由不符**：要求 `%s`，實際 `%s`——DSH 未採用工廠的模型設定，請檢查路由。\n' \
+              "$REQUESTED" "${MISMATCH# }" >> "$GITHUB_WORKSPACE/target/.factory/run/usage.md"
+          else
+            echo "model routing verified: ${ACTUAL:-（無 route 紀錄）}"
+          fi
           # B8：預算 vs 實測並列。逾時 run 的 per-run 觀測值是校準 token_budget
           # 唯一的來源（Q02-5），故即使量測失敗也印出預算設定。
           BUDGET="${TOKEN_BUDGET:-0}"

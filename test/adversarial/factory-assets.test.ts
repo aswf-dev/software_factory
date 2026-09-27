@@ -1314,6 +1314,29 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(c).toContain('Select model tier')
   })
 
+  // 2026-09-27：DSH 0.1.7 移除了 $HOME/.dsh/settings.yaml（只在啟動後非同步匯入一次），
+  // 工廠寫的 agent-default-model 與 provider 設定全被忽略，9/24–9/27 所有 run 都落到
+  // 內建 deepseek-official/deepseek-flash——critical tier 要求 opus 也一樣，且沒有任何提示。
+  it('模型路由以 --patch 帶入 DSH（0.1.7 不再讀 settings.yaml），三個入口一致', () => {
+    for (const f of ['.github/workflows/factory-run.yml', '.github/workflows/factory-onboard.yml']) {
+      const c = read(f)
+      expect(c, `${f} 不得再寫 settings.yaml`).not.toMatch(/\.dsh\/settings\.yaml"?\s*$/m)
+      expect(c).not.toContain('>> "$HOME/.dsh/settings.yaml"')
+      expect(c).toContain('dist/cli/factory-dsh-patch.js')
+      expect(c, `${f} 的 dsh 呼叫必須帶入 model patch`).toContain('--patch "$GITHUB_WORKSPACE/.factory/model.patch.yml"')
+    }
+    const v = read('scripts/verify-models.sh')
+    expect(v).toContain('dist/cli/factory-dsh-patch.js')
+    expect(v).toContain('--patch "$WORK/model.patch.yml"')
+    expect(v).not.toContain('home/settings.yaml')
+  })
+  it('實際 route 必須與要求一致：factory-run 比對 session log，verify-models 不只看回覆內容', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('.factory/attempted-routes.txt')
+    expect(c).toContain('模型路由不符')
+    // verify-models：路由失效時內建模型仍會回 PING，必須另以 session log 比對 route
+    expect(read('scripts/verify-models.sh')).toContain('[ "$ROUTE" = "$P/$M" ]')
+  })
   it('chain fallback 涵蓋 credential 錯誤（AUTH/401/invalid_api_key，#171 實測壞 key 未 fallback）', () => {
     const c = read('.github/workflows/factory-run.yml')
     for (const token of ['RATE_LIMIT', '429', 'MISSING_CREDENTIAL', 'UNKNOWN_MODEL', 'AUTH', '401', 'INVALID_CREDENTIAL', 'invalid_api_key']) {
