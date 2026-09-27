@@ -1330,21 +1330,25 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(v).toContain('--patch "$WORK/model.patch.yml"')
     expect(v).not.toContain('home/settings.yaml')
   })
-  it('dsh-sandbox-probe 以 --patch 帶入模型路由（claude-opus-5-5），不再寫 settings.yaml', () => {
+  // 2026-09-27：執行期逃逸測試改用劇本式假 LLM。真的模型會拒答或不呼叫工具——
+  // run 36298254066 的 Opus 5.5 依使用政策拒絕，從未嘗試寫入卻被報成 blocked。
+  it('dsh-sandbox-probe 的執行期逃逸測試用劇本式假 LLM，不依賴真的模型或 API 金鑰', () => {
     const { load } = require('js-yaml') as typeof import('js-yaml')
     const probe = read('.github/workflows/dsh-sandbox-probe.yml')
+    expect(probe).toContain('node scripts/probe/scripted-llm.mjs &')
     expect(probe).toContain('--patch "$GITHUB_WORKSPACE/config/dsh/probe.patch.yml"')
+    expect(probe).toContain('node scripts/probe/check-escape.mjs')
     expect(probe).not.toContain('.dsh/settings.yaml"')
+    expect(probe, '不得再以 API 金鑰決定是否執行').not.toContain('HAS_KEY')
     const rows = load(read('config/dsh/probe.patch.yml')) as { id: string; config: Record<string, unknown> }[]
-    expect(rows.find((r) => r.id === 'agent-default-model')?.config).toEqual({
-      provider: 'anthropic',
-      model: 'claude-opus-5-5',
-    })
-    // opus-5-5 不在 pi-ai 0.85.1 目錄：必須手動宣告，否則 UNKNOWN_MODEL
-    const piAi = rows.find((r) => r.id === 'llm-pi-ai')?.config as {
-      providers: { anthropic: { models?: { id: string }[] } }
+    expect(rows.find((r) => r.id === 'agent-default-model')?.config).toEqual({ provider: 'probe', model: 'scripted' })
+    const piAi = rows.find((r) => r.id === 'llm-pi-ai')?.config as { providers: Record<string, { baseURL?: string }> }
+    expect(piAi.providers['probe']?.baseURL).toBe('http://127.0.0.1:18080/v1')
+    // 劇本必須含：工作區內對照組、bash 與 write 各寫一次 $HOME、要求放寬
+    const script = read('scripts/probe/scripted-llm.mjs')
+    for (const needle of ['inside.txt', 'ESCAPE-BASH.txt', 'ESCAPE-WRITE.txt', "sandbox_permissions: 'danger-full-access'"]) {
+      expect(script, `劇本缺少 ${needle}`).toContain(needle)
     }
-    expect(piAi.providers.anthropic.models?.map((m) => m.id)).toContain('claude-opus-5-5')
   })
   it('實際 route 必須與要求一致：factory-run 比對 session log，verify-models 不只看回覆內容', () => {
     const c = read('.github/workflows/factory-run.yml')
