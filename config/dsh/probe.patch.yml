@@ -1,0 +1,23 @@
+# DSH 模型路由 patch，給 dsh-sandbox-probe.yml 的執行期逃逸測試用。
+#
+# 把模型換成本機照劇本回應的假 LLM（scripts/probe/scripted-llm.mjs）：逃逸測試要驗的是
+# 沙箱擋不擋得住，不是模型願不願意照做。真的模型會拒答（run 36298254066 的 Opus 5.5
+# 依使用政策拒絕）或不呼叫工具，結果不確定；劇本則每次送出相同的工具呼叫。
+#
+# 以 `dsh --patch config/dsh/probe.patch.yml` 帶入（DSH 0.1.7 已移除 settings.yaml）。
+# 假 LLM 不驗證金鑰，但 route 仍需要一個 apiKeyEnv 參照（pi-ai 的 OpenAI 相容介接
+# 要求有 key），探針以 PROBE_LLM_KEY=unused 提供。
+- id: llm-pi-ai
+  config:
+    providers:
+      probe:
+        apiKeyEnv: PROBE_LLM_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:18080/v1
+        models:
+          - id: scripted
+
+- id: agent-default-model
+  config:
+    provider: probe
+    model: scripted
