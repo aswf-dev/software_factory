@@ -278,7 +278,7 @@ export function resolveModelTier(input: ModelResolutionInput): ModelResolution {
   let tier: ModelTier = complexity === 'low' ? 'low' : complexity === 'medium' ? 'medium' : 'high'
   if (tier === 'high' && input.scoreTotal !== undefined && input.scoreTotal >= CRITICAL_MIN_TOTAL) {
     tier = 'critical'
-    reason = `${reason}；複雜度 high 且總分 ${input.scoreTotal} ≥ ${CRITICAL_MIN_TOTAL} → critical（claude-opus-5）`
+    reason = `${reason}；複雜度 high 且總分 ${input.scoreTotal} ≥ ${CRITICAL_MIN_TOTAL} → critical（claude-opus-5-5，未收錄前 fallback 至 claude-opus-5）`
   }
 
   // B5：heavy-verify 強制 critical（繞過總分門檻）。順序刻意排在總分升級之後，

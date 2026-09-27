@@ -36,6 +36,11 @@ pricing:
     inputUsdPerMTok: 2
     outputUsdPerMTok: 10
     cacheReadUsdPerMTok: 0.2
+  # claude-opus-5-5：pi-ai 0.87.1 目錄（input 4 / output 20 / cacheRead 0.2 / cacheWrite 5）
+  claude-opus-5-5:
+    inputUsdPerMTok: 4
+    outputUsdPerMTok: 20
+    cacheReadUsdPerMTok: 0.2
   claude-opus-5:
     inputUsdPerMTok: 5
     outputUsdPerMTok: 25

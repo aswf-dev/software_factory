@@ -483,7 +483,7 @@ ADR-011 引入分級路由：依 Issue 需求複雜度選擇模型 tier——
 |---|---|---|
 | low / medium | **qwen3.8-flash**（2026-08-27 起為預設） | deepseek-flash |
 | high | deepseek-flash（2026-09-11 起；原 deepseek-v4-pro） | claude-sonnet-5 → qwen3.8-flash |
-| critical | **claude-opus-5** + `reasoningEffort: max`（最高 tier） | deepseek-flash → qwen3.8-flash |
+| critical | **claude-opus-5-5** + `reasoningEffort: max`（最高 tier；2026-09-27 起。DSH 綁定的 pi-ai 收錄前以 `UNKNOWN_MODEL` 秒退，自動改用下一項） | claude-opus-5（max）→ deepseek-flash → qwen3.8-flash |
 
 > **fallback 的角色（2026-09-11 更正）**：本表原稱 fallback 為「品質擔保」——第三方基準不支持這個說法。Artificial Analysis Intelligence Index v4.3：deepseek-flash **40** 分 > Sonnet 5 **38** 分，且 agentic 指標差距明顯（AutomationBench 69% vs 37%），Sonnet 成本卻高約 19 倍。fallback 只在 **provider 層失敗**時觸發，作用是「換一家供應商把同一件事做完」，**不是升級**。
 >

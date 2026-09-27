@@ -11,6 +11,8 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 
 需求（用戶裁決，2026-09-11 更新）：依 Issue 需求複雜度選擇對應等級的 LLM——低/中 → `qwen3.8-flash`（2026-08-27 起為預設）、高 → `deepseek-flash`、**最高（critical）→ `claude-opus-5`**；sonnet 僅作 fallback。並在 `factory-issue-check`（零 LLM 成本的格式檢查流程）留言中回報複雜度分析與建議模型。
 
+> **2026-09-27 裁決**：critical primary 改為 `claude-opus-5-5`（$4/20，支援 low～max effort），`claude-opus-5` 退為第一順位 fallback（同樣 `reasoningEffort: max`）。DSH 0.1.7-rc.1 綁定的 pi-ai 0.85.1 目錄尚未收錄 opus-5-5：升級前它在約 2 秒內以 `UNKNOWN_MODEL` 失敗（未發出網路請求），命中 provider 層 fallback 後改用 opus-5，行為與改動前相同；DSH 升級到收錄 opus-5-5 的 pi-ai（0.87.1 起）後自動生效，不需再改設定。刻意不在 `settings.providers.yaml` 手動宣告——models 清單會整個取代 anthropic route 的內建目錄，連 opus-5／sonnet-5 的參數都要自行維護。
+
 > **2026-08-28 裁決（取代先前「只有最高才用 fable」）**：`claude-fable-5` 需額外 credit（帳號方案未包含；實測 run #33175623064 無法使用）——**移除 fable-5**，critical 預設改為同代旗艦 `claude-opus-5`（$5/25、1M ctx、支援 xhigh/max thinking）。
 
 > **2026-09-11 裁決（DeepSeek V4 系列汰換）**：DeepSeek 於 2026-09-10 發布 `DeepSeek-V4.1-Flash`，宣告「在性能、費用、速度、總用時等各項指標上全面超越 V4 Pro」。依官方 API 文件（[Change Log](https://api-docs.deepseek.com/updates/)、[Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing)）：

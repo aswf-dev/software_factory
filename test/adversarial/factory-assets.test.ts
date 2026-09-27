@@ -1159,7 +1159,7 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     })['llm-pi-ai'].providers,
   )
 
-  it('用戶模型優先序：low/medium=qwen3.8-flash（2026-08-27 起為預設）、high=deepseek-flash、critical=opus-5', () => {
+  it('用戶模型優先序：low/medium=qwen3.8-flash（2026-08-27 起為預設）、high=deepseek-flash、critical=opus-5-5', () => {
     expect(tiers.low.primary.provider).toBe('qwen')
     expect(tiers.low.primary.model).toBe('qwen3.8-flash')
     expect(tiers.medium.primary.provider).toBe('qwen')
@@ -1170,7 +1170,7 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(tiers.medium.fallback.map((e) => e.model)).toContain('deepseek-flash')
     expect(tiers.high.primary.model).toBe('deepseek-flash')
     expect(tiers.critical).toBeDefined() // critical tier 必備（最高 tier 的出口）
-    expect(tiers.critical?.primary.model).toBe('claude-opus-5')
+    expect(tiers.critical?.primary.model).toBe('claude-opus-5-5')
     expect(tiers.critical?.primary.provider).toBe('anthropic')
   })
 
@@ -1180,6 +1180,7 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
       expect(models, `tier ${id} 不得含 fable-5`).not.toContain('claude-fable-5')
       if (id !== 'critical') {
         expect(models, `tier ${id} 不得提前動用 opus-5`).not.toContain('claude-opus-5')
+        expect(models, `tier ${id} 不得提前動用 opus-5-5`).not.toContain('claude-opus-5-5')
       }
     }
   })
@@ -1198,14 +1199,17 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     }
   })
 
-  it('critical tier：primary = claude-opus-5、fallback 由 deepseek-flash 起（fable 已移除）', () => {
+  it('critical tier：primary = claude-opus-5-5、fallback 依序 opus-5 → deepseek-flash（fable 已移除）', () => {
     // 2026-08-28 用戶裁決：fable-5 需額外 credit（實測 run #33175623064 無法使用）
     // → 移除 fable-5，critical 預設改為同代旗艦 claude-opus-5。
+    // 2026-09-27 用戶裁決：primary 改為 claude-opus-5-5；DSH 升級前它以 UNKNOWN_MODEL
+    // 秒退，opus-5 必須緊接在後，否則 critical 會一路掉到 deepseek-flash。
     const critical = tiers.critical
     expect(critical).toBeDefined()
-    expect(critical?.primary.model).toBe('claude-opus-5')
+    expect(critical?.primary.model).toBe('claude-opus-5-5')
     expect(critical?.primary.provider).toBe('anthropic')
-    expect(critical?.fallback[0]?.model).toBe('deepseek-flash')
+    expect(critical?.fallback[0]).toEqual({ provider: 'anthropic', model: 'claude-opus-5', reasoningEffort: 'max' })
+    expect(critical?.fallback[1]?.model).toBe('deepseek-flash')
   })
 
   it('critical 必須明設 reasoningEffort: max（否則付旗艦價只換到平手品質）', () => {
@@ -1556,6 +1560,8 @@ describe('用量與成本契約（docs/04 §5、docs/08 §2.3、docs/ADR/011）'
     expect(pricing['deepseek-flash']?.outputUsdPerMTok).toBe(1.2)
     expect(pricing['claude-opus-5']?.inputUsdPerMTok).toBe(5)
     expect(pricing['claude-opus-5']?.outputUsdPerMTok).toBe(25)
+    expect(pricing['claude-opus-5-5']?.inputUsdPerMTok).toBe(4)
+    expect(pricing['claude-opus-5-5']?.outputUsdPerMTok).toBe(20)
   })
 
   it('factory-run.yml 含 Measure usage 步驟（讀 DSH session log + 定價表）', () => {
