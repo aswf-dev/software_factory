@@ -1,0 +1,24 @@
+.github/workflows/dsh-sandbox-probe.yml
+  s_8e84f713421083::t_2f4cf63bbcb924 179-180,183
+config/dsh/probe.patch.yml
+  s_8e84f713421083::t_86aa29646e8492 1-27,29,33-37
+  s_8e84f713421083::t_2f4cf63bbcb924 28,30-32
+test/adversarial/factory-assets.test.ts
+  s_8e84f713421083::t_95601501aa94ff 1333-1348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2bfd63c28fba8e919cd0109459048912a6332059",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
