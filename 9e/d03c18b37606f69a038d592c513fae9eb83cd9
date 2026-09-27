@@ -1,0 +1,35 @@
+src/cli/factory-dsh-patch.ts
+  s_8e84f713421083::t_61a476f76db6f0 1-70
+src/model-tier/dsh-patch.ts
+  s_8e84f713421083::t_61a476f76db6f0 1-40
+src/model-tier/resolve.ts
+  s_8e84f713421083::t_61a476f76db6f0 172-173,181-186
+.github/workflows/factory-onboard.yml
+  s_8e84f713421083::t_db512ae1d3f78f 243-247,251
+test/adversarial/factory-assets.test.ts
+  s_8e84f713421083::t_bc5ad1dffc31a5 1317-1339
+src/cli/factory-dsh-patch.test.ts
+  s_8e84f713421083::t_50a94198db2a60 1-82
+.github/workflows/factory-run.yml
+  s_8e84f713421083::t_d3210883de0ef2 698-705,732
+  s_8e84f713421083::t_336c6a0b71feda 706-707,823-839
+scripts/verify-models.sh
+  s_8e84f713421083::t_336c6a0b71feda 116
+  s_8e84f713421083::t_db512ae1d3f78f 105,107-115,117,119-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9ed03c18b37606f69a038d592c513fae9eb83cd9",
+  "prompts": {},
+  "sessions": {
+    "s_8e84f713421083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3b84ee15-3771-47d3-bfd1-da8f0f3b10b6",
+        "model": "unknown"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
