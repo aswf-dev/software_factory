@@ -26,6 +26,8 @@ import { isMainModule } from './is-main-module.js'
  *  - `agent-inner-timeout`：bash `timeout(1)` 觸發（本檔 A4 新增的內層逾時），
  *    可歸因到單一 provider 嘗試。
  *  - `provider-error`：provider 層失敗（credential/rate limit/model 不存在）。
+ *  - `model-refusal`：模型依供應商使用政策拒答（critical tier 會改用 chain 下一項；
+ *    整串都拒答或拒答發生在最後一項時才會以此收尾）。
  *  - `agent-error`：agent 非零退出但非上述（任務層失敗）。
  *  - `agent-exit-zero`:exit 0 但 agent 未寫 report（異常，需人看）。
  */
@@ -33,6 +35,7 @@ export const STOP_REASONS = [
   'agent-step-timeout',
   'agent-inner-timeout',
   'provider-error',
+  'model-refusal',
   'agent-error',
   'agent-exit-zero',
 ] as const

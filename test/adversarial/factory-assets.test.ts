@@ -1347,6 +1347,20 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     // verify-models：路由失效時內建模型仍會回 PING，必須另以 session log 比對 route
     expect(read('scripts/verify-models.sh')).toContain('[ "$ROUTE" = "$P/$M" ]')
   })
+  // 2026-09-27 用戶裁決：critical 的 Opus 5.5 依使用政策拒答時改用 Opus 5（chain 下一項）。
+  // run 36298254066 實測拒答訊息不含任何 provider 層關鍵字，原本會落到 agent-error 交還人類。
+  it('critical 拒答（PI_AI_ERROR + Usage Policy／refused）改用 chain 下一項，只限 critical', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('if [ "$TIER" = "critical" ] && grep -q "PI_AI_ERROR" .factory/run/stderr.txt')
+    expect(c).toContain('grep -qiE "Usage Policy|refused to complete the request" .factory/run/stderr.txt')
+    expect(c).toContain('STOP_REASON="model-refusal"')
+    // 拒答判斷必須排在 agent-error 之前（否則永遠走不到）
+    expect(c.indexOf('STOP_REASON="model-refusal"')).toBeLessThan(c.indexOf('STOP_REASON="agent-error"'))
+    // critical 的下一項必須是 opus-5，拒答後才會「改用 Opus 5」
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const t = load(read('config/dsh/model-tiers.yaml')) as { tiers: { critical: { fallback: { model: string }[] } } }
+    expect(t.tiers.critical.fallback[0]?.model).toBe('claude-opus-5')
+  })
   it('chain fallback 涵蓋 credential 錯誤（AUTH/401/invalid_api_key，#171 實測壞 key 未 fallback）', () => {
     const c = read('.github/workflows/factory-run.yml')
     for (const token of ['RATE_LIMIT', '429', 'MISSING_CREDENTIAL', 'UNKNOWN_MODEL', 'AUTH', '401', 'INVALID_CREDENTIAL', 'invalid_api_key']) {
