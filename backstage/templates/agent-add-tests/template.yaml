@@ -1,4 +1,11 @@
-# agent-add-tests Template（Phase 1）
+# 對既有 Issue 派工（Phase 1 的 agent-add-tests Template，2026-09-27 改為通用）
+#
+# 任務類型一律以 Issue 宣告為準（task_type: auto），表單不提供類型欄位。
+# 原本寫死 `task_type: agent-add-tests`：factory-run 以 dispatch 指定值優先，
+# 對非 add-tests 的 Issue 派工會靜默改跑補測試（與 #287 同一類漂移）——
+# 例如 agent-write-spec 的模型階段會跳過階段判定、白名單與集中驗證。
+# 目錄與 metadata.name 維持 agent-add-tests：backstage-app 的 catalog location
+# 以此路徑註冊，改名會讓 Backstage 找不到模板。
 #
 # 已驗證（Q03-2，2026-08-17）：
 # - `github:actions:dispatch` 為 @backstage/plugin-scaffolder-backend-module-github
@@ -12,8 +19,8 @@ apiVersion: scaffolder.backstage.io/v1beta3
 kind: Template
 metadata:
   name: agent-add-tests
-  title: 請 agent 補測試
-  description: 將「補測試」工作項交由工廠 agent 處理（低風險類別，docs/00 §6 明列）
+  title: 對既有 Issue 派工
+  description: 對已建立的工作項 Issue 觸發工廠 agent，任務類型依 Issue 宣告（例如 agent-write-spec 核准後的模型階段）
 spec:
   owner: user:philipz
   type: service
@@ -35,7 +42,7 @@ spec:
         issueNumber:
           title: Issue 編號
           type: string
-          description: 該 Issue 必須已具備明確的驗收條件（SR4：缺驗收條件 agent 會停手）；workflow_dispatch 的 input 需字串
+          description: 該 Issue 必須已具備「任務類型」與明確的驗收條件（SR4：缺驗收條件 agent 會停手）；workflow_dispatch 的 input 需字串
         baseBranch:
           title: 目標 repo 的 factory trunk 分支
           type: string
@@ -55,11 +62,12 @@ spec:
           issue_number: ${{ parameters.issueNumber }}
           repo: ${{ parameters.targetRepo | replace('github.com?owner=', '') | replace('&repo=', '/') }}
           base_branch: ${{ parameters.baseBranch }}
-          task_type: agent-add-tests
+          # 依 Issue 宣告（見檔頭）；Issue 無法解析類型時 factory-run 會 fail-loud
+          task_type: auto
   output:
     text:
       - title: 觸發完成
         content: |
-          已觸發 `factory-run.yml`（Issue #${{ parameters.issueNumber }}，repo: ${{ parameters.targetRepo | replace('github.com?owner=', '') | replace('&repo=', '/') }}）。
+          已觸發 `factory-run.yml`（任務類型依 Issue 宣告；Issue #${{ parameters.issueNumber }}，repo: ${{ parameters.targetRepo | replace('github.com?owner=', '') | replace('&repo=', '/') }}）。
           執行狀態請見 GitHub Actions 頁面：
           https://github.com/philipz/software_factory/actions

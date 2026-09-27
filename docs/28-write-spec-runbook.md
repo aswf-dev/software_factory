@@ -174,7 +174,11 @@ gh issue edit <N> -R <owner>/<repo> --add-label spec/approved
 
 ## 9. 步驟 6：第二次派工（模型階段）
 
-由對 `philipz/software_factory` 有 `actions:write` 權限的人觸發：
+由對 `philipz/software_factory` 有 `actions:write` 權限的人觸發，三種方式擇一：
+
+- **Backstage**：「對既有 Issue 派工」模板，填目標 repo 與 Issue 編號。任務類型依 Issue 宣告（`task_type: auto`），不需要也無法指定。
+- **GitHub Actions 頁面**：factory-run 的「Run workflow」，填入下方相同的 input。
+- **gh CLI**：
 
 ```bash
 gh workflow run factory-run.yml -R philipz/software_factory --ref main \
@@ -182,7 +186,7 @@ gh workflow run factory-run.yml -R philipz/software_factory --ref main \
   -f base_branch=software-factory -f task_type=agent-write-spec
 ```
 
-也可在 GitHub Actions 頁面「Run workflow」填入相同的 input。**不需要也無法指定階段**——階段由狀態推導。
+`task_type` 填 `agent-write-spec` 或 `auto`。**不要以其他類型派工**：factory-run 以 dispatch 指定的類型為準，填錯會跳過階段判定、白名單與集中驗證。**不需要也無法指定階段**——階段由狀態推導。
 
 factory-run 依序：
 
