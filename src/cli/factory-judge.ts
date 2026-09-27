@@ -43,6 +43,7 @@ const InvocationSchema = z.object({
       'agent-step-timeout',
       'agent-inner-timeout',
       'provider-error',
+      'model-refusal',
       'agent-error',
       'agent-exit-zero',
     ])
