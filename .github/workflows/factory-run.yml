@@ -685,6 +685,7 @@ jobs:
             # A4 的 fallback 語意變更：`timeout` 觸發（code=124）原本被視為
             # 「任務層失敗不重試」而直接 break，現在改為沿 chain 升級。
             BUDGET_MIN="${{ steps.agent-timeout.outputs.effective_minutes }}"
+            TIER=$(jq -r '.tier // ""' "$GITHUB_WORKSPACE/.factory/model.json")
             REMAINING_SEC=$((BUDGET_MIN * 60))
             ATTEMPT=0
             TIMED_OUT=false
@@ -759,6 +760,17 @@ jobs:
               # 任務層失敗（非上述錯誤）不重試（docs/02 §6）。
               # 含 AUTH/401/invalid_api_key：壞 key 也屬 credential 層失敗，應沿 chain
               # fallback（2026-08-28 #171 實測：qwen key 401 直接 needs-human，未 fallback）。
+              # critical 拒答 → 改用 chain 下一項（2026-09-27 用戶裁決：Opus 5.5 拒答時改用 Opus 5）。
+              # run 36298254066 實測訊息：`dsh: PI_AI_ERROR: This request triggered restrictions on
+              # violative cyber content and was blocked under Anthropic's Usage Policy.`；pi-ai 對
+              # stop_reason=refusal 另有預設訊息 `The model refused to complete the request`。
+              # 只限 critical：其他 tier 的拒答仍視為任務層失敗、交還人類。
+              if [ "$TIER" = "critical" ] && grep -q "PI_AI_ERROR" .factory/run/stderr.txt \
+                  && grep -qiE "Usage Policy|refused to complete the request" .factory/run/stderr.txt; then
+                STOP_REASON="model-refusal"
+                echo "::warning::provider=$P/$MODEL 依使用政策拒答，改用 chain 下一項"
+                continue
+              fi
               if grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL|AUTH|401|INVALID_CREDENTIAL|invalid_api_key" .factory/run/stderr.txt; then
                 STOP_REASON="provider-error"
                 continue

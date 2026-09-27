@@ -305,8 +305,8 @@ describe('buildTimeoutSkillGap（逾時判定的封閉集合）', () => {
     }
   })
 
-  it('非逾時的三種 stopReason → 皆不登記', () => {
-    for (const r of ['provider-error', 'agent-error', 'agent-exit-zero'] as const) {
+  it('非逾時的四種 stopReason → 皆不登記', () => {
+    for (const r of ['provider-error', 'model-refusal', 'agent-error', 'agent-exit-zero'] as const) {
       expect(buildTimeoutSkillGap({ stopReason: r }), r).toBeUndefined()
     }
   })
