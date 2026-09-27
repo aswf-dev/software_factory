@@ -697,6 +697,19 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       expect(t).not.toContain('試點 repo 用 software-factory')
     }
   })
+  // 2026-09-27：「對既有 Issue 派工」模板原本寫死 task_type: agent-add-tests，
+  // factory-run 以 dispatch 指定值優先，對 agent-write-spec 的 Issue 派工會靜默改跑
+  // 補測試、跳過階段判定與集中驗證（與 #287 同類）。對既有 Issue 派工只能帶 auto。
+  it('對既有 Issue 派工的 Backstage 模板一律帶 task_type: auto（不得以固定類型覆蓋 Issue）', () => {
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const raw = load(read('backstage/templates/agent-add-tests/template.yaml')) as {
+      spec: { parameters: { properties: Record<string, unknown> }[]; steps: { action: string; input: { workflowInputs?: Record<string, string> } }[] }
+    }
+    const dispatch = raw.spec.steps.find((st) => st.action === 'github:actions:dispatch')
+    expect(dispatch?.input.workflowInputs?.['task_type']).toBe('auto')
+    // 表單不提供類型欄位：類型只有 Issue 一個來源
+    for (const p of raw.spec.parameters) expect(Object.keys(p.properties)).not.toContain('taskType')
+  })
   it('test.yml push 觸發涵蓋 software-factory（factory trunk 每層獨立綠燈，ADR-013）', () => {
     const t = read('.github/workflows/test.yml')
     expect(t).toMatch(/branches: \[main, software-factory\]/)
