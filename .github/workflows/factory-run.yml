@@ -749,6 +749,10 @@ jobs:
               REMAINING_SEC=$((REMAINING_SEC - ELAPSED))
               [ "$REMAINING_SEC" -lt 0 ] && REMAINING_SEC=0
               echo "provider=$P exit=$code elapsed=${ELAPSED}s remaining=${REMAINING_SEC}s"
+              # 每次嘗試的輸出另存一份（隨 run artifact 上傳）：下一次嘗試會覆寫
+              # stdout.txt/stderr.txt，run 36838600120 的 Opus 5.5 失敗原因就是這樣遺失的。
+              cp .factory/run/stdout.txt ".factory/run/attempt-${ATTEMPT}.stdout.txt"
+              cp .factory/run/stderr.txt ".factory/run/attempt-${ATTEMPT}.stderr.txt"
               if [ "$code" -eq 0 ]; then break; fi
               if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
                 # 124 = timeout 到期；137 = TERM 未生效被 KILL。兩者都是逾時。
@@ -763,26 +767,27 @@ jobs:
                 echo "escalating to next chain entry after timeout"
                 continue
               fi
-              # 僅 provider 層失敗才 fallback（rate limit/credential/model）；
-              # 任務層失敗（非上述錯誤）不重試（docs/02 §6）。
-              # 含 AUTH/401/invalid_api_key：壞 key 也屬 credential 層失敗，應沿 chain
-              # fallback（2026-08-28 #171 實測：qwen key 401 直接 needs-human，未 fallback）。
-              # critical 拒答 → 改用 chain 下一項（2026-09-27 用戶裁決：Opus 5.5 拒答時改用 Opus 5）。
-              # run 36298254066 實測訊息：`dsh: PI_AI_ERROR: This request triggered restrictions on
-              # violative cyber content and was blocked under Anthropic's Usage Policy.`；pi-ai 對
-              # stop_reason=refusal 另有預設訊息 `The model refused to complete the request`。
-              # 只限 critical：其他 tier 的拒答仍視為任務層失敗、交還人類。
-              if [ "$TIER" = "critical" ] && grep -q "PI_AI_ERROR" .factory/run/stderr.txt \
-                  && grep -qiE "Usage Policy|refused to complete the request" .factory/run/stderr.txt; then
-                STOP_REASON="model-refusal"
-                echo "::warning::provider=$P/$MODEL 依使用政策拒答，改用 chain 下一項"
+              # 失敗分類交給 factory-attempt-classify（src/model-tier/attempt-outcome.ts）：
+              # 只看 DSH 的終止錯誤行 `dsh: <CODE>: <message>`，不掃整份 stderr——stderr
+              # 也是 agent 的 reasoning 串流，run 36838600120 就因 reasoning 的「auth」
+              # 把 Opus 5.5 拒答誤判成 provider-error。
+              #   - provider-error（RATE_LIMIT/AUTH/401/MISSING_CREDENTIAL/UNKNOWN_MODEL…）→ 沿 chain fallback
+              #     （2026-08-28 #171 實測：qwen key 401 應 fallback 而非直接 needs-human）。
+              #   - model-refusal（只限 critical；2026-09-27 用戶裁決：Opus 5.5 拒答時改用 Opus 5）
+              #     → 沿 chain fallback。拒答措辭有三種：新版 stop_details.explanation
+              #     （如 `This request was declined because it could enable cyber harm.`）、
+              #     `...blocked under Anthropic's Usage Policy.`、pi-ai 預設的
+              #     `The model refused to complete the request`。
+              #   - agent-error（任務層失敗）→ 不重試（docs/02 §6）。
+              CLASSIFY=$(node "$GITHUB_WORKSPACE/dist/cli/factory-attempt-classify.js" \
+                --stderr .factory/run/stderr.txt --tier "${TIER:-unknown}" < /dev/null) \
+                || CLASSIFY='{"outcome":"agent-error","fallback":false}'
+              STOP_REASON=$(printf '%s' "$CLASSIFY" | jq -r '.outcome')
+              ERROR_LINE=$(printf '%s' "$CLASSIFY" | jq -r '.errorLine // "(stderr 沒有 dsh 錯誤行)"')
+              echo "::warning::provider=${P}/${MODEL} 失敗（${STOP_REASON}）：${ERROR_LINE}"
+              if [ "$(printf '%s' "$CLASSIFY" | jq -r '.fallback')" = "true" ]; then
                 continue
               fi
-              if grep -qiE "RATE_LIMIT|429|MISSING_CREDENTIAL|UNKNOWN_MODEL|AUTH|401|INVALID_CREDENTIAL|invalid_api_key" .factory/run/stderr.txt; then
-                STOP_REASON="provider-error"
-                continue
-              fi
-              STOP_REASON="agent-error"
               break
             done < <(jq -c '.chain[]' "$GITHUB_WORKSPACE/.factory/model.json")
             # exit 0 代表成功：成功路徑不該帶任何止原因（agent 應已自寫 report，
