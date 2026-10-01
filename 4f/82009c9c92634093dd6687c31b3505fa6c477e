@@ -1,0 +1,20 @@
+.github/workflows/verify-models.yml
+  h_1b119f25eaf333 92-117
+scripts/probe/opus-refusal-fixture/audit-report.txt
+  h_1b119f25eaf333 1-45
+scripts/probe/opus-refusal-fixture/issue.md
+  h_1b119f25eaf333 1-32
+scripts/probe/opus-refusal-probe.sh
+  h_1b119f25eaf333 1-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4f82009c9c92634093dd6687c31b3505fa6c477e",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
