@@ -1,0 +1,45 @@
+# npm audit report
+
+brace-expansion  2.0.0 - 2.1.6 || 4.0.0 - 5.0.11
+Severity: high
+brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service - https://github.com/advisories/GHSA-q2hr-2g5m-vwhr
+brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service - https://github.com/advisories/GHSA-q2hr-2g5m-vwhr
+brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion - https://github.com/advisories/GHSA-qhr7-859c-m2p7
+brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion - https://github.com/advisories/GHSA-qhr7-859c-m2p7
+brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion - https://github.com/advisories/GHSA-6j4f-fj2g-mc7p
+brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion - https://github.com/advisories/GHSA-6j4f-fj2g-mc7p
+fix available via `npm audit fix`
+node_modules/brace-expansion
+node_modules/test-exclude/node_modules/brace-expansion
+
+decode-uri-component  <=0.4.2
+Severity: moderate
+decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input - https://github.com/advisories/GHSA-vcc3-ghjq-m6fr
+No fix available
+node_modules/decode-uri-component
+  query-string  5.0.0 - 9.4.1
+  Depends on vulnerable versions of decode-uri-component
+  node_modules/query-string
+    @fugle/marketdata  <=1.7.0
+    Depends on vulnerable versions of query-string
+    node_modules/@fugle/marketdata
+
+undici  7.0.0 - 7.29.0
+Severity: high
+undici vulnerable to Denial of Service via unhandled error in WebSocket permessage-deflate decompression - https://github.com/advisories/GHSA-3wwx-pv8p-q78v
+undici vulnerable to Denial of Service via orphaned RetryHandler response body - https://github.com/advisories/GHSA-pmjh-fq2x-6v4x
+undici vulnerable to downstream response splitting via retry interceptor - https://github.com/advisories/GHSA-r53p-7pc4-xj5r
+undici vulnerable to Denial of Service via unrequested WebSocket subprotocol - https://github.com/advisories/GHSA-rfgv-xxqx-mfg5
+undici vulnerable to Denial of Service via unbounded decompression of compressed responses - https://github.com/advisories/GHSA-3xpg-4rpp-hhhm
+undici vulnerable to cross-user cookie disclosure via Set-Cookie caching in shared caches - https://github.com/advisories/GHSA-2jfj-6hjv-fm6j
+undici vulnerable to response truncation via oversized chunked responses in the dump interceptor - https://github.com/advisories/GHSA-2gqq-gqf2-x968
+undici vulnerable to TLS certificate validation bypass via dropped connect options in BalancedPool - https://github.com/advisories/GHSA-w293-vg96-wgc3
+undici vulnerable to caching and replay of unsafe HTTP method responses - https://github.com/advisories/GHSA-8436-99hf-9mmv
+undici vulnerable to Denial of Service via WebSocketStream unclean close - https://github.com/advisories/GHSA-rx4f-c7p8-82vq
+fix available via `npm audit fix`
+node_modules/undici
+
+5 vulnerabilities (3 moderate, 2 high)
+
+To address issues that do not require attention, run:
+  npm audit fix

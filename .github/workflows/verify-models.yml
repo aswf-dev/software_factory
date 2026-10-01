@@ -89,3 +89,29 @@ jobs:
             cat /tmp/verify-models.txt 2>/dev/null || echo '(無輸出——腳本未執行到)'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # [DEBUG-op55] 暫時的 Opus 5.5 拒答探針（診斷 run 36838600120），合併前移除。
+  opus-refusal-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Probe Opus 5.5 on #625 content
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OUT: /home/runner/opus-refusal-probe
+        run: ./scripts/probe/opus-refusal-probe.sh 3 claude-opus-5-5
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: opus-refusal-probe
+          path: |
+            /home/runner/opus-refusal-probe/trial-*/stdout.txt
+            /home/runner/opus-refusal-probe/trial-*/stderr.txt
