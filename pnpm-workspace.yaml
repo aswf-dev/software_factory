@@ -6,6 +6,11 @@ allowBuilds:
   protobufjs: true
 overrides:
   adm-zip: '>=0.6.0'
+  # pnpm audit high（2026-10-01）：transitive 依賴的修補版下限
+  fast-uri: '>=3.1.8 <4'
+  undici: '>=8.10.2 <9'
+  brace-expansion: '>=5.0.12 <6'
+  '@grpc/grpc-js': '>=1.14.5 <2'
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-acp-app@0.1.2-rc.1 || 0.1.5-rc.1 || 0.1.7-rc.1'
   - '@deepseek-ai/dsh-acp@0.1.2-rc.1 || 0.1.5-rc.1 || 0.1.7-rc.1'
