@@ -1,0 +1,14 @@
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 341,344,347-349,355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "79d7a47f16e46c272696f92655e8ce508bf335fa",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
