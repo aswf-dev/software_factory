@@ -1,0 +1,14 @@
+src/model-tier/attempt-outcome.test.ts
+  h_1b119f25eaf333 99-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "85b002167c8f15bc9b6b4e6debfe45a4a90675e6",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
