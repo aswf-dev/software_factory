@@ -96,6 +96,19 @@ describe('classifyFailedAttempt', () => {
     const stderr = 'dsh: PI_AI_ERROR: Incorrect API key provided (invalid_api_key)\n'
     expect(classifyFailedAttempt({ stderr, tier: 'low' }).outcome).toBe('provider-error')
   })
+  it('沒有代碼的啟動失敗 → agent-error，不帶 code 欄位', () => {
+    const stderr = 'dsh: session "abc" does not exist; omit --session-id to start a new Session\n'
+    expect(classifyFailedAttempt({ stderr, tier: 'critical' })).toEqual({
+      outcome: 'agent-error',
+      fallback: false,
+      errorLine: 'dsh: session "abc" does not exist; omit --session-id to start a new Session',
+    })
+  })
+  it('沒有代碼、但訊息含 401 → provider-error', () => {
+    expect(classifyFailedAttempt({ stderr: 'dsh: request failed with 401 Unauthorized\n', tier: 'low' }).outcome).toBe(
+      'provider-error',
+    )
+  })
   it('回傳錯誤行原文，供 workflow 印到 log（證據不再被下一次嘗試覆蓋）', () => {
     expect(classifyFailedAttempt({ stderr: CYBER_REFUSAL, tier: 'critical' }).errorLine).toBe(
       'dsh: PI_AI_ERROR: This request was declined because it could enable cyber harm.',
