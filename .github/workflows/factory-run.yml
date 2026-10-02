@@ -687,10 +687,12 @@ jobs:
             # 內層逾時的兩個好處：(1) 止原因可歸因到單一 provider；(2) 逾時後
             # 仍有時間把 report 寫完，judge/scoreboard 拿得到訊號。
             #
-            # 逾時也納入 chain fallback（原本只有 provider 錯誤字串會 fallback）：
-            # 一個在時限內無法收斂的 provider，換更強的模型是最合理的下一步。
-            # A4 的 fallback 語意變更：`timeout` 觸發（code=124）原本被視為
-            # 「任務層失敗不重試」而直接 break，現在改為沿 chain 升級。
+            # 逾時與 chain：每次嘗試的時限＝**全部剩餘預算**（ATTEMPT_TIMEOUT=REMAINING_SEC），
+            # 所以真的逾時（124）必然把預算耗盡，實際行為是「停止、交還人類」，不會換
+            # 下一項（#337 報告 F1；原註解宣稱「逾時沿 chain 升級」，與實際不符）。
+            # 逾時分支的 `continue` 只在預算未耗盡前收到 137（外部 SIGKILL／OOM）時才會走到。
+            # 每項嘗試前另檢查剩餘預算：用盡就不再啟動，否則 `timeout 0` 等於不設內層
+            # 時限（F2），又回到 step 被砍、report 來不及寫的 A4 失敗模式。
             BUDGET_MIN="${{ steps.agent-timeout.outputs.effective_minutes }}"
             TIER=$(jq -r '.tier // ""' "$GITHUB_WORKSPACE/.factory/model.json")
             REMAINING_SEC=$((BUDGET_MIN * 60))
@@ -703,6 +705,10 @@ jobs:
               P=$(printf '%s' "$ENTRY" | jq -r .provider)
               MODEL=$(printf '%s' "$ENTRY" | jq -r .model)
               EFFORT=$(printf '%s' "$ENTRY" | jq -r '.reasoningEffort // empty')
+              if [ "$REMAINING_SEC" -le 0 ]; then
+                echo "::warning::逾時預算已用盡，不啟動 chain 下一項（${P}/${MODEL}）"
+                break
+              fi
               # DSH 0.1.7 移除了 $HOME/.dsh/settings.yaml（只在啟動後非同步匯入一次，
               # headless 來不及生效）：2026-09-24 升級後所有 run 都落回內建的
               # deepseek-official。改以 Cordis patch 覆寫 agent-default-model 與
@@ -1158,8 +1164,12 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: factory-run-${{ inputs.issue_number }}
+          # gh-token（App installation token，供 agent 讀取）不得進 artifact：artifact
+          # 保存 90 天，而 token 只靠 job 結束時的撤銷失效——runner 若在上傳後、撤銷前
+          # 中斷，token 會在 artifact 中存活至 1 小時效期結束。
           path: |
             target/.factory/run/
+            !target/.factory/run/gh-token
             .factory/model.json
             .factory/issue.json
             .factory/scoreboard-event.json

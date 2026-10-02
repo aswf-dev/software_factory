@@ -41,6 +41,19 @@ describe('terminalDshError', () => {
   it('reasoning 內文即使以 `dsh: ` 開頭的樣子出現在行中，也不算錯誤行', () => {
     expect(terminalDshError('dsh: reasoning:\nI saw "dsh: RATE_LIMIT: x" in a log\n')).toBeUndefined()
   })
+  // F3（#337 報告）：DSH 以 aborted／hook blocked 結束時 exit 1 但不印錯誤行；
+  // 此時 reasoning 中段一行形似錯誤行的內容不得被當成終止錯誤。
+  it('F3 回歸：形似錯誤行的行出現在 reasoning 中段、其後還有 reasoning → undefined', () => {
+    const stderr = 'dsh: reasoning:\nThe log said:\ndsh: RATE_LIMIT: 429 too many requests\nso I will retry later.\n'
+    expect(terminalDshError(stderr)).toBeUndefined()
+    expect(classifyFailedAttempt({ stderr, tier: 'critical' })).toEqual({ outcome: 'agent-error', fallback: false })
+  })
+  it('錯誤行之後只有空白行仍可辨識（取最後一個非空行）', () => {
+    expect(terminalDshError(`${CYBER_REFUSAL}\n  \n`)?.code).toBe('PI_AI_ERROR')
+  })
+  it('最後一個非空行是 `dsh: reasoning:` 標頭 → undefined', () => {
+    expect(terminalDshError('dsh: RATE_LIMIT: 429\ndsh: reasoning:\n')).toBeUndefined()
+  })
   it('沒有代碼的啟動失敗（fail() 的 `dsh: <message>`）以 code=undefined 回報', () => {
     expect(terminalDshError('dsh: a task is required, for example: dsh --profile headless "run the tests"\n')).toEqual({
       code: undefined,

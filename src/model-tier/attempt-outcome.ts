@@ -2,8 +2,8 @@
  * 一次 DSH 嘗試失敗（非 0、非逾時）時的分類：決定 factory-run.yml 要不要沿
  * model chain 換下一個模型（docs/ADR/011）。
  *
- * 只看 DSH headless 的**終止錯誤行**（`dsh: <CODE>: <message>`，見
- * @deepseek-ai/dsh-headless 的 run()/fail()），不看整份 stderr：stderr 也承載
+ * 只看 DSH headless 的**終止錯誤行**（stderr 最後一個非空行的 `dsh: <CODE>: <message>`，
+ * 見 @deepseek-ai/dsh-headless 的 run()/fail()），不看整份 stderr：stderr 也承載
  * agent 的 reasoning 串流，任何關鍵字掃描都會被 reasoning 的內容誤觸發
  * （run 36838600120：reasoning 的「no auth logic touched」讓 Opus 5.5 的拒答被
  * 誤判成憑證錯誤）。
@@ -42,20 +42,28 @@ const REFUSAL_MESSAGE = /usage policy|refus|declin/i
 const ERROR_LINE = /^dsh: (.*)$/
 const CODED = /^([A-Z][A-Z0-9_]+): (.*)$/
 
-/** stderr 中最後一行 DSH 終止錯誤；只有 reasoning（或沒有錯誤行）時回傳 undefined。 */
+/**
+ * stderr 的 DSH 終止錯誤：只認**最後一個非空行**。DSH 的錯誤行一定是 exit 前最後
+ * 寫入 stderr 的內容（headless 的 run() 與 fail() 皆然）；不往回搜尋，否則 DSH 以
+ * aborted／hook blocked 結束（exit 1 但不印錯誤行）時，reasoning 中段一行形似
+ * `dsh: RATE_LIMIT: …` 的內容會被誤當成錯誤行（#337 報告 F3）。
+ *
+ * 已知殘留：reasoning 的**最後一行**恰為此格式、且 DSH 未印錯誤行時仍會誤認；
+ * 要完全排除需改讀 session log 的 turn/end 事件。
+ */
 export function terminalDshError(stderr: string): DshError | undefined {
-  const lines = stderr.split(/\r?\n/)
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i] as string
-    const match = ERROR_LINE.exec(line)
-    if (match === null || line === 'dsh: reasoning:') continue
-    const rest = match[1] as string
-    const coded = CODED.exec(rest)
-    return coded === null
-      ? { code: undefined, message: rest, line }
-      : { code: coded[1] as string, message: coded[2] as string, line }
-  }
-  return undefined
+  const line = stderr
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== '')
+    .at(-1)
+  if (line === undefined || line === 'dsh: reasoning:') return undefined
+  const match = ERROR_LINE.exec(line)
+  if (match === null) return undefined
+  const rest = match[1] as string
+  const coded = CODED.exec(rest)
+  return coded === null
+    ? { code: undefined, message: rest, line }
+    : { code: coded[1] as string, message: coded[2] as string, line }
 }
 
 /**
