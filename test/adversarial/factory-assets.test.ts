@@ -1371,24 +1371,33 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(read('scripts/verify-models.sh')).toContain('[ "$ROUTE" = "$P/$M" ]')
   })
   // 2026-09-27 用戶裁決：critical 的 Opus 5.5 依使用政策拒答時改用 Opus 5（chain 下一項）。
-  // run 36298254066 實測拒答訊息不含任何 provider 層關鍵字，原本會落到 agent-error 交還人類。
-  it('critical 拒答（PI_AI_ERROR + Usage Policy／refused）改用 chain 下一項，只限 critical', () => {
+  // 2026-10-02（run 36838600120）：分類改由 factory-attempt-classify 只看 DSH 終止錯誤行；
+  // 舊的整份 stderr grep 會被 reasoning 串流誤觸發，也認不得新的拒答措辭。
+  // 分類規則本身由 src/model-tier/attempt-outcome.test.ts 以行為測試釘住。
+  it('失敗分類交給 factory-attempt-classify，依其 fallback 決定是否換 chain 下一項', () => {
     const c = read('.github/workflows/factory-run.yml')
-    expect(c).toContain('if [ "$TIER" = "critical" ] && grep -q "PI_AI_ERROR" .factory/run/stderr.txt')
-    expect(c).toContain('grep -qiE "Usage Policy|refused to complete the request" .factory/run/stderr.txt')
-    expect(c).toContain('STOP_REASON="model-refusal"')
-    // 拒答判斷必須排在 agent-error 之前（否則永遠走不到）
-    expect(c.indexOf('STOP_REASON="model-refusal"')).toBeLessThan(c.indexOf('STOP_REASON="agent-error"'))
+    expect(c).toContain('dist/cli/factory-attempt-classify.js')
+    expect(c).toContain('--stderr .factory/run/stderr.txt --tier "${TIER:-unknown}"')
+    expect(c).toContain(`jq -r '.fallback'`)
+    // 分類失敗（CLI 掛掉）時必須保守地視為任務層失敗，不得無限換模型
+    expect(c).toContain(`|| CLASSIFY='{"outcome":"agent-error","fallback":false}'`)
+    // 錯誤行必須印到 log——證據不能只留在會被下一次嘗試覆寫的 stderr.txt
+    expect(c).toContain(`jq -r '.errorLine`)
     // critical 的下一項必須是 opus-5，拒答後才會「改用 Opus 5」
     const { load } = require('js-yaml') as typeof import('js-yaml')
     const t = load(read('config/dsh/model-tiers.yaml')) as { tiers: { critical: { fallback: { model: string }[] } } }
     expect(t.tiers.critical.fallback[0]?.model).toBe('claude-opus-5')
   })
-  it('chain fallback 涵蓋 credential 錯誤（AUTH/401/invalid_api_key，#171 實測壞 key 未 fallback）', () => {
+  it('不得再對整份 stderr 做關鍵字 grep 決定 fallback（stderr 含 reasoning 串流）', () => {
     const c = read('.github/workflows/factory-run.yml')
-    for (const token of ['RATE_LIMIT', '429', 'MISSING_CREDENTIAL', 'UNKNOWN_MODEL', 'AUTH', '401', 'INVALID_CREDENTIAL', 'invalid_api_key']) {
-      expect(c, `fallback 條件缺 ${token}`).toContain(token)
-    }
+    expect(c).not.toMatch(/grep -q[a-zA-Z]* [^\n]*\.factory\/run\/stderr\.txt/)
+  })
+  it('每次嘗試的 stdout/stderr 另存一份，不被下一次嘗試覆寫', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    expect(c).toContain('cp .factory/run/stdout.txt ".factory/run/attempt-${ATTEMPT}.stdout.txt"')
+    expect(c).toContain('cp .factory/run/stderr.txt ".factory/run/attempt-${ATTEMPT}.stderr.txt"')
+    // 另存位置必須在 run artifact 上傳範圍內
+    expect(c).toContain('target/.factory/run/')
   })
 
   it('factory-issue-check.yml 傳 --tiers/--providers（留言含建議模型）', () => {
