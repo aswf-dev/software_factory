@@ -1,0 +1,20 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 690-695,708-711,1167-1169,1172
+src/model-tier/attempt-outcome.test.ts
+  h_1b119f25eaf333 44-56
+src/model-tier/attempt-outcome.ts
+  h_1b119f25eaf333 5-6,45-53,55-66
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 1402-1426
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9742ae9834416882c5fa16f030efb332e53070bd",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
