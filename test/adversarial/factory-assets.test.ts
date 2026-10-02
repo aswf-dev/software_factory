@@ -1399,6 +1399,31 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     // 另存位置必須在 run artifact 上傳範圍內
     expect(c).toContain('target/.factory/run/')
   })
+  // App installation token 寫在 target/.factory/run/gh-token 供 agent 讀取；run artifact
+  // 上傳整個目錄（保存 90 天）。job 結束時 token 雖會被撤銷，仍不得進 artifact。
+  it('run artifact 排除 gh-token（憑證不得隨診斷檔上傳）', () => {
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const wf = load(read('.github/workflows/factory-run.yml')) as {
+      jobs: Record<string, { steps: { name?: string; with?: { path?: string } }[] }>
+    }
+    const upload = Object.values(wf.jobs)
+      .flatMap((j) => j.steps)
+      .find((s) => s.name === 'Upload run artifacts')
+    const paths = (upload?.with?.path ?? '').split('\n').map((p) => p.trim())
+    expect(paths).toContain('target/.factory/run/')
+    expect(paths).toContain('!target/.factory/run/gh-token')
+  })
+  // F2（#337 報告）：剩餘預算為 0 時若仍啟動下一項，`timeout 0` 等於不設內層時限。
+  it('chain 迴圈在剩餘預算用盡時不啟動下一項（避免 timeout 0 = 無時限）', () => {
+    const c = read('.github/workflows/factory-run.yml')
+    const guard = c.indexOf('if [ "$REMAINING_SEC" -le 0 ]; then\n                echo "::warning::逾時預算已用盡，不啟動 chain 下一項')
+    expect(guard, '缺少每次嘗試前的預算檢查').toBeGreaterThan(-1)
+    // 檢查必須在產生 patch、登記 route 與啟動 dsh 之前
+    expect(guard).toBeLessThan(c.indexOf('node "$GITHUB_WORKSPACE/dist/cli/factory-dsh-patch.js"'))
+    expect(guard).toBeLessThan(c.indexOf('timeout --signal=TERM --kill-after=30s "$ATTEMPT_TIMEOUT"'))
+    // 且在 chain 迴圈內（每一項都檢查，而非只在迴圈前檢查一次）
+    expect(guard).toBeGreaterThan(c.indexOf('while IFS= read -r ENTRY; do'))
+  })
 
   it('factory-issue-check.yml 傳 --tiers/--providers（留言含建議模型）', () => {
     const c = read('.github/workflows/factory-issue-check.yml')
