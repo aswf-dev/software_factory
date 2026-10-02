@@ -1,0 +1,14 @@
+docs/ADR/011-model-tier-routing.md
+  h_1b119f25eaf333 17-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1b7496836a4b858f38fd904753d255212092a5c6",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
