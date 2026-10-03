@@ -1,0 +1,19 @@
+pnpm-workspace.yaml
+  s_b2c571ecd2d8f9::t_cd26c9ae1da24e 14-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "56565fbae425804b11236430bca197d11319b92c",
+  "prompts": {},
+  "sessions": {
+    "s_b2c571ecd2d8f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6e7c2e4e-7f9a-49db-ba55-3fccc11f81d7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
