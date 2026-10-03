@@ -361,7 +361,7 @@ describe('factory-run.yml 多 repo 支援（Q-P2-1 統一，Phase 2 T4）', () =
   const content = read('.github/workflows/factory-run.yml')
   it('含 repo 與 base_branch 輸入（統一後 base_branch 預設 software-factory）', () => {
     expect(content).toContain('repo:')
-    expect(content).toContain('default: philipz/software_factory')
+    expect(content).toContain('default: aswf-dev/software_factory')
     expect(content).toContain('base_branch:')
     expect(content).toContain('default: software-factory')
   })

@@ -31,7 +31,7 @@ on:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
         required: false
         type: string
-        default: philipz/software_factory
+        default: aswf-dev/software_factory
       base_branch:
         description: 工廠 trunk 分支（PR 合併目標）。⚠️ 統一規則（ADR-013）：一律 software-factory，不得為 main（Q-P2-1）
         required: false
@@ -120,7 +120,7 @@ jobs:
       # 無 Administration/Workflows —— agent 無法修改 guardrail 自身。
       # repositories 限定目標 repo（最小權限；App 需已安裝於目標 repo）。
       # ⚠️ owner 必須顯式傳入：該 action 的 owner 預設為「當前 repo 的 owner」
-      # （即 philipz），且 repositories 只收**不含 owner 的 repo 名**。跨 owner
+      # （即 aswf-dev），且 repositories 只收**不含 owner 的 repo 名**。跨 owner
       # 時直接傳 owner/name 會被擋下——2026-09-01 實測 run 33523314113：
       # "Repository '...' includes owner 'agent-playground', which does not
       # match the resolved owner 'philipz'"。故拆成 owner + 純 repo 名。

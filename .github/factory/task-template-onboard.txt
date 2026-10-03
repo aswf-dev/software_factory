@@ -62,7 +62,7 @@
        git rm -r proposals/onboarding
    - **合併後的驗證步驟**（docs/16 §5.2 雙向探測，兩個方向都要驗——
      只驗一般檔案無法區分「硬規則正確」與「硬規則根本沒載入」）：
-       gh workflow run factory-rescore.yml --repo philipz/software_factory \
+       gh workflow run factory-rescore.yml --repo aswf-dev/software_factory \
          -f repo=<REPO> -f base_branch=<BASE_BRANCH> -f pr_number=<PR>
 
 8. 以**單層 PR** 提交（base 為 $BASE_BRANCH，絕不 push 到 main）。

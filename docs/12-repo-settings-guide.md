@@ -11,9 +11,9 @@
 
 | 項目 | 現況 |
 |---|---|
-| Repo | `philipz/software_factory`，**私有**，擁有者為**個人帳號** |
+| Repo | `aswf-dev/software_factory`，**公開**，擁有者為 **org `aswf-dev`**（Free 方案；ruleset 僅對 public repo 生效）。2026-10-03 自 `philipz/software_factory` 複製 |
 | 預設分支 | `main` |
-| 分支保護 | ✅ **已啟用**：ruleset `main-protection`（id `20911877`）。核准要求因單人 repo 限制暫設為 0，其餘保護全存（見 §2.1） |
+| 分支保護 | ✅ **已啟用**：ruleset `main-protection`（id `24409490`）。核准要求因單人 repo 限制暫設為 0，其餘保護全存（見 §2.1） |
 | CI 檢查名稱 | ✅ **`test`**（注意：是 **job id**，不是 workflow 名稱 `Test`） |
 | Secrets | 尚未設定任何項目 |
 
@@ -21,7 +21,7 @@
 >
 > 查詢實際名稱的指令：
 > ```bash
-> gh api repos/philipz/software_factory/commits/main/check-runs \
+> gh api repos/aswf-dev/software_factory/commits/main/check-runs \
 >   --jq '.check_runs[].name'
 > ```
 
@@ -29,7 +29,7 @@
 
 > ✅ **本節設定已於 2026-08-16 完成並實證生效**：PR #1 顯示 `mergeStateStatus: BLOCKED`、`reviewDecision: REVIEW_REQUIRED`——`test` 檢查通過後**仍需人類核准**才能合併。以下步驟保留作為重建與稽核依據。
 >
-> ⚠️ **一則過程記錄**：建立 ruleset 的 `gh api --method POST` **沒有 dry-run**，一執行即生效。若想先檢視現況，請用 `gh api repos/philipz/software_factory/rulesets`（GET），不要期待 POST 有預覽行為。
+> ⚠️ **一則過程記錄**：建立 ruleset 的 `gh api --method POST` **沒有 dry-run**，一執行即生效。若想先檢視現況，請用 `gh api repos/aswf-dev/software_factory/rulesets`（GET），不要期待 POST 有預覽行為。
 
 ---
 
@@ -41,7 +41,7 @@
 
 #### A-1. 網頁介面操作
 
-1. 前往 `https://github.com/philipz/software_factory/settings/rules`
+1. 前往 `https://github.com/aswf-dev/software_factory/settings/rules`
 2. 點 **New ruleset** → **New branch ruleset**
 3. 依下表填寫：
 
@@ -77,7 +77,7 @@ test
 #### A-2. 用 CLI 完成（等效，且可版控）
 
 ```bash
-gh api --method POST repos/philipz/software_factory/rulesets \
+gh api --method POST repos/aswf-dev/software_factory/rulesets \
   --input config/github/main-ruleset.json
 ```
 
@@ -86,7 +86,7 @@ gh api --method POST repos/philipz/software_factory/rulesets \
 **驗證是否生效**：
 
 ```bash
-gh api repos/philipz/software_factory/rulesets --jq '.[] | {name, enforcement}'
+gh api repos/aswf-dev/software_factory/rulesets --jq '.[] | {name, enforcement}'
 ```
 
 ---
@@ -95,7 +95,7 @@ gh api repos/philipz/software_factory/rulesets --jq '.[] | {name, enforcement}'
 
 若你偏好舊介面：
 
-1. 前往 `https://github.com/philipz/software_factory/settings/branches`
+1. 前往 `https://github.com/aswf-dev/software_factory/settings/branches`
 2. **Add branch protection rule**
 3. Branch name pattern：`main`
 4. 勾選：
@@ -161,7 +161,7 @@ GraphQL: Review Can not approve your own pull request (addPullRequestReview)
 # 編輯 config/github/main-ruleset.json：
 #   required_approving_review_count: 1
 #   require_code_owner_review: true
-gh api --method PUT repos/philipz/software_factory/rulesets/20911877 \
+gh api --method PUT repos/aswf-dev/software_factory/rulesets/24409490 \
   --input config/github/main-ruleset.json
 ```
 
@@ -174,7 +174,7 @@ gh api --method PUT repos/philipz/software_factory/rulesets/20911877 \
 **觀察**：PR #1 於 `02:22:33Z` squash 合併後，合併 commit `548cdb21` 的 check-runs 數量為 **0**：
 
 ```bash
-gh api repos/philipz/software_factory/commits/548cdb21/check-runs --jq '.total_count'
+gh api repos/aswf-dev/software_factory/commits/548cdb21/check-runs --jq '.total_count'
 # → 0
 ```
 
@@ -199,7 +199,7 @@ gh api repos/philipz/software_factory/commits/548cdb21/check-runs --jq '.total_c
 2. **合併後應檢查 `main` 是否有 check-run**：
 
 ```bash
-gh api repos/philipz/software_factory/commits/$(git rev-parse origin/main)/check-runs \
+gh api repos/aswf-dev/software_factory/commits/$(git rev-parse origin/main)/check-runs \
   --jq '.total_count'
 # 若為 0，手動補跑：
 gh workflow run test.yml --ref main
@@ -251,7 +251,7 @@ config/github/main-ruleset.json
 **這個 label 必須由人手動建立，工廠無法自舉**：`factory-run.yml` 的「Ensure factory labels exist」只在 factory-run **已經被觸發之後**才執行，而 `factory/approved` 正是觸發它的條件——先有雞後有蛋。它也不屬於 `src/labels.ts` 的 `FACTORY_LABELS`（那是**工廠會貼出去**的 label；`factory/approved` 相反，是人類貼給工廠的核准信號）。
 
 ```bash
-gh label create "factory/approved" --repo philipz/software_factory \
+gh label create "factory/approved" --repo aswf-dev/software_factory \
   --color "0e8a16" --description "人類核准：自動 dispatch factory-run"
 ```
 
@@ -262,7 +262,7 @@ gh label create "factory/approved" --repo philipz/software_factory \
 驗證：
 
 ```bash
-gh label list --repo philipz/software_factory --json name --jq '.[].name' \
+gh label list --repo aswf-dev/software_factory --json name --jq '.[].name' \
   | grep -x "factory/approved"
 ```
 
@@ -274,13 +274,13 @@ gh label list --repo philipz/software_factory --json name --jq '.[].name' \
 
 ```bash
 # 1. Ruleset 已啟用
-gh api repos/philipz/software_factory/rulesets --jq '.[] | {name, enforcement}'
+gh api repos/aswf-dev/software_factory/rulesets --jq '.[] | {name, enforcement}'
 
 # 2. 直接推送 main 應被拒絕（在測試分支上驗證，勿真的推壞）
 #    預期看到 protected branch 相關錯誤
 
 # 3. CI 檢查名稱與 required check 設定一致
-gh api repos/philipz/software_factory/commits/main/check-runs --jq '.check_runs[].name'
+gh api repos/aswf-dev/software_factory/commits/main/check-runs --jq '.check_runs[].name'
 ```
 
 - [x] Ruleset `main-protection` 狀態為 **Active**

@@ -140,7 +140,7 @@ Backstage → **開立 Factory 工作項**（`backstage/templates/factory-work-i
 Issue 需已存在且格式合規（見 `.github/ISSUE_TEMPLATE/factory-work-item.yml`）。
 
 ```bash
-gh workflow run factory-run.yml --repo philipz/software_factory \
+gh workflow run factory-run.yml --repo aswf-dev/software_factory \
   -f issue_number=<Issue 編號> \
   -f repo=<owner>/<name> \
   -f base_branch=software-factory \
@@ -150,7 +150,7 @@ gh workflow run factory-run.yml --repo philipz/software_factory \
 **首次接入建議先跑 dry run**（以 stub agent 取代真實 DSH，不花 LLM 成本，可驗證前置條件是否齊備）：
 
 ```bash
-gh workflow run factory-run.yml --repo philipz/software_factory \
+gh workflow run factory-run.yml --repo aswf-dev/software_factory \
   -f issue_number=<編號> -f repo=<owner>/<name> \
   -f dry_run=true -f dry_run_scenario=success
 ```

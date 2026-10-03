@@ -352,7 +352,7 @@ jobs:
             echo "4. **合併後驗證**（docs/16 §5.2，**兩個方向都要驗**——"
             echo "   只驗一般檔案無法區分「硬規則正確」與「硬規則根本沒載入」）："
             echo '   ```bash'
-            echo "   gh workflow run factory-rescore.yml --repo philipz/software_factory \\"
+            echo "   gh workflow run factory-rescore.yml --repo aswf-dev/software_factory \\"
             echo "     -f repo=${{ inputs.repo }} -f base_branch=${{ inputs.base_branch }} -f pr_number=<PR>"
             echo '   ```'
           } > .factory/next.txt

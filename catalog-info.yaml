@@ -10,7 +10,7 @@ metadata:
   name: software-factory
   description: 自動化軟體工廠 — Backstage IDP + DeepSeek Harness + GitHub stacked PR
   annotations:
-    github.com/project-slug: philipz/software_factory
+    github.com/project-slug: aswf-dev/software_factory
     backstage.io/techdocs-ref: dir:.
 
     # --- Factory oversight axes (docs/06 §3) ---
