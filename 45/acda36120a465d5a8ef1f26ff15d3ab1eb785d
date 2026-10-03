@@ -1,0 +1,35 @@
+.github/ISSUE_TEMPLATE/factory-work-item.yml
+  s_b2c571ecd2d8f9::t_278f6508f89583 52
+.github/factory/task-template-onboard.txt
+  s_b2c571ecd2d8f9::t_1b199ff08752ae 65
+.github/workflows/factory-onboard.yml
+  s_b2c571ecd2d8f9::t_8f294ba2018bfd 355
+.github/workflows/factory-rescore.yml
+  s_b2c571ecd2d8f9::t_c003f4d7a6be91 22,62
+.github/workflows/factory-run.yml
+  s_b2c571ecd2d8f9::t_c815fc35e1b061 34,123
+README.md
+  s_b2c571ecd2d8f9::t_ac5f051e3b7c1e 143,153
+catalog-info.yaml
+  s_b2c571ecd2d8f9::t_b7016bbfb48e4c 13
+docs/12-repo-settings-guide.md
+  s_b2c571ecd2d8f9::t_648441408d602a 14,24,32,44,80,89,98,164,177,202,254,265,277,283
+test/adversarial/factory-assets.test.ts
+  s_b2c571ecd2d8f9::t_ab5a8235a7c51a 364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "45acda36120a465d5a8ef1f26ff15d3ab1eb785d",
+  "prompts": {},
+  "sessions": {
+    "s_b2c571ecd2d8f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6e7c2e4e-7f9a-49db-ba55-3fccc11f81d7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
