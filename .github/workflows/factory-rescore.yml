@@ -84,6 +84,12 @@ jobs:
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
           owner: ${{ steps.target.outputs.owner }}
           repositories: ${{ steps.target.outputs.name }}
+          # 明列權限（App 將有 actions:write，見 factory-scoreboard 送單設計）：
+          # 未列者不授予，agent 拿到的 token 只能讀 Actions。
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-actions: read
 
       # 目標 repo checkout（工廠 trunk = base_branch）：catalog/risk-paths 由此讀取。
       # pull_request 觸發時目標即本 repo（無害的第二份 checkout）。

@@ -96,6 +96,12 @@ jobs:
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
           owner: ${{ steps.target.outputs.owner }}
           repositories: ${{ steps.target.outputs.name }}
+          # 明列權限（App 將有 actions:write，見 factory-scoreboard 送單設計）：
+          # 未列者不授予，agent 拿到的 token 只能讀 Actions。
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-actions: read
 
       # 步驟 2 的產物必須存在（表單已要求勾選，此處是機器驗證）。
       - name: Verify trunk branch exists
