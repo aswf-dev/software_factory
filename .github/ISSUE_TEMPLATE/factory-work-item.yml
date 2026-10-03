@@ -49,7 +49,7 @@ body:
     attributes:
       label: 目標 repo（預設本 repo）
       description: owner/name；其他 repo 時請一併指定 base_branch
-      placeholder: philipz/software_factory
+      placeholder: aswf-dev/software_factory
   # agent-write-spec 專用（ADR-018 §5、§11）。GitHub 原生表單不支援條件欄位，
   # 故一律顯示為選填；是否必填由 factory-issue-check 判定（只有 write-spec 必填）。
   # 標題與 Backstage 模板、buildIssueBody、FIELD_TITLES 逐字一致（factory-assets 釘住）。

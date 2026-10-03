@@ -31,6 +31,8 @@ jobs:
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # org 帳號的 repo 須提供（免費，gitleaks.io 申請）；個人帳號不需要
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   semgrep:
     runs-on: ubuntu-latest

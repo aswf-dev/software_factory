@@ -19,7 +19,7 @@ on:
         description: 目標 repo（owner/name）；預設本 repo
         required: false
         type: string
-        default: philipz/software_factory
+        default: aswf-dev/software_factory
       base_branch:
         description: 目標 repo 的工廠 trunk 分支（僅供 checkout；此 workflow 不 push）
         required: false
@@ -59,7 +59,7 @@ jobs:
       # 僅 factory/* PR 或 dispatch 需要（Dependabot 等非 factory PR 的 run 不取得
       # secrets——GitHub 對 Dependabot PR 限制 secrets，mint 必然失敗，故整組 skip）。
       # owner 需與 repositories 拆開傳：該 action 的 owner 預設為當前 repo
-      # owner（philipz），repositories 只收不含 owner 的名稱；跨 owner 直接
+      # owner（aswf-dev），repositories 只收不含 owner 的名稱；跨 owner 直接
       # 傳 owner/name 會被擋（2026-09-01 實測 factory-run run 33523314113）。
       - name: Resolve target owner/name
         id: target
