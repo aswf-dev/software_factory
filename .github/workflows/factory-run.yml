@@ -147,6 +147,12 @@ jobs:
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
           owner: ${{ steps.target.outputs.owner }}
           repositories: ${{ steps.target.outputs.name }}
+          # 明列權限（App 將有 actions:write，見 factory-scoreboard 送單設計）：
+          # 未列者不授予，agent 拿到的 token 只能讀 Actions。
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-actions: read
 
       # 分支存在性檢查（#171 教訓 fast-fail）：不存在的 trunk 會在 checkout 才炸，
       # 此處以 App token 提前擋下。**必須用 App token**——GITHUB_TOKEN 只授權機制 repo，

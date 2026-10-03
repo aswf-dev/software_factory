@@ -2036,3 +2036,33 @@ describe('Backstage dispatch 以登入者 OAuth token 執行（不依賴 PAT）'
     expect(create!.input['token']).toBeUndefined()
   })
 })
+
+// softwarefactory-bot 將加上 actions:write（aswf.dev 以 App 派工）。App 權限是全 App
+// 共用，未收窄的 installation token 會連同交給 agent（factory-run 的
+// target/.factory/run/gh-token 與 Run factory agent 的 GH_TOKEN），讓 agent 可在
+// 機制 repo 自我派工、刪除 run 紀錄。故每一處 mint 都必須明列權限且 actions 僅 read。
+describe('App token 一律收窄（agent 不得取得 actions:write）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  type Step = { uses?: string; with?: Record<string, string> }
+  const mints = readdirSync(join(ROOT, '.github/workflows'))
+    .filter((f) => f.endsWith('.yml'))
+    .flatMap((f) => {
+      const wf = load(read(`.github/workflows/${f}`)) as { jobs: Record<string, { steps?: Step[] }> }
+      return Object.values(wf.jobs)
+        .flatMap((j) => j.steps ?? [])
+        .filter((s) => s.uses?.startsWith('actions/create-github-app-token@'))
+        .map((s) => ({ file: f, with: s.with ?? {} }))
+    })
+
+  it('至少找到 4 處 mint（factory-run／onboard／rescore／run-cleanup）', () => {
+    expect(mints.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it.each(['contents', 'issues', 'pull-requests'])('每處明列 permission-%s: write', (p) => {
+    for (const m of mints) expect(m.with[`permission-${p}`], `${m.file}`).toBe('write')
+  })
+
+  it('每處 permission-actions 皆為 read', () => {
+    for (const m of mints) expect(m.with['permission-actions'], `${m.file}`).toBe('read')
+  })
+})
