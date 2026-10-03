@@ -54,7 +54,7 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 
 | # | 必要條件 | 檢查指令 | 缺少時的症狀 |
 |---|---|---|---|
-| 1 | 已安裝 GitHub App `software-factory-worker` | `gh api orgs/<org>/installations --jq '.installations[].app_slug'` | Mint app token 步驟失敗 |
+| 1 | 已安裝 GitHub App `softwarefactory-bot` | `gh api orgs/<org>/installations --jq '.installations[].app_slug'` | Mint app token 步驟失敗 |
 | 2 | 存在 `software-factory` 分支（工廠 trunk） | `gh api repos/<owner>/<name>/git/ref/heads/software-factory` | `::error::目標 repo ... 不存在分支 base_branch=software-factory` |
 | 3 | 根目錄有 `catalog-info.yaml` | `gh api "repos/<owner>/<name>/contents/catalog-info.yaml?ref=software-factory"` | `error: file not found: target/catalog-info.yaml` |
 | 4 | 有 `.github/factory/risk-paths.yml` | `gh api "repos/<owner>/<name>/contents/.github/factory/risk-paths.yml?ref=software-factory"` | 同上（risk-paths 路徑） |

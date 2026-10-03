@@ -104,7 +104,7 @@ describe('isHumanCodeownerApproval', () => {
   it('以最後一次為準：先人後 bot → false', () => {
     const events = [
       { login: 'philipz', type: 'User' },
-      { login: 'software-factory-worker[bot]', type: 'Bot' },
+      { login: 'softwarefactory-bot[bot]', type: 'Bot' },
     ]
     expect(isHumanCodeownerApproval(events, owners)).toBe(false)
   })

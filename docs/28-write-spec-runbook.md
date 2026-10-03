@@ -47,7 +47,7 @@
 
 | 項目 | 要求 | 沒做會怎樣 |
 |---|---|---|
-| GitHub App | `software-factory-worker` 已安裝到目標 repo 的擁有者 | 派工在「Mint app token」失敗 |
+| GitHub App | `softwarefactory-bot` 已安裝到目標 repo 的擁有者 | 派工在「Mint app token」失敗 |
 | Issues | repo 的 Issues 已開啟（fork 預設關閉） | Backstage 開單失敗 |
 | `software-factory` 分支 | 已從 main 建立；main 絕不觸碰（ADR-013） | 「Verify trunk branch exists」失敗 |
 | `catalog-info.yaml` | 三軸已裁定；加上 `factory.io/quint-spec: specs/` | 未命中 H 規則時，使用門檻不通過 |

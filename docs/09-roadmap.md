@@ -82,7 +82,7 @@
 
 | # | 工作 | 依據 | 狀態 |
 |---|---|---|---|
-| 1.1 | 建立 GitHub App、設定權限、安裝（**人類手動**） | `02` D6 | ✅ `software-factory-worker`（id 4630527，權限依 D6） |
+| 1.1 | 建立 GitHub App、設定權限、安裝（**人類手動**） | `02` D6 | ✅ `software-factory-worker`（id 4630527，權限依 D6；2026-10-03 改名為 `softwarefactory-bot`） |
 | 1.2 | 建立 factory profile 與 guardrail patch 層 | `04` §2.2–2.3 | ✅ `config/dsh/factory-guardrail.patch.yml` |
 | 1.3 | 撰寫 4 個工廠 skills | `04` §3.3 | ✅ `.dsh/skills/factory-*` |
 | 1.4 | 撰寫 `factory-run.yml` workflow | `04` §4.1 | ✅ 含 App token／token 檔橋接／寫入探針（Q04-7/05-7/05-8 修正） |

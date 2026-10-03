@@ -11,6 +11,12 @@ overrides:
   undici: '>=8.10.2 <9'
   brace-expansion: '>=5.0.12 <6'
   '@grpc/grpc-js': '>=1.14.5 <2'
+auditConfig:
+  ignoreGhsas:
+    # http-cache-semantics max-stale（high，2026-10-03 起擋 CI）：上游尚無修補版，
+    # 經 @deepseek-ai/dsh-otel>got>cacheable-request 間接引入。出修補版後改用
+    # overrides 並移除此項。
+    - GHSA-ch52-4w7c-c8xp
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-acp-app@0.1.2-rc.1 || 0.1.5-rc.1 || 0.1.7-rc.1'
   - '@deepseek-ai/dsh-acp@0.1.2-rc.1 || 0.1.5-rc.1 || 0.1.7-rc.1'
