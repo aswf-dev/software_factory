@@ -1995,3 +1995,44 @@ describe('機制 repo 遷移接線（aswf-dev/software_factory，factory-scorebo
     expect(t).not.toContain('https://github.com/philipz/software_factory')
   })
 })
+
+// 2026-10-03：Backstage 的 integrations.github.token 是 philipz 的 fine-grained PAT，
+// 資源擁有者綁 philipz，對 aswf-dev 組織的 repo dispatch 一律 403（實測：
+// philipz/software_factory 422 = 有權限、aswf-dev/software_factory 403）。
+// 改以「登入者本人的 GitHub OAuth token」dispatch：RepoUrlPicker 的
+// requestUserCredentials 取得 token（ScmAuth 預設 scope 已含 repo），經
+// secrets 傳給 github:actions:dispatch。OAuth App token 不過期，免去 PAT 期限問題；
+// Actions 的觸發者即實際使用者，可稽核。
+//
+// 刻意**只有 dispatch** 用使用者 token：github:issues:create 仍走伺服器端憑證
+// （App／PAT），Issue 維持由 bot 建立、來源一致（backstage-app app-config.yaml）。
+describe('Backstage dispatch 以登入者 OAuth token 執行（不依賴 PAT）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  type Tpl = {
+    spec: {
+      parameters: { properties: Record<string, { 'ui:field'?: string; 'ui:options'?: Record<string, unknown> }> }[]
+      steps: { action: string; input: Record<string, unknown> }[]
+    }
+  }
+
+  it.each([
+    'backstage/templates/factory-work-item/template.yaml',
+    'backstage/templates/agent-add-tests/template.yaml',
+  ])('%s：RepoUrlPicker 索取使用者憑證，dispatch 帶該 token', (f) => {
+    const t = load(read(f)) as Tpl
+    const picker = t.spec.parameters
+      .flatMap((p) => Object.values(p.properties ?? {}))
+      .find((prop) => prop['ui:field'] === 'RepoUrlPicker')
+    expect(picker?.['ui:options']?.['requestUserCredentials']).toEqual({ secretsKey: 'USER_OAUTH_TOKEN' })
+
+    const dispatch = t.spec.steps.find((s) => s.action === 'github:actions:dispatch')
+    expect(dispatch?.input['token']).toBe('${{ secrets.USER_OAUTH_TOKEN }}')
+  })
+
+  it('github:issues:create 不帶使用者 token（Issue 維持由伺服器端憑證建立）', () => {
+    const t = load(read('backstage/templates/factory-work-item/template.yaml')) as Tpl
+    const create = t.spec.steps.find((s) => s.action === 'github:issues:create')
+    expect(create).toBeDefined()
+    expect(create!.input['token']).toBeUndefined()
+  })
+})
