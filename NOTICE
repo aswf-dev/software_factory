@@ -1,0 +1,13 @@
+software-factory
+Copyright 2026 philipz
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party software:
+
+  .dsh/skills/quint-lang/
+  .dsh/skills/quint-modeling/
+    Vendored unmodified from Quint (https://github.com/quint-co/quint),
+    skills/ directory at commit 4e6a580ef40d96914fcebe4e1b4ae95f34c2a75e.
+    Copyright Informal Systems and Quint contributors.
+    Licensed under the Apache License, Version 2.0.

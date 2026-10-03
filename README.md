@@ -185,3 +185,7 @@ npm run coverage          # 門檻：scoring/stop-rules/pipeline/cli 需 100% �
 
 - **文件、規格、說明**：繁體中文
 - **程式碼識別名、檔名、branch 名、commit message**：英文
+
+## 授權
+
+本專案採用 [Apache License 2.0](LICENSE)。`.dsh/skills/quint-lang`、`.dsh/skills/quint-modeling` 原樣引入自 [Quint](https://github.com/quint-co/quint)（Apache-2.0），出處見 [`NOTICE`](NOTICE)。
