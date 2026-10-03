@@ -39,6 +39,13 @@ spec:
           ui:options:
             # 只允許 github.com（單 host 時自動帶入，避免 Host 下拉互動問題）
             allowedHosts: [github.com]
+            # 取得登入者本人的 GitHub OAuth token（ScmAuth 預設 scope 含 repo），
+            # 供下方 dispatch 以使用者身分觸發機制 repo 的 factory-run。
+            # 不用 integrations.github.token（philipz 的 fine-grained PAT）：它綁
+            # philipz 這個資源擁有者，對 aswf-dev 組織 dispatch 一律 403；且
+            # fine-grained PAT 最長 366 天，OAuth App token 不過期。
+            requestUserCredentials:
+              secretsKey: USER_OAUTH_TOKEN
         issueNumber:
           title: Issue 編號
           type: string
@@ -56,6 +63,9 @@ spec:
         # dispatch 一律到機制 repo（factory-run.yml 所在）；目標 repo 走 workflowInputs.repo。
         # repoUrl 須為 scaffold 格式（host?owner=..&repo=..），非完整 URL。
         repoUrl: github.com?owner=aswf-dev&repo=software_factory
+        # 以登入者身分 dispatch（RepoUrlPicker 的 requestUserCredentials 取得）。
+        # 前提：使用者對機制 repo 須有 write 權限，否則 GitHub 回 403/404。
+        token: ${{ secrets.USER_OAUTH_TOKEN }}
         workflowId: factory-run.yml
         branchOrTagName: main
         workflowInputs:
