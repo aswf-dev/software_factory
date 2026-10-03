@@ -187,8 +187,8 @@ importers:
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(eb5b460918fa41eb2a074a3a3136fb38)
       '@informalsystems/quint':
-        specifier: 0.32.0
-        version: 0.32.0
+        specifier: 0.33.0
+        version: 0.33.0
       '@types/node':
         specifier: 26.6.3
         version: 26.6.3
@@ -2950,8 +2950,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@informalsystems/quint@0.32.0':
-    resolution: {integrity: sha512-9Yoji7DU6moRm1ofDaN+ftdxNcEGciiGbm7eN4MjlcCbfv7/Y/zchadcXXRmMZmN9oTPXUk9GmhjQOhADJsiSQ==}
+  '@informalsystems/quint@0.33.0':
+    resolution: {integrity: sha512-1hr+l+3wyKimjNXNl9lovpwmH5C9Ck898FL4yGbuEmFPiz7YRqvFvsB9hlHsaYukXqdUY5nuFKn/qiCon0O88g==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -3394,9 +3394,6 @@ packages:
 
   '@types/lodash@4.17.25':
     resolution: {integrity: sha512-+K1NIO8I+F9/wNulfVvu23QYd0Pe9/OCqRrim4NoYIf1VoEDL90Ve4ClzpyqBLc7NpGGWRvYNCKZ1BE/Jpf8dQ==}
-
-  '@types/node@26.5.1':
-    resolution: {integrity: sha512-CzNm2FezW4VR/LjG6yUdiEgLE/rAQ9Slj5gCu/C2VrdcW7I0ahNZ8DRbHT7zOZ6r3ONgd/bsQIeSaoDGrd1C6g==}
 
   '@types/node@26.6.3':
     resolution: {integrity: sha512-dsqMQQoeTLqu9wynDD00q573mNzso3IdQOAfHRJqLCcmCFPoGo9A1bDpUcv/9tnKpErQWv9uKeGfl37EIS02Yg==}
@@ -8543,7 +8540,7 @@ snapshots:
   '@img/sharp-win32-x64@0.35.4':
     optional: true
 
-  '@informalsystems/quint@0.32.0':
+  '@informalsystems/quint@0.33.0':
     dependencies:
       '@grpc/grpc-js': 1.14.5
       '@grpc/proto-loader': 0.7.15
@@ -8940,10 +8937,6 @@ snapshots:
       '@types/lodash': 4.17.25
 
   '@types/lodash@4.17.25': {}
-
-  '@types/node@26.5.1':
-    dependencies:
-      undici-types: 8.9.0
 
   '@types/node@26.6.3':
     dependencies:
@@ -10061,7 +10054,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.2
-      '@types/node': 26.5.1
+      '@types/node': 26.6.3
       long: 5.3.2
 
   proxy-addr@2.0.7:
