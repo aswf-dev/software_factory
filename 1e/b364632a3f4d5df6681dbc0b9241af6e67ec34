@@ -1,0 +1,18 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 1140-1144,1162
+src/cli/factory-push-event.test.ts
+  h_1b119f25eaf333 534-566
+src/cli/factory-push-event.ts
+  h_1b119f25eaf333 43-51,66,87,120,239-251,253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1eb364632a3f4d5df6681dbc0b9241af6e67ec34",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
