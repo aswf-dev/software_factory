@@ -1960,3 +1960,38 @@ describe('write-spec 作業規則（ADR-018 步驟 2.5）', () => {
     expect(read('.dsh/skills/factory-pr-stacking/SKILL.md')).toMatch(/agent-write-spec 的不變量階段改寫 `Refs #<編號>`/)
   })
 })
+
+// 2026-10-03：機制 repo 遷至 aswf-dev/software_factory（全新 repo，非 transfer，
+// 舊網址不轉址；philipz/software_factory 為私有且觀察期後停用）。
+describe('機制 repo 遷移接線（aswf-dev/software_factory，factory-scoreboard#19）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  const MECHANISM = 'aswf-dev/software_factory'
+
+  it('Push event to scoreboard 帶 --run-repo "${{ github.repository }}"', () => {
+    // 事件的 repo 是目標 repo；run 在機制 repo 執行。少了這個旗標，看板只能猜
+    // run 在哪個 repo——遷移後猜錯即 404（run 37104864848）。
+    // 用 github.repository 而非寫死：fork 或再次遷移時仍自動正確。
+    const wf = load(read('.github/workflows/factory-run.yml')) as {
+      jobs: Record<string, { steps: { name?: string; run?: string }[] }>
+    }
+    const step = Object.values(wf.jobs)
+      .flatMap((j) => j.steps)
+      .find((s) => s.name === 'Push event to scoreboard')
+    expect(step, '找不到 Push event to scoreboard step').toBeDefined()
+    expect(step!.run).toContain('--run-repo "${{ github.repository }}"')
+  })
+
+  it.each([
+    'backstage/templates/factory-work-item/template.yaml',
+    'backstage/templates/agent-add-tests/template.yaml',
+  ])('%s dispatch 到機制 repo，結果連結指向其 Actions 頁', (f) => {
+    const raw = load(read(f)) as {
+      spec: { steps: { action: string; input: { repoUrl?: string } }[] }
+    }
+    const dispatch = raw.spec.steps.find((st) => st.action === 'github:actions:dispatch')
+    expect(dispatch?.input.repoUrl).toBe('github.com?owner=aswf-dev&repo=software_factory')
+    const t = read(f)
+    expect(t).toContain(`https://github.com/${MECHANISM}/actions`)
+    expect(t).not.toContain('https://github.com/philipz/software_factory')
+  })
+})
