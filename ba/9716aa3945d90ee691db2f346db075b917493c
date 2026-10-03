@@ -1,0 +1,18 @@
+backstage/templates/agent-add-tests/template.yaml
+  h_1b119f25eaf333 58,73
+backstage/templates/factory-work-item/template.yaml
+  h_1b119f25eaf333 153,174
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 1963-1997
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ba9716aa3945d90ee691db2f346db075b917493c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
