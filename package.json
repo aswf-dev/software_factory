@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Automated software factory: Backstage IDP + DeepSeek Harness + GitHub stacked PRs",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=22.0.0"
   },
