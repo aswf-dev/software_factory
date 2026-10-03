@@ -40,6 +40,15 @@ export interface FactoryPushEventArgs {
    * 量測值沒有意義。空字串與缺席同義（→ `null`）。
    */
   skillsDigest?: string | undefined
+  /**
+   * run 實際執行所在的 repo（CI 以 `github.repository` 帶入）。
+   *
+   * 事件的 `repo` 是 Issue 所在的**目標** repo，run 卻在**機制** repo 執行；
+   * 機制 repo 於 2026-10-03 由 philipz/software_factory 遷至
+   * aswf-dev/software_factory 後，看板無法再以單一設定推得 run 連結
+   * （factory-scoreboard#19）。寫入 `extra.run_repo`，非 owner/name 格式則不寫。
+   */
+  runRepo?: string | undefined
   /** 只組裝並印出事件，不實際送出（供 CI dry_run 與本機驗證）。 */
   dryRun: boolean
 }
@@ -54,6 +63,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
   let crosscheckPath: string | undefined
   let modelPath: string | undefined
   let skillsDigest: string | undefined
+  let runRepo: string | undefined
   let dryRun = false
   const positional: string[] = []
 
@@ -74,6 +84,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
     else if (arg === '--crosscheck') crosscheckPath = need('--crosscheck')
     else if (arg === '--model') modelPath = need('--model')
     else if (arg === '--skills-digest') skillsDigest = need('--skills-digest')
+    else if (arg === '--run-repo') runRepo = need('--run-repo')
     else if (arg === '--dry-run') dryRun = true
     else if (arg.startsWith('--')) throw new CliError(`unknown argument: ${arg}`)
     else positional.push(arg)
@@ -106,6 +117,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
     crosscheckPath,
     modelPath,
     skillsDigest,
+    runRepo,
     dryRun,
   }
 }
@@ -224,8 +236,21 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
     // 收下（docs/26 §1）。累積後可統計「哪一類驗收條件最常 failed」，那是**不依賴
     // agent 自報 skillGap** 的技能缺口訊號（docs/25 §2.3 T3）。
     // 只送 id，不送條文內容（隱私，docs/26 §1.1 約束 3）。
-    extra: buildRequirementExtra(report, crosscheck, judge),
+    //
+    // run_repo 與上述訊號同置 extra，理由相同：接收端 zod 會剝除未知頂層欄位，
+    // extra 原樣保存，兩端部署順序因此無關。
+    extra: withRunRepo(buildRequirementExtra(report, crosscheck, judge), args.runRepo),
   }
+}
+
+/** GitHub `owner/name`；與 factory-scoreboard 的採用條件一致，不送會被拒用的值。 */
+const REPO_SLUG = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
+
+function withRunRepo(extra: Record<string, unknown>, runRepo: string | undefined): Record<string, unknown> {
+  if (runRepo !== undefined && REPO_SLUG.test(runRepo) && !runRepo.includes('..')) {
+    extra['run_repo'] = runRepo
+  }
+  return extra
 }
 
 /**

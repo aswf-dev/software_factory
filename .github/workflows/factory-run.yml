@@ -1137,6 +1137,11 @@ jobs:
       #   - continue-on-error: true ＋ CLI 自身永遠 exit 0（雙重保險，同 usage 量測）
       #   - if: always()——失敗與逾時的 run 也要記錄，否則統計只剩成功案例（幸存者偏差）
       #   - 未設定 SCOREBOARD_URL/TOKEN 時 CLI 靜默跳過，不報錯
+      #
+      # --run-repo：事件的 repo 是目標 repo，run 卻在本（機制）repo 執行。2026-10-03
+      # 機制 repo 由 philipz 遷至 aswf-dev 後，看板無法再以單一設定推得 run 連結，
+      # 故由事件自述（extra.run_repo，factory-scoreboard#19）。CLI 對未知旗標會報錯，
+      # 而本 step continue-on-error——旗標與 CLI 必須同版上線，否則事件靜默遺失。
       - name: Push event to scoreboard
         if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
         continue-on-error: true
@@ -1154,6 +1159,7 @@ jobs:
             --crosscheck "$GITHUB_WORKSPACE/.factory/crosscheck.json" \
             --model "$GITHUB_WORKSPACE/.factory/model.json" \
             --skills-digest "${SKILLS_DIGEST:-}" \
+            --run-repo "${{ github.repository }}" \
             > "$GITHUB_WORKSPACE/.factory/scoreboard-event.json" \
             || echo "::warning::scoreboard 推送失敗（不擋 run）"
 

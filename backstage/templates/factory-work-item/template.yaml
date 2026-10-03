@@ -150,7 +150,7 @@ spec:
       action: github:actions:dispatch
       input:
         # dispatch 一律到機制 repo（factory-run.yml 所在）；目標 repo 走 workflowInputs.repo
-        repoUrl: github.com?owner=philipz&repo=software_factory
+        repoUrl: github.com?owner=aswf-dev&repo=software_factory
         workflowId: factory-run.yml
         branchOrTagName: main
         workflowInputs:
@@ -171,4 +171,4 @@ spec:
         content: |
           已建立 Issue（title: `[factory] ${{ parameters.oneLiner }}`）並觸發 `factory-run.yml`（task_type: ${{ parameters.taskType }}）。
           執行狀態請見 GitHub Actions 頁面：
-          https://github.com/philipz/software_factory/actions
+          https://github.com/aswf-dev/software_factory/actions

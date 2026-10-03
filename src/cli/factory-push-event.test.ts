@@ -531,3 +531,36 @@ describe('未回報技能缺口訊號（→ extra 槽）', () => {
     expect(buildEvent(parseArgs(baseArgv())).extra['skill_gap_unreported']).toBeUndefined()
   })
 })
+
+// 2026-10-03：機制 repo 由 philipz/software_factory 遷至 aswf-dev/software_factory
+// （全新 repo，非 transfer）。事件的 `repo` 是 Issue 所在的目標 repo，run 卻在
+// 機制 repo 執行；看板原以單一 FACTORY_RUNNER_REPO 拼 run 連結，遷移後新 run
+// （37104864848）因此 404。由 CI 以 --run-repo 帶入 github.repository，事件自述
+// run 的所在地。放 extra 而非頂層：接收端 zod 會剝除未知頂層欄位，extra 原樣保存。
+describe('run_repo（--run-repo → extra.run_repo，factory-scoreboard#19）', () => {
+  it('--run-repo 寫入 extra.run_repo', () => {
+    const e = buildEvent(parseArgs(baseArgv(['--run-repo', 'aswf-dev/software_factory'])), fixedNow)
+    expect(e.extra['run_repo']).toBe('aswf-dev/software_factory')
+  })
+
+  it('缺席 → 不設此欄位（看板退回 FACTORY_RUNNER_REPO）', () => {
+    expect(buildEvent(parseArgs(baseArgv()), fixedNow).extra['run_repo']).toBeUndefined()
+  })
+
+  it.each(['', 'no-slash', 'a/b/c', 'evil.com/../x', ' aswf-dev/software_factory'])(
+    '非 owner/name 格式 %j → 不設此欄位（不送會被看板拒用的值）',
+    (bad) => {
+      expect(buildEvent(parseArgs(baseArgv(['--run-repo', bad])), fixedNow).extra['run_repo']).toBeUndefined()
+    },
+  )
+
+  it('與 requirements 訊號並存於 extra，互不覆蓋', () => {
+    const report = writeJson('r-run-repo.json', { requirements: [{ id: 'REQ-1', status: 'failed' }] })
+    const e = buildEvent(
+      parseArgs(baseArgv(['--report', report, '--run-repo', 'aswf-dev/software_factory'])),
+      fixedNow,
+    )
+    expect(e.extra['run_repo']).toBe('aswf-dev/software_factory')
+    expect(e.extra['requirements_failed']).toEqual(['REQ-1'])
+  })
+})
