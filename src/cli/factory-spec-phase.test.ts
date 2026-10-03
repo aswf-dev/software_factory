@@ -166,7 +166,7 @@ describe('main：模型階段與拒絕', () => {
     const t = makeTarget({ codeowners: '* @philipz\n', invariants: true })
     const r = main(
       ['12', '--repo', 'o/r', '--target', t],
-      fakeExec({ ...approved, timeline: [{ login: 'software-factory-worker[bot]', type: 'Bot' }] }),
+      fakeExec({ ...approved, timeline: [{ login: 'softwarefactory-bot[bot]', type: 'Bot' }] }),
       NOW,
     )
     expect(r.decision).toBe('refuse')

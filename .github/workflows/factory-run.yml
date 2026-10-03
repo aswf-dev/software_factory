@@ -341,9 +341,9 @@ jobs:
       - name: Configure agent git identity (target repo)
         run: |
           cd target
-          git config --local user.name "software-factory-worker[bot]"
-          git config --local user.email "software-factory-worker[bot]@users.noreply.github.com"
-          echo "git identity: software-factory-worker[bot]"
+          git config --local user.name "softwarefactory-bot[bot]"
+          git config --local user.email "softwarefactory-bot[bot]@users.noreply.github.com"
+          echo "git identity: softwarefactory-bot[bot]"
 
       # gh-stack 需要本地 base 分支（gh stack init --base $BASE_BRANCH）。
       # checkout action 對 branch ref 會建同名本地分支，但這裡明確確保：
@@ -613,10 +613,10 @@ jobs:
           # git 身分以 env 固定：env 優先於 git config，agent 改寫 user.name/email
           # 也蓋不掉（曾自創 factory-agent，被 GitHub 歸屬到同名陌生帳號）。
           # DSH 只 scrub /KEY|PASSWORD|SECRET|TOKEN/i 與 DSH_*，這四個會傳進 agent。
-          GIT_AUTHOR_NAME: software-factory-worker[bot]
-          GIT_AUTHOR_EMAIL: software-factory-worker[bot]@users.noreply.github.com
-          GIT_COMMITTER_NAME: software-factory-worker[bot]
-          GIT_COMMITTER_EMAIL: software-factory-worker[bot]@users.noreply.github.com
+          GIT_AUTHOR_NAME: softwarefactory-bot[bot]
+          GIT_AUTHOR_EMAIL: softwarefactory-bot[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: softwarefactory-bot[bot]
+          GIT_COMMITTER_EMAIL: softwarefactory-bot[bot]@users.noreply.github.com
         run: |
           set +e
           if [ "${{ inputs.dry_run }}" == "true" ]; then

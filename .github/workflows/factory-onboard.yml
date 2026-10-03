@@ -207,9 +207,9 @@ jobs:
       - name: Configure agent git identity (target repo)
         run: |
           cd target
-          git config --local user.name "software-factory-worker[bot]"
-          git config --local user.email "software-factory-worker[bot]@users.noreply.github.com"
-          echo "git identity: software-factory-worker[bot]"
+          git config --local user.name "softwarefactory-bot[bot]"
+          git config --local user.email "softwarefactory-bot[bot]@users.noreply.github.com"
+          echo "git identity: softwarefactory-bot[bot]"
 
       - name: Ensure base branch checked out in target
         run: |
