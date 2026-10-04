@@ -42,3 +42,32 @@ Q-P2-1（2026-08-18 裁決）為試點 repo（fubon-tradingbot、spring-modulith
 ## 未做
 
 - main 的 branch protection 強化（單人 repo 無法自我核准，Q12-4 已知缺口；維持人工合併紀律）。
+
+## 附註（2026-10-04）：分支漂移的判定與處理
+
+實測發現多個納管 repo 的 main 與 software-factory 已長期分歧，原因不只「忘了同步」：
+
+- **trunk 落後（`trunk-behind`）**：有內容直接合進 main——人工 PR（如 fubon-tradingbot #638–#640）、
+  dependabot（如 camunda_hazelcast）。工廠以 software-factory 為基礎產出 PR，之後同步回 main 可能衝突。
+- **main 落後（`main-behind`）**：software-factory 有已合併、尚未同步的內容（如 node-redlock 25 個 commit）。
+  這就是上方「負面」所列的「CI 跑舊版」風險。
+
+**判定規則**：比較兩個分支的**內容**而非 commit 數。用 GitHub 三點 compare 兩個方向各比一次
+（`software-factory...main` 與 `main...software-factory`），看 `files` 是否為空：
+
+| 兩個方向的 `files` | 狀態 |
+| --- | --- |
+| 皆空（sha 不同） | `merge-only`：只有同步產生的 merge commit，**不算漂移** |
+| 只有 `main...software-factory` 有 | `main-behind` |
+| 只有 `software-factory...main` 有 | `trunk-behind` |
+| 皆有 | `diverged` |
+
+只比一個方向會誤判（node-redlock 的 `software-factory...main` 回 `files=0`，但 main 實際缺了 21 個檔案）；
+只看 commit 數則會把每次同步後的 merge commit 都當成漂移。
+
+**處理方式**：aswf.dev 在送單前偵測並告知，**不自動對齊、不自動 release**，修正由 repo 擁有者負責：
+
+- `main-behind`：開同步 PR（software-factory → main）。
+- `trunk-behind`：開 PR 把 main 合回 software-factory（兩邊通常已分岔，無法 fast-forward）。
+
+設計細節：factory-scoreboard `docs/superpowers/specs/2026-10-04-trunk-drift-guard-design.md`。
