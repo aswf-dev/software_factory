@@ -234,3 +234,22 @@
 **背景**：2026-09-01 SWEBOK 討論中，兩個 agent session 皆在分支歸屬上用舊資訊宣稱（deepseek/Opus5 分支），而 `git branch --show-current` 一次就能查清。這是「看起來太顯然，沒人重查」的靜默失敗模式。
 
 **教訓**：跨 session/turn 協作時，git 分支與工作樹狀態可能已變；宣稱任何狀態前以 `git branch --show-current` / `git cat-file -e HEAD:<path>` 重查；「上輪查過」不算數。
+
+### 4.2 CI 的「無聲紅燈」：平行 fork 共寫同一棵 dist/（2026-10-04，run 37199686994）
+
+**現象**：main 的 Test workflow 於 Integration tests 步驟在 factory-model-cli.test.ts:104 報 `expected 1 to be +0`——spawn 的 CLI 子行程 exit 1，但斷言不帶 stderr，CI log 裡查不到原因。
+
+**根因定位（證據鏈）**：
+- 非內容迴歸：該 merge（PR #10）只動文件；同樹在它處全綠，且本機能在不含其內容的樹上復現同族間歇失敗。
+- 兩支 CLI 整合測試在各自平行 fork 的 beforeAll 都跑 `npm run build`；CI 該步前無 dist/，約 150 個檔案被同時寫入。
+- 編譯器輸出是「先建立（0 bytes）→ 再寫入」：高解析度觀察器於並行建置中實測 226 個 0-byte 採樣；單檔對讀者是原子（排除「讀到半截內容」變體）。
+- 決定性實驗：以 `O_TRUNC` 讓依賴檔保持空檔 100ms 並 spawn CLI → rc=1、stdout 空、stderr `SyntaxError: ... does not provide an export named`——與 CI 簽名逐字吻合。
+- 窗口微秒級（625 次並行探測未命中一次），與「百餘次 run 紅一次」的頻率一致；CI 核心少、建置慢，窗口更大。
+
+**修法**（fix/integration-build-race）：
+1. build 移到 script 層——`test:integration`／`coverage` 先串行 `npm run build` 再進 vitest；
+2. beforeAll 不再自行 build，dist/ 缺失時 fail-loud 給可行動訊息；
+3. 子行程 `status=0` 斷言一律附帶 stderr；
+4. 「整合測試建置紀律」三項釘選進 test/adversarial/factory-assets.test.ts，復發即紅。
+
+**教訓**：§4.1 講的是假綠燈；這是它的鏡像——**無聲的紅燈也是靜默失敗**。不會自我解釋的 gate 不只耗人類時重查，還會把人訓練成「重跑直到綠」，這是 gate 失去信任的機制之一（docs/04：會亂紅的 gate 比沒有 gate 更糟）。子行程斷言預設帶上 stderr，是紅燈可自我解釋的最低成本。
