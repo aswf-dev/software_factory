@@ -332,3 +332,33 @@ error: file not found: catalog-info.yaml                EXIT=1
 > 對 `.github/factory/**`、`.dsh/skills/**` 掃描三軸 annotation 行的值，並零容忍
 > 阻擋幽靈值在 `.github/factory/**` 回潮。§7.2 的 camunda_hazelcast 實測案例
 > 保留為史實。
+
+## 13. 同步與漂移
+
+納管完成後，repo 會長期維持兩條線（ADR-013）：factory PR 合併進 `software-factory`，再由人工把
+`software-factory` 合併進 `main`。兩種情況會讓它們分歧：
+
+| 狀況 | 原因 | 後果 | 處理 |
+| --- | --- | --- | --- |
+| main 落後 | software-factory 有已合併、尚未同步到 main 的內容 | main 是 default branch，**CI 與 guardrail 從 main 執行**，會跑舊版規則 | `gh pr create --repo <repo> --base main --head software-factory --title "Software factory" --fill` |
+| trunk 落後 | 有 PR 直接合進 main（人工修改、dependabot） | 工廠以 software-factory 為基礎產出 PR，之後同步回 main 可能衝突 | `gh pr create --repo <repo> --base software-factory --head main --title "Sync main into software-factory" --fill` |
+
+例行同步產生的 merge commit **不算漂移**：判定看兩個方向的內容差異，不看 commit 數（ADR-013 附註）。
+
+aswf.dev 送單時會即時檢查目標 repo：實質漂移以紅字提示，需確認才能送出；`software-factory` 分支不存在
+則直接擋下並附建立指令。`/scoreboard/repos` 列出平台見過的 repo 的最新狀態。
+
+## 14. 不可派給工廠的工作
+
+以下工作交給工廠**一定會停手**，只會白花 token，請由人類直接處理：
+
+| 範圍 | 原因 |
+| --- | --- |
+| `.github/**`（含 CI workflow） | softwarefactory-bot 沒有 `workflows` 權限，寫入 workflow 檔會被 GitHub 以 403 拒絕（2026-10-04 實測）；且屬 H5 護欄 |
+| branch protection、repo 設定 | 不在 App 權限內；停手規則 #3 |
+| `CODEOWNERS` | H5 護欄；停手規則 #3 |
+| `catalog-info.yaml`（正位） | 三軸由人類裁定（§2）；停手規則 #3。接入流程的 `proposals/onboarding/catalog-info.yaml` 不受此限 |
+| `.dsh/skills/**` | guardrail（`src/stop-rules/stop-rules.ts`）；新技能走 propose-only（ADR-016） |
+
+實例：tradingbot-tw/saga-pattern#12 要求新增 `.github/workflows/ci.yml`，派工後依停手規則 #3 立即停止；
+最後由人類以 PR 交付 Gradle wrapper 與 CI workflow。aswf.dev 送單頁會在「目標模組／檔案」宣告上述路徑時直接擋下。
