@@ -8,8 +8,8 @@
  * oversight gate 會把「沒算出分數」誤判為通過（docs/06 §5.1）。
  */
 
-import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -32,19 +32,30 @@ function runCli(script: string, args: string[] = []): RunResult {
 }
 
 beforeAll(() => {
-  // 以原始碼建置出 dist，避免測試依賴先前的 build 狀態。
-  execFileSync('npm', ['run', 'build'], { cwd: repoRoot, stdio: 'pipe' })
+  // 2026-10-04 修正（CI run 37199686994 flaky 根因）：build 移到 `test:integration`
+  // script 先行串行完成。原本兩個 CLI 測試檔在各自 fork 的 beforeAll 同時跑 tsc 寫
+  // 同一棵 dist/，sibling fork spawn 的子行程會讀到「已建立但尚未寫入」的 0-byte
+  // 編譯輸出 → ESM link 失敗（exit 1、stdout 空），且原因只出現在被丟棄的 stderr。
+  // 這裡不再自行 build——dist 缺失時 fail-loud，給出可行動的訊息。
+  if (!existsSync(cliPath)) {
+    throw new Error(
+      'dist/cli/factory-score.js 不存在：請先執行 "npm run build"，或直接跑 "npm run test:integration"（script 已內含建置）',
+    )
+  }
   tmp = mkdtempSync(join(tmpdir(), 'factory-score-cli-'))
-}, 120_000)
+})
 
 afterAll(() => {
-  rmSync(tmp, { recursive: true, force: true })
+  // beforeAll 可能提前 throw（dist 缺失），tmp 未初始化時跳過清理。
+  if (tmp) rmSync(tmp, { recursive: true, force: true })
 })
 
 describe('factory-score 實機執行', () => {
   it('直接執行 → 輸出本 repo 的計分 JSON 且 exit 0', () => {
-    const { status, stdout } = runCli(cliPath)
-    expect(status).toBe(0)
+    // 斷言訊息一律帶 stderr：子行程紅燈必須能自我解釋（run 37199686994 教訓——
+    // 「expected 1 to be 0」而原因只在被丟棄的 stderr，等於無聲紅燈）。
+    const { status, stdout, stderr } = runCli(cliPath)
+    expect(status, `子行程 exit 非 0；stderr:\n${stderr}`).toBe(0)
     const out = JSON.parse(stdout)
     // 本 repo：tactical(0) + high(2) + medium(1) = 3 → review。
     expect(out.score.total).toBe(3)
@@ -59,16 +70,16 @@ describe('factory-score 實機執行', () => {
     // 導致「無輸出且 exit 0」—— CI 會把未執行的 gate 當成通過。
     const link = join(tmp, 'linked-factory-score.js')
     symlinkSync(cliPath, link)
-    const { status, stdout } = runCli(link)
-    expect(status).toBe(0)
+    const { status, stdout, stderr } = runCli(link)
+    expect(status, `子行程 exit 非 0；stderr:\n${stderr}`).toBe(0)
     expect(JSON.parse(stdout).score.tier).toBe('review')
   })
 
   it('被 import 時不輸出任何內容（供 Task 20 擴充）', async () => {
     const probe = join(tmp, 'probe.mjs')
     writeFileSync(probe, `await import(${JSON.stringify(cliPath)});\n`)
-    const { status, stdout } = runCli(probe)
-    expect(status).toBe(0)
+    const { status, stdout, stderr } = runCli(probe)
+    expect(status, `probe 子行程 exit 非 0；stderr:\n${stderr}`).toBe(0)
     expect(stdout).toBe('')
   })
 

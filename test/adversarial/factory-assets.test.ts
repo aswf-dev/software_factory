@@ -2066,3 +2066,37 @@ describe('App token 一律收窄（agent 不得取得 actions:write）', () => {
     for (const m of mints) expect(m.with['permission-actions'], `${m.file}`).toBe('read')
   })
 })
+
+// 2026-10-04（CI run 37199686994 flaky 根因防復發）：
+// 兩支 CLI 整合測試的 beforeAll 各自跑 `npm run build`，vitest 平行 fork 下兩棵 tsc
+// 同時寫 dist/，sibling fork spawn 的子行程讀到「已建立、尚未寫入」的 0-byte 編譯
+// 輸出 → ESM link 失敗（exit 1、stdout 空、原因只在被丟棄的 stderr）。紀律釘在此。
+describe('整合測試建置紀律（平行 fork 不得共寫 dist/）', () => {
+  const cliIntegrationFiles = [
+    'test/integration/factory-score-cli.test.ts',
+    'test/integration/factory-model-cli.test.ts',
+  ]
+
+  it('CLI 整合測試檔不得自行 build——dist/ 只能由 script 層先行串行產出', () => {
+    for (const f of cliIntegrationFiles) {
+      const c = read(f)
+      expect(c, f).not.toMatch(/'run',\s*'build'/)
+      // 缺失時必須 fail-loud（而非靜默重建——自行重建就是競態源頭）
+      expect(c, f).toContain('existsSync(cliPath)')
+    }
+  })
+
+  it('test:integration 與 coverage 必須先行建置 dist/（單一串行 writer）', () => {
+    const pkg = JSON.parse(read('package.json'))
+    expect(pkg.scripts['test:integration']).toMatch(/^npm run build && vitest run/)
+    expect(pkg.scripts['coverage']).toMatch(/^npm run build && vitest run/)
+  })
+
+  it('子行程 status=0 斷言一律附帶 stderr——紅燈必須自我解釋', () => {
+    for (const f of cliIntegrationFiles) {
+      const c = read(f)
+      // 不允許再出現裸 expect(status).toBe(0)（原因被丟棄的無聲紅燈）
+      expect(c, f).not.toMatch(/expect\(status\)\.toBe\(0\)/)
+    }
+  })
+})

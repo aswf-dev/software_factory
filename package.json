@@ -15,10 +15,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run src",
-    "test:integration": "vitest run test/integration",
+    "test:integration": "npm run build && vitest run test/integration",
     "test:adversarial": "vitest run test/adversarial",
     "test:e2e": "vitest run test/e2e",
-    "coverage": "vitest run --coverage"
+    "coverage": "npm run build && vitest run --coverage"
   },
   "devDependencies": {
     "@deepseek-ai/dsh": "0.2.0-rc.2",
