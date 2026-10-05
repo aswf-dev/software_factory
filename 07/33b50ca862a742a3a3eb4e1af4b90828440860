@@ -1,0 +1,24 @@
+README.md
+  h_1b119f25eaf333 38-39
+docs/10-open-questions.md
+  h_1b119f25eaf333 9-10,23,34,74,86-88
+docs/21-candidate-work-item-types.md
+  h_1b119f25eaf333 21-22,194
+docs/29-brownfield-adoption-playbook.md
+  h_1b119f25eaf333 1-527
+docs/GLOSSARY.md
+  h_1b119f25eaf333 85-90,117-118
+mkdocs.yml
+  h_1b119f25eaf333 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0733b50ca862a742a3a3eb4e1af4b90828440860",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
