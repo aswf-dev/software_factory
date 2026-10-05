@@ -1,0 +1,82 @@
+.github/ISSUE_TEMPLATE/factory-work-item.yml
+  h_1b119f25eaf333 19,27
+.github/factory/task-template-pbt-audit.txt
+  h_1b119f25eaf333 1-22
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 28,226-227,467-502,666-668,880,990-994,1198-1226
+backstage/templates/factory-work-item/template.yaml
+  h_1b119f25eaf333 50,98-100,122
+src/cli/apply-score-labels.test.ts
+  h_1b119f25eaf333 5-13,182-221
+src/cli/apply-score-labels.ts
+  h_1b119f25eaf333 37-53,57,61-68,104-113,128,142,148-149,151
+src/cli/factory-crosscheck.test.ts
+  h_1b119f25eaf333 27,38-39,46-51,700,713,1129-1178
+src/cli/factory-crosscheck.ts
+  h_1b119f25eaf333 35,508,519,529,556-557,586,623,629-652,683,696-708
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 4,871-938
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 45-46,85-87,415-416,481-488,490,502,531-549,705-707
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 381-400
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 19,251
+src/cli/factory-pbt-audit-comment.test.ts
+  h_1b119f25eaf333 1-81
+src/cli/factory-pbt-audit-comment.ts
+  h_1b119f25eaf333 1-115
+src/cli/factory-pbt-preflight.test.ts
+  h_1b119f25eaf333 1-82
+src/cli/factory-pbt-preflight.ts
+  h_1b119f25eaf333 1-103
+src/factory-draft/issue-body.test.ts
+  h_1b119f25eaf333 83-95
+src/labels.ts
+  h_1b119f25eaf333 28,49-50
+src/pbt-audit/comment.test.ts
+  h_1b119f25eaf333 1-123
+src/pbt-audit/comment.ts
+  h_1b119f25eaf333 1-143
+src/pbt-audit/intake.test.ts
+  h_1b119f25eaf333 1-89
+src/pbt-audit/intake.ts
+  h_1b119f25eaf333 1-141
+src/pbt-audit/languages.test.ts
+  h_1b119f25eaf333 1-66
+src/pbt-audit/languages.ts
+  h_1b119f25eaf333 1-111
+src/pbt-audit/preflight.test.ts
+  h_1b119f25eaf333 1-112
+src/pbt-audit/preflight.ts
+  h_1b119f25eaf333 1-135
+src/pbt-audit/repo-fs.test.ts
+  h_1b119f25eaf333 1-49
+src/pbt-audit/repo-fs.ts
+  h_1b119f25eaf333 1-70
+src/pbt-audit/report.ts
+  h_1b119f25eaf333 1-59
+src/pbt-audit/scope.test.ts
+  h_1b119f25eaf333 1-33
+src/pbt-audit/scope.ts
+  h_1b119f25eaf333 1-55
+src/pipeline/no-automerge.test.ts
+  h_1b119f25eaf333 2,5-6,11-14,16,19,22-28,30-31,35-41
+src/pipeline/no-automerge.ts
+  h_1b119f25eaf333 2,7-13,15-17,19-26,28-30,34
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 14-16,450,459,475,536-599,774,784,857,868
+vitest.config.ts
+  h_1b119f25eaf333 86-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9031eb5ea9e0145ce585504f829af2f2e9ceb1be",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
