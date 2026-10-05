@@ -7,15 +7,15 @@
     },
     {
       "name": "factory-self-review",
-      "sha256": "90b0213e17f2d2134e63d1d24a047ff33346f761fa67706e3a4d1378953da83c"
+      "sha256": "87fc711685fb8cd448d4a5778a63942bef6436a74a84e54d2e03aeeecc67e976"
     },
     {
       "name": "factory-stop-rules",
-      "sha256": "bf60289abd6f8a4e59932d9e6c008a069e01da811b51a08e866ec665cd79a10f"
+      "sha256": "0221fd10f4125302b49411091724fd398c4d521328f73fbb4a0958cf1b32e83e"
     },
     {
       "name": "factory-workflow",
-      "sha256": "3f72747cf07ebfdb92eeb3f5932e962e407230a392218f3ac63b6e289bd7916d"
+      "sha256": "3eb892e37aeed61015757a2a1d15715228953d86ef70a6c971f28289d2583ccd"
     },
     {
       "name": "hegel",

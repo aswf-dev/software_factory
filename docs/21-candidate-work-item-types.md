@@ -8,7 +8,7 @@
 
 ---
 
-## 1. 現況：7 型已接線，其中 4 型從未成功實跑 ⚠️
+## 1. 現況：8 型已接線，其中 5 型從未成功實跑 ⚠️
 
 | 類型 | 狀態 |
 |---|---|
@@ -18,9 +18,11 @@
 | **agent-propose-skill**（E6） | ⚠️ **已完成八處接線（2026-09-06），但從未實跑真實工作項**——crosscheck 白名單與 promote 流程已以 dist/ 實機驗證（含「寫入 `.dsh/skills/` 被擋」的攻擊測試），惟尚無真實提案 |
 | **agent-write-spec** | ⚠️ **已接線但護欄未落地**：`5b9e2d8`（2026-09-13）隨 heavy-verify 事故修正加入 enum、模板與 skill 說明，語意為「可執行規格（`.qnt`）」。唯一一次實跑（node-redlock #7）以逾時收場、產出為零。規格書驅動的改版與四道護欄的落地見 **ADR-018**（§2.1） |
 
-> **`agent-pbt-audit`（ADR-019，已接受、尚未接線）**：`docs/29` §10 將其列為棕地導入「驗證閘門」的必要類型（純函式合約走 Hegel）；接線前由人類手動執行 Hegel 代行。另 `docs/29` §6 的「試驗場規則」要求 write-docs／update-deps／propose-skill／write-spec／pbt-audit 先在小型專案試點成功，結果回填本節。
+| **agent-pbt-audit**（ADR-019） | ⚠️ **已接線（2026-10-05），尚未有工作項 run**：issue-check 稽核目標檢查、agent 前硬性 preflight、in-loop 豁免（`IN_LOOP_ALLOWED_TASK_TYPES`）、crosscheck `--pbt-audit-only` 白名單、類型層級禁止自動合併、機制留言；`hegel`／`hegel-review` 只派送給本類型。人類手動執行的第 0 筆基準見 `docs/research/hegel-ts-pilot-fubon-2026-10.md`；試點以 `philipz/fubon-tradingbot` 的實際工單進行，對照 Issue #641–#644 |
+
+> `docs/29` §6 的「試驗場規則」要求 write-docs／update-deps／propose-skill／write-spec／pbt-audit 先在小型專案試點成功，結果回填本節。
 >
-> ⚠️ **未驗證型別比例**：7 型中 **4 型**從未成功實跑——update-deps／write-docs／propose-skill 從未實跑；write-spec 唯一一次實跑逾時、產出為零。擴充前須正視此基線；轉正新型的數據門檻見 §5。
+> ⚠️ **未驗證型別比例**：8 型中 **5 型**從未成功實跑——update-deps／write-docs／propose-skill／pbt-audit 從未實跑；write-spec 唯一一次實跑逾時、產出為零。擴充前須正視此基線；轉正新型的數據門檻見 §5。
 
 **新增一型的機制已成熟**（C1 試點實測補修後）——八處接線：
 
@@ -30,10 +32,11 @@
 | 2 | `.github/workflows/factory-run.yml` options 陣列 | |
 | 3 | `.github/factory/task-template-<type>.txt` | 缺檔 fallback＋`::warning::`（PR #101 前科） |
 | 4 | `.dsh/skills/factory-workflow/SKILL.md` 任務型別分支 | |
-| 5 | `test/adversarial/factory-assets.test.ts` 釘死清單 | 5→6 型 |
+| 5 | `test/adversarial/factory-assets.test.ts` 釘死清單 | 5→6 型；pbt-audit 時 7→8 型 |
 | 6 | **`backstage/templates/factory-work-item/template.yaml` enum** | ⚠️ **#238 漂移教訓**——凍結工件仍是宣告入口 |
 | 7 | `config/dsh/model-tiers.yaml` 路由（auto 依複雜度） | |
 | 8 | `docs/07` 拆分規則＋`docs/09` 路由說明 | |
+| （外部） | **aswf.dev**（`philipz/factory-scoreboard` 的 `src/lib/factory-contract.json`） | 它的 contract CI 比對本 repo main 的 Issue 表單；本 repo 先合併，再開 scoreboard PR（pbt-audit 時新增的第 9 處） |
 
 **類型級限制機制**（`docs/06` §4.1）：計分與任務類型正交（`task_type` 不進計分）——語意風險類型的**唯一施力點**。**雙向可用**（同一個 `apply-score-labels` task_type 特例機制，C1 已實證）：
 

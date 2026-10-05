@@ -67,7 +67,7 @@
 | 類型 | 說明 | 狀態 |
 |---|---|---|
 | **`agent-onboard`** | 納管：唯讀掃描目標 repo，產出 `proposals/onboarding/` 下的三軸建議（值一律 `TODO`）、`risk-paths.yml` 草稿與審查說明。**不走 `factory-run.yml`**，而是 `factory-onboard.yml`；入口為 GitHub issue form 或 gh CLI，**Backstage 表單沒有這一型**（`27` §12） | ✅ 已驗證（`camunda_hazelcast`） |
-| **`agent-pbt-audit`** | 以 Hegel（PBT）稽核一個模組：只改測試檔；通過的 property 進 PR，失敗的寫成「候選發現（未回放）」留言；試行期一律人類審查。人類手動開單並貼 `pbt/audit` 標籤 | ⚠️ **ADR-019 已接受，尚未接線**。本 playbook 將其列為驗證閘門的必要類型（§10），接線前由人類手動執行 Hegel 代行 |
+| **`agent-pbt-audit`** | 以 Hegel（PBT）稽核一個模組：只改測試檔；通過的 property 進 PR，失敗的寫成「候選發現（未回放）」留言；試行期一律人類審查。人類開單時在「目標模組 / 檔案：」宣告恰好一個路徑，`pbt/audit` 由工廠自動貼上 | ⚠️ **ADR-019 已接線（2026-10-05），尚未有工作項 run**。本 playbook 將其列為驗證閘門的必要類型（§10）；前置作業與操作見 `30` |
 
 > 本 playbook 以**現有類型**為主（附錄 A Q7），`agent-pbt-audit` 是唯一例外。候選類型 `agent-refactor`、`agent-security-fix`、`agent-migrate`、`agent-release-notes`（`21` §2）在流程中保留位置，標示「**尚未接線，目前由人類執行**」；紅線類型（`21` §3，如 `agent-architect-decision`、`agent-ci-fix`）永不派給工廠。
 
@@ -299,7 +299,7 @@
 | `agent-analyze`、`agent-write-docs`、`agent-add-tests`、`agent-fix-bug`、`agent-update-deps`、`agent-propose-skill` | Backstage「開立 Factory 工作項」（或 GitHub issue form「Factory Work Item」＋`factory-run.yml`） | A0–A4 的 PRD 範本見 §7.1 |
 | `agent-write-spec` | 同上，另填「規格名稱」「規格來源」 | 規格來源須為人類撰寫的業務規則（§10.2）；一張單跑兩次，中間需 HG5 貼 `spec/approved` |
 | `agent-onboard` | GitHub issue form「Factory Onboard Repo」或 `gh issue create`，再 `gh workflow run factory-onboard.yml` | **Backstage 沒有此入口**（`27` §6） |
-| `agent-pbt-audit` | 人類手動開 Issue、貼 `pbt/audit` 標籤，宣告一個模組 | **尚未接線**：接線前由人類手動執行 Hegel，**不開工單** |
+| `agent-pbt-audit` | 人類開單，在「目標模組 / 檔案：」宣告恰好一個模組或檔案（`pbt/audit` 自動貼上） | 已接線（2026-10-05）；目標 repo 須先完成前置作業（`30` §3），試點成功前於中大型專案仍由人類代行 |
 | 導入追蹤 Issue | 普通 Issue（不加 `[factory]` 前綴） | 不派工，只記錄 HG 簽核 |
 
 **各類型工單在哪些步驟開立（總覽）**

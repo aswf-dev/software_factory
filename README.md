@@ -37,6 +37,7 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/22-scoreboard-platform-evaluation.md`](docs/22-scoreboard-platform-evaluation.md) | Scoreboard 雲端平台評估（Vercel / Cloudflare / 其他 SaaS） |
 | [`docs/27-repo-onboarding.md`](docs/27-repo-onboarding.md) | 新 repo 納管流程（agent-onboard、三軸裁定、雙向探測） |
 | [`docs/29-brownfield-adoption-playbook.md`](docs/29-brownfield-adoption-playbook.md) | 棕地系統導入 Playbook：大中小型分級、就緒度、工作項類型與各級流程、人類閘門 |
+| [`docs/30-pbt-audit-runbook.md`](docs/30-pbt-audit-runbook.md) | agent-pbt-audit 操作手冊：以 Hegel 事後稽核既有模組、前置作業、候選發現處理 |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
 | [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
 
@@ -112,7 +113,7 @@ metadata:
 |---|---|---|
 | 0–1 | `on-loop` | agent 自主執行，允許 automerge |
 | 2–4 | `review` | agent 執行，需人類審查 |
-| 5–6 | `in-loop` | **agent 被 `exit 1` 擋下**，人類主導（`agent-analyze` 除外，可僅分析） |
+| 5–6 | `in-loop` | **agent 被 `exit 1` 擋下**，人類主導（例外：`agent-analyze`、`agent-propose-skill` 只產出報告或草案；`agent-pbt-audit` 只新增 PBT 測試檔且禁止自動合併，見 ADR-019） |
 
 未標註的軸會 **fail-safe 判為 2 分**（保守方向）——三軸全未標＝6 分＝直接 `in-loop`，agent 完全跑不起來。
 另外，觸碰 `risk-paths.yml` 的 H1–H7 硬性規則會**強制 risk = 2 分且無裁量空間**。
@@ -131,7 +132,7 @@ Backstage → **開立 Factory 工作項**（`backstage/templates/factory-work-i
 | 欄位 | 說明 |
 |---|---|
 | 一句話需求 | 自動加上 `[factory] ` 前綴成為 Issue 標題 |
-| 任務類型 | `agent-add-tests` / `agent-fix-bug` / `agent-update-deps` / `agent-write-docs` / `agent-analyze` |
+| 任務類型 | `agent-add-tests` / `agent-fix-bug` / `agent-update-deps` / `agent-write-docs` / `agent-write-spec` / `agent-analyze` / `agent-propose-skill` / `agent-pbt-audit` |
 | 需求描述（PRD） | 可按「✨ 一次生成」讓 LLM 產生草稿再逐欄審改 |
 | 驗收標準（DoD） | 三項必勾 |
 | 目標 repo | 預設 `philipz`，**可改為其他 owner**（須先完成上方接入指引） |

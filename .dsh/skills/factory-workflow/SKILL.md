@@ -29,7 +29,8 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
   "hasAcceptanceCriteria": <true|false>,
   "requirements": [{"id": "<驗收條件編號>", "status": "<passed|failed|skipped>"}],
   "skillGap": {"category": "<kebab-case 分類>", "needed": "<缺什麼 SOP>", "context": "<情境>"},
-  "openQuestions": ["<僅 agent-write-spec 必填：未決事項>"]
+  "openQuestions": ["<僅 agent-write-spec 必填：未決事項>"],
+  "pbtAudit": {"seeds": [<seed>], "testCasesPerSeed": 5000, "properties": <n>, "passed": <n>, "failed": <n>, "timeouts": <n>, "findings": [<見「agent-pbt-audit」一節>]}
 }
 ```
 
@@ -86,7 +87,7 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 
 ## 任務型別
 
-任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs / agent-write-spec / agent-analyze / agent-propose-skill）。依型別調整：
+任務描述會指明型別（agent-add-tests / agent-fix-bug / agent-update-deps / agent-write-docs / agent-write-spec / agent-analyze / agent-propose-skill / agent-pbt-audit）。依型別調整：
 
 - **agent-add-tests**：為**既有行為**補測試——test-only **單層**（01-test 是主體，無實作/文件層），新增測試必須在既有實作上**直接綠燈**。若測試揭露**既有缺陷**（紅燈且非測試自身錯誤）→ 以 `it.skip` 交付（斷言完整保留、該層單獨 CI 綠）＋在 Issue 留言報告＋建議另開 agent-fix-bug 工作項修復（沿用 fix-bug 的紅燈交付機制，**不停手**，本工作項不改實作）。若既有測試已充分覆蓋，依 factory-stop-rules 誠實停手（不為交差而製造無意義測試）。
 - **agent-fix-bug**：先寫「重現失敗」的測試（紅），再實作修復（綠）。不刪除/弱化既有斷言。**01-test 層的紅燈測試以 `it.skip` 提交**（斷言完整保留、該層單獨 CI 綠；紅燈驗證在沙箱內完成）；**02-impl 層 un-skip（改回 `it`）**並含修復——否則 01-test 單獨 PR 必然 CI 紅（docs/07 §2.2 教訓，試點 #3）。
@@ -94,7 +95,88 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 - **agent-write-docs**：文件與實作一致；繁體中文；單層 PR 為主。
 - **agent-write-spec**：可執行規格型（`.qnt`／模型檢查，ADR-008、**ADR-018**）。**一張 Issue、兩個 run**：先寫**不變量**（出自規格書），經人工核准（`spec/approved`）後，下一次派工才寫 **as-is 模型**（出自程式碼）。**本次階段由 CI 判定**，見任務描述與 `.factory/run/spec.json`——只做本次階段，不得自行切換或替另一階段預先產出。**不改 `src/`**（修復另開工單）。**不變量階段**：只改 `specs/<name>/invariants.qnt`、`source.md`、`docs/**`；`source.md` 由 CI 寫入，**原封不動提交**；不變量**只能出自 `source.md`**，每個 `val INV_*` 上方以 `// source: <出處> §<節>` 逐字引用原文，**不定義** `val WIT_*`；PR 寫 `Refs #<issue>`，**不得**用關閉關鍵字。**模型階段**：只改 `model.qnt`、`instances.qnt`、`verify.yml`、`docs/**`；`invariants.qnt`、`source.md` 已核准不得修改，`traces/` 只能由 CI 寫入；`model.qnt` 必須 `import` 並 **`export invariants.*`**；每條 `INV_*` 在 `model.qnt` 定義至少一個**情境 witness**（`val WIT_*`，正面描述不變量要保護的情境確實發生，**不得**是不變量的否定、不得在初始狀態就成立），`verify.yml` 只能引用 `model.qnt` 的 witness；PR 寫 `Closes #<issue>`。**兩條建模規則**：(1) 設定範圍以程式實際接受的輸入為準——`verify.yml` 每個常數附 `domain_justification`，程式未限制就涵蓋邊界與奇偶，不得用程式沒有的假設縮小範圍；(2) 反例是**候選發現**，不得修改模型讓它消失，由後續 `agent-fix-bug` 的紅燈測試回放。`verify.yml` **不得宣告預期結果**——結果一律由 CI 重新執行並判定。**兩個階段都要寫未決事項**：PR 描述的 `## 未決事項` 章節，以及 report 的 `openQuestions`（空陣列不算回答，沒有時寫 `{"none": "<理由>"}`）。**三條硬規則**（源自 34735315950 事故：agent 寫了規格卻從未 commit，逾時後整場產出歸零）：(1) **先建分支、每完成一個檔案就 commit**，不要等全部做完；(2) 模型檢查先用**縮小規模**量單次牆鐘再放大，同一條命令**最多重試 3 次最佳化**，逾時上限用盡仍不達標就**停手交還人類**（附已量測牆鐘、嘗試過的變體、降界所需條件），**不得**沉默無限迭代；(3) 找到違反的檢查通常很快，先做；不變量成立時的窮盡證明慢，後做。**不得**以自撰規格在同一 run 內驗證自撰程式碼（docs/06 §4.3）。
 - **agent-analyze**：分析/調查型（bug 重現、根因分析、影響分析、可行性、in-loop 前置分析）——**不產生程式碼變更**，只允許 `docs/research/` 下的報告檔。產出為 **docs/ 報告 PR（單層）**＋「建議下一步」（可直接開成工作項）；DoD = 報告含結論摘要／證據與根因／影響範圍／方案比較／建議下一步。**in-loop（5–6 分）工作項可用**——docs/06 §4「僅可產出分析與方案，不得實作」的實作；報告不具放行效力，仍須人類審查（crosscheck 以 analyze 模式驗證無 src/ 變更，違反即 needs-human）。**report.json 的 `requirements` 必填**：每條驗收條件對應 `{id, status}`（`passed`＝報告已涵蓋／`failed`＝報告指出未涵蓋或無法達成／`skipped`＝不適用），缺漏會觸發 `requirements-missing` fail-loud（docs/20 B1）。
+- **agent-pbt-audit**：事後稽核型（ADR-019）——對**一個**既有模組寫 property-based test，**只能新增或修改 PBT 測試檔、不得刪除**（crosscheck 以 pbt-audit 模式驗證）；單層 01-test；失敗的 property 寫進 report 的 `pbtAudit.findings`，**不開 Issue、不修 bug**。**in-loop（5–6 分）工作項可用**（前提是上述白名單加上類型層級禁止自動合併）。完整規則見下方「agent-pbt-audit」一節。
 - **agent-propose-skill**：技能提案型（ADR-016、docs/25 §4）——依 Issue 描述的技能缺口撰寫技能草案。**寫入 `proposals/skills/<name>/SKILL.md`（kebab-case），絕不寫入 `.dsh/skills/`**：後者是已生效技能目錄，受 H5＋CODEOWNERS 保護；草案須由人類審查並執行 `factory-skills-lock --promote` 後才生效（**產出與生效分離**——草案不在任何 DSH 探索路徑上，誤合併也不會生效）。**不修改** `src/`、`.github/`、`.dsh/`、`config/`、`catalog-info.yaml`（crosscheck 以 propose-skill 模式白名單驗證，越界即 needs-human）。草案要求：frontmatter 合法（`name` kebab-case 且與目錄同名、`description` 必填，否則 DSH 靜默丟棄）、內容為**可執行步驟**非泛泛原則、**不得弱化或繞過 factory-stop-rules 任何一條**、不得與既有技能矛盾、不得含憑證。**in-loop（5–6 分）工作項可用**（同 analyze，僅產出不實作）。`requirements` 必填，規則同上。
+
+## agent-pbt-audit（ADR-019）
+
+**PBT 只在這個類型裡出現。** 其他類型的 run **不得**新增或修改 PBT 測試檔（crosscheck 判 `pbt-outside-audit` → needs-human），也拿不到 `hegel`／`hegel-review` skill。開發當下寫的 property，依據只能來自你剛讀的 Issue 與你即將寫的實作，違反「不得以自撰依據驗證自撰產出」（ADR-008）。
+
+### 什麼邏輯用什麼驗證（ADR-019 §3，三者互不取代）
+
+| 邏輯類型 | 用什麼 |
+|---|---|
+| 狀態機、協定、權限決策、時序性質 | Quint（`agent-write-spec`） |
+| 輸入空間大的純函式合約（parser、序列化、數值計算、路徑比對、schema 邊界） | PBT（`agent-pbt-audit`） |
+| 定義域很小的有限組合 | 直接窮舉的範例測試 |
+| 測試本身是否有效 | 人工 mutation 測試（docs/11 §6.1） |
+
+### property 的依據（ADR-019 §4）
+
+先有依據，才寫 property。每個 property 上方以註解標明出處：
+
+| 依據 | 標註範例 |
+|---|---|
+| 已核准的 `INV_*`（模組跑過 write-spec） | `// source: INV_lock_exclusive (specs/redlock/invariants.qnt)` |
+| Issue 的驗收條件 | `// source: Issue #42 AC-2` |
+| 通用性質（roundtrip、不 crash、冪等、順序無關） | `// source: generic/roundtrip` |
+| 本次**未修改**的既有程式碼的文件／簽章／assert | `// source: src/factory-draft/parse.ts:31` |
+
+- 沒有依據的 property 不寫（`hegel-review` 第 5 點）。把被測函式的邏輯重寫一份再比對，不算 property。
+- 模組有已核准的 `INV_*` 時，必須一併翻譯成 property。
+- PBT **只新增、不取代**既有範例測試（ADR-019 §6）。
+
+### PBT 檔命名（crosscheck 白名單，ADR-019 R6）
+
+| 語言 | PBT 檔 |
+|---|---|
+| TS/JS | `**/*.pbt.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` |
+| Java | `**/src/test/**/*PbtTest.java` |
+| Go | `**/*_pbt_test.go` |
+| Rust | `**/tests/**/*pbt*.rs`（不得寫在 src 內的 `#[cfg(test)] mod`） |
+| C++ | `**/*_pbt_test.{cc,cpp,cxx}` |
+| OCaml | `**/test/**/*_pbt.ml` |
+
+除此之外的路徑一律不得改動；共用的 generator／settings helper 若不存在，屬於前置作業不足，依 factory-stop-rules 停手。
+
+### 流程
+
+1. **smoke property**：先寫一個最簡單的 property 跑一次，確認 runner 能載入 Hegel。跑不起來 → 停手（前置作業不足，不要自行修改設定或依賴）。
+2. 依 `hegel` skill 盤點公開 API、寫 property；generator 的範圍要和合約一樣寬。
+3. **判定「通過」**：`CI=true`，且 **20 個隨機 seed × 每 seed 5000 cases** 全部通過，才可放進 PR。單次執行通過不算：試點中有 property 在 20 個 seed 裡失敗 7 次。
+4. 失敗的 property **不放進 PR、不用 skip、不修 bug**：寫進 `pbtAudit.findings`。
+5. 自審時逐條跑 `hegel-review` 的 12 點（見 factory-self-review）。
+
+### `pbtAudit.findings` 的格式
+
+每條候選發現一個物件，CI 會原樣貼到 Issue（你**不要**自己開 Issue 或留言貼發現）：
+
+```json
+{
+  "property": "<property／測試名稱>",
+  "source": "<依據標註，同 // source:>",
+  "draws": "<Hegel 縮減後印出的 draws，原樣貼上>",
+  "seed": <HEGEL_SEED>,
+  "hegelVersion": "<例如 0.4.7>",
+  "reproTest": "<固定輸入的紅燈範例測試，可直接貼上執行>",
+  "propertyToRestore": "<修正後要加回的 property（選填）>"
+}
+```
+
+`seeds`、`testCasesPerSeed`、`properties`、`passed`、`failed`、`timeouts` 照實填。這些是**自報**數字，CI 會和它自己量到的值並列顯示，不參與判定——但寫錯會在人類審查時被看見。
+
+### TypeScript／Jest 補充說明（試點實測，`docs/research/hegel-ts-pilot-fubon-2026-10.md` §4）
+
+1. 寫法：`test('…', () => hegel.test((tc) => { … }))`；async 用 `hegel.testAsync`。**一定要包在 `() =>` 裡**（hegel.dev 官網仍是舊寫法，沒包會在載入時就執行）。
+2. 案例數與 seed 一律經由目標 repo 的 settings helper 傳入（例如 `pbtSettings()` 讀 `HEGEL_TEST_CASES`、`HEGEL_SEED`）。`@hegeldev/hegel` 0.4.7 會無條件覆寫原生的 `HEGEL_TEST_CASES` 與 `hegel.toml`，不要依賴它們。
+3. 稽核執行指令（**pattern 放在 `--selectProjects` 前面**，否則它會被當成 project 名稱吃掉、改跑整個 suite）：
+   `rm -rf .hegel && CI=true HEGEL_SEED=<n> HEGEL_TEST_CASES=5000 npx jest '<pattern>' --selectProjects unit --testTimeout=600000`
+4. **每次評估或重現前先 `rm -rf .hegel`**：本機資料庫會以測試函式原始碼為 key 重播舊的失敗，會讓你誤判。
+5. generator：除了全域範圍，**必須另外直接建構邊界值與特殊值**（`oneOf` 加上邊界 ±k、`sampledFrom([NaN, Infinity, -Infinity, -0, …])`），讓 CI 的 100 cases 也守得住。
+6. seed 只有明確指定時才看得到，因此判定「通過」時一律帶 `HEGEL_SEED`，並把用過的 seed 記進 `pbtAudit.seeds`。
+7. `hegel.test` 是同步迴圈，Jest 的 timeout 打斷不了；卡住時由 run 的 timeout 收尾，不要自己無限重試。
+
+**其他語言**（Java、Go、Rust、C++、OCaml）尚未有試點：讀該語言 Hegel 函式庫的文件與原始碼（`hegel` skill 的做法），把遇到的陷阱寫進 report 的 `skillGap`，供人類回填本節。Java 17–21 用 `dev.hegel:hegel-jna`，測試 JVM 需要 `--enable-native-access=ALL-UNNAMED`。
 
 ## 原則
 

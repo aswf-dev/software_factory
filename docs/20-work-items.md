@@ -48,6 +48,7 @@
 | E4 | skill-gap 通道：`ReportSchema.skillGap`＋留言段落＋`factory-workflow` SKILL 附加節 | agent-fix-bug | `src/cli/factory-judge.ts`／`apply-judge-labels.ts`／SKILL | H5→審查 | ✅ **完成（2026-09-06）** |
 | E5 | `skills-lock` 完整性校驗＋`--promote` | agent-fix-bug | `src/cli/factory-skills-lock.ts`＋`config/factory/skills-lock.json` | H5→審查 | ✅ **完成（2026-09-06）** |
 | E6 | `agent-propose-skill` 任務型別（八處接線＋crosscheck `--propose-skill-only`） | 綜合 | workflow／template／skill／crosscheck／對抗性測試 | H5→審查 | ✅ **完成（2026-09-06）** |
+| P1 | `agent-pbt-audit` 任務型別（ADR-019 實作順序 3–5：vendor `hegel`／`hegel-review`＋類型專屬派送、八處接線＋preflight、in-loop 豁免、crosscheck `--pbt-audit-only`、禁止自動合併、機制留言、skill 疊加）＋aswf.dev 選項 | 人類（本 session） | `src/pbt-audit/**`、`src/cli/**`、workflow、template、Backstage、`.dsh/skills/**`、`philipz/factory-scoreboard` | H5→審查 | 🚧 **stacked PR 審查中（2026-10-05）**；試點（實作順序 6）由使用者以 `philipz/fubon-tradingbot` 實際工單進行 |
 
 > **依賴序**：E1（契約）→ E2（接收端）→ E3（推送）→ E4（訊號）→ E5（鎖與放行）→ E6（提案型別）。E3–E6 之間無強依賴，但 E6 的價值依賴 E4 的訊號累積。
 
