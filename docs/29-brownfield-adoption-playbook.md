@@ -278,66 +278,317 @@
 
 ## 9. 各規模的完整工作項序列
 
-> 欄位：**機械閘門**＝可由 PR 狀態、CI 或指令驗證的條件；**HG**＝必須的人類簽核（§8）。
-> 「依模組」表示 P2–P4 各模組獨立推進；表中順序是單一模組內的順序。
+> **讀法**：每個規模先看 Mermaid 流程圖（步驟編號 S＝小型、M＝中型、L＝大型），再看下方「步驟 → 工單」對照表。圖與表的編號一一對應。GitHub 會直接渲染 Mermaid；若 Backstage TechDocs 顯示為原始碼，需另行啟用 Mermaid 支援。
+> 欄位：**機械閘門**＝可由 PR 狀態、CI 或指令驗證的條件；**HG**＝必須的人類簽核（§8）。P2–P4 以模組為單位獨立推進，表中順序是單一模組內的順序。
+
+### 9.0 圖例與開單入口
+
+**流程圖圖例**
+
+| 形狀／顏色 | 意義 |
+|---|---|
+| 藍色圓角框「工單：…」 | **要開立的 Factory 工作項**（由人類送出，送出即 HG0 核准） |
+| 灰色方框「人類：…」 | 人類執行的步驟，**不開工單** |
+| 橘色六角形「HG…」 | 人類閘門簽核（§8），記錄於導入追蹤 Issue |
+| 黃色菱形 | 判斷分支 |
+
+**開單入口**
+
+| 工單類型 | 入口 | 備註 |
+|---|---|---|
+| `agent-analyze`、`agent-write-docs`、`agent-add-tests`、`agent-fix-bug`、`agent-update-deps`、`agent-propose-skill` | Backstage「開立 Factory 工作項」（或 GitHub issue form「Factory Work Item」＋`factory-run.yml`） | A0–A4 的 PRD 範本見 §7.1 |
+| `agent-write-spec` | 同上，另填「規格名稱」「規格來源」 | 規格來源須為人類撰寫的業務規則（§10.2）；一張單跑兩次，中間需 HG5 貼 `spec/approved` |
+| `agent-onboard` | GitHub issue form「Factory Onboard Repo」或 `gh issue create`，再 `gh workflow run factory-onboard.yml` | **Backstage 沒有此入口**（`27` §6） |
+| `agent-pbt-audit` | 人類手動開 Issue、貼 `pbt/audit` 標籤，宣告一個模組 | **尚未接線**：接線前由人類手動執行 Hegel，**不開工單** |
+| 導入追蹤 Issue | 普通 Issue（不加 `[factory]` 前綴） | 不派工，只記錄 HG 簽核 |
+
+**各類型工單在哪些步驟開立（總覽）**
+
+| 工單類型 | 小型 | 中型 | 大型 |
+|---|---|---|---|
+| `agent-onboard` | S2（×1） | M2（×每 repo） | L2（×每 repo）、L18（每個拆出的新 repo） |
+| `agent-analyze` | S4（A0）、S5（A1–A4） | M5（A0）、M6（A1）、M7（A2–A4 ×每模組）、M15（模組化支援，依需要） | L3（in-loop repo）、L6（A0）、L7（A1 context map）、L8（A1–A4 ×每 BC）、L14（拆分前接縫分析） |
+| `agent-write-docs` | S6（×1） | M8（×每模組 1–2＋系統 1） | L10（×每 BC 1–2＋系統 1） |
+| `agent-add-tests` | S8 | M10、M15（模組化支援，依需要） | L12、L14（characterization tests）、L17（新舊行為一致性） |
+| `agent-fix-bug` | S9、S11 | M11、M13 | L12、L13 |
+| `agent-write-spec` | S10（Quint 路徑） | M12 | L12、L17（新舊行為一致性） |
+| `agent-pbt-audit` | S10（Hegel 路徑） | M12 | L12 |
+| `agent-update-deps` | S11（CVE 可提前，須審查） | M13 | L13 |
+| `agent-propose-skill` | S11 | M13 | L3（in-loop 可）、L13 |
+
+---
 
 ### 9.1 小型專案（同時是試驗場）
 
-| # | 階段 | 步驟 | 類型／執行者 | 份數 | 機械閘門 | HG |
-|---|---|---|---|---|---|---|
-| 1 | P0 | 安裝 App、建立 `software-factory` 分支 | 人類 | — | 分支存在 | — |
-| 2 | P0 | 納管提案 | `agent-onboard` | 1 | 提案 PR 開出 | — |
-| 3 | P0 | 裁定三軸、搬檔、雙向探測 | 人類 | — | 雙向探測通過 | HG1 |
-| 4 | P1 | 規模與就緒度量測 | `agent-analyze` A0 | 1 | 報告 PR 合併 | HG2 |
-| 5 | P1 | 架構、測試、相依、風險盤點 | `agent-analyze` A1–A4 | 各 1 | 4 份報告 PR 合併 | HG6 |
-| 6 | P2 | README＋架構總覽 | `agent-write-docs` | 1 | 文件 PR 合併 | HG3 |
-| 7 | P2 | 核心模組業務規則文件 | 人類 | 每核心模組 1 | 文件存在於 trunk | HG4、HG6 |
-| 8 | P3 | 補測試（依 A2 清單） | `agent-add-tests` | 依 A2 | 模組達 R2 | HG3 |
-| 9 | P3 | 修復揭露的缺陷 | `agent-fix-bug` | 依發現 | 紅→綠 | HG3 |
-| 10 | P3 | 驗證閘門 | `agent-write-spec` 或 `agent-pbt-audit` 或豁免 | 每核心模組 1 | §10.3 | HG5、HG6 |
-| 11 | P4 | 維護 | update-deps、fix-bug、propose-skill | 持續 | — | HG0、HG3 |
+```mermaid
+flowchart TD
+    classDef wi fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef human fill:#f3f4f6,stroke:#6b7280,color:#111827
+    classDef hg fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+    classDef dec fill:#fef9c3,stroke:#ca8a04,color:#713f12
+
+    subgraph P0["P0 納管（系統）"]
+        S0["S0 人類：開導入追蹤 Issue"]:::human
+        S1["S1 人類：安裝 App<br/>建立 software-factory 分支"]:::human
+        S2(["S2 工單：agent-onboard ×1"]):::wi
+        S3["S3 人類：裁定三軸、搬檔<br/>雙向探測"]:::human
+        HG1{{"HG1 服務擁有者"}}:::hg
+        S0 --> S1 --> S2 --> S3 --> HG1
+    end
+
+    subgraph P1["P1 現況分析（系統）"]
+        S4(["S4 工單：agent-analyze A0 ×1<br/>規模與就緒度量測"]):::wi
+        HG2{{"HG2 Tech Lead<br/>裁定規模、R 等級、核心模組"}}:::hg
+        S5(["S5 工單：agent-analyze<br/>A1 架構／A2 測試／A3 相依／A4 風險 各 ×1"]):::wi
+        HG6a{{"HG6 出 P1"}}:::hg
+        S4 --> HG2 --> S5 --> HG6a
+    end
+
+    subgraph P2["P2 文件化（依模組）"]
+        S6(["S6 工單：agent-write-docs ×1<br/>README＋架構總覽"]):::wi
+        S7["S7 人類：撰寫核心模組業務規則"]:::human
+        HG4{{"HG4 領域專家"}}:::hg
+        S6 --> S7 --> HG4
+    end
+
+    subgraph P3["P3 安全網（依模組）"]
+        S8(["S8 工單：agent-add-tests<br/>依 A2 清單，每模組／檔案 1 張"]):::wi
+        D1{"揭露缺陷？"}:::dec
+        S9(["S9 工單：agent-fix-bug<br/>每個缺陷 1 張"]):::wi
+        D2{"核心模組<br/>適用哪種驗證？"}:::dec
+        S10Q(["S10 工單：agent-write-spec（Quint）"]):::wi
+        S10H(["S10 工單：agent-pbt-audit（Hegel）<br/>未接線前人類代跑"]):::wi
+        S10W["S10 人類：豁免單"]:::human
+        HG5{{"HG5 Tech Lead<br/>確認候選發現／豁免"}}:::hg
+        HG6c{{"HG6 出 P3（模組達 R2）"}}:::hg
+        S8 --> D1
+        D1 -- 是 --> S9 --> D2
+        D1 -- 否 --> D2
+        D2 -- 狀態機／協定／權限 --> S10Q --> HG5
+        D2 -- 純函式合約 --> S10H --> HG5
+        D2 -- 皆不適用 --> S10W --> HG5
+        HG5 -- 確認的發現 --> S9
+        HG5 --> HG6c
+    end
+
+    subgraph P4["P4 維護改善（依模組）"]
+        S11(["S11 工單：agent-update-deps／<br/>agent-fix-bug／agent-propose-skill"]):::wi
+    end
+
+    HG1 --> S4
+    HG6a --> S6
+    HG4 --> S8
+    HG6c --> S11
+```
+
+| 步驟 | 階段 | 做什麼 | 要開的工單（類型 × 份數） | 機械閘門 | HG |
+|---|---|---|---|---|---|
+| S0 | P0 | 開導入追蹤 Issue | 不開工單（普通 Issue） | Issue 存在 | — |
+| S1 | P0 | 安裝 App、建立 `software-factory` 分支 | 不開工單（人類） | 分支存在 | — |
+| S2 | P0 | 納管提案 | **`agent-onboard` × 1** | 提案 PR 開出 | — |
+| S3 | P0 | 裁定三軸、搬檔、雙向探測 | 不開工單（人類） | 雙向探測通過 | HG1 |
+| S4 | P1 | 規模與就緒度量測 | **`agent-analyze`（A0）× 1** | 報告 PR 合併 | HG2 |
+| S5 | P1 | 架構、測試、相依、風險盤點 | **`agent-analyze`（A1、A2、A3、A4）各 × 1** | 4 份報告 PR 合併 | HG6 |
+| S6 | P2 | README＋架構總覽 | **`agent-write-docs` × 1** | 文件 PR 合併 | HG3 |
+| S7 | P2 | 核心模組業務規則文件 | 不開工單（人類撰寫，每核心模組 1 份） | 文件存在於 trunk | HG4、HG6 |
+| S8 | P3 | 補測試 | **`agent-add-tests` × A2 清單項數**（每張 1 模組或 1 檔案） | 模組達 R2 | HG3 |
+| S9 | P3 | 修復揭露的缺陷（含 S10 確認的候選發現） | **`agent-fix-bug` × 缺陷數** | 修前紅、修後綠 | HG3 |
+| S10 | P3 | 驗證閘門（每核心模組擇一） | **`agent-write-spec` × 1** 或 **`agent-pbt-audit` × 1** 或豁免單（不開工單） | §10.3 | HG5、HG6 |
+| S11 | P4 | 維護 | **`agent-update-deps`／`agent-fix-bug`／`agent-propose-skill`**，依需要 | — | HG0、HG3 |
 
 - P5 不適用。
-- 文件集：README＋架構總覽（精簡）。
-- **試驗場任務**：在此完成 §6 列出的五型首次試點，並回填 `21` §1。
+- **試驗場任務**：write-docs、update-deps、propose-skill、write-spec、pbt-audit 在此完成首次試點，結果回填 `21` §1。
+- 有已知 CVE 的 `agent-update-deps` 可在任何階段例外開立，但一律人類審查（§6）。
+
+---
 
 ### 9.2 中型專案
 
-| # | 階段 | 步驟 | 類型／執行者 | 份數 | 機械閘門 | HG |
-|---|---|---|---|---|---|---|
-| 1 | P0 | 每個 repo：安裝 App、建分支、onboard、搬檔、探測 | 人類＋`agent-onboard` | 每 repo 1 | 每個 repo 雙向探測通過 | HG1（每 repo） |
-| 2 | P0 | 宣告系統歸屬 `spec.system` | 人類 | — | catalog 可查到同一 System | HG1 |
-| 3 | P1 | 規模與就緒度量測（跨 repo） | A0 | 1 | 報告 PR 合併 | HG2 |
-| 4 | P1 | 架構盤點（跨 repo） | A1 | 1 | 報告 PR 合併 | — |
-| 5 | P1 | 測試、相依、風險盤點 | A2–A4 | **每模組**各 1 | 全部報告 PR 合併 | HG6（模組負責人＋Tech Lead） |
-| 6 | P2 | 精簡 arc42 文件集 | `agent-write-docs` | 每模組 1–2＋系統 1 | 文件 PR 合併 | HG3 |
-| 7 | P2 | 核心模組業務規則文件 | 人類 | 每核心模組 1 | 存在於 trunk | HG4、HG6 |
-| 8–10 | P3 | 同小型 #8–#10（依模組） | — | — | 同小型 | HG3、HG5、HG6 |
-| 11 | P4 | 同小型 | — | — | — | HG0、HG3 |
-| 12 | P5 | （選擇性）modular monolith | 人類（工廠支援分析與測試） | — | ADR 合併 | HG7 |
+```mermaid
+flowchart TD
+    classDef wi fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef human fill:#f3f4f6,stroke:#6b7280,color:#111827
+    classDef hg fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+    classDef dec fill:#fef9c3,stroke:#ca8a04,color:#713f12
+
+    subgraph P0["P0 納管（系統，逐 repo）"]
+        M0["M0 人類：開導入追蹤 Issue"]:::human
+        M1["M1 人類：每個 repo 安裝 App、建分支"]:::human
+        M2(["M2 工單：agent-onboard × 每個 repo"]):::wi
+        M3["M3 人類：每個 repo 裁定三軸、搬檔、探測"]:::human
+        HG1{{"HG1 服務擁有者（每 repo）"}}:::hg
+        M4["M4 人類：宣告 spec.system<br/>核心 repo 加 quint-spec"]:::human
+        M0 --> M1 --> M2 --> M3 --> HG1 --> M4
+    end
+
+    subgraph P1["P1 現況分析（系統）"]
+        M5(["M5 工單：agent-analyze A0 ×1（跨 repo）"]):::wi
+        HG2{{"HG2 Tech Lead"}}:::hg
+        M6(["M6 工單：agent-analyze A1 ×1（跨 repo）"]):::wi
+        M7(["M7 工單：agent-analyze A2／A3／A4<br/>× 每個模組"]):::wi
+        HG6a{{"HG6 模組負責人＋Tech Lead"}}:::hg
+        M5 --> HG2 --> M6 --> HG6a
+        HG2 --> M7 --> HG6a
+    end
+
+    subgraph P2["P2 文件化（依模組）"]
+        M8(["M8 工單：agent-write-docs<br/>精簡 arc42：每模組 1–2 ＋ 系統 1"]):::wi
+        M9["M9 人類：撰寫核心模組業務規則"]:::human
+        HG4{{"HG4 領域專家"}}:::hg
+        M8 --> M9 --> HG4
+    end
+
+    subgraph P3["P3 安全網（依模組）"]
+        M10(["M10 工單：agent-add-tests（依 A2）"]):::wi
+        M11(["M11 工單：agent-fix-bug（揭露的缺陷）"]):::wi
+        M12(["M12 工單：agent-write-spec 或 agent-pbt-audit<br/>每核心模組擇一（或豁免）"]):::wi
+        HG5{{"HG5 Tech Lead"}}:::hg
+        HG6c{{"HG6 出 P3：模組負責人＋Tech Lead"}}:::hg
+        M10 --> M11 --> M12 --> HG5 --> HG6c
+        HG5 -- 確認的發現 --> M11
+    end
+
+    subgraph P4["P4 維護改善（依模組）"]
+        M13(["M13 工單：agent-update-deps／<br/>agent-fix-bug／agent-propose-skill"]):::wi
+    end
+
+    subgraph P5["P5 演進（選擇性，只到 modular monolith）"]
+        D5{"需要模組化？"}:::dec
+        M14["M14 人類：撰寫 ADR"]:::human
+        HG7{{"HG7 ADR 核准"}}:::hg
+        M15["M15 人類：同一 repo 內劃模組邊界<br/>（工廠以 analyze／add-tests 支援）"]:::human
+        D5 -- 是 --> M14 --> HG7 --> M15
+    end
+
+    M4 --> M5
+    HG6a --> M8
+    HG4 --> M10
+    HG6c --> M13
+    M13 -.-> D5
+```
+
+| 步驟 | 階段 | 做什麼 | 要開的工單（類型 × 份數） | 機械閘門 | HG |
+|---|---|---|---|---|---|
+| M0 | P0 | 開導入追蹤 Issue | 不開工單 | Issue 存在 | — |
+| M1 | P0 | 每個 repo 安裝 App、建分支 | 不開工單（人類） | 每個 repo 分支存在 | — |
+| M2 | P0 | 納管提案 | **`agent-onboard` × repo 數** | 每 repo 提案 PR 開出 | — |
+| M3 | P0 | 裁定三軸、搬檔、雙向探測 | 不開工單（人類） | 每 repo 探測通過 | HG1（每 repo） |
+| M4 | P0 | 宣告 `spec.system`；核心 repo 加 `factory.io/quint-spec` | 不開工單（人類編輯 catalog） | catalog 可查到同一 System | HG1 |
+| M5 | P1 | 規模與就緒度量測（跨 repo） | **`agent-analyze`（A0）× 1** | 報告 PR 合併 | HG2 |
+| M6 | P1 | 架構盤點（跨 repo） | **`agent-analyze`（A1）× 1** | 報告 PR 合併 | — |
+| M7 | P1 | 測試、相依、風險盤點 | **`agent-analyze`（A2、A3、A4）× 每個模組各 1** | 全部報告 PR 合併 | HG6 |
+| M8 | P2 | 精簡 arc42 文件集 | **`agent-write-docs` × 每模組 1–2 ＋ 系統 1** | 文件 PR 合併 | HG3 |
+| M9 | P2 | 核心模組業務規則文件 | 不開工單（人類） | 存在於 trunk | HG4、HG6 |
+| M10 | P3 | 補測試 | **`agent-add-tests` × A2 清單項數** | 模組達 R2 | HG3 |
+| M11 | P3 | 修復缺陷 | **`agent-fix-bug` × 缺陷數** | 紅→綠 | HG3 |
+| M12 | P3 | 驗證閘門 | **`agent-write-spec` 或 `agent-pbt-audit` × 每核心模組 1**（或豁免單） | §10.3 | HG5、HG6 |
+| M13 | P4 | 維護 | **`agent-update-deps`／`agent-fix-bug`／`agent-propose-skill`** | — | HG0、HG3 |
+| M14–M15 | P5 | （選擇性）modular monolith | 不開工單（人類撰寫 ADR、劃邊界）；支援用 `agent-analyze`、`agent-add-tests` 依需要開 | ADR 合併 | HG7 |
 
 - **精簡 arc42 文件集**：系統脈絡、容器與模組、各模組說明、建置與執行手冊、**推斷的決策紀錄**（agent 依程式碼推斷「為什麼這樣寫」，**必須標示「推斷，待人類確認」，不得寫成正式 ADR**——ADR 是決策，屬紅線）。
-- 前提：§6 的試驗場規則——尚未在小型專案試點成功的類型，由人類代行。
+- 前提：§6 的試驗場規則——尚未在小型專案試點成功的類型，由人類代行，該步驟不開工單。
+
+---
 
 ### 9.3 大型專案（多重把關）
 
-| # | 階段 | 步驟 | 類型／執行者 | 份數 | 機械閘門 | HG |
-|---|---|---|---|---|---|---|
-| 1 | P0 | 同中型 #1–#2 | — | 每 repo 1 | 同中型 | **HG1 兩人簽核** |
-| 2 | P0 | **in-loop repo 處理**（§12） | analyze／propose-skill；人類重評三軸 | — | — | HG1 兩人簽核 |
-| 3 | P1 | 規模與就緒度量測 | A0 | 1 | 報告 PR 合併 | **HG2 兩人簽核** |
-| 4 | P1 | 整體 context map | A1 | 1 | 報告 PR 合併 | — |
-| 5 | P1 | 每個 bounded context 的架構、測試、相依、風險 | A1–A4 | **每 bounded context** 各 1 | 全部合併 | **HG6 兩人簽核＋架構審查會覆核 context map** |
-| 6 | P1 | 分流會議：決定哪些「建議下一步」要開單 | 人類 | 每批報告 1 次 | 會議紀錄連結於追蹤 Issue | HG0 |
-| 7 | P2 | 中型文件集＋context map 文件 | `agent-write-docs` | 每 context 1–2＋系統 1 | 文件 PR 合併 | HG3（跨 context 加架構負責人） |
-| 8 | P2 | 核心模組業務規則文件 | 人類 | 每核心模組 1 | 存在於 trunk | **HG4 領域專家＋業務擁有者** |
-| 9 | P3 | **依 A4 風險熱點排序**，逐模組：add-tests → fix-bug → 驗證閘門 | — | — | 模組達 R2＋§10.3 | HG3、**HG5 兩人簽核**、HG6 |
-| 10 | P4 | 同小型 | — | — | — | HG0、HG3 |
-| 11 | P5 | 單體拆分（§11） | 人類動手；工廠支援 | — | §11.1 條件全部成立 | **HG7 全套** |
-| 12 | — | 每個觀察期 HG 回顧 | 人類 | 每期 1 | 回顧紀錄 | — |
+```mermaid
+flowchart TD
+    classDef wi fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef human fill:#f3f4f6,stroke:#6b7280,color:#111827
+    classDef hg fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+    classDef dec fill:#fef9c3,stroke:#ca8a04,color:#713f12
 
-- 預期會有 in-loop repo（三軸 5–6 分），先走 §12。
-- 工廠在 P5 的角色：拆分前的接縫分析（analyze）、characterization tests（add-tests）、拆分中的驗證支援、拆分後的新 repo 重新納管（onboard）。**拆分動作本身由人類執行。**
+    subgraph P0["P0 納管（系統，逐 repo）"]
+        L0["L0 人類：開導入追蹤 Issue"]:::human
+        L1["L1 人類：每個 repo 安裝 App、建分支"]:::human
+        L2(["L2 工單：agent-onboard × 每個 repo"]):::wi
+        HG1{{"HG1 兩人簽核<br/>服務擁有者＋資安／風險代表"}}:::hg
+        D0{"三軸 5–6 分<br/>（in-loop）？"}:::dec
+        L3(["L3 工單：只開 agent-analyze／<br/>agent-propose-skill"]):::wi
+        L4["L4 人類：依證據重評三軸"]:::human
+        L5["L5 人類：宣告 spec.system、quint-spec"]:::human
+        L0 --> L1 --> L2 --> HG1 --> D0
+        D0 -- 是 --> L3 --> L4 --> HG1
+        D0 -- 否 --> L5
+    end
+
+    subgraph P1["P1 現況分析（系統，每 bounded context）"]
+        L6(["L6 工單：agent-analyze A0 ×1"]):::wi
+        HG2{{"HG2 兩人簽核<br/>Tech Lead＋架構負責人"}}:::hg
+        L7(["L7 工單：agent-analyze A1<br/>整體 context map ×1"]):::wi
+        L8(["L8 工單：agent-analyze A1／A2／A3／A4<br/>× 每個 bounded context"]):::wi
+        ARB{{"架構審查會覆核 context map"}}:::hg
+        L9["L9 人類：分流會議<br/>決定哪些「建議下一步」開單"]:::human
+        HG6a{{"HG6 兩人簽核"}}:::hg
+        L6 --> HG2 --> L7 --> ARB
+        HG2 --> L8 --> ARB --> L9 --> HG6a
+    end
+
+    subgraph P2["P2 文件化（依 bounded context）"]
+        L10(["L10 工單：agent-write-docs<br/>arc42＋context map：每 BC 1–2 ＋ 系統 1"]):::wi
+        L11["L11 人類：撰寫核心模組業務規則"]:::human
+        HG4{{"HG4 領域專家＋業務擁有者"}}:::hg
+        L10 --> L11 --> HG4
+    end
+
+    subgraph P3["P3 安全網（依 A4 風險熱點排序）"]
+        L12(["L12 工單：agent-add-tests → agent-fix-bug →<br/>agent-write-spec 或 agent-pbt-audit"]):::wi
+        HG5{{"HG5 兩人簽核"}}:::hg
+        HG6c{{"HG6 兩人簽核（模組達 R2）"}}:::hg
+        L12 --> HG5 --> HG6c
+    end
+
+    subgraph P4["P4 維護改善"]
+        L13(["L13 工單：agent-update-deps／<br/>agent-fix-bug／agent-propose-skill"]):::wi
+        REV["人類：每個觀察期 HG 回顧"]:::human
+    end
+
+    subgraph P5["P5 單體拆分（選擇性）"]
+        D5{"§11.1 四項條件<br/>全部成立？"}:::dec
+        HG7a{{"HG7-1 ADR 核准"}}:::hg
+        L14(["L14 工單：agent-analyze 接縫分析＋<br/>agent-add-tests characterization"]):::wi
+        L15["L15 人類：同一 repo 內 modular monolith"]:::human
+        HG7b{{"HG7-2 modular monolith 驗收"}}:::hg
+        HG7c{{"HG7-3 每次抽出 go/no-go"}}:::hg
+        L16["L16 人類：strangler fig／parallel run／拆 DB<br/>建新 repo 與 CI"]:::human
+        L17(["L17 工單：agent-add-tests／agent-write-spec<br/>驗證新舊行為一致"]):::wi
+        HG7d{{"HG7-4 parallel run 結果審查"}}:::hg
+        HG7e{{"HG7-5 cutover 核准"}}:::hg
+        L18(["L18 工單：agent-onboard × 每個新 repo<br/>（回到 P0，重新定級）"]):::wi
+        D5 -- 是 --> HG7a --> L14 --> L15 --> HG7b --> HG7c --> L16 --> L17 --> HG7d --> HG7e --> L18
+    end
+
+    L5 --> L6
+    HG6a --> L10
+    HG4 --> L12
+    HG6c --> L13
+    L13 -.-> D5
+    L18 -.-> L0
+```
+
+| 步驟 | 階段 | 做什麼 | 要開的工單（類型 × 份數） | 機械閘門 | HG |
+|---|---|---|---|---|---|
+| L0 | P0 | 開導入追蹤 Issue | 不開工單 | Issue 存在 | — |
+| L1 | P0 | 每個 repo 安裝 App、建分支 | 不開工單（人類） | 分支存在 | — |
+| L2 | P0 | 納管提案 | **`agent-onboard` × repo 數** | 每 repo 探測通過 | **HG1 兩人簽核** |
+| L3 | P0 | in-loop repo 的分析（§12） | **只能開 `agent-analyze`、`agent-propose-skill`**，依需要 | 報告 PR 合併 | — |
+| L4 | P0 | 依 A0／A4 證據重評三軸 | 不開工單（人類） | catalog 變更 PR 合併 | **HG1 兩人簽核** |
+| L5 | P0 | 宣告 `spec.system`、`factory.io/quint-spec` | 不開工單（人類） | catalog 可查到 System | HG1 |
+| L6 | P1 | 規模與就緒度量測 | **`agent-analyze`（A0）× 1** | 報告 PR 合併 | **HG2 兩人簽核** |
+| L7 | P1 | 整體 context map | **`agent-analyze`（A1）× 1** | 報告 PR 合併 | 架構審查會 |
+| L8 | P1 | 每個 bounded context 的架構、測試、相依、風險 | **`agent-analyze`（A1、A2、A3、A4）× 每個 BC 各 1**（每張只處理 1 個 BC） | 全部合併 | 架構審查會 |
+| L9 | P1 | 分流會議：決定開哪些後續工單 | 不開工單（人類決策，產出後續開單清單） | 會議紀錄連結於追蹤 Issue | HG0、**HG6 兩人簽核** |
+| L10 | P2 | arc42 文件集＋context map 文件 | **`agent-write-docs` × 每 BC 1–2 ＋ 系統 1** | 文件 PR 合併 | HG3（跨 BC 加架構負責人） |
+| L11 | P2 | 核心模組業務規則 | 不開工單（人類） | 存在於 trunk | **HG4 領域專家＋業務擁有者** |
+| L12 | P3 | 依 A4 排序，逐模組補測試→修缺陷→驗證閘門 | **`agent-add-tests` × A2 項數 → `agent-fix-bug` × 缺陷數 → `agent-write-spec` 或 `agent-pbt-audit` × 每核心模組 1** | 模組達 R2＋§10.3 | HG3、**HG5 兩人簽核**、**HG6 兩人簽核** |
+| L13 | P4 | 維護 | **`agent-update-deps`／`agent-fix-bug`／`agent-propose-skill`** | — | HG0、HG3；每觀察期 HG 回顧 |
+| L14 | P5 | 拆分前準備 | **`agent-analyze`（接縫、資料所有權）× 每個候選切片**、**`agent-add-tests`（characterization）× 每個切片** | 報告與測試 PR 合併 | HG7-1、HG7-2 |
+| L17 | P5 | 拆分中的驗證支援（拆分本身由人類執行） | **`agent-add-tests`／`agent-write-spec`**，驗證新舊行為一致 | parallel run 結果一致 | HG7-3、HG7-4、HG7-5 |
+| L18 | P5 | 新 repo 重新納管 | **`agent-onboard` × 每個新 repo**，之後回到 L0 重新定級 | 探測通過 | HG1 兩人簽核 |
+
+- 預期會有 in-loop repo（三軸 5–6 分），先走 L3–L4（§12）。
+- **拆分動作本身（劃邊界、搬程式碼、拆 DB、建 repo 與 CI）全部由人類執行**；工廠只開 L14、L16、L18 的支援工單。
 
 ---
 
