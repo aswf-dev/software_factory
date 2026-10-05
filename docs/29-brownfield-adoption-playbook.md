@@ -278,7 +278,7 @@
 
 ## 9. 各規模的完整工作項序列
 
-> **讀法**：每個規模先看 Mermaid 流程圖（步驟編號 S＝小型、M＝中型、L＝大型），再看下方「步驟 → 工單」對照表。圖與表的編號一一對應。GitHub 會直接渲染 Mermaid；若 Backstage TechDocs 顯示為原始碼，需另行啟用 Mermaid 支援。
+> **讀法**：每個規模先看 Mermaid 流程圖（步驟編號 S＝小型、M＝中型、L＝大型），再看下方「步驟 → 工單」對照表。流程圖由左到右為階段 P0 → P5，每個階段框內由上到下為步驟順序。圖與表的編號一一對應。GitHub 會直接渲染 Mermaid；若 Backstage TechDocs 顯示為原始碼，需另行啟用 Mermaid 支援。
 > 欄位：**機械閘門**＝可由 PR 狀態、CI 或指令驗證的條件；**HG**＝必須的人類簽核（§8）。P2–P4 以模組為單位獨立推進，表中順序是單一模組內的順序。
 
 ### 9.0 圖例與開單入口
@@ -321,13 +321,14 @@
 ### 9.1 小型專案（同時是試驗場）
 
 ```mermaid
-flowchart TD
+flowchart LR
     classDef wi fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef human fill:#f3f4f6,stroke:#6b7280,color:#111827
     classDef hg fill:#ffedd5,stroke:#ea580c,color:#7c2d12
     classDef dec fill:#fef9c3,stroke:#ca8a04,color:#713f12
 
     subgraph P0["P0 納管（系統）"]
+        direction TB
         S0["S0 人類：開導入追蹤 Issue"]:::human
         S1["S1 人類：安裝 App<br/>建立 software-factory 分支"]:::human
         S2(["S2 工單：agent-onboard ×1"]):::wi
@@ -337,6 +338,7 @@ flowchart TD
     end
 
     subgraph P1["P1 現況分析（系統）"]
+        direction TB
         S4(["S4 工單：agent-analyze A0 ×1<br/>規模與就緒度量測"]):::wi
         HG2{{"HG2 Tech Lead<br/>裁定規模、R 等級、核心模組"}}:::hg
         S5(["S5 工單：agent-analyze<br/>A1 架構／A2 測試／A3 相依／A4 風險 各 ×1"]):::wi
@@ -345,6 +347,7 @@ flowchart TD
     end
 
     subgraph P2["P2 文件化（依模組）"]
+        direction TB
         S6(["S6 工單：agent-write-docs ×1<br/>README＋架構總覽"]):::wi
         S7["S7 人類：撰寫核心模組業務規則"]:::human
         HG4{{"HG4 領域專家"}}:::hg
@@ -352,6 +355,7 @@ flowchart TD
     end
 
     subgraph P3["P3 安全網（依模組）"]
+        direction TB
         S8(["S8 工單：agent-add-tests<br/>依 A2 清單，每模組／檔案 1 張"]):::wi
         D1{"揭露缺陷？"}:::dec
         S9(["S9 工單：agent-fix-bug<br/>每個缺陷 1 張"]):::wi
@@ -372,13 +376,14 @@ flowchart TD
     end
 
     subgraph P4["P4 維護改善（依模組）"]
+        direction TB
         S11(["S11 工單：agent-update-deps／<br/>agent-fix-bug／agent-propose-skill"]):::wi
     end
 
-    HG1 --> S4
-    HG6a --> S6
-    HG4 --> S8
-    HG6c --> S11
+    P0 --> P1
+    P1 --> P2
+    P2 --> P3
+    P3 --> P4
 ```
 
 | 步驟 | 階段 | 做什麼 | 要開的工單（類型 × 份數） | 機械閘門 | HG |
@@ -405,13 +410,14 @@ flowchart TD
 ### 9.2 中型專案
 
 ```mermaid
-flowchart TD
+flowchart LR
     classDef wi fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef human fill:#f3f4f6,stroke:#6b7280,color:#111827
     classDef hg fill:#ffedd5,stroke:#ea580c,color:#7c2d12
     classDef dec fill:#fef9c3,stroke:#ca8a04,color:#713f12
 
     subgraph P0["P0 納管（系統，逐 repo）"]
+        direction TB
         M0["M0 人類：開導入追蹤 Issue"]:::human
         M1["M1 人類：每個 repo 安裝 App、建分支"]:::human
         M2(["M2 工單：agent-onboard × 每個 repo"]):::wi
@@ -422,6 +428,7 @@ flowchart TD
     end
 
     subgraph P1["P1 現況分析（系統）"]
+        direction TB
         M5(["M5 工單：agent-analyze A0 ×1（跨 repo）"]):::wi
         HG2{{"HG2 Tech Lead"}}:::hg
         M6(["M6 工單：agent-analyze A1 ×1（跨 repo）"]):::wi
@@ -432,6 +439,7 @@ flowchart TD
     end
 
     subgraph P2["P2 文件化（依模組）"]
+        direction TB
         M8(["M8 工單：agent-write-docs<br/>精簡 arc42：每模組 1–2 ＋ 系統 1"]):::wi
         M9["M9 人類：撰寫核心模組業務規則"]:::human
         HG4{{"HG4 領域專家"}}:::hg
@@ -439,6 +447,7 @@ flowchart TD
     end
 
     subgraph P3["P3 安全網（依模組）"]
+        direction TB
         M10(["M10 工單：agent-add-tests（依 A2）"]):::wi
         M11(["M11 工單：agent-fix-bug（揭露的缺陷）"]):::wi
         M12(["M12 工單：agent-write-spec 或 agent-pbt-audit<br/>每核心模組擇一（或豁免）"]):::wi
@@ -449,10 +458,12 @@ flowchart TD
     end
 
     subgraph P4["P4 維護改善（依模組）"]
+        direction TB
         M13(["M13 工單：agent-update-deps／<br/>agent-fix-bug／agent-propose-skill"]):::wi
     end
 
     subgraph P5["P5 演進（選擇性，只到 modular monolith）"]
+        direction TB
         D5{"需要模組化？"}:::dec
         M14["M14 人類：撰寫 ADR"]:::human
         HG7{{"HG7 ADR 核准"}}:::hg
@@ -460,11 +471,11 @@ flowchart TD
         D5 -- 是 --> M14 --> HG7 --> M15
     end
 
-    M4 --> M5
-    HG6a --> M8
-    HG4 --> M10
-    HG6c --> M13
-    M13 -.-> D5
+    P0 --> P1
+    P1 --> P2
+    P2 --> P3
+    P3 --> P4
+    P4 -.-> P5
 ```
 
 | 步驟 | 階段 | 做什麼 | 要開的工單（類型 × 份數） | 機械閘門 | HG |
@@ -493,13 +504,14 @@ flowchart TD
 ### 9.3 大型專案（多重把關）
 
 ```mermaid
-flowchart TD
+flowchart LR
     classDef wi fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef human fill:#f3f4f6,stroke:#6b7280,color:#111827
     classDef hg fill:#ffedd5,stroke:#ea580c,color:#7c2d12
     classDef dec fill:#fef9c3,stroke:#ca8a04,color:#713f12
 
     subgraph P0["P0 納管（系統，逐 repo）"]
+        direction TB
         L0["L0 人類：開導入追蹤 Issue"]:::human
         L1["L1 人類：每個 repo 安裝 App、建分支"]:::human
         L2(["L2 工單：agent-onboard × 每個 repo"]):::wi
@@ -514,6 +526,7 @@ flowchart TD
     end
 
     subgraph P1["P1 現況分析（系統，每 bounded context）"]
+        direction TB
         L6(["L6 工單：agent-analyze A0 ×1"]):::wi
         HG2{{"HG2 兩人簽核<br/>Tech Lead＋架構負責人"}}:::hg
         L7(["L7 工單：agent-analyze A1<br/>整體 context map ×1"]):::wi
@@ -526,6 +539,7 @@ flowchart TD
     end
 
     subgraph P2["P2 文件化（依 bounded context）"]
+        direction TB
         L10(["L10 工單：agent-write-docs<br/>arc42＋context map：每 BC 1–2 ＋ 系統 1"]):::wi
         L11["L11 人類：撰寫核心模組業務規則"]:::human
         HG4{{"HG4 領域專家＋業務擁有者"}}:::hg
@@ -533,6 +547,7 @@ flowchart TD
     end
 
     subgraph P3["P3 安全網（依 A4 風險熱點排序）"]
+        direction TB
         L12(["L12 工單：agent-add-tests → agent-fix-bug →<br/>agent-write-spec 或 agent-pbt-audit"]):::wi
         HG5{{"HG5 兩人簽核"}}:::hg
         HG6c{{"HG6 兩人簽核（模組達 R2）"}}:::hg
@@ -540,11 +555,13 @@ flowchart TD
     end
 
     subgraph P4["P4 維護改善"]
+        direction TB
         L13(["L13 工單：agent-update-deps／<br/>agent-fix-bug／agent-propose-skill"]):::wi
         REV["人類：每個觀察期 HG 回顧"]:::human
     end
 
     subgraph P5["P5 單體拆分（選擇性）"]
+        direction TB
         D5{"§11.1 四項條件<br/>全部成立？"}:::dec
         HG7a{{"HG7-1 ADR 核准"}}:::hg
         L14(["L14 工單：agent-analyze 接縫分析＋<br/>agent-add-tests characterization"]):::wi
@@ -559,12 +576,11 @@ flowchart TD
         D5 -- 是 --> HG7a --> L14 --> L15 --> HG7b --> HG7c --> L16 --> L17 --> HG7d --> HG7e --> L18
     end
 
-    L5 --> L6
-    HG6a --> L10
-    HG4 --> L12
-    HG6c --> L13
-    L13 -.-> D5
-    L18 -.-> L0
+    P0 --> P1
+    P1 --> P2
+    P2 --> P3
+    P3 --> P4
+    P4 -.-> P5
 ```
 
 | 步驟 | 階段 | 做什麼 | 要開的工單（類型 × 份數） | 機械閘門 | HG |
