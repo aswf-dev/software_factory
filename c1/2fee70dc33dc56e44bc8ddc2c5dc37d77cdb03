@@ -1,0 +1,22 @@
+docs/15-observation-trial-log.md
+  h_1b119f25eaf333 237-255
+package.json
+  h_1b119f25eaf333 18,21
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 2069-2102
+test/integration/factory-model-cli.test.ts
+  h_1b119f25eaf333 9-10,51-60,64,67-68,74,82-83,96,106,114-115,134-135
+test/integration/factory-score-cli.test.ts
+  h_1b119f25eaf333 11-12,35-44,46,49-50,55-58,73-74,81-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c12fee70dc33dc56e44bc8ddc2c5dc37d77cdb03",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
