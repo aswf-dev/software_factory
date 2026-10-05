@@ -1,0 +1,16 @@
+docs/ADR/019-property-based-testing-hegel.md
+  h_1b119f25eaf333 3-4,41-42,102-108,122-123,131,144-148,156-157,170-175,233-234,236-286
+docs/ADR/README.md
+  h_1b119f25eaf333 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2e8402946abbe597103568bba0b2a602b63c7ec4",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
