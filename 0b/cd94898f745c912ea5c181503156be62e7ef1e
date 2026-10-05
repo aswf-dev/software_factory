@@ -1,0 +1,38 @@
+.dsh/skills/factory-self-review/SKILL.md
+  h_1b119f25eaf333 26-33
+.dsh/skills/factory-stop-rules/SKILL.md
+  h_1b119f25eaf333 11,18-20
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 32-33,90,98,101-180
+README.md
+  h_1b119f25eaf333 40,116,135
+config/factory/skills-lock.json
+  h_1b119f25eaf333 10,14,18
+docs/06-human-oversight-policy.md
+  h_1b119f25eaf333 121-122,178
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 84
+docs/10-open-questions.md
+  h_1b119f25eaf333 74,82-83
+docs/20-work-items.md
+  h_1b119f25eaf333 51
+docs/21-candidate-work-item-types.md
+  h_1b119f25eaf333 11,21-23,25,35,39
+docs/29-brownfield-adoption-playbook.md
+  h_1b119f25eaf333 70,302
+docs/30-pbt-audit-runbook.md
+  h_1b119f25eaf333 1-135
+mkdocs.yml
+  h_1b119f25eaf333 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0bcd94898f745c912ea5c181503156be62e7ef1e",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
