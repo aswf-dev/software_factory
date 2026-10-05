@@ -11,6 +11,13 @@
  *   --verify            比對實際 skills 目錄與 lock（CI 用）
  *   --update            重算 hash 寫回 lock（人類改 skill 後執行，同 pnpm-lock 性質）
  *   --promote <name>    proposals/skills/<name> → .dsh/skills/（人類放行，docs/25 §4.3）
+ *   --excluded-for <t>  列出工作項類型 t 不該載入的技能（`onlyFor` 不含 t，ADR-019 R7）
+ *
+ * **類型專屬技能（ADR-019 R7）**：lock 條目可帶 `onlyFor`（工作項類型清單）。
+ * factory-run 依 `--excluded-for` 的輸出跳過複製；`--verify --task-type <t>` 則把
+ * 「刻意不派送」與「傳輸不完整」分開——前者不是 mismatch，後者仍是。反過來，限定
+ * 技能出現在不該出現的 run 裡會回報 `misrouted`：那代表篩選失效，agent 拿到了不該
+ * 拿的 SOP（例如 `hegel` 的 description 會在一般寫測試的工單觸發）。
  *
  * **`--verify` 永遠 exit 0**（ADR-016 §5：第一階段僅發 warning 不擋 run）。
  * 校驗結果以 stdout 的 `ok` 欄位表達，由 workflow 決定是否發 `::warning::`。
@@ -49,6 +56,11 @@ export const SkillLockEntrySchema = z.object({
   name: z.string().min(1),
   sha256: z.string().regex(/^[0-9a-f]{64}$/, 'sha256 must be 64 lowercase hex chars'),
   lastChangedPR: z.number().int().positive().optional(),
+  /**
+   * 只派送給這些工作項類型（ADR-019 R7）。缺席＝所有類型都載入（既有行為）。
+   * 不參與 hash：它是派送政策，不是技能內容；改政策不該讓 --verify 報 changed。
+   */
+  onlyFor: z.array(z.string().regex(/^agent-[a-z]+(-[a-z]+)*$/, 'onlyFor 須為工作項類型（agent-*）')).min(1).optional(),
 })
 
 export const SkillsLockSchema = z.object({
@@ -247,7 +259,7 @@ export function detectModelIds(content: string): string[] {
   return [...found].sort()
 }
 
-export type MismatchKind = 'missing' | 'extra' | 'changed'
+export type MismatchKind = 'missing' | 'extra' | 'changed' | 'misrouted'
 
 export interface SkillMismatch {
   kind: MismatchKind
@@ -262,13 +274,28 @@ export interface SkillMismatch {
  *  - `missing`：lock 有、實際無 → **這是本機制要防的靜默缺失**（停手規則消失）
  *  - `changed`：hash 不符 → 技能被改動但未經 --update／未經審查
  *  - `extra`  ：實際有、lock 無 → 多出未登錄的技能（可能是忘了 --update）
+ *  - `misrouted`：給了 `taskType` 時，限定其他類型的技能卻出現在實際目錄 → 派送篩選失效
+ *
+ * `taskType` 缺席時沿用既有語意（所有 lock 條目都必須在場），讓沒有類型脈絡的
+ * 呼叫端（本機檢查、舊 workflow）行為不變。
  */
-export function compareSkills(actual: Map<string, string>, lock: SkillsLock): SkillMismatch[] {
+export function compareSkills(actual: Map<string, string>, lock: SkillsLock, taskType?: string): SkillMismatch[] {
   const mismatches: SkillMismatch[] = []
   const locked = new Map(lock.skills.map((s) => [s.name, s.sha256]))
+  const excluded = new Set(taskType === undefined ? [] : excludedSkills(lock, taskType))
 
   for (const [name, sha] of locked) {
     const got = actual.get(name)
+    if (excluded.has(name)) {
+      if (got !== undefined) {
+        mismatches.push({
+          kind: 'misrouted',
+          name,
+          detail: `此技能只派送給 onlyFor 列出的類型，卻出現在 ${taskType} 的 run——派送篩選失效`,
+        })
+      }
+      continue
+    }
     if (got === undefined) {
       mismatches.push({
         kind: 'missing',
@@ -289,6 +316,11 @@ export function compareSkills(actual: Map<string, string>, lock: SkillsLock): Sk
     }
   }
   return mismatches
+}
+
+/** 工作項類型 `taskType` 不該載入的技能名稱（lock 順序）。 */
+export function excludedSkills(lock: SkillsLock, taskType: string): string[] {
+  return lock.skills.filter((s) => s.onlyFor !== undefined && !s.onlyFor.includes(taskType)).map((s) => s.name)
 }
 
 export function loadLock(lockPath: string): SkillsLock {
@@ -368,15 +400,24 @@ export interface PromoteOutput {
   nextStep: string
 }
 
-export type SkillsLockOutput = VerifyOutput | UpdateOutput | PromoteOutput
+export interface ExcludedForOutput {
+  mode: 'excluded-for'
+  taskType: string
+  /** 不該複製到此類型 run 的技能名稱；workflow 以 `jq -r '.excluded[]'` 取用。 */
+  excluded: string[]
+}
+
+export type SkillsLockOutput = VerifyOutput | UpdateOutput | PromoteOutput | ExcludedForOutput
 
 export interface SkillsLockArgs {
-  mode: 'verify' | 'update' | 'promote'
+  mode: 'verify' | 'update' | 'promote' | 'excluded-for'
   lockPath: string
   skillsDir: string
   proposalsDir: string
   name?: string | undefined
   pr?: number | undefined
+  /** --verify 的類型脈絡，或 --excluded-for 的目標類型。 */
+  taskType?: string | undefined
 }
 
 export function parseArgs(argv: string[]): SkillsLockArgs {
@@ -386,6 +427,7 @@ export function parseArgs(argv: string[]): SkillsLockArgs {
   let proposalsDir = DEFAULT_PROPOSALS_DIR
   let name: string | undefined
   let pr: number | undefined
+  let taskType: string | undefined
 
   const setMode = (m: SkillsLockArgs['mode']): void => {
     if (mode !== undefined) throw new CliError(`只能指定一個模式（已有 --${mode}）`)
@@ -404,7 +446,11 @@ export function parseArgs(argv: string[]): SkillsLockArgs {
     else if (arg === '--promote') {
       setMode('promote')
       name = need('--promote')
-    } else if (arg === '--lock') lockPath = need('--lock')
+    } else if (arg === '--excluded-for') {
+      setMode('excluded-for')
+      taskType = need('--excluded-for')
+    } else if (arg === '--task-type') taskType = need('--task-type')
+    else if (arg === '--lock') lockPath = need('--lock')
     else if (arg === '--skills-dir') skillsDir = need('--skills-dir')
     else if (arg === '--proposals-dir') proposalsDir = need('--proposals-dir')
     else if (arg === '--pr') {
@@ -415,8 +461,11 @@ export function parseArgs(argv: string[]): SkillsLockArgs {
     } else throw new CliError(`unknown argument: ${arg}`)
   }
 
-  if (mode === undefined) throw new CliError('需指定 --verify / --update / --promote <name>')
-  return { mode, lockPath, skillsDir, proposalsDir, name, pr }
+  if (mode === undefined) throw new CliError('需指定 --verify / --update / --promote <name> / --excluded-for <type>')
+  if (mode !== 'verify' && mode !== 'excluded-for' && taskType !== undefined) {
+    throw new CliError('--task-type 只適用於 --verify')
+  }
+  return { mode, lockPath, skillsDir, proposalsDir, name, pr, taskType }
 }
 
 export function main(argv: string[]): SkillsLockOutput {
@@ -425,7 +474,7 @@ export function main(argv: string[]): SkillsLockOutput {
   if (args.mode === 'verify') {
     const actual = scanSkills(args.skillsDir)
     const lock = loadLock(args.lockPath)
-    const mismatches = compareSkills(actual, lock)
+    const mismatches = compareSkills(actual, lock, args.taskType)
     const modelPins: SkillModelPin[] = []
     for (const [name, text] of readSkillTexts(args.skillsDir)) {
       const ids = detectModelIds(text)
@@ -441,6 +490,11 @@ export function main(argv: string[]): SkillsLockOutput {
     }
   }
 
+  if (args.mode === 'excluded-for') {
+    const taskType = args.taskType as string
+    return { mode: 'excluded-for', taskType, excluded: excludedSkills(loadLock(args.lockPath), taskType) }
+  }
+
   if (args.mode === 'update') {
     const actual = scanSkills(args.skillsDir)
     // 保留既有 lastChangedPR：--update 的職責是同步 hash，不是清掉來源紀錄。
@@ -450,10 +504,17 @@ export function main(argv: string[]): SkillsLockOutput {
     } catch {
       previous = undefined
     }
-    const prevPr = new Map((previous?.skills ?? []).map((s) => [s.name, s.lastChangedPR]))
+    // onlyFor 同理：它是人類決定的派送政策，--update 不得默默把限定技能變回全類型派送。
+    const prev = new Map((previous?.skills ?? []).map((s) => [s.name, s]))
     const skills: SkillLockEntry[] = [...actual.entries()].map(([name, sha256]) => {
-      const carried = args.pr ?? prevPr.get(name)
-      return carried === undefined ? { name, sha256 } : { name, sha256, lastChangedPR: carried }
+      const carried = args.pr ?? prev.get(name)?.lastChangedPR
+      const onlyFor = prev.get(name)?.onlyFor
+      return {
+        name,
+        sha256,
+        ...(carried === undefined ? {} : { lastChangedPR: carried }),
+        ...(onlyFor === undefined ? {} : { onlyFor }),
+      }
     })
     const lock: SkillsLock = { version: 1, skills }
     writeFileSync(args.lockPath, `${JSON.stringify(lock, null, 2)}\n`)
@@ -511,7 +572,14 @@ export function main(argv: string[]): SkillsLockOutput {
       return { version: 1, skills: [] }
     }
   })()
-  const entry: SkillLockEntry = args.pr === undefined ? { name, sha256 } : { name, sha256, lastChangedPR: args.pr }
+  // 重新 promote 既有技能時保留派送政策（理由同 --update）。
+  const onlyFor = lock.skills.find((s) => s.name === name)?.onlyFor
+  const entry: SkillLockEntry = {
+    name,
+    sha256,
+    ...(args.pr === undefined ? {} : { lastChangedPR: args.pr }),
+    ...(onlyFor === undefined ? {} : { onlyFor }),
+  }
   const skills = [...lock.skills.filter((s) => s.name !== name), entry].sort((a, b) => a.name.localeCompare(b.name))
   writeFileSync(args.lockPath, `${JSON.stringify({ version: 1, skills }, null, 2)}\n`)
 

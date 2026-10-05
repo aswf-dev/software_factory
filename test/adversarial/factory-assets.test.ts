@@ -528,6 +528,59 @@ describe('factory-metrics 資產（docs/08 §2/§7，Phase 2 T5）', () => {
   })
 })
 
+describe('Hegel skills vendor 與類型專屬派送（ADR-019 §7、R7）', () => {
+  const HEGEL_SKILLS = ['hegel', 'hegel-review']
+  const UPSTREAM_SHA = 'a60b28243199b24aeebb2c90aece34082ee4997c'
+
+  it('vendor 的 hegel skills 存在，frontmatter name 與目錄同名（不同名會被 DSH 以錯的名字載入）', () => {
+    for (const name of HEGEL_SKILLS) {
+      const content = read(`.dsh/skills/${name}/SKILL.md`)
+      expect(content).toMatch(new RegExp(`^name: ${name}$`, 'm'))
+      expect(content).toMatch(/^description: /m)
+    }
+    // hegel 是 bundle：techniques/ 被 SKILL.md 引用，漏帶就是不完整的 vendor
+    for (const t of ['directions', 'generators', 'running', 'scale', 'surfaces', 'triage']) {
+      expect(existsSync(join(ROOT, `.dsh/skills/hegel/techniques/${t}.md`)), t).toBe(true)
+    }
+  })
+
+  it('全部已生效技能的 frontmatter name 都與目錄同名', () => {
+    for (const dir of readdirSync(join(ROOT, '.dsh/skills'))) {
+      const p = `.dsh/skills/${dir}/SKILL.md`
+      if (!existsSync(join(ROOT, p))) continue
+      expect(read(p), p).toMatch(new RegExp(`^name: ${dir}$`, 'm'))
+    }
+  })
+
+  it('上游 commit SHA 在 ADR-019、NOTICE 一致（保持上游不變才能直接拉新版）', () => {
+    expect(read('docs/ADR/019-property-based-testing-hegel.md')).toContain(UPSTREAM_SHA)
+    const notice = read('NOTICE')
+    expect(notice).toContain('https://github.com/hegeldev/hegel-skill')
+    expect(notice).toContain(UPSTREAM_SHA)
+    for (const name of HEGEL_SKILLS) expect(notice).toContain(`.dsh/skills/${name}/`)
+  })
+
+  it('skills-lock 把 hegel skills 限定給 agent-pbt-audit', () => {
+    const lock = JSON.parse(read('config/factory/skills-lock.json')) as {
+      skills: { name: string; onlyFor?: string[] }[]
+    }
+    for (const name of HEGEL_SKILLS) {
+      expect(lock.skills.find((s) => s.name === name)?.onlyFor, name).toEqual(['agent-pbt-audit'])
+    }
+    // 工廠自己的 SOP 必須派送給所有類型——限定它們等於讓某類 run 失去停手規則
+    for (const name of ['factory-workflow', 'factory-stop-rules', 'factory-self-review', 'factory-pr-stacking']) {
+      expect(lock.skills.find((s) => s.name === name)?.onlyFor, name).toBeUndefined()
+    }
+  })
+
+  it('factory-run 依類型篩選技能，不得整包複製 .dsh/skills（否則 hegel 外溢到所有工單）', () => {
+    const wf = read('.github/workflows/factory-run.yml')
+    expect(wf).not.toMatch(/cp -r "\$GITHUB_WORKSPACE\/\.dsh\/skills\/\."/)
+    expect(wf).toContain('--excluded-for "$TASK_TYPE"')
+    expect(wf).toMatch(/--verify \\\n\s+--task-type "\$TASK_TYPE"/)
+  })
+})
+
 describe('Quint Phase A 資產（Task 16–20）', () => {
   it('vendor 的 quint skills 存在（官方僅提供 quint-lang/quint-modeling，見 ADR-008）', () => {
     for (const name of ['quint-lang', 'quint-modeling']) {

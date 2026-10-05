@@ -18,6 +18,20 @@
       "sha256": "3f72747cf07ebfdb92eeb3f5932e962e407230a392218f3ac63b6e289bd7916d"
     },
     {
+      "name": "hegel",
+      "sha256": "d064197b55826da60069c380bbda86f942082cb8244f39ce3cc5a77130dcd901",
+      "onlyFor": [
+        "agent-pbt-audit"
+      ]
+    },
+    {
+      "name": "hegel-review",
+      "sha256": "bddcfb5d7e662826624551636f56ca890fa87d61957475d137da608952957fa0",
+      "onlyFor": [
+        "agent-pbt-audit"
+      ]
+    },
+    {
       "name": "quint-lang",
       "sha256": "bb62b7f9a3f3c355060b65dbd047df5016b6add4ff6d2ed27bcda69d6025a250"
     },

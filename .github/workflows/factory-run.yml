@@ -641,13 +641,40 @@ jobs:
             # 目標 repo 不再複製 .dsh/skills（DRIFT-ELIMINATION）——同步到
             # $HOME/.dsh/skills（DSH rank 400 user-dsh）供 agent 載入。
             mkdir -p "$HOME/.dsh/skills"
-            cp -r "$GITHUB_WORKSPACE/.dsh/skills/." "$HOME/.dsh/skills/"
+            # 類型專屬技能（ADR-019 R7）：skills-lock.json 標了 onlyFor 的技能只複製給
+            # 列出的類型。不能整包 cp：DSH 依 description 自動載入，而 `hegel` 的
+            # description 會在「write tests / add test coverage」時觸發——正是
+            # add-tests、fix-bug 每張工單的內容。Quint 靠 description 窄而沒有外溢，
+            # Hegel 沒有這個條件，且原封不動 vendor 不能改 description。
+            # 名單取不到時 fail closed（set +e 下需顯式 exit）：寧可不跑，也不要
+            # 在篩選失效的情況下讓 agent 拿到不該拿的 SOP。
+            SKILLS_EXCLUDED_JSON=$(node "$GITHUB_WORKSPACE/dist/cli/factory-skills-lock.js" \
+              --excluded-for "$TASK_TYPE" \
+              --lock "$GITHUB_WORKSPACE/config/factory/skills-lock.json")
+            EXCLUDED_RC=$?
+            SKILLS_EXCLUDED=$(printf '%s' "$SKILLS_EXCLUDED_JSON" | jq -er 'if (.excluded | type) == "array" then .excluded[] else error("excluded 欄位缺失") end')
+            JQ_RC=$?
+            # jq -e：空名單時 exit 4（沒有輸出）；非 JSON 或缺 excluded 欄位時 exit 5——只有後者算失敗。
+            if [ "$EXCLUDED_RC" -ne 0 ] || { [ "$JQ_RC" -ne 0 ] && [ "$JQ_RC" -ne 4 ]; }; then
+              echo "::error::無法取得類型專屬技能名單（factory-skills-lock --excluded-for 失敗）"
+              exit 1
+            fi
+            for SKILL_DIR in "$GITHUB_WORKSPACE"/.dsh/skills/*/; do
+              SKILL_NAME=$(basename "$SKILL_DIR")
+              if printf '%s\n' "$SKILLS_EXCLUDED" | grep -qxF "$SKILL_NAME"; then
+                echo "skill skipped for ${TASK_TYPE}: ${SKILL_NAME}"
+                continue
+              fi
+              mkdir -p "$HOME/.dsh/skills/$SKILL_NAME"
+              cp -r "$SKILL_DIR". "$HOME/.dsh/skills/$SKILL_NAME/"
+            done
             echo "skills synced: $(ls "$HOME/.dsh/skills" | tr '\n' ' ')"
             # 技能傳輸完整性校驗（E5／ADR-016 §5）：上面的 cp 若不完整，agent 會
             # 安靜地在缺少 factory-stop-rules 的情況下執行。CLI 恆 exit 0（第一階段
             # 僅警告不擋 run，Q16-2 待人類裁決是否升紅燈），故此處不需 || true。
             SKILLS_LOCK_OUT=$(node "$GITHUB_WORKSPACE/dist/cli/factory-skills-lock.js" \
               --verify \
+              --task-type "$TASK_TYPE" \
               --lock "$GITHUB_WORKSPACE/config/factory/skills-lock.json" \
               --skills-dir "$HOME/.dsh/skills")
             echo "$SKILLS_LOCK_OUT"
