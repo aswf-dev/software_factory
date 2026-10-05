@@ -1,7 +1,7 @@
 # ADR-019：目標 repo 的程式碼層驗證採 PBT（Hegel），以事後稽核工作項執行
 
-- **狀態**：已接受（實作待後續 PR）
-- **日期**：2026-10-04
+- **狀態**：已接受（實作中；2026-10-05 依試點回饋與落地 grilling 修訂，見文末「修訂記錄」）
+- **日期**：2026-10-04（修訂 2026-10-05）
 - **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q20）
 - **對應**：`ADR-008`（Quint 神諭橋）、`ADR-018`（意圖驅動 write-spec，§1 的 PBT 條款由本 ADR 落實並修訂）、`ADR-016`（產出與生效分離）、`docs/11`（測試策略）、`docs/06`（監督與評分）、`docs/research/pbt-library-survey-2026-10.md`（工具調查）
 - **證據**：`docs/research/pbt-library-survey-2026-10.md`（2026-10-04 以 gh api、npm、PyPI、crates.io、Maven Central、NuGet、proxy.golang.org、hex.pm 即時查證）
@@ -37,6 +37,8 @@
 - **PBT 是需要的，而且 `ADR-018` §1 早就決定了**。本 ADR 只是把它落實。
 - **工具統一用 Hegel，不採「每種語言各用最成熟的工具」（Q10=B）**。理由是可累積性：一份 skill、一套寫法、一個引擎。不採 (a) 的理由不是 Hegel 更成熟，而是分散的工具組會讓 agent 每接一種語言就重學一次，skill 無法沉澱。
 - **Hegel 沒有支援的語言（Q15）**：Python 用 Hypothesis（Hegel 本身就是 Hypothesis 引擎的移植，概念與 `hegel-skill` 的方法論可直接沿用）；Kotlin 走 JVM，用 `dev.hegel:hegel`（hegel-java）；其餘語言（Scala、.NET 等）**停止並交還人類**，由人決定要不要為該語言另立工具。**不因為某個語言沒有 Hegel 就改用別套 PBT**。
+
+> **修訂（2026-10-05，R1）**：支援範圍收斂為 **Hegel 官方有函式庫的 6 種語言**（TS/JS、Java、Go、Rust、C++、OCaml，以 [hegel.dev](https://hegel.dev/) 為準）。**Python 與 Kotlin 不再例外**，與其他語言一樣停止並交還人類。理由：只有原生支援的語言，「同一套引擎、同一份 skill」的前提才完全成立。
 
 **試行期結束前，本決定不涵蓋工廠自己的 `src/`（Q7=B）**：`src/integration/gh-parse.ts`、`src/integration/dsh-result.ts`、`src/factory-draft/parse.ts` 這些「agent 權限判斷依據」的 parser 仍只用範例測試加人工 mutation 測試把關，靠既有的 100% 覆蓋率要求。這是一個**已知缺口，不是「決定不做」**，見 §10。
 
@@ -97,6 +99,13 @@
 
 **合併（Q19=A）**：試行期內 **audit PR 一律交人類 review，不得自動合併**，即使它只新增測試、性質接近 `agent-add-tests`。理由是要人工檢查 property 有沒有落入 `hegel-review` 的 12 點缺陷。試行期結束後再交回 `docs/06` 的評分規則處理。
 
+> **修訂（2026-10-05，R2–R5）**，本節以下列為準：
+> - **觸發**：工作項類型由 Issue 表單的「任務類型」決定，與其他 7 種類型相同；`pbt/audit` 改為 factory-run 判定類型後**自動貼上**的標籤，只用於篩選與統計，不是觸發條件。「由人類手動開單」由「人類填表並核可（`factory/approved`）」保證。
+> - **範圍**：沿用需求描述裡既有的「目標模組 / 檔案：」，不新增表單欄位；issue-check 機械檢查**恰好一個路徑、存在於目標 repo、不是測試檔**，並以該路徑的副檔名判定語言（目錄則取其下最多的 Hegel 語言副檔名）。
+> - **白名單**：只允許**新增或修改**符合各語言 PBT 命名慣例的檔案（見修訂記錄 R6），**不得刪除**；其他類型的 run 若產出 PBT 檔，同樣判為 needs-human。
+> - **發現報告**：TS 沒有公開的 reproduce blob API，候選發現改附「**縮減後的 draws＋`HEGEL_SEED`＋Hegel 版本＋固定輸入的紅燈測試**」。agent **不開 Issue、不自己留言**，而是寫進 `report.json` 的 `pbtAudit.findings`，由**機制**統一在稽核 Issue 上留言。Java 有 blob API，等有 Java 目標 repo 時再加回。
+> - **「通過」的定義**：`CI=true`，且 **20 個隨機 seed × 每 seed 5000 cases** 全部通過，才可放進 PR。試點中曾有 property 在 20 個 seed 裡失敗 7 次，只跑一次會把間歇失敗的 property 放進 PR。
+
 ### 6. `assertionDelta`：PBT 只新增，不取代（Q11=A）
 
 - **PBT 不得取代既有的範例測試。** 範例測試是可讀的規格，property 是額外防線，兩者並存。
@@ -110,6 +119,8 @@
 - **`hegel-review` 的 12 點清單引用進 `factory-self-review`**，作為 audit PR 的自審項目。
 - **vendor 檢查項**：不得含硬編碼的 model id（`factory-skills-lock --verify` 會標記）；frontmatter `name` 為 kebab-case 且與目錄同名。
 
+> **修訂（2026-10-05，R7）**：上游 `hegeldev/hegel-skill@a60b28243199b24aeebb2c90aece34082ee4997c`（v2）拆成 **`hegel` 與 `hegel-review` 兩個 skill**，兩者都 vendor 到 `.dsh/skills/`。`hegel` 的 description 會在「write tests、add test coverage」時觸發，而這正是 add-tests、fix-bug 每張工單的內容；Quint skill 靠 description 範圍窄而沒有外溢，Hegel 沒有這個條件，且原封不動 vendor 不能改 description。因此派送步驟改為**依工作項類型篩選**：`skills-lock.json` 為這兩個 skill 標記 `onlyFor: ["agent-pbt-audit"]`，其他類型的 run 不複製它們。
+
 ### 8. 供應鏈：Hegel 是 ADR-008 原則的明文例外（Q13=A）
 
 `ADR-008` 曾以「供應鏈最小化」為由延後採用 `quint-connect-ts`。Hegel 會引入 native binary，因此必須明文處理：
@@ -117,6 +128,7 @@
 - **只限測試範圍**：`devDependencies`（TS）或 test scope（Java），**不進入任何產品的執行期相依**。
 - **版本鎖死**：沿用 `docs/11` §3 的全精確釘版慣例（無 `^`、無 `~`）。升級需人工審核的 PR。
 - **`.hegel/`（失敗資料庫）加入 `.gitignore`**。
+- **實際組成（2026-10-05 試點實測，TS）**：`koffi` FFI，加上 libhegel 與 koffi 各平台的 optionalDependency，lockfile 共 27 筆、node_modules 約 7.8 MB；**不支援 Intel macOS**；npm 11 預設擋下 koffi 的 install script 但仍可載入，npm 10 會執行它，且離線時也能成功。
 - **為什麼 Hegel 可以而 `quint-connect-ts` 不行**：維護方是 Antithesis 的 Hypothesis 原作者團隊；`hegel-rust` 每 90 天下載約 70 萬次；相對地 `@firfi/quint-connect` 每週約 60 次下載。這條例外**明確不適用於**社群維護、低採用度的套件；日後若有人援引本條要求同等待遇，應先比對「上游維護者是否為該領域的權威實作方」與採用度量級。
 
 ### 9. 試行期與 CI 強制力（Q12=C、Q20）
@@ -129,12 +141,19 @@
 - **收緊條件**：試行期內沒有出現「卡住」、「誤報」或「上游改版導致既有 property 失敗」三類事故，就把 audit 的 PBT 設為必過檢查。
 - **否則**：維持非必過，並把事故記錄交給 §10 的重新評估。
 
+> **修訂（2026-10-05，R8–R10）**：
+> - **timeout**：Hegel-TS **沒有 per-property timeout**，`hegel.test` 是同步迴圈，runner 的 timeout 也打斷不了。防護改為：async property 靠 runner 的 `--testTimeout`，整體靠 run／job 層的 timeout；「卡住」定義為 job timeout，記入試行指標。試點中 0 次卡住，非確定性生成器會直接拋出 `EngineError`；上游 PR #49 修的是 0.3.0 前的 socket client，已過時。
+> - **適用範圍**：本節的「非必過」管的是**工廠 `agent-pbt-audit` 的產出與 judge 行為**，不限制目標 repo 自己的 CI 政策。PBT 檔留在目標 repo 的預設測試 run 裡（排除在外會違反 `hegel-review` 第 8 點），CI 下以 100 cases、固定 seed 執行；試點 repo 另設每晚換 seed 的 5000 cases 探索，可作為日後收緊的候選做法。
+> - **試行指標**：分成**機制實測**（agent 牆鐘、diff 中的 PBT 檔數與 property 數）與 **agent 自報**（seeds、案例數、通過／失敗、findings），由機制寫進稽核 Issue 留言並明確標示自報。**不推送 scoreboard**：agent 自填的量測值不具量測意義（`factory-push-event` 也因此不讀 report 的自報欄位）。
+
 **試點（Q20）**：`philipz/fubon-tradingbot`（TS/Jest）。
 
 - 理由：交易系統，價格、數量、手續費等**數值計算**正是本 ADR 的目標；同時能驗證 Hegel-TS 與 Jest 的整合，以及上游 #48／#49 在實際使用中會不會出現。
 - **附帶效果**：該 repo 的 `catalog-info` 是 `business-criticality: strategic`、`risk-profile: high`、`complexity: high`（三軸滿分 6，直接 in-loop），所以 §5 的「試行期不自動合併」在它身上本來就會成立。試行期選在**最嚴格的 repo** 上，寧可一開始就人工把關，也不要先在最寬鬆的 repo 上養成習慣。
 - **不選 `tradingbot-tw/node-redlock`**：核心是狀態機，而 Hegel-TS **沒有 stateful API**，能測的範圍有限。
 - **不選 `trial/spring-modulith-orders`**：Java 21 需搭 `hegel-jna`，且該 repo 仍是草稿、沒有 `pom.xml`。
+
+> **更正（2026-10-05，R11）**：上面「附帶效果」的前提是錯的。in-loop（計分 ≥ 5）在實作上的意思是 **run 根本不會啟動**（`src/cli/apply-score-labels.ts` 的閘門），不只是「不會自動合併」。為了讓試點能跑，新增 `IN_LOOP_ALLOWED_TASK_TYPES = ['agent-pbt-audit']`，與 `OUTPUT_ONLY_TASK_TYPES` 分開（audit 會開 PR，不是 output-only）。這個豁免有兩個前提，並由對抗性測試釘住：**crosscheck 只放行 PBT 測試檔**，以及**類型層級禁止自動合併**（`NO_AUTOMERGE_TASK_TYPES`）。任一前提被拿掉，測試就轉紅。tier、標籤、自動合併都不變。
 
 ### 10. `ADR-018` §1 的修訂與已知缺口（Q16=A）
 
@@ -148,6 +167,12 @@
   - 稽核試行期結束；
   - 出現第一個「Issue 驗收條件明確、卻是稽核事後才發現實作不符」的案例；
   - Hegel 發布 1.0，或 Hegel-TS 推出 stateful API。
+- **改用 fast-check 的觸發條件（2026-10-05 新增，R12，任一成立即重新評估 TS 的工具）**：
+  - Hegel 升版造成既有 property 不相容；
+  - 原生函式庫在 CI 或部署環境無法載入；
+  - 上游長期不修「TS 綁定無條件覆寫 `testCases`」的問題；
+  - 試行期內出現卡住。
+  - 對照基準：試點以 14 個情境 × 30 seeds 比較，5000 cases 下偵測率 Hegel 419/420、fast-check 365/420；fast-check 的優勢都在維運面（`docs/research/hegel-ts-pilot-fubon-2026-10.md` §1）。
 
 ## 後果
 
@@ -205,5 +230,57 @@
 4. **新增工作項類型 `agent-pbt-audit`**：`.github/workflows/factory-run.yml` 的 `task_type` options（7 → 8）、`task-template-pbt-audit.txt`、`pbt/audit` 標籤、`backstage/templates/factory-work-item/template.yaml` 與 `.github/ISSUE_TEMPLATE/factory-work-item.yml` 的同步（`ADR-018` §11）、issue-check 的範圍欄位與標籤檢查、`factory-crosscheck` 的測試檔白名單、judge 的類型層級禁止自動合併，以及對應的對抗性測試。
 5. **skill 疊加**：`factory-workflow` 寫入 §3 分工表與 §4 依據規則；`factory-self-review` 引用 `hegel-review` 12 點；`factory-stop-rules` 補上「product 程式碼被修改」與「property 沒有依據註解」兩條。
 6. **試點**：在 `philipz/fubon-tradingbot` 手動開第一個 `pbt/audit` Issue，範圍限一個數值計算模組。
-   - **驗收標準**：產出一份只有通過 property 的 PR，加上一份候選發現報告；報告中至少一條發現能被人類重現（用 Hegel 的 reproduce blob 在本地重跑出最小反例）。
+   - **驗收標準**：產出一份只有通過 property 的 PR，加上一份候選發現報告；報告中至少一條發現能被人類重現（~~用 Hegel 的 reproduce blob 在本地重跑出最小反例~~ **2026-10-05 修訂：人類貼上報告附的固定輸入紅燈測試，在本地重現紅燈**）。
+   - **對照基準**：試點 repo 的 Issue #641–#644 是人類執行得到的反例與 property，可用來比較工作項產出的召回率、縮減品質與 `hegel-review` 缺陷數。
 7. **試行報告**：累積 30 個 PR 或一個月後，記錄案例數、牆鐘、卡住次數、誤報次數、上游改版影響，據以決定是否收緊為必過檢查。
+
+## 修訂記錄（2026-10-05）：試點回饋與落地 grilling
+
+**輸入**：`docs/research/hegel-ts-pilot-fubon-2026-10.md`（人類在 `philipz/fubon-tradingbot` 執行的 spike 與導入，PR #645）與落地前的 grilling（使用者逐項裁決）。試點文件 §3 的 6 項修訂提案**全部採納**。各段的修訂以引言區塊標在原文旁，原文保留，以便看出決定如何演變。
+
+| 編號 | 段落 | 修訂 | 原因 |
+|---|---|---|---|
+| R1 | §1 | 語言限 Hegel 官方 6 種，Python、Kotlin 停止並交還人類 | 「同一套引擎、同一份 skill」只在原生支援的語言成立 |
+| R2 | §5 觸發 | 類型由表單決定；`pbt/audit` 自動貼上，只用於統計 | 類型判定機制本來只讀 Issue 內文，與其他類型一致 |
+| R3 | §5 範圍 | 沿用「目標模組 / 檔案：」，機械檢查恰好一個路徑 | 新增欄位要同步 6 處（含 aswf.dev），機械檢查強度相同 |
+| R4 | §5 產出 | blob 改為 draws＋seed＋版本＋紅燈測試；由機制留言 | TS 沒有公開 blob API；agent 不擁有開 Issue 的權限 |
+| R5 | §5 通過 | `CI=true`＋20 seeds × 5000 cases | 試點中單次執行會放進間歇失敗的 property |
+| R6 | §5 白名單 | 各語言 PBT 命名慣例（下表），只允許新增或修改 | 白名單要能精確比對；刪除測試不是 audit 的工作 |
+| R7 | §7 | 兩個 skill；依類型篩選派送（`onlyFor`） | `hegel` 的 description 會在一般寫測試的工單觸發 |
+| R8 | §9 timeout | runner `--testTimeout`＋job timeout | Hegel-TS 沒有 per-property timeout |
+| R9 | §9 範圍 | 「非必過」只管工廠產出；PBT 檔留在預設 run | 排除在預設 run 之外違反 `hegel-review` 第 8 點 |
+| R10 | §9 指標 | 分實測與自報，寫進 Issue 留言，不推 scoreboard | agent 自填的量測值不具量測意義 |
+| R11 | §9 試點 | 更正 in-loop 的意義，新增 `IN_LOOP_ALLOWED_TASK_TYPES` | in-loop 實際上不會啟動 run |
+| R12 | §10 | 新增改用 fast-check 的觸發條件 | 試點對照數據 |
+
+### R6：各語言 PBT 檔命名慣例（crosscheck 白名單）
+
+| 語言 | 副檔名（判定語言用） | PBT 檔 glob | 說明 |
+|---|---|---|---|
+| TS/JS | `.ts .tsx .mts .cts .js .jsx .mjs .cjs` | `**/*.pbt.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` | 試點已使用 |
+| Java | `.java` | `**/src/test/**/*PbtTest.java` | Surefire 自動收錄 |
+| Go | `.go` | `**/*_pbt_test.go` | `go test` 自動收錄 |
+| Rust | `.rs` | `**/tests/**/*pbt*.rs` | 不允許寫在 src 內的 `#[cfg(test)] mod`，那等於改產品檔；只測公開 API |
+| C++ | `.cc .cpp .cxx .h .hpp` | `**/*_pbt_test.{cc,cpp,cxx}` | 需人類先建好收集這些檔案的測試 target |
+| OCaml | `.ml .mli` | `**/test/**/*_pbt.ml` | 同上（dune） |
+
+除了 TS，這些命名都是**工廠自訂的慣例**，不是上游規定；每種語言的第一張工單就是該語言的試點，結果回填 `factory-workflow` 的語言補充說明。
+
+### 前置作業（由人類在目標 repo 先完成；agent 啟動前機械檢查，缺件即失敗）
+
+依 SR5，agent 不得新增依賴；白名單也只放測試檔。因此依賴與設定一律由人類以一般 PR 先放進目標 repo 的 trunk。
+
+| 語言 | 機械檢查（preflight） |
+|---|---|
+| TS/JS | `package.json` 的 `devDependencies` 有 `@hegeldev/hegel`，且是精確版本（無 `^`、`~`、範圍或 tag） |
+| Java | `pom.xml` 有 `dev.hegel:hegel` 或 `dev.hegel:hegel-jna`、`<scope>test</scope>`、固定版本；或 Gradle 的 `testImplementation("dev.hegel:hegel[-jna]:x.y.z")` |
+| Go | `go.mod` require `hegel.dev/go/hegel` |
+| Rust | `Cargo.toml` 的 `[dev-dependencies]` 有 `hegeltest = "=x.y.z"` |
+| C++、OCaml | 依賴寫法不統一，不做機械檢查；改由 agent 啟動後的 smoke property 驗證 |
+| 全部 | `.gitignore` 含 `.hegel/` |
+
+不易機械判讀的部分（例如 TS/Jest 的 `@hegeldev` swc transform、讀 `HEGEL_TEST_CASES`／`HEGEL_SEED` 的 settings helper、C++／OCaml 的測試 target）由 agent 第一步跑一個 smoke property 驗證，跑不起來就依 stop-rule 停下。人類操作步驟見 `docs/30-pbt-audit-runbook.md`。
+
+### 實作順序的對應
+
+本次落地以 stacked PR 交付：① 本修訂；② vendor `hegel`、`hegel-review` 與類型專屬派送；③ `agent-pbt-audit` 工作項機制（issue-check、preflight、in-loop 豁免、crosscheck、judge、機制留言、workflow、模板、GitHub 表單、Backstage）；④ factory skill 疊加與文件。③ 合併後，aswf.dev（`philipz/factory-scoreboard`）再以單獨 PR 把類型加入 `factory-contract.json`；它的 contract CI 會比對本 repo main 的 Issue 表單，所以必須依此順序合併。實作順序第 2 項（assertion-count）仍另案處理，第 6 項試點由使用者以實際工單進行。
