@@ -25,6 +25,7 @@
  */
 import { TIER_LABEL } from './scoring/types.js'
 import { NEEDS_HUMAN_LABEL } from './stop-rules/types.js'
+import { PBT_AUDIT_LABEL } from './pbt-audit/intake.js'
 import { SPEC_LABELS } from './write-spec/phase.js'
 
 /** 技能缺口分類訊號（docs/25 §3）；不影響終態，只用於聚類。 */
@@ -45,4 +46,6 @@ export const FACTORY_LABELS: readonly string[] = [
   SPEC_LABELS.phaseInvariants,
   SPEC_LABELS.phaseModel,
   SPEC_LABELS.outdated,
+  // agent-pbt-audit（ADR-019 R2）：判定類型後自動貼上。
+  PBT_AUDIT_LABEL,
 ]

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   compareSkills,
   detectModelIds,
+  excludedSkills,
   hashBundle,
   hashContent,
   listBundleFiles,
@@ -696,5 +697,110 @@ describe('main --promote（人類放行，docs/25 §4.3）', () => {
       '--lock', lock, '--skills-dir', skillsDir, '--proposals-dir', proposals,
     ])
     expect(loadLock(lock).skills.find((s) => s.name === 'pr-skill')?.lastChangedPR).toBe(123)
+  })
+})
+
+describe('類型專屬技能 onlyFor（ADR-019 R7）', () => {
+  const AUDIT = 'agent-pbt-audit'
+
+  function fixture(dir: string, present: string[]): { root: string; lock: string } {
+    const root = makeSkills(dir, Object.fromEntries(present.map((n) => [n, `---\nname: ${n}\ndescription: d\n---\n${n}`])))
+    const hashOf = (n: string): string => hashContent(n).padEnd(64, '0').slice(0, 64)
+    const lock = writeLock(`${dir}.json`, {
+      version: 1,
+      skills: [
+        { name: 'base-skill', sha256: present.includes('base-skill') ? bundleHash(root, 'base-skill') : hashOf('b') },
+        {
+          name: 'audit-skill',
+          sha256: present.includes('audit-skill') ? bundleHash(root, 'audit-skill') : hashOf('a'),
+          onlyFor: [AUDIT],
+        },
+      ],
+    })
+    return { root, lock }
+  }
+
+  it('excludedSkills：onlyFor 不含該類型的技能被列出；缺 onlyFor 的技能永遠派送', () => {
+    const lock: SkillsLock = {
+      version: 1,
+      skills: [
+        { name: 'base', sha256: 'a'.repeat(64) },
+        { name: 'audit', sha256: 'b'.repeat(64), onlyFor: [AUDIT] },
+      ],
+    }
+    expect(excludedSkills(lock, 'agent-add-tests')).toEqual(['audit'])
+    expect(excludedSkills(lock, AUDIT)).toEqual([])
+  })
+
+  it('--excluded-for 輸出 workflow 要跳過的名單', () => {
+    const { lock } = fixture('of-excl', ['base-skill', 'audit-skill'])
+    expect(main(['--excluded-for', 'agent-fix-bug', '--lock', lock])).toEqual({
+      mode: 'excluded-for',
+      taskType: 'agent-fix-bug',
+      excluded: ['audit-skill'],
+    })
+    expect(main(['--excluded-for', AUDIT, '--lock', lock])).toMatchObject({ excluded: [] })
+  })
+
+  it('--verify --task-type：刻意不派送的技能缺席不是 mismatch', () => {
+    const { root, lock } = fixture('of-skip', ['base-skill'])
+    expect(main(['--verify', '--task-type', 'agent-add-tests', '--lock', lock, '--skills-dir', root])).toMatchObject({
+      ok: true,
+      mismatches: [],
+    })
+  })
+
+  it('--verify --task-type：限定技能出現在其他類型的 run → misrouted（篩選失效）', () => {
+    const { root, lock } = fixture('of-mis', ['base-skill', 'audit-skill'])
+    const out = main(['--verify', '--task-type', 'agent-add-tests', '--lock', lock, '--skills-dir', root])
+    expect(out).toMatchObject({ ok: false })
+    expect(out.mode === 'verify' && out.mismatches).toEqual([
+      expect.objectContaining({ kind: 'misrouted', name: 'audit-skill' }),
+    ])
+  })
+
+  it('--verify --task-type：目標類型的 run 缺少限定技能 → 仍是 missing', () => {
+    const { root, lock } = fixture('of-miss', ['base-skill'])
+    const out = main(['--verify', '--task-type', AUDIT, '--lock', lock, '--skills-dir', root])
+    expect(out.mode === 'verify' && out.mismatches).toEqual([
+      expect.objectContaining({ kind: 'missing', name: 'audit-skill' }),
+    ])
+  })
+
+  it('compareSkills 未給 taskType → 沿用既有語意（所有條目都須在場）', () => {
+    const { root, lock } = fixture('of-legacy', ['base-skill'])
+    const mismatches = compareSkills(scanSkills(root), loadLock(lock))
+    expect(mismatches.map((m) => [m.kind, m.name])).toEqual([['missing', 'audit-skill']])
+  })
+
+  it('--update 保留 onlyFor（派送政策是人類決定，不得被默默清掉）', () => {
+    const { root, lock } = fixture('of-upd', ['base-skill', 'audit-skill'])
+    main(['--update', '--lock', lock, '--skills-dir', root])
+    const skills = loadLock(lock).skills
+    expect(skills.find((s) => s.name === 'audit-skill')?.onlyFor).toEqual([AUDIT])
+    expect(skills.find((s) => s.name === 'base-skill')).not.toHaveProperty('onlyFor')
+  })
+
+  it('--promote 既有的限定技能 → 保留 onlyFor', () => {
+    const proposals = join(tmp, 'of-prom-proposals')
+    mkdirSync(join(proposals, 'audit-skill'), { recursive: true })
+    writeFileSync(join(proposals, 'audit-skill', 'SKILL.md'), '---\nname: audit-skill\ndescription: d\n---\nv2')
+    const { root, lock } = fixture('of-prom', ['base-skill', 'audit-skill'])
+    main(['--promote', 'audit-skill', '--lock', lock, '--skills-dir', root, '--proposals-dir', proposals])
+    expect(loadLock(lock).skills.find((s) => s.name === 'audit-skill')?.onlyFor).toEqual([AUDIT])
+  })
+
+  it('onlyFor 須為工作項類型且非空（打錯字寧可紅燈）', () => {
+    for (const onlyFor of [[], ['pbt-audit'], ['agent-PBT']]) {
+      const lock = writeLock('of-bad.json', { version: 1, skills: [{ name: 'x', sha256: 'a'.repeat(64), onlyFor }] })
+      expect(() => loadLock(lock)).toThrow(CliError)
+    }
+  })
+
+  it('parseArgs：--excluded-for 缺值、與其他模式並用、--task-type 用在 --update → CliError', () => {
+    expect(() => parseArgs(['--excluded-for'])).toThrow(CliError)
+    expect(() => parseArgs(['--verify', '--excluded-for', AUDIT])).toThrow(CliError)
+    expect(() => parseArgs(['--update', '--task-type', AUDIT])).toThrow(CliError)
+    expect(parseArgs(['--verify', '--task-type', AUDIT]).taskType).toBe(AUDIT)
   })
 })

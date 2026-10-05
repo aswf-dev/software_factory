@@ -11,6 +11,9 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DOD_LABELS, FIELD_TITLES } from '../../src/cli/factory-issue-check.js'
+import { IN_LOOP_ALLOWED_TASK_TYPES, OUTPUT_ONLY_TASK_TYPES } from '../../src/cli/apply-score-labels.js'
+import { checkPbtAuditScope } from '../../src/pbt-audit/scope.js'
+import { NO_AUTOMERGE_TASK_TYPES } from '../../src/pipeline/no-automerge.js'
 import { buildIssueBody } from '../../src/factory-draft/issue-body.js'
 import { SPEC_NAME_MAX, SPEC_NAME_PATTERN } from '../../src/write-spec/intake.js'
 // Issue #287：三軸合法值的單一真相來源。測試若重打字串，測試自己就是下一個漂移點。
@@ -444,6 +447,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'task-template-update-deps.txt',
       'task-template-write-docs.txt',
       'task-template-write-spec.txt',
+      'task-template-pbt-audit.txt',
     ]) {
       const c = read(`.github/factory/${t}`)
       expect(c).toContain('<REPO>')
@@ -452,7 +456,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       expect(c).toContain('export BASE_BRANCH=$(cat .factory/run/base-branch')
     }
   })
-  it('7 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
+  it('8 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
     const w = read('.github/workflows/factory-run.yml')
     const m = w.match(/^ {8}options: \[(.+)\]$/m)
     expect(m).not.toBeNull()
@@ -468,6 +472,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'agent-write-spec',
       'agent-analyze',
       'agent-propose-skill',
+      'agent-pbt-audit',
     ])
     // 檔名慣例：task-template-<type>.txt（type 無 agent- 前綴）——
     // 路由必須剝除前綴，否則專屬模板永遠拼不出檔名（2026-08-21 實測抓到的
@@ -525,6 +530,123 @@ describe('factory-metrics 資產（docs/08 §2/§7，Phase 2 T5）', () => {
     const content = read('scripts/weekly-metrics.sh')
     expect(content).toContain('defect/escape')
     expect(content).toContain('factory-metrics')
+  })
+})
+
+describe('agent-pbt-audit 的 in-loop 豁免前提與接線（ADR-019 R11、§5）', () => {
+  /**
+   * in-loop 豁免只有在兩個機械前提同時成立時才安全：①crosscheck 只放行 PBT 測試檔
+   * ②類型層級禁止自動合併。這裡把豁免名單與前提綁在一起——任何一個前提被拿掉
+   *（從 NO_AUTOMERGE 移除、workflow 不再帶 crosscheck 旗標、白名單被放寬），本測試轉紅。
+   * 新增豁免類型時，必須在 CROSSCHECK_FLAG 補上它的白名單模式，否則也轉紅。
+   */
+  const CROSSCHECK_FLAG: Record<string, string> = { 'agent-pbt-audit': '--pbt-audit-only' }
+
+  it('豁免名單的每個類型都在 NO_AUTOMERGE_TASK_TYPES 內（前提②）', () => {
+    for (const t of IN_LOOP_ALLOWED_TASK_TYPES) {
+      expect(NO_AUTOMERGE_TASK_TYPES as readonly string[], t).toContain(t)
+    }
+  })
+  it('豁免名單的每個類型在 workflow 都帶白名單模式的 crosscheck 旗標（前提①）', () => {
+    const wf = read('.github/workflows/factory-run.yml')
+    expect(Object.keys(CROSSCHECK_FLAG).sort()).toEqual([...IN_LOOP_ALLOWED_TASK_TYPES].sort())
+    for (const t of IN_LOOP_ALLOWED_TASK_TYPES) {
+      const flag = CROSSCHECK_FLAG[t] as string
+      expect(wf).toMatch(new RegExp(`"${t}" \\]; then[\\s\\S]{0,400}?ANALYZE_FLAG="${flag}"`))
+    }
+  })
+  it('pbt-audit 白名單確實擋下產品程式碼、設定、依賴與刪除（前提①的實質）', () => {
+    for (const p of ['src/Tick.ts', 'package.json', 'package-lock.json', '.github/workflows/test.yml', 'jest.config.js', 'test/jest/Tick.test.ts']) {
+      expect(checkPbtAuditScope([p], []).length, p).toBeGreaterThan(0)
+    }
+    expect(checkPbtAuditScope(['test/a.pbt.test.ts'], ['test/a.pbt.test.ts']).length).toBeGreaterThan(0)
+    expect(checkPbtAuditScope(['test/jest/Tick.pbt.test.ts'], [])).toEqual([])
+  })
+  it('豁免沒有混進 output-only 名單（audit 會開 PR，不是不具放行效力的產出）', () => {
+    for (const t of IN_LOOP_ALLOWED_TASK_TYPES) {
+      expect(OUTPUT_ONLY_TASK_TYPES as readonly string[]).not.toContain(t)
+    }
+  })
+
+  it('workflow：pbt/audit 標籤 bootstrap、preflight 硬性 gate（留言＋needs-human＋exit 1）', () => {
+    const wf = read('.github/workflows/factory-run.yml')
+    expect(wf).toContain('gh label create "pbt/audit"')
+    const step = wf.slice(wf.indexOf('- name: PBT audit preflight'), wf.indexOf('- name: Select model tier'))
+    expect(step).toContain("if: steps.tasktype.outputs.value == 'agent-pbt-audit'")
+    expect(step).toContain('--add-label "pbt/audit"')
+    expect(step).toContain('factory-pbt-preflight.js')
+    expect(step).toContain('--add-label "needs-human"')
+    expect(step).toMatch(/exit 1/)
+    // 必須在 agent 之前，否則擋不住浪費預算
+    expect(wf.indexOf('- name: PBT audit preflight')).toBeLessThan(wf.indexOf('- name: Run factory agent'))
+  })
+  it('workflow：PBT 稽核摘要排在 G1 終態守衛之後（留言含 run id，排前面會讓守衛誤判已有終態）', () => {
+    const wf = read('.github/workflows/factory-run.yml')
+    const guard = wf.indexOf('- name: Ensure terminal state (guard)')
+    const summary = wf.indexOf('- name: Post PBT audit summary')
+    expect(guard).toBeGreaterThan(0)
+    expect(summary).toBeGreaterThan(guard)
+    expect(wf).toContain('AGENT_START_EPOCH=$(date +%s)')
+    expect(wf).toContain('AGENT_END_EPOCH=$(date +%s)')
+  })
+  it('task-template-pbt-audit：載入 hegel／hegel-review、只改 PBT 檔、20 seeds、不開 Issue、立即停止', () => {
+    const c = read('.github/factory/task-template-pbt-audit.txt')
+    for (const s of ['**hegel**', '**hegel-review**', 'smoke property', '// source:', '20 個隨機 seed', '不要開 Issue', 'pbtAudit', '立即停止']) {
+      expect(c, s).toContain(s)
+    }
+  })
+})
+
+describe('Hegel skills vendor 與類型專屬派送（ADR-019 §7、R7）', () => {
+  const HEGEL_SKILLS = ['hegel', 'hegel-review']
+  const UPSTREAM_SHA = 'a60b28243199b24aeebb2c90aece34082ee4997c'
+
+  it('vendor 的 hegel skills 存在，frontmatter name 與目錄同名（不同名會被 DSH 以錯的名字載入）', () => {
+    for (const name of HEGEL_SKILLS) {
+      const content = read(`.dsh/skills/${name}/SKILL.md`)
+      expect(content).toMatch(new RegExp(`^name: ${name}$`, 'm'))
+      expect(content).toMatch(/^description: /m)
+    }
+    // hegel 是 bundle：techniques/ 被 SKILL.md 引用，漏帶就是不完整的 vendor
+    for (const t of ['directions', 'generators', 'running', 'scale', 'surfaces', 'triage']) {
+      expect(existsSync(join(ROOT, `.dsh/skills/hegel/techniques/${t}.md`)), t).toBe(true)
+    }
+  })
+
+  it('全部已生效技能的 frontmatter name 都與目錄同名', () => {
+    for (const dir of readdirSync(join(ROOT, '.dsh/skills'))) {
+      const p = `.dsh/skills/${dir}/SKILL.md`
+      if (!existsSync(join(ROOT, p))) continue
+      expect(read(p), p).toMatch(new RegExp(`^name: ${dir}$`, 'm'))
+    }
+  })
+
+  it('上游 commit SHA 在 ADR-019、NOTICE 一致（保持上游不變才能直接拉新版）', () => {
+    expect(read('docs/ADR/019-property-based-testing-hegel.md')).toContain(UPSTREAM_SHA)
+    const notice = read('NOTICE')
+    expect(notice).toContain('https://github.com/hegeldev/hegel-skill')
+    expect(notice).toContain(UPSTREAM_SHA)
+    for (const name of HEGEL_SKILLS) expect(notice).toContain(`.dsh/skills/${name}/`)
+  })
+
+  it('skills-lock 把 hegel skills 限定給 agent-pbt-audit', () => {
+    const lock = JSON.parse(read('config/factory/skills-lock.json')) as {
+      skills: { name: string; onlyFor?: string[] }[]
+    }
+    for (const name of HEGEL_SKILLS) {
+      expect(lock.skills.find((s) => s.name === name)?.onlyFor, name).toEqual(['agent-pbt-audit'])
+    }
+    // 工廠自己的 SOP 必須派送給所有類型——限定它們等於讓某類 run 失去停手規則
+    for (const name of ['factory-workflow', 'factory-stop-rules', 'factory-self-review', 'factory-pr-stacking']) {
+      expect(lock.skills.find((s) => s.name === name)?.onlyFor, name).toBeUndefined()
+    }
+  })
+
+  it('factory-run 依類型篩選技能，不得整包複製 .dsh/skills（否則 hegel 外溢到所有工單）', () => {
+    const wf = read('.github/workflows/factory-run.yml')
+    expect(wf).not.toMatch(/cp -r "\$GITHUB_WORKSPACE\/\.dsh\/skills\/\."/)
+    expect(wf).toContain('--excluded-for "$TASK_TYPE"')
+    expect(wf).toMatch(/--verify \\\n\s+--task-type "\$TASK_TYPE"/)
   })
 })
 
@@ -649,7 +771,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     const labels = [...yml.matchAll(/^ {8}- label: (.+)$/gm)].map((m) => m[1])
     expect(labels).toEqual([...DOD_LABELS])
   })
-  it('ISSUE_TEMPLATE 的 task_type 7 種選項齊全', () => {
+  it('ISSUE_TEMPLATE 的 task_type 8 種選項齊全', () => {
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     for (const t of [
       'agent-add-tests',
@@ -659,6 +781,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-write-spec',
       'agent-analyze',
       'agent-propose-skill',
+      'agent-pbt-audit',
     ]) {
       expect(yml).toContain(t)
     }
@@ -731,7 +854,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'factory-run 不得再有固定類型的 input 預設',
     ).not.toContain('default: agent-add-tests')
   })
-  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（7 型，2026-09-01 C1 漂移修復）', () => {
+  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（8 型，2026-09-01 C1 漂移修復）', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     const expected = [
@@ -742,6 +865,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-write-spec',
       'agent-analyze',
       'agent-propose-skill',
+      'agent-pbt-audit',
     ]
     for (const ty of expected) {
       expect(t).toContain(ty)

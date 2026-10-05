@@ -83,6 +83,16 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // pbt-audit decides whether an audit may run on an in-loop repo at all:
+        // its scope check is one of the two premises of that exemption
+        // (docs/ADR/019 R11), and its intake/preflight decide dispatch. An
+        // untested branch here is an unverified permission path.
+        'src/pbt-audit/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
         // write-spec decides whether a spec work item may be dispatched at all
         // (high-risk gate, spec source) and, later, which phase it runs
         // (docs/ADR/018); an untested branch is an unverified permission path.

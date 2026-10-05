@@ -25,7 +25,7 @@ on:
         description: 任務類型（決定 task-template 與 skill 分支）；auto = 以 Issue 宣告為準
         required: false
         type: choice
-        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-write-spec, agent-analyze, agent-propose-skill]
+        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-write-spec, agent-analyze, agent-propose-skill, agent-pbt-audit]
         default: auto
       repo:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
@@ -223,6 +223,8 @@ jobs:
           gh label create "spec/phase-model"      --color "5319e7" --force
           gh label create "spec/model-declined"   --color "cccccc" --force
           gh label create "spec/model-outdated"   --color "e99695" --force
+          # agent-pbt-audit（ADR-019 R2）：判定類型後自動貼上，只用於篩選與試行統計。
+          gh label create "pbt/audit"             --color "bfd4f2" --force
           echo "factory labels ensured ($GH_REPO)"
 
       # 集中式 Issue 格式檢查（ADR-012）：檢查邏輯只存在機制 repo（dist CLI），
@@ -462,6 +464,42 @@ jobs:
         run: |
           echo "blocked-in-loop; agent 未啟動（docs/06 §4.3）"
 
+      # agent-pbt-audit 前置檢查（ADR-019 R2、R3、前置作業）——agent 啟動前的硬性 gate。
+      #
+      # 為何是 gate 而不是 quint preflight 那種警告：Hegel 依賴沒裝好時，agent 一定會
+      # 在 SR5（不得新增依賴）停下，白名單也不准它改 package.json——跑下去只是浪費整個
+      # agent 預算。write-spec 沒裝 quint 還能部分完成，audit 沒有這種情況。
+      #
+      # 稽核目標在這裡重判一次：dispatch 可用 task_type 覆寫 Issue 宣告的類型，那時
+      # 上面的 issue-check 沒有跑 audit 的檢查。失敗時留言（內嵌 run id，供 G1／G2
+      # 去重）並貼 needs-human；agent 步驟因 if: success() 被跳過。
+      - name: PBT audit preflight
+        id: pbt-preflight
+        if: steps.tasktype.outputs.value == 'agent-pbt-audit'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          set -uo pipefail
+          gh issue edit "${{ inputs.issue_number }}" --add-label "pbt/audit"
+          gh issue view "${{ inputs.issue_number }}" --json body > .factory/pbt-issue.json
+          node dist/cli/factory-pbt-preflight.js \
+            --issue-json .factory/pbt-issue.json \
+            --target-root target > .factory/pbt-preflight.json
+          PREFLIGHT_RC=$?
+          cat .factory/pbt-preflight.json
+          if [ "$PREFLIGHT_RC" -ne 0 ]; then
+            if jq -e .comment .factory/pbt-preflight.json >/dev/null 2>&1; then
+              jq -r .comment .factory/pbt-preflight.json > .factory/pbt-preflight.md
+            else
+              printf '❌ **PBT 稽核前置檢查無法執行**（run: %s）：factory-pbt-preflight 異常結束，詳見 run log。\n' "${{ github.run_id }}" > .factory/pbt-preflight.md
+            fi
+            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/pbt-preflight.md
+            gh issue edit "${{ inputs.issue_number }}" --add-label "needs-human"
+            echo "::error::PBT 稽核前置檢查未通過——agent 未啟動"
+            exit 1
+          fi
+
       # Step 2.5 — 模型 tier 選擇（docs/ADR/011, docs/04 §7）。
       # 以「Issue 需求分析（零 LLM 成本）＋初始計分」決定 model chain；agent 步驟
       # 沿 chain 依序嘗試（provider 層失敗 fallback）。dry_run 也執行以驗證接線。
@@ -625,6 +663,9 @@ jobs:
           GIT_COMMITTER_EMAIL: softwarefactory-bot[bot]@users.noreply.github.com
         run: |
           set +e
+          # agent 牆鐘（ADR-019 R10：PBT 稽核留言的「機制實測」）。寫 GITHUB_ENV 而非
+          # report.json：report 由 agent 自己寫，受測者填寫的量測值沒有意義。
+          echo "AGENT_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
           if [ "${{ inputs.dry_run }}" == "true" ]; then
             # agent 一律在目標 repo checkout 內工作（sandbox workspaceRoot = cwd）
             cd target
@@ -641,13 +682,40 @@ jobs:
             # 目標 repo 不再複製 .dsh/skills（DRIFT-ELIMINATION）——同步到
             # $HOME/.dsh/skills（DSH rank 400 user-dsh）供 agent 載入。
             mkdir -p "$HOME/.dsh/skills"
-            cp -r "$GITHUB_WORKSPACE/.dsh/skills/." "$HOME/.dsh/skills/"
+            # 類型專屬技能（ADR-019 R7）：skills-lock.json 標了 onlyFor 的技能只複製給
+            # 列出的類型。不能整包 cp：DSH 依 description 自動載入，而 `hegel` 的
+            # description 會在「write tests / add test coverage」時觸發——正是
+            # add-tests、fix-bug 每張工單的內容。Quint 靠 description 窄而沒有外溢，
+            # Hegel 沒有這個條件，且原封不動 vendor 不能改 description。
+            # 名單取不到時 fail closed（set +e 下需顯式 exit）：寧可不跑，也不要
+            # 在篩選失效的情況下讓 agent 拿到不該拿的 SOP。
+            SKILLS_EXCLUDED_JSON=$(node "$GITHUB_WORKSPACE/dist/cli/factory-skills-lock.js" \
+              --excluded-for "$TASK_TYPE" \
+              --lock "$GITHUB_WORKSPACE/config/factory/skills-lock.json")
+            EXCLUDED_RC=$?
+            SKILLS_EXCLUDED=$(printf '%s' "$SKILLS_EXCLUDED_JSON" | jq -er 'if (.excluded | type) == "array" then .excluded[] else error("excluded 欄位缺失") end')
+            JQ_RC=$?
+            # jq -e：空名單時 exit 4（沒有輸出）；非 JSON 或缺 excluded 欄位時 exit 5——只有後者算失敗。
+            if [ "$EXCLUDED_RC" -ne 0 ] || { [ "$JQ_RC" -ne 0 ] && [ "$JQ_RC" -ne 4 ]; }; then
+              echo "::error::無法取得類型專屬技能名單（factory-skills-lock --excluded-for 失敗）"
+              exit 1
+            fi
+            for SKILL_DIR in "$GITHUB_WORKSPACE"/.dsh/skills/*/; do
+              SKILL_NAME=$(basename "$SKILL_DIR")
+              if printf '%s\n' "$SKILLS_EXCLUDED" | grep -qxF "$SKILL_NAME"; then
+                echo "skill skipped for ${TASK_TYPE}: ${SKILL_NAME}"
+                continue
+              fi
+              mkdir -p "$HOME/.dsh/skills/$SKILL_NAME"
+              cp -r "$SKILL_DIR". "$HOME/.dsh/skills/$SKILL_NAME/"
+            done
             echo "skills synced: $(ls "$HOME/.dsh/skills" | tr '\n' ' ')"
             # 技能傳輸完整性校驗（E5／ADR-016 §5）：上面的 cp 若不完整，agent 會
             # 安靜地在缺少 factory-stop-rules 的情況下執行。CLI 恆 exit 0（第一階段
             # 僅警告不擋 run，Q16-2 待人類裁決是否升紅燈），故此處不需 || true。
             SKILLS_LOCK_OUT=$(node "$GITHUB_WORKSPACE/dist/cli/factory-skills-lock.js" \
               --verify \
+              --task-type "$TASK_TYPE" \
               --lock "$GITHUB_WORKSPACE/config/factory/skills-lock.json" \
               --skills-dir "$HOME/.dsh/skills")
             echo "$SKILLS_LOCK_OUT"
@@ -809,6 +877,7 @@ jobs:
             echo "inner_timeout=$TIMED_OUT attempts=$ATTEMPT stop_reason=${STOP_REASON:-none}" >> "$GITHUB_OUTPUT"
           fi
           set -e
+          echo "AGENT_END_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           # fallback：agent 未寫 report 時依 exit code 補最小 report（cwd=target）。
           # A2：帶上決定性的止原因與 chain 歸因，讓 judge/scoreboard 不必從 log 猜。
@@ -918,6 +987,11 @@ jobs:
             if [ "${{ steps.specphase.outputs.phase }}" = "invariants" ]; then
               ANALYZE_FLAG="$ANALYZE_FLAG --source-snapshot .factory/spec-source-snapshot.md"
             fi
+          elif [ "${{ steps.tasktype.outputs.value }}" = "agent-pbt-audit" ]; then
+            # pbt-audit（ADR-019 §5、R6）：只允許新增或修改 PBT 測試檔、不得刪除。
+            # 這是 in-loop 豁免的前提之一（apply-score-labels.ts IN_LOOP_ALLOWED_TASK_TYPES）。
+            # 其他類型不帶旗標時，crosscheck 反過來檢查「不得產出 PBT 檔」。
+            ANALYZE_FLAG="--pbt-audit-only"
           fi
           # REQ id 錨定（RTM）：由 Issue body 的驗收條目重建 REQ-n 清單，交給
           # crosscheck 比對 report.requirements[].id。**advisory**——對不上不擋 run
@@ -1119,6 +1193,35 @@ jobs:
             else
               gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
             fi
+          fi
+
+      # PBT 稽核摘要（ADR-019 R4、R10）：候選發現與試行指標由**機制**貼到稽核 Issue
+      #（agent 不開 Issue、不自己留言）。Issue 留言永久保存，是試行報告的資料來源。
+      #
+      # 刻意排在 G1 終態守衛**之後**：這則留言內嵌 run id，若排在守衛之前，judge／labels
+      # 失敗時守衛會 grep 到它而誤判「已有終態紀錄」，needs-human 就不會被補上。
+      # CLI 恆 exit 0（留言是紀錄不是 gate）；AGENT_END_EPOCH 缺席代表 agent 步驟
+      # 被砍（逾時），以現在時間代替，讓「卡住」在牆鐘上看得見。
+      - name: Post PBT audit summary
+        if: always() && steps.tasktype.outputs.value == 'agent-pbt-audit' && steps.agent.outcome != 'skipped' && inputs.dry_run != true
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          node dist/cli/factory-pbt-audit-comment.js \
+            --issue "${{ inputs.issue_number }}" \
+            --report target/.factory/run/report.json \
+            --target target \
+            --base "${{ inputs.base_branch }}" \
+            --run-id "${{ github.run_id }}" \
+            --agent-start "${AGENT_START_EPOCH:-}" \
+            --agent-end "${AGENT_END_EPOCH:-$(date +%s)}" \
+            > .factory/pbt-audit-summary.md
+          if [ -s .factory/pbt-audit-summary.md ]; then
+            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/pbt-audit-summary.md
+          else
+            echo "::warning::PBT 稽核摘要產生失敗（不擋 run）"
           fi
 
       # Step 6（人類）— 第 1 期不自動合併；留言告知等待審查

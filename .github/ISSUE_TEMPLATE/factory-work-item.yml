@@ -16,6 +16,7 @@ body:
         - agent-write-spec
         - agent-analyze
         - agent-propose-skill
+        - agent-pbt-audit
     validations:
       required: true
   - type: textarea
@@ -23,6 +24,7 @@ body:
     attributes:
       label: 需求描述（PRD）
       description: 做什麼、為什麼、範圍。缺可驗證的驗收條件時，agent 會依 factory-stop-rules 停手（SR4）。
+      # agent-pbt-audit：「目標模組 / 檔案：」必須恰好一個路徑（稽核範圍，ADR-019 R3）。
       placeholder: |
         目標模組 / 檔案：
         做什麼（一句話）：

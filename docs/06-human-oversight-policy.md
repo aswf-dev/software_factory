@@ -118,6 +118,8 @@
 - [ ] 未觸發任何 `factory-stop-rules` 條款
 
 > **類型級限制（工作類型唯一施力點）**：因 `task_type` 不進入計分（§5.2 註記），自動合併閘門對「工作類型」完全無感——計分程式（`src/scoring/score.ts`）機械判定的只有：總分 0–1、擁有者否決、硬性規則觸發、變更行數上限（200）。清單第一條（屬於 §4.2 明列類別）因而是**類型語意唯一的施力點**：宣告為語意高風險的任務（如安全修復類工作），只能靠這條擋下，而該條由審查者於 PR 審查時判斷、非計分程式判定。相關局限見 §8 局限 3。
+>
+> **機械化的類型級限制（2026-10-05 補記）**：計分之後另有一層**不改計分**的類型規則（`src/pipeline/no-automerge.ts` 的 `NO_AUTOMERGE_TASK_TYPES`）：`agent-write-spec`（ADR-018 護欄②）與 `agent-pbt-audit`（ADR-019 §5，試行期）即使計分允許，也一律降為 ready-for-review。反方向的 in-loop 放行同樣按類型：`OUTPUT_ONLY_TASK_TYPES`（analyze、propose-skill）與 `IN_LOOP_ALLOWED_TASK_TYPES`（pbt-audit，前提是 crosscheck 只放行 PBT 測試檔，且在 `NO_AUTOMERGE_TASK_TYPES` 內）。兩者都只收緊或在白名單前提下放行，tier 與標籤不變。
 
 > **設計理由**：任一條件不滿足即退回「人類審查必要」。這是**單向棘輪**——條件只能收緊不能放寬，且 `factory.io/agent-automerge: "false"` 給予服務擁有者無條件否決權（`03` §2.2）。
 
@@ -173,7 +175,7 @@ Issue 建立/標記 ready
 
 > **註記（計分與任務類型正交）：工作類型（`task_type`）不是計分輸入。**
 > 計分程式的輸入（實作見 `src/scoring/types.ts` 的 `ScoreInput`）只有上表的標註（annotations）、變更路徑、變更行數與硬性規則路徑模式四項——任務類型（如 `agent-write-docs`、`agent-fix-bug`）**完全不進入計分**，不會抬高或降低任何一軸分數。這是刻意設計而非缺陷：Issue 本文可能由 agent 起草（`factory-draft`），若類型進入計分，等同讓被判定者參與判定，直接抵觸 §5.1「agent 無權參與判定」。
-> `task_type` 的實際用途僅有三處：格式檢查（`factory-issue-check` 要求該欄位存在）、模型路由與複雜度**建議**（`factory-model`；該建議以留言展示、不進入監督計分，見 §8 局限 2）、派工辨識。類型語意若承載高風險，唯一的施力點是 §4.1 的「類型級限制」；計分後果見 §8 局限 3。
+> `task_type` 的實際用途：格式檢查（`factory-issue-check` 要求該欄位存在，write-spec／pbt-audit 另有專屬欄位或範圍檢查）、模型路由與複雜度**建議**（`factory-model`；該建議以留言展示、不進入監督計分，見 §8 局限 2）、派工辨識（task-template、crosscheck 白名單模式、類型專屬 skill 派送），以及 §4.1 補記的類型級限制。類型語意若承載高風險，唯一的施力點是 §4.1 的「類型級限制」；計分後果見 §8 局限 3。
 
 ```yaml
 # .github/factory/risk-paths.yml — 風險硬性規則的路徑模式

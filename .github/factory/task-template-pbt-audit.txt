@@ -1,0 +1,22 @@
+處理 GitHub Issue #<ISSUE>（repo: <REPO>，工廠 trunk 分支: <BASE_BRANCH>）。
+
+1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules，以及 **hegel** 與 **hegel-review** 兩個 skill（本類型專屬，其他類型的 run 不會派送它們）。
+   **輸出紀律（重要）**：設計/推導/思考過程**不要輸出到 stdout**——直接撰寫測試檔；stdout 只用於簡短進度與最終摘要（PR 編號、驗證結果、.factory/run/report.json 摘要）。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
+2. 若環境變數 GH_TOKEN 不存在，先執行：
+   export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)
+   export GH_REPO=$(cat .factory/run/repo 2>/dev/null)
+   export BASE_BRANCH=$(cat .factory/run/base-branch 2>/dev/null)
+3. **本類型是事後稽核（agent-pbt-audit，ADR-019）**：對 Issue「目標模組 / 檔案：」宣告的**一個**既有模組寫 property-based test。稽核目標與前置作業（Hegel 依賴、`.gitignore` 的 `.hegel/`）已由 CI 機械檢查通過。
+   - **只能新增或修改 PBT 測試檔**，命名依 factory-workflow 的語言表（TS/JS 為 `*.pbt.test.ts` 等）。**不得修改產品程式碼、既有範例測試、設定、依賴，不得刪除任何檔案**——crosscheck 以 pbt-audit 模式驗證，越界即 needs-human。
+   - 需要改產品程式碼、設定或依賴才能跑起來 → 依 factory-stop-rules 停手，不要自行處理。
+4. **第一步先跑一個 smoke property**（最簡單的 property，確認測試 runner 能載入 Hegel）。跑不起來就依 factory-stop-rules 停手，在 report 說明缺什麼前置作業。
+5. 依 hegel skill 的流程盤點目標的公開 API、寫 property。**每個 property 都要在註解標明依據**（`// source: ...`），依據只能是：已核准的 `INV_*`、Issue 的驗收條件、通用性質（`generic/roundtrip` 等）、或**本次未修改的**既有程式碼的文件／簽章／assert。沒有依據的 property 不寫；把被測函式的邏輯重寫一份來比對不算 property。
+6. **「通過」的判定**：`CI=true`，且 **20 個隨機 seed × 每 seed 5000 cases** 全部通過，才可放進 PR。指令與參數見 factory-workflow 的語言補充說明。
+   - 失敗的 property **不放進 PR、不用 skip**：寫進 `.factory/run/report.json` 的 `pbtAudit.findings`（格式見 factory-workflow）。
+   - **不要開 Issue、不要在 Issue 留言貼發現**——候選發現由 CI 統一貼到本 Issue，人類確認後才開 agent-fix-bug。
+   - 不要修 bug：同一個 run 自己出題、自己修，違反獨立性原則。
+7. 提交前依 factory-self-review 自審，**逐條跑 hegel-review 的 12 點**。依 factory-pr-stacking：pbt-audit 為**單層**——僅 01-test（base 為 $BASE_BRANCH，絕不 push 到 main）。PR 一律交人類審查，不會自動合併。
+8. 完成後在 Issue 留言回報 PR 編號，並依 factory-workflow 寫出 .factory/run/report.json（含 `pbtAudit`）。
+9. **完成後立即停止**：report.json 寫完即為工作項終點——不要繼續任何額外工作（重跑測試、額外驗證、自我檢查、輸出思考）。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到 timeout。
+
+若觸發任何停手規則，依該規則處理後結束。

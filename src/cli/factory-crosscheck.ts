@@ -32,6 +32,7 @@ import {
   specPaths,
   type SpecPhase,
 } from '../write-spec/scope.js'
+import { checkPbtAuditScope, checkPbtOutsideAudit } from '../pbt-audit/scope.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, formatCliError } from './run-cli.js'
@@ -504,7 +505,7 @@ export interface WriteSpecArgs {
 /**
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
- *  [--propose-skill-only] [--onboard-only]
+ *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only]
  *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
  *   [--source-snapshot <file>]]`。
  */
@@ -515,6 +516,7 @@ export function parseArgs(argv: string[]): {
   analyzeOnly: boolean
   proposeSkillOnly: boolean
   onboardOnly: boolean
+  pbtAuditOnly: boolean
   requirementAnchors: string[]
   writeSpec?: WriteSpecArgs | undefined
 } {
@@ -524,6 +526,7 @@ export function parseArgs(argv: string[]): {
   let analyzeOnly = false
   let proposeSkillOnly = false
   let onboardOnly = false
+  let pbtAuditOnly = false
   let requirementAnchors: string[] = []
   let specPhase: string | undefined
   let specName: string | undefined
@@ -550,6 +553,8 @@ export function parseArgs(argv: string[]): {
       proposeSkillOnly = true
     } else if (arg === '--onboard-only') {
       onboardOnly = true
+    } else if (arg === '--pbt-audit-only') {
+      pbtAuditOnly = true
     } else if (arg === '--requirement-anchors') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) {
@@ -578,6 +583,7 @@ export function parseArgs(argv: string[]): {
       ['--analyze-only', analyzeOnly],
       ['--propose-skill-only', proposeSkillOnly],
       ['--onboard-only', onboardOnly],
+      ['--pbt-audit-only', pbtAuditOnly],
       ['--write-spec-phase', specPhase !== undefined],
     ] as const
   )
@@ -614,9 +620,34 @@ export function parseArgs(argv: string[]): {
     analyzeOnly,
     proposeSkillOnly,
     onboardOnly,
+    pbtAuditOnly,
     requirementAnchors,
     writeSpec,
   }
+}
+
+/**
+ * 各 factory 分支相對 base 被刪除的檔案（agent-pbt-audit 用，ADR-019 §5）。
+ *
+ * `--no-renames` 是必要的：預設的 rename 偵測會把「刪 A、加 B」顯示成一筆改名，
+ * `--name-only` 只列新路徑——把產品檔改名成 `*.pbt.test.*` 就能讓刪除從白名單
+ * 檢查中消失。關掉 rename 偵測後，舊路徑一定以刪除出現。
+ */
+export function collectDeletedPaths(
+  git: GitRunner,
+  opts: { base: string; target: string; branches: readonly string[] },
+): string[] {
+  const out: string[] = []
+  for (const branch of opts.branches) {
+    const names = parseDiffNameOnly(
+      git(['diff', '--name-only', '--no-renames', '--diff-filter=D', `${opts.base}...${branch}`], opts.target),
+    )
+    for (const raw of names) {
+      const n = normalizePath(raw)
+      if (!out.includes(n)) out.push(n)
+    }
+  }
+  return out
 }
 
 /** 讀 --pr-bodies：必須是字串陣列，否則 fail-loud（格式錯誤不得等同「沒有 PR」）。 */
@@ -649,6 +680,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     analyzeOnly,
     proposeSkillOnly,
     onboardOnly,
+    pbtAuditOnly,
     requirementAnchors,
     writeSpec,
   } = parseArgs(argv)
@@ -661,6 +693,19 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     proposeSkillOnly,
     onboardOnly,
   )
+  // PBT 範圍（ADR-019 §2、§5、R6）：audit 只能新增或修改 PBT 檔、不得刪除；其他類型
+  // 不得產出 PBT 檔。前者是 in-loop 豁免的前提之一（apply-score-labels.ts）。
+  const changed = actual.paths.filter((p) => !isFactoryInternal(p))
+  if (pbtAuditOnly) {
+    const deleted = collectDeletedPaths(git, {
+      base: paths.base,
+      target: paths.target,
+      branches: actual.branches,
+    }).filter((p) => !isFactoryInternal(p))
+    mismatches.push(...checkPbtAuditScope([...new Set([...changed, ...deleted])], deleted))
+  } else {
+    mismatches.push(...checkPbtOutsideAudit(changed))
+  }
   // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
   const advisories = compareRequirementIds(report.requirements, requirementAnchors)
   if (writeSpec !== undefined) {

@@ -1,7 +1,7 @@
 /**
  * factory-issue-check 測試（Issue 格式檢查器，零 LLM 成本）。
  */
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -866,5 +866,73 @@ describe('main：規格情境（catalog 與目標 repo 檔案樹）', () => {
     )
     expect(out.result.ok).toBe(true)
     expect(out.result.spec?.deferred.join()).toMatch(/存在性/)
+  })
+})
+
+/* ── agent-pbt-audit 稽核目標（ADR-019 R3）──────────────────────────────── */
+
+const pbtAuditBody = (prd: string): string =>
+  writeSpecBody({ prd }).replace('\nagent-write-spec\n', '\nagent-pbt-audit\n')
+
+const AUDIT_REPO = {
+  pathKind: (rel: string) =>
+    rel === 'src/options/TickSizeCalculator.ts' ? ('file' as const) : rel === 'src/options' ? ('dir' as const) : undefined,
+  listFiles: () => ['src/options/TickSizeCalculator.ts', 'src/options/Spb.ts'],
+}
+
+describe('checkIssue：agent-pbt-audit', () => {
+  it('非 audit 類型 → 不做稽核目標檢查', () => {
+    expect(checkIssue(COMPLIANT).pbtAudit).toBeUndefined()
+  })
+  it('單一存在的 TS 檔 → 合規、語言 typescript', () => {
+    const r = checkIssue(pbtAuditBody('目標模組 / 檔案：src/options/TickSizeCalculator.ts\n做什麼：稽核'), undefined, AUDIT_REPO)
+    expect(r.ok).toBe(true)
+    expect(r.pbtAudit).toMatchObject({ target: 'src/options/TickSizeCalculator.ts', language: 'typescript', errors: [] })
+  })
+  it('宣告兩個目標 → 不合規', () => {
+    const r = checkIssue(pbtAuditBody('目標模組 / 檔案：\n- src/a.ts\n- src/b.ts'), undefined, AUDIT_REPO)
+    expect(r.ok).toBe(false)
+    expect(r.pbtAudit?.errors[0]).toContain('拆成多張工單')
+  })
+  it('目標不存在於目標 repo → 不合規', () => {
+    expect(checkIssue(pbtAuditBody('目標模組 / 檔案：src/missing.ts'), undefined, AUDIT_REPO).ok).toBe(false)
+  })
+  it('沒有目標 repo checkout（機制 repo 的 issues 事件）→ 存在性延後，不判錯', () => {
+    const r = checkIssue(pbtAuditBody('目標模組 / 檔案：src/options/TickSizeCalculator.ts'))
+    expect(r.ok).toBe(true)
+    expect(r.pbtAudit?.deferred).toHaveLength(1)
+  })
+})
+
+describe('buildCheckComment：agent-pbt-audit', () => {
+  it('不合規 → 「格式不合規」並逐條列出', () => {
+    const c = buildCheckComment(checkIssue(pbtAuditBody('目標模組 / 檔案：app/price.py')))
+    expect(c).toContain('`agent-pbt-audit` 的稽核目標未通過檢查')
+    expect(c).toContain('Python')
+  })
+  it('合規 → 列出稽核目標、語言與前置作業提醒，無延後項時不出提示', () => {
+    const c = buildCheckComment(checkIssue(pbtAuditBody('目標模組 / 檔案：src/options/TickSizeCalculator.ts'), undefined, AUDIT_REPO))
+    expect(c).toContain('🔬 **PBT 稽核**')
+    expect(c).toContain('語言 `typescript`')
+    expect(c).toContain('.hegel/')
+    expect(c).not.toContain('dispatch 時才判定')
+  })
+  it('合規但目錄語言待判定 → 顯示待判定與延後項', () => {
+    const c = buildCheckComment(checkIssue(pbtAuditBody('目標模組 / 檔案：src/options')))
+    expect(c).toContain('語言待 dispatch 時判定')
+    expect(c).toContain('💡 **dispatch 時才判定的項目**')
+  })
+})
+
+describe('main：agent-pbt-audit 以 --target-root 讀目標 repo', () => {
+  it('目標存在 → 合規；不存在 → 不合規', () => {
+    const root = mkdtempSync(join(tmpdir(), 'target-'))
+    mkdirSync(join(root, 'src'))
+    writeFileSync(join(root, 'src/Tick.ts'), 'export {}')
+    const run = (target: string): ReturnType<typeof main> =>
+      main(['7', '--target-root', root], () => JSON.stringify({ body: pbtAuditBody(`目標模組 / 檔案：${target}`) }))
+    expect(run('src/Tick.ts').result.pbtAudit).toMatchObject({ language: 'typescript', errors: [] })
+    expect(run('src').result.ok).toBe(true)
+    expect(run('src/Nope.ts').result.ok).toBe(false)
   })
 })

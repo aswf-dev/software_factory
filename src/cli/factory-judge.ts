@@ -16,11 +16,11 @@
  */
 import { readFileSync } from 'node:fs'
 import { z } from 'zod'
+import { applyNoAutomergePolicy } from '../pipeline/no-automerge.js'
 import { runWorkItem, type AgentRun, type PipelineResult } from '../pipeline/run-work-item.js'
 import { adviseUnreportedSkillGap, type SkillGapAdvisory } from '../skill-gap/unreported.js'
 import { UsageReportSchema } from '../usage/report-schema.js'
 import { loadScoreInput } from './factory-score.js'
-import { applyWriteSpecMergePolicy } from '../write-spec/policy.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, runCli } from './run-cli.js'
 
@@ -248,7 +248,7 @@ export function main(argv: string[], tokenBudget?: number): JudgeCliOutput {
   const report = loadReport(reportPath)
   const { annotations, hardRulePatterns } = loadScoreInput(catalogPath, riskPathsPath)
 
-  const result = applyWriteSpecMergePolicy(
+  const result = applyNoAutomergePolicy(
     runWorkItem({
       issueNumber: report.issueNumber,
       initial: { annotations, hardRulePatterns },
