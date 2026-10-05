@@ -35,6 +35,8 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/20-work-items.md`](docs/20-work-items.md) | SDLC 改善工項清單（含狀態追蹤） |
 | [`docs/21-candidate-work-item-types.md`](docs/21-candidate-work-item-types.md) | 候選工作類型清單（活文件） |
 | [`docs/22-scoreboard-platform-evaluation.md`](docs/22-scoreboard-platform-evaluation.md) | Scoreboard 雲端平台評估（Vercel / Cloudflare / 其他 SaaS） |
+| [`docs/27-repo-onboarding.md`](docs/27-repo-onboarding.md) | 新 repo 納管流程（agent-onboard、三軸裁定、雙向探測） |
+| [`docs/29-brownfield-adoption-playbook.md`](docs/29-brownfield-adoption-playbook.md) | 棕地系統導入 Playbook：大中小型分級、就緒度、工作項類型與各級流程、人類閘門 |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
 | [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
 
