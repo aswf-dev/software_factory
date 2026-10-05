@@ -1,0 +1,14 @@
+docs/research/hegel-ts-pilot-fubon-2026-10.md
+  h_1b119f25eaf333 1-134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b7a9ce17f074fae708ea6f2f0bf86a398248efc9",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
