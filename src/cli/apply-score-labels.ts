@@ -34,14 +34,38 @@ export type ScoreLike = z.infer<typeof ScoreSchema>['score']
  */
 export const OUTPUT_ONLY_TASK_TYPES = ['agent-analyze', 'agent-propose-skill'] as const
 
+/**
+ * in-loop 仍可執行、但**會開實作 PR**的型別（ADR-019 R11）。
+ *
+ * 刻意不併入 `OUTPUT_ONLY_TASK_TYPES`：audit 的產出是會合併進 repo 的測試，不是
+ * 「不具放行效力」的報告或草案；放在同一個名單裡，讀程式的人會誤以為它也碰不到
+ * 任何會生效的東西。
+ *
+ * 允許的理由是兩個**機械前提**同時成立，缺一不可（對抗性測試
+ * `factory-assets` 釘住：名單內每個型別都必須同時滿足兩者）：
+ *  1. crosscheck 白名單只放行 PBT 測試檔、禁止刪除（`src/pbt-audit/scope.ts`）——
+ *     agent 碰不到產品程式碼、設定或依賴；
+ *  2. 類型層級禁止自動合併（`NO_AUTOMERGE_TASK_TYPES`）——PR 一律交人類審查。
+ *
+ * 一樣**不是放寬監督層級**：tier、標籤、自動合併都不變。
+ */
+export const IN_LOOP_ALLOWED_TASK_TYPES = ['agent-pbt-audit'] as const
+
 export function computeScoreLabels(
   score: ScoreLike,
   taskType?: string,
-): { labels: string[]; blocked: boolean; analyzeAllowed: boolean } {
+): { labels: string[]; blocked: boolean; analyzeAllowed: boolean; auditAllowed: boolean } {
   const inLoop = score.tier === 'in-loop'
   const analyzeAllowed =
     inLoop && (OUTPUT_ONLY_TASK_TYPES as readonly string[]).includes(taskType ?? '')
-  return { labels: [score.label], blocked: inLoop && !analyzeAllowed, analyzeAllowed }
+  const auditAllowed =
+    inLoop && (IN_LOOP_ALLOWED_TASK_TYPES as readonly string[]).includes(taskType ?? '')
+  return {
+    labels: [score.label],
+    blocked: inLoop && !analyzeAllowed && !auditAllowed,
+    analyzeAllowed,
+    auditAllowed,
+  }
 }
 
 /**
@@ -77,6 +101,16 @@ export function buildAnalyzeComment(total: number, taskType?: string): string {
   )
 }
 
+export function buildAuditComment(total: number): string {
+  return (
+    `⚠️ 初始計分 ${total} 分屬 human-in-the-loop（docs/06 §4.3），但本工作項為 ` +
+    '**agent-pbt-audit**（事後稽核，ADR-019）——允許 agent 執行，前提是兩條機械限制：' +
+    '①只能新增或修改 PBT 測試檔、不得刪除（crosscheck 以 pbt-audit 模式驗證，越界即 needs-human）；' +
+    '②類型層級禁止自動合併，audit PR 一律交人類審查。**監督層級不變**：tier、標籤、自動合併規則都照舊。' +
+    '候選發現由機制貼在本 Issue，人類確認後再開 `agent-fix-bug`。'
+  )
+}
+
 /** gh CLI 的注入點：測試以 fake runner 取代真實 gh（避免單元測試執行 gh）。 */
 export type GhRunner = (args: string[]) => void
 
@@ -91,6 +125,7 @@ export interface ScoreLabelsOutput {
   labels: string[]
   blocked: boolean
   analyzeAllowed: boolean
+  auditAllowed: boolean
 }
 
 export function main(argv: string[], gh: GhRunner = realGh): ScoreLabelsOutput {
@@ -104,14 +139,16 @@ export function main(argv: string[], gh: GhRunner = realGh): ScoreLabelsOutput {
     throw new CliError(`score (${scorePath}) is invalid: ${detail}`)
   }
 
-  const { labels, blocked, analyzeAllowed } = computeScoreLabels(parsed.data.score, taskType)
+  const { labels, blocked, analyzeAllowed, auditAllowed } = computeScoreLabels(parsed.data.score, taskType)
   gh(['issue', 'edit', issueNumber, '--add-label', labels.join(',')])
   if (blocked) {
     gh(['issue', 'comment', issueNumber, '--body', buildBlockComment(parsed.data.score.total, runId)])
   } else if (analyzeAllowed) {
     gh(['issue', 'comment', issueNumber, '--body', buildAnalyzeComment(parsed.data.score.total, taskType)])
+  } else if (auditAllowed) {
+    gh(['issue', 'comment', issueNumber, '--body', buildAuditComment(parsed.data.score.total)])
   }
-  return { labels, blocked, analyzeAllowed }
+  return { labels, blocked, analyzeAllowed, auditAllowed }
 }
 
 /* v8 ignore start -- 副作用區塊：僅在子行程直接執行時進入 */

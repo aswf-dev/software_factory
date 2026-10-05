@@ -80,3 +80,16 @@ describe('buildIssueBody：agent-write-spec 欄位（ADR-018 §11）', () => {
     expect(checkIssue(body).ok).toBe(false)
   })
 })
+
+describe('buildIssueBody：agent-pbt-audit（ADR-019 R3，沒有專屬欄位）', () => {
+  it('稽核目標寫在 PRD 的「目標模組 / 檔案：」，產出可通過 issue-check 的稽核目標檢查', () => {
+    const body = buildIssueBody({
+      ...INPUT,
+      taskType: 'agent-pbt-audit',
+      requirement: '目標模組 / 檔案：src/options/TickSizeCalculator.ts\n做什麼：稽核價格檔位換算',
+    })
+    const r = checkIssue(body)
+    expect(r.ok).toBe(true)
+    expect(r.pbtAudit).toMatchObject({ target: 'src/options/TickSizeCalculator.ts', language: 'typescript', errors: [] })
+  })
+})

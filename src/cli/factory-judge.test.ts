@@ -378,6 +378,26 @@ describe('main', () => {
     expect(result.summary).toContain('ADR-018')
   })
 
+  it('agent-pbt-audit：即使計分允許自動合併，也降為 ready-for-review（ADR-019 §5）', () => {
+    const { result } = main([
+      report('automerge-pbt-audit.json', {
+        issueNumber: 203,
+        invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
+        changedPaths: ['src/util/format.pbt.test.ts'],
+        changedLines: 40,
+        assertionDelta: 6,
+        // 自報欄位不參與判定：形狀再怪也不得讓 report 判壞（ADR-019 R10）
+        pbtAudit: { findings: 'not-an-array' },
+      }),
+      catalog,
+      riskPaths,
+      '--task-type',
+      'agent-pbt-audit',
+    ])
+    expect(result.outcome).toBe('ready-for-review')
+    expect(result.summary).toContain('ADR-019')
+  })
+
   it('改到 guardrail（.github/workflows）→ needs-human + SR3', () => {
     const { result } = judge('guardrail.json', {
       issueNumber: 202,

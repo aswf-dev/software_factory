@@ -2,7 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { buildAnalyzeComment, buildBlockComment, computeScoreLabels, main } from './apply-score-labels.js'
+import {
+  buildAnalyzeComment,
+  buildAuditComment,
+  buildBlockComment,
+  computeScoreLabels,
+  IN_LOOP_ALLOWED_TASK_TYPES,
+  main,
+  OUTPUT_ONLY_TASK_TYPES,
+} from './apply-score-labels.js'
 import { CliError } from './run-cli.js'
 
 let tmp: string
@@ -171,3 +179,43 @@ describe('main（注入 fake gh）', () => {
     expect(() => main([], vi.fn())).toThrow(CliError)
   })
 })
+
+describe('in-loop 豁免：agent-pbt-audit（ADR-019 R11）', () => {
+  const IN_LOOP = { total: 6, tier: 'in-loop' as const, label: 'oversight/in-loop' }
+
+  it('名單恰為 agent-pbt-audit，且不與 output-only 混用', () => {
+    expect([...IN_LOOP_ALLOWED_TASK_TYPES]).toEqual(['agent-pbt-audit'])
+    expect(OUTPUT_ONLY_TASK_TYPES as readonly string[]).not.toContain('agent-pbt-audit')
+  })
+  it('in-loop + agent-pbt-audit → 不擋、auditAllowed=true、analyzeAllowed=false，標籤照舊', () => {
+    expect(computeScoreLabels(IN_LOOP, 'agent-pbt-audit')).toEqual({
+      labels: ['oversight/in-loop'],
+      blocked: false,
+      analyzeAllowed: false,
+      auditAllowed: true,
+    })
+  })
+  it('非 in-loop + agent-pbt-audit → auditAllowed=false（豁免只影響 in-loop）', () => {
+    expect(computeScoreLabels({ total: 3, tier: 'review', label: 'oversight/review' }, 'agent-pbt-audit').auditAllowed).toBe(false)
+  })
+  it('in-loop + 其他會開實作 PR 的類型 → 仍擋', () => {
+    for (const t of ['agent-add-tests', 'agent-fix-bug', 'agent-write-spec', undefined]) {
+      expect(computeScoreLabels(IN_LOOP, t).blocked, String(t)).toBe(true)
+    }
+  })
+  it('說明留言點出兩個前提與監督層級不變', () => {
+    const c = buildAuditComment(6)
+    expect(c).toContain('agent-pbt-audit')
+    expect(c).toContain('只能新增或修改 PBT 測試檔')
+    expect(c).toContain('禁止自動合併')
+    expect(c).toContain('監督層級不變')
+  })
+  it('main：in-loop + agent-pbt-audit → 不阻斷，貼 audit 說明留言', () => {
+    const gh = vi.fn()
+    const out = main(['108', writeScore(IN_LOOP_SCORE, 'audit.json'), 'agent-pbt-audit'], gh)
+    expect(out).toMatchObject({ blocked: false, auditAllowed: true })
+    expect(gh).toHaveBeenCalledWith(['issue', 'comment', '108', '--body', expect.stringContaining('事後稽核')])
+  })
+})
+
+const IN_LOOP_SCORE = { score: { total: 6, tier: 'in-loop', label: 'oversight/in-loop' } }

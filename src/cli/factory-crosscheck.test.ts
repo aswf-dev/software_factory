@@ -24,6 +24,7 @@ import {
   parseForEachRefOutput,
   parseShortStat,
   parseStatusPorcelain,
+  collectDeletedPaths,
   type CrosscheckActual,
   type GitRunner,
 } from './factory-crosscheck.js'
@@ -34,12 +35,20 @@ function fakeGit(script: {
   shortStat?: (branch: string) => string
   unifiedDiff?: (branch: string) => string
   status?: string
+  /** `git diff --name-only --no-renames --diff-filter=D`（pbt-audit 的刪除偵測）。 */
+  deletedNameOnly?: (branch: string) => string
   /** `git show <branch>:<path>`；回傳 undefined 代表該分支沒有此檔（真實 git 會非零結束）。 */
   show?: (ref: string) => string | undefined
 }): GitRunner {
   return (args, cwd) => {
     const cmd = args[0]
     if (cmd === 'for-each-ref') return script.branches ?? ''
+    if (cmd === 'diff' && args.includes('--diff-filter=D')) {
+      // 刪除偵測必須關掉 rename 偵測，否則「改名成 PBT 檔」能藏住刪除
+      if (!args.includes('--no-renames')) throw new Error('deleted-path diff must pass --no-renames')
+      const branch = (args[args.length - 1] ?? '').split('...')[1] ?? ''
+      return script.deletedNameOnly?.(branch) ?? ''
+    }
     if (cmd === 'diff') {
       const flag = args[1]
       const branch = (args[2] ?? '').split('...')[1] ?? ''
@@ -688,6 +697,7 @@ describe('parseArgs', () => {
       analyzeOnly: false,
       proposeSkillOnly: false,
       onboardOnly: false,
+      pbtAuditOnly: false,
       requirementAnchors: [],
     })
   })
@@ -700,6 +710,7 @@ describe('parseArgs', () => {
       analyzeOnly: false,
       proposeSkillOnly: false,
       onboardOnly: false,
+      pbtAuditOnly: false,
       requirementAnchors: [],
     })
   })
@@ -1113,5 +1124,55 @@ describe('main：write-spec 模式', () => {
         fakeGit({}),
       ),
     ).toThrow(CliError)
+  })
+})
+
+describe('main：pbt-audit 範圍（ADR-019 §2、§5、R6）', () => {
+  let dir: string
+  let reportPath: string
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'factory-crosscheck-pbt-'))
+    reportPath = join(dir, 'report.json')
+  })
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+  const PBT = 'test/jest/Tick.pbt.test.ts'
+  const run = (flags: string[], changed: string[], deleted = ''): ReturnType<typeof main> => {
+    writeFileSync(reportPath, makeReport({ changedPaths: changed }))
+    return main(
+      ['12', reportPath, ...flags],
+      fakeGit({
+        branches: 'factory/12-01-audit\n',
+        diffNameOnly: () => changed.join('\n'),
+        shortStat: () => ' 1 file changed, 30 insertions(+)',
+        deletedNameOnly: () => deleted,
+      }),
+    )
+  }
+
+  it('--pbt-audit-only 與其他模式互斥', () => {
+    expect(parseArgs(['12', 'r.json', '--pbt-audit-only']).pbtAuditOnly).toBe(true)
+    expect(() => parseArgs(['12', 'r.json', '--pbt-audit-only', '--analyze-only'])).toThrow(/不可同時指定/)
+  })
+  it('audit 只新增 PBT 檔 → ok', () => {
+    expect(run(['--pbt-audit-only'], [PBT]).ok).toBe(true)
+  })
+  it('audit 碰產品程式碼 → pbt-audit-scope', () => {
+    const out = run(['--pbt-audit-only'], [PBT, 'src/Tick.ts'])
+    expect(out.ok).toBe(false)
+    expect(out.mismatches.map((m) => m.kind)).toContain('pbt-audit-scope')
+  })
+  it('audit 刪檔（含「改名成 PBT 檔」藏起來的刪除）→ pbt-audit-deletion', () => {
+    const out = run(['--pbt-audit-only'], [PBT], 'src/Tick.ts\n.factory/run/x\n')
+    expect(out.mismatches.map((m) => m.kind)).toContain('pbt-audit-deletion')
+    expect(out.mismatches.find((m) => m.kind === 'pbt-audit-deletion')?.detail).not.toContain('.factory/')
+  })
+  it('非 audit 類型產出 PBT 檔 → pbt-outside-audit；不產出 → 無此 mismatch', () => {
+    expect(run([], ['src/a.ts', PBT]).mismatches.map((m) => m.kind)).toContain('pbt-outside-audit')
+    expect(run([], ['src/a.ts']).mismatches.map((m) => m.kind)).not.toContain('pbt-outside-audit')
+  })
+  it('collectDeletedPaths：多分支去重並正規化', () => {
+    const git = fakeGit({ deletedNameOnly: (b) => (b === 'b1' ? './x.ts\ny.ts\n' : 'x.ts\n') })
+    expect(collectDeletedPaths(git, { base: 'main', target: 't', branches: ['b1', 'b2'] })).toEqual(['x.ts', 'y.ts'])
   })
 })

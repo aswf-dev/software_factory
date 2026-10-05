@@ -47,6 +47,7 @@ spec:
             - agent-write-spec
             - agent-analyze
             - agent-propose-skill
+            - agent-pbt-audit
           description: 決定 task-template 與 skill 分支（docs/09 §3 2.1）；預設 agent-add-tests（與 workflow input / issue-check fallback 一致）
         requirement:
           title: 需求描述（PRD）
@@ -94,7 +95,9 @@ spec:
           description: 統一（ADR-013）：所有 repo 的 factory trunk 皆為 software-factory 分支，main 絕不觸碰（Q-P2-1）；含機制 repo 自身
       # agent-write-spec 專用欄位（ADR-018 §5、§11）：以 rjsf 的 dependencies＋oneOf
       # 條件式呈現——只有選 agent-write-spec 才出現、且為必填。第二個分支必須列出
-      # 其餘 6 種類型，否則選那些類型時沒有分支可匹配（factory-assets 釘住與 enum 同步）。
+      # 其餘 7 種類型，否則選那些類型時沒有分支可匹配（factory-assets 釘住與 enum 同步）。
+      # agent-pbt-audit 沒有專屬欄位（ADR-019 R3）：稽核目標寫在 PRD 的「目標模組 / 檔案：」，
+      # 由 factory-issue-check 機械檢查恰好一個路徑。
       # ⏳ 條件渲染待瀏覽器實測；行不通時退回「兩欄位一律顯示為選填」（ADR-018 §11），
       # 必填判斷的權威始終在 factory-issue-check。
       dependencies:
@@ -116,7 +119,7 @@ spec:
               required: [specName, specSource]
             - properties:
                 taskType:
-                  enum: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze, agent-propose-skill]
+                  enum: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze, agent-propose-skill, agent-pbt-audit]
   steps:
     - id: create-issue
       name: 建立 GitHub Issue

@@ -42,6 +42,8 @@ import {
   type SpecIntakeContext,
   type SpecIntakeReview,
 } from '../write-spec/intake.js'
+import { reviewPbtAuditIntake, PBT_AUDIT_TASK_TYPE, type PbtAuditIntakeContext, type PbtAuditIntakeReview } from '../pbt-audit/intake.js'
+import { repoFs } from '../pbt-audit/repo-fs.js'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 
@@ -80,6 +82,9 @@ export const NO_RESPONSE = '_No response_'
 export interface SpecCheckContext {
   quintSpecAnnotated?: boolean | undefined
   fileExists?: ((relPath: string) => boolean) | undefined
+  /** agent-pbt-audit 的稽核目標檢查（ADR-019 R3）；同樣只在 dispatch 時才有。 */
+  pathKind?: PbtAuditIntakeContext['pathKind']
+  listFiles?: PbtAuditIntakeContext['listFiles']
 }
 
 /**
@@ -407,6 +412,8 @@ export interface CheckResult {
   requirements: RequirementAnchor[]
   /** agent-write-spec 的規格欄位審查（ADR-018）；其他類型為 undefined。errors 非空即不合規。 */
   spec?: SpecIntakeReview | undefined
+  /** agent-pbt-audit 的稽核目標審查（ADR-019 R3）；其他類型為 undefined。errors 非空即不合規。 */
+  pbtAudit?: PbtAuditIntakeReview | undefined
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -471,8 +478,16 @@ export function checkIssue(
           fileExists: specCtx.fileExists,
         } satisfies SpecIntakeContext)
       : undefined
+  // pbt-audit 專用檢查（ADR-019 R3）：恰好一個稽核目標、存在、不是測試檔、語言受支援。
+  const pbtAudit =
+    taskType === PBT_AUDIT_TASK_TYPE
+      ? reviewPbtAuditIntake(extractDeclaredPaths(body), {
+          pathKind: specCtx.pathKind,
+          listFiles: specCtx.listFiles,
+        })
+      : undefined
   return {
-    ok: missing.length === 0 && (spec?.errors.length ?? 0) === 0,
+    ok: missing.length === 0 && (spec?.errors.length ?? 0) === 0 && (pbtAudit?.errors.length ?? 0) === 0,
     missing,
     taskType,
     analysis: analyzeComplexity({
@@ -484,6 +499,7 @@ export function checkIssue(
     risk,
     requirements: buildRequirementAnchors(dod),
     spec,
+    pbtAudit,
   }
 }
 
@@ -510,6 +526,25 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
       lines.push(
         '❌ **Issue 格式不合規**（factory-issue-check）：`agent-write-spec` 的規格欄位未通過檢查（ADR-018）：',
         ...r.spec.errors.map((e) => `- ${e}`),
+      )
+    }
+    if (r.pbtAudit !== undefined && r.pbtAudit.errors.length > 0) {
+      lines.push(
+        '❌ **Issue 格式不合規**（factory-issue-check）：`agent-pbt-audit` 的稽核目標未通過檢查（ADR-019）：',
+        ...r.pbtAudit.errors.map((e) => `- ${e}`),
+      )
+    }
+  }
+  if (r.ok && r.pbtAudit !== undefined) {
+    const lang = r.pbtAudit.language === undefined ? '語言待 dispatch 時判定' : `語言 \`${r.pbtAudit.language}\``
+    lines.push(
+      `🔬 **PBT 稽核**（ADR-019）：稽核目標 \`${r.pbtAudit.target}\`（${lang}）。` +
+        '目標 repo 須已完成前置作業（Hegel 依賴精確釘版、`.gitignore` 含 `.hegel/`），否則 dispatch 時直接失敗。',
+    )
+    if (r.pbtAudit.deferred.length > 0) {
+      lines.push(
+        '💡 **dispatch 時才判定的項目**（此處沒有目標 repo 的 checkout）：',
+        ...r.pbtAudit.deferred.map((d) => `- ${d}`),
       )
     }
   }
@@ -667,6 +702,9 @@ export function main(
       paths.catalogPath === undefined ? undefined : loadQuintSpecAnnotated(paths.catalogPath),
     fileExists:
       targetRoot === undefined ? undefined : (rel) => isFile(join(targetRoot, rel)),
+    ...(targetRoot === undefined
+      ? {}
+      : (({ pathKind, listFiles }) => ({ pathKind, listFiles }))(repoFs(targetRoot))),
   }
   const result = checkIssue(body, hardRules, specCtx)
 
