@@ -561,19 +561,27 @@ flowchart LR
     end
 
     subgraph P5["P5 單體拆分（選擇性）"]
-        direction TB
-        D5{"§11.1 四項條件<br/>全部成立？"}:::dec
-        HG7a{{"HG7-1 ADR 核准"}}:::hg
-        L14(["L14 工單：agent-analyze 接縫分析＋<br/>agent-add-tests characterization"]):::wi
-        L15["L15 人類：同一 repo 內 modular monolith"]:::human
-        HG7b{{"HG7-2 modular monolith 驗收"}}:::hg
-        HG7c{{"HG7-3 每次抽出 go/no-go"}}:::hg
-        L16["L16 人類：strangler fig／parallel run／拆 DB<br/>建新 repo 與 CI"]:::human
-        L17(["L17 工單：agent-add-tests／agent-write-spec<br/>驗證新舊行為一致"]):::wi
-        HG7d{{"HG7-4 parallel run 結果審查"}}:::hg
-        HG7e{{"HG7-5 cutover 核准"}}:::hg
-        L18(["L18 工單：agent-onboard × 每個新 repo<br/>（回到 P0，重新定級）"]):::wi
-        D5 -- 是 --> HG7a --> L14 --> L15 --> HG7b --> HG7c --> L16 --> L17 --> HG7d --> HG7e --> L18
+        direction LR
+        subgraph P5a["拆分前：決策與模組化"]
+            direction TB
+            D5{"§11.1 四項條件<br/>全部成立？"}:::dec
+            HG7a{{"HG7-1 ADR 核准"}}:::hg
+            L14(["L14 工單：agent-analyze 接縫分析＋<br/>agent-add-tests characterization"]):::wi
+            L15["L15 人類：同一 repo 內 modular monolith"]:::human
+            HG7b{{"HG7-2 modular monolith 驗收"}}:::hg
+            D5 -- 是 --> HG7a --> L14 --> L15 --> HG7b
+        end
+        subgraph P5b["拆分中與拆分後：每次抽出"]
+            direction TB
+            HG7c{{"HG7-3 每次抽出 go/no-go"}}:::hg
+            L16["L16 人類：strangler fig／parallel run／拆 DB<br/>建新 repo 與 CI"]:::human
+            L17(["L17 工單：agent-add-tests／agent-write-spec<br/>驗證新舊行為一致"]):::wi
+            HG7d{{"HG7-4 parallel run 結果審查"}}:::hg
+            HG7e{{"HG7-5 cutover 核准"}}:::hg
+            L18(["L18 工單：agent-onboard × 每個新 repo<br/>（回到 P0，重新定級）"]):::wi
+            HG7c --> L16 --> L17 --> HG7d --> HG7e --> L18
+        end
+        P5a --> P5b
     end
 
     P0 --> P1
