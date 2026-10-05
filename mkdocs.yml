@@ -27,6 +27,7 @@ nav:
   - 技能撰寫迴圈: 25-skill-authoring-loop.md
   - Scoreboard 事件契約: 26-scoreboard-integration.md
   - write-spec 操作手冊: 28-write-spec-runbook.md
+  - 棕地導入 Playbook: 29-brownfield-adoption-playbook.md
   - 架構決策記錄（ADR）: ADR/README.md
   - 詞彙表: GLOSSARY.md
 plugins:
