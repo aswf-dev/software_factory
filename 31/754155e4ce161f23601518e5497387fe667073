@@ -1,0 +1,20 @@
+docs/ADR/018-intent-driven-write-spec.md
+  h_1b119f25eaf333 46-47,253-269
+docs/ADR/019-property-based-testing-hegel.md
+  h_1b119f25eaf333 1-209
+docs/ADR/README.md
+  h_1b119f25eaf333 51
+docs/research/pbt-library-survey-2026-10.md
+  h_1b119f25eaf333 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "31754155e4ce161f23601518e5497387fe667073",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
