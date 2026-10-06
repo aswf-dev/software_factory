@@ -35,9 +35,15 @@ const PROVIDER_MESSAGE = /\b(?:401|429)\b|invalid_api_key/i
  * Anthropic 安全分類器拒答（stop_reason=refusal）經 pi-ai 轉成 PI_AI_ERROR，
  * 訊息是 `stop_details.explanation`（官方明言文字不穩定），缺值時為 pi-ai 預設的
  * 「The model refused to complete the request」。另有請求被前置攔截時的
- * 「...blocked under Anthropic's Usage Policy」。三者都要認得。
+ * 「...blocked under Anthropic's Usage Policy」與「This request was blocked as it seems
+ * to violate Anthropic's Terms of Service restrictions on ...」（run 37419721657，
+ * fubon-tradingbot#654）。都要認得。
+ *
+ * 措辭不穩定，故比對保留寬度（含 `blocked`）：範圍已限於 critical 且為 DSH 終止錯誤行的
+ * PI_AI_ERROR；誤判成拒答的代價是多試 chain 下一項（受預算檢查約束），
+ * 漏判則整張單直接交還人類——兩者不對稱，寧寬勿漏。
  */
-const REFUSAL_MESSAGE = /usage policy|refus|declin/i
+const REFUSAL_MESSAGE = /usage policy|terms of service|refus|declin|\bblocked\b/i
 
 const ERROR_LINE = /^dsh: (.*)$/
 const CODED = /^([A-Z][A-Z0-9_]+): (.*)$/

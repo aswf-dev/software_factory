@@ -78,6 +78,17 @@ describe('classifyFailedAttempt', () => {
     expect(classifyFailedAttempt({ stderr: usagePolicy, tier: 'critical' }).outcome).toBe('model-refusal')
     expect(classifyFailedAttempt({ stderr: piAiDefault, tier: 'critical' }).outcome).toBe('model-refusal')
   })
+  // 回歸（run 37419721657，fubon-tradingbot#654）：opus-5-5 第 20 秒被前置攔截，
+  // 措辭含 Terms of Service、不含 usage policy／refus／declin，被誤判成 agent-error，
+  // chain（opus-5 → deepseek-flash → qwen）一項都沒試就交還人類。
+  it('回歸：critical 的 Terms of Service 攔截（第四種措辭）→ model-refusal', () => {
+    const tosBlock = `${REASONING_WITH_AUTH}dsh: PI_AI_ERROR: This request was blocked as it seems to violate Anthropic's Terms of Service restrictions on reverse engineering or duplicating model outputs. To learn more, visit https://www.anthropic.com/legal/commercial-terms.\n`
+    expect(classifyFailedAttempt({ stderr: tosBlock, tier: 'critical' })).toMatchObject({
+      outcome: 'model-refusal',
+      fallback: true,
+      code: 'PI_AI_ERROR',
+    })
+  })
   it('非 critical 的拒答維持任務層失敗（交還人類），不換模型', () => {
     expect(classifyFailedAttempt({ stderr: CYBER_REFUSAL, tier: 'high' })).toMatchObject({
       outcome: 'agent-error',
