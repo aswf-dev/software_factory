@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { languageOfDir, languageOfFile, normalizeTarget, reviewPbtAuditIntake, type PbtAuditIntakeContext } from './intake.js'
+import {
+  findPbtEditRequests,
+  languageOfDir,
+  languageOfFile,
+  normalizeTarget,
+  reviewPbtAuditIntake,
+  type PbtAuditIntakeContext,
+} from './intake.js'
 
 /** 假的目標 repo：檔案清單即全部事實。 */
 function repo(files: string[]): PbtAuditIntakeContext {
@@ -85,5 +92,62 @@ describe('languageOfFile／languageOfDir', () => {
   })
   it('normalizeTarget', () => {
     expect(normalizeTarget(' ./src\\a\\ ')).toBe('src/a')
+  })
+})
+
+/*
+ * 非 audit 類型要求變更 PBT 檔（ADR-019 §2）：派工前就攔下，不必等 crosscheck。
+ * 回歸（philipz/fubon-tradingbot#654，run 37422161781）：agent-fix-bug 的 PRD 要求在
+ * 兩支 *.pbt.test.ts 加回 property，agent 照做、crosscheck 判 pbt-outside-audit，
+ * 11 分鐘的產出全部交還人類。
+ */
+describe('findPbtEditRequests', () => {
+  it('回歸 #654：AC 要求在 PBT 檔加回 property → 列出該檔', () => {
+    const prd = 'AC-2（01-test）在 TickSizeCalculator.pbt.test.ts 加回下列 property（沿用檔內 gridCents）：'
+    expect(findPbtEditRequests(prd)).toEqual(['TickSizeCalculator.pbt.test.ts'])
+  })
+  it('回歸 #654：範圍列出要改的測試檔 → 只列 PBT 檔、不列一般測試檔', () => {
+    const prd =
+      '- 測試：test/jest/TickSizeCalculator.test.ts、test/jest/TickSizeCalculator.pbt.test.ts；' +
+      'test/jest/TradingCostCalculator.pbt.test.ts 只加回 #646 候選發現 3。'
+    expect(findPbtEditRequests(prd)).toEqual([
+      'test/jest/TickSizeCalculator.pbt.test.ts',
+      'test/jest/TradingCostCalculator.pbt.test.ts',
+    ])
+  })
+  it('回歸 #659：「不碰」與「維持綠燈」提到 PBT 檔（含 glob）→ 不列', () => {
+    const prd = [
+      '- 不碰：任何 *.pbt.test.ts（ADR-019 §2：只有 agent-pbt-audit 可以變更 PBT 檔）',
+      'AC-3（02-impl）依 D1–D3 修改；既有測試（含所有 *.pbt.test.ts）全部維持綠燈。',
+    ].join('\n')
+    expect(findPbtEditRequests(prd)).toEqual([])
+  })
+  it('具體 PBT 路徑但在否定語境 → 不列', () => {
+    expect(findPbtEditRequests('- 不碰：test/jest/A.pbt.test.ts')).toEqual([])
+    expect(findPbtEditRequests('Do not modify test/jest/A.pbt.test.ts')).toEqual([])
+  })
+  it('只是提及、沒有變更動詞 → 不列', () => {
+    expect(findPbtEditRequests('參考 test/jest/A.pbt.test.ts 的 generator 寫法')).toEqual([])
+  })
+  it('code fence 內的內容不判讀（property 程式碼不是指示）', () => {
+    const prd = ['下列 property 供參考：', '```ts', '// 新增到 test/jest/A.pbt.test.ts', '```'].join('\n')
+    expect(findPbtEditRequests(prd)).toEqual([])
+  })
+  it('其他語言的 PBT 命名同樣適用、同一檔只列一次', () => {
+    expect(findPbtEditRequests('新增 pkg/price_pbt_test.go；並修改 pkg/price_pbt_test.go 的 generator')).toEqual([
+      'pkg/price_pbt_test.go',
+    ])
+    expect(findPbtEditRequests('Add properties to test/a.pbt.test.ts.')).toEqual(['test/a.pbt.test.ts'])
+  })
+  it('有變更動詞但整行沒有任何路徑字元（純中文）→ 不列', () => {
+    expect(findPbtEditRequests('新增範例測試。\n修改既有斷言')).toEqual([])
+  })
+  it('同一檔先後以完整路徑與檔名出現 → 只列完整路徑（回歸 #654 實際內文）', () => {
+    const prd = [
+      '- 測試：test/jest/Tick.pbt.test.ts 加回 property',
+      'AC-2（01-test）在 Tick.pbt.test.ts 加回下列 property',
+      'AC-3（01-test）在 Other.pbt.test.ts 加回',
+    ].join('\n')
+    expect(findPbtEditRequests(prd)).toEqual(['test/jest/Tick.pbt.test.ts', 'Other.pbt.test.ts'])
   })
 })

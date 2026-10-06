@@ -60,9 +60,45 @@ export interface CrosscheckActual {
   assertionDelta: number
 }
 
+/**
+ * mismatch 的性質：
+ * - `scope`：變更超出任務類型允許的範圍（政策違規）。report 可能完全誠實，問題在「做了不該做的事」。
+ * - `consistency`：report 與實際 git 事實不一致，或其他完整性檢查未通過。
+ * 兩者的處置不同（前者要改工單或改規則，後者要查 agent 的回報），留言標題必須分開，
+ * 否則人會往錯的方向查（philipz/fubon-tradingbot#654：報告誠實，標題卻寫「不一致」）。
+ */
+export type MismatchCategory = 'scope' | 'consistency'
+
 export interface CrosscheckMismatch {
   kind: string
   detail: string
+  /** main() 輸出前填入；內部比對函式不必設定。 */
+  category?: MismatchCategory | undefined
+}
+
+/** 白名單類（任務類型允許的變更範圍）的 mismatch kind；其餘（含未知）一律視為 consistency。 */
+export const SCOPE_MISMATCH_KINDS: ReadonlySet<string> = new Set([
+  'pbt-outside-audit',
+  'pbt-audit-scope',
+  'pbt-audit-deletion',
+  'analyze-code-change',
+  'propose-skill-scope',
+  'onboard-scope',
+  'write-spec-scope',
+])
+
+export function categorizeMismatch(kind: string): MismatchCategory {
+  return SCOPE_MISMATCH_KINDS.has(kind) ? 'scope' : 'consistency'
+}
+
+/** 留言與 ::error:: 的標題；沒有 mismatch 時為空字串。 */
+export function crosscheckHeadline(mismatches: readonly CrosscheckMismatch[]): string {
+  const scope = mismatches.some((m) => categorizeMismatch(m.kind) === 'scope')
+  const consistency = mismatches.some((m) => categorizeMismatch(m.kind) === 'consistency')
+  if (scope && consistency) return '變更超出任務類型允許的範圍，且 report 與實際變更不一致'
+  if (scope) return '變更超出任務類型允許的範圍'
+  if (consistency) return 'report 與實際變更不一致'
+  return ''
 }
 
 export interface CrosscheckOutput {
@@ -71,6 +107,8 @@ export interface CrosscheckOutput {
   report: { changedPaths: string[] | undefined; changedLines: number | undefined }
   actual: CrosscheckActual
   mismatches: CrosscheckMismatch[]
+  /** 留言與 ::error:: 用的標題（見 crosscheckHeadline）；ok 時為空字串。 */
+  headline: string
   /**
    * Advisory 發現：**不影響 `ok`、不擋 run**（REQ id 錨定第一階段）。
    *
@@ -741,7 +779,8 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     ok: mismatches.length === 0,
     report: { changedPaths: report.changedPaths, changedLines: report.changedLines },
     actual,
-    mismatches,
+    mismatches: mismatches.map((m) => ({ ...m, category: categorizeMismatch(m.kind) })),
+    headline: crosscheckHeadline(mismatches),
     advisories,
   }
 }

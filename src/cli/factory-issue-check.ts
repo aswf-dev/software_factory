@@ -42,7 +42,13 @@ import {
   type SpecIntakeContext,
   type SpecIntakeReview,
 } from '../write-spec/intake.js'
-import { reviewPbtAuditIntake, PBT_AUDIT_TASK_TYPE, type PbtAuditIntakeContext, type PbtAuditIntakeReview } from '../pbt-audit/intake.js'
+import {
+  findPbtEditRequests,
+  reviewPbtAuditIntake,
+  PBT_AUDIT_TASK_TYPE,
+  type PbtAuditIntakeContext,
+  type PbtAuditIntakeReview,
+} from '../pbt-audit/intake.js'
 import { repoFs } from '../pbt-audit/repo-fs.js'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
@@ -414,6 +420,11 @@ export interface CheckResult {
   spec?: SpecIntakeReview | undefined
   /** agent-pbt-audit 的稽核目標審查（ADR-019 R3）；其他類型為 undefined。errors 非空即不合規。 */
   pbtAudit?: PbtAuditIntakeReview | undefined
+  /**
+   * 非 audit 類型的 PRD 要求新增或修改的 PBT 測試檔（ADR-019 §2）；audit 類型為 undefined。
+   * 非空即不合規：派工後必定被 crosscheck 判 pbt-outside-audit（philipz/fubon-tradingbot#654）。
+   */
+  pbtOutsideAudit?: string[] | undefined
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -486,8 +497,15 @@ export function checkIssue(
           listFiles: specCtx.listFiles,
         })
       : undefined
+  // 其他類型不得變更 PBT 檔（ADR-019 §2）：在花費 LLM 成本前攔下必定被 crosscheck 擋的工單。
+  const pbtOutsideAudit =
+    taskType === PBT_AUDIT_TASK_TYPE ? undefined : findPbtEditRequests(extractField(body, 'requirement') ?? '')
   return {
-    ok: missing.length === 0 && (spec?.errors.length ?? 0) === 0 && (pbtAudit?.errors.length ?? 0) === 0,
+    ok:
+      missing.length === 0 &&
+      (spec?.errors.length ?? 0) === 0 &&
+      (pbtAudit?.errors.length ?? 0) === 0 &&
+      (pbtOutsideAudit?.length ?? 0) === 0,
     missing,
     taskType,
     analysis: analyzeComplexity({
@@ -500,6 +518,7 @@ export function checkIssue(
     requirements: buildRequirementAnchors(dod),
     spec,
     pbtAudit,
+    pbtOutsideAudit,
   }
 }
 
@@ -532,6 +551,15 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
       lines.push(
         '❌ **Issue 格式不合規**（factory-issue-check）：`agent-pbt-audit` 的稽核目標未通過檢查（ADR-019）：',
         ...r.pbtAudit.errors.map((e) => `- ${e}`),
+      )
+    }
+    if (r.pbtOutsideAudit !== undefined && r.pbtOutsideAudit.length > 0) {
+      lines.push(
+        `❌ **Issue 格式不合規**（factory-issue-check）：\`${r.taskType ?? '(未宣告類型)'}\` 工單要求新增或修改 PBT 測試檔：` +
+          r.pbtOutsideAudit.map((p) => `\`${p}\``).join('、') +
+          '。PBT 測試檔只能由 `agent-pbt-audit` 變更（ADR-019 §2），派工後必定被 crosscheck 判 `pbt-outside-audit`。' +
+          '請改寫成一般範例測試；修正後要加回的 property，請在修正合併後另開 `agent-pbt-audit` 工單' +
+          '（以該 property 為驗收條件，docs/30 §7）。',
       )
     }
   }

@@ -49,7 +49,8 @@ export function checkPbtOutsideAudit(changedPaths: readonly string[]): PbtScopeF
       kind: 'pbt-outside-audit',
       detail:
         `PBT 測試檔只能由 agent-pbt-audit 產出（ADR-019 §2），本工作項卻變更了：${pbt.join('、')}` +
-        '。開發當下的 property 依據只能來自本次產出，違反「不得以自撰依據驗證自撰產出」',
+        '。開發類型不得變更 PBT 檔，以免以自撰依據驗證自撰產出。合法做法：本工單改寫成一般範例測試；' +
+        '要加回的 property 於修正合併後另開 `agent-pbt-audit`，以它為驗收條件加回（docs/30 §7）',
     },
   ]
 }

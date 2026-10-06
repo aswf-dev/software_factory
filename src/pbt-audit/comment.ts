@@ -125,9 +125,14 @@ export function buildPbtAuditComment(rawPbtAudit: unknown, measured: PbtMeasured
     if (findings.length === 0) {
       out.push('無。')
     } else {
+      const hasRestore = findings.some((f) => f.propertyToRestore !== undefined && f.propertyToRestore.trim() !== '')
       out.push(
         '這些是 agent 執行 property 得到的反例，**尚未經人類確認**。確認是真實缺陷後，' +
-          '請另開 `agent-fix-bug` 工作項，由它的 `-01-test` 層把紅燈測試寫進 repo（ADR-019 §5）。',
+          '請另開 `agent-fix-bug` 工作項，由它的 `-01-test` 層把紅燈測試寫進 repo（ADR-019 §5）。' +
+          (hasRestore
+            ? '「修正後要加回的 property」**不要放進 `agent-fix-bug` 工單**（fix-bug 不得變更 PBT 檔，' +
+              'crosscheck 會判 `pbt-outside-audit`）：修正合併後另開 `agent-pbt-audit`，以該 property 為驗收條件加回（docs/30 §7）。'
+            : ''),
         '',
         ...findings.map((f, i) => renderFinding(f, i)),
       )

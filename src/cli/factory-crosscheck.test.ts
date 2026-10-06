@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CliError } from './run-cli.js'
 import {
   adviseAssertionDelta,
+  categorizeMismatch,
+  crosscheckHeadline,
   collectActualDiff,
   collectReportedPaths,
   compareReportToActual,
@@ -1171,8 +1173,46 @@ describe('main：pbt-audit 範圍（ADR-019 §2、§5、R6）', () => {
     expect(run([], ['src/a.ts', PBT]).mismatches.map((m) => m.kind)).toContain('pbt-outside-audit')
     expect(run([], ['src/a.ts']).mismatches.map((m) => m.kind)).not.toContain('pbt-outside-audit')
   })
+  it('回歸 #654：報告誠實列出 PBT 檔、只有範圍違規 → 類別 scope、標題不說「不一致」', () => {
+    const out = run([], ['src/Tick.ts', PBT])
+    expect(out.ok).toBe(false)
+    expect(out.mismatches).toEqual([expect.objectContaining({ kind: 'pbt-outside-audit', category: 'scope' })])
+    expect(out.headline).toBe('變更超出任務類型允許的範圍')
+  })
+  it('沒有 mismatch → 標題為空字串', () => {
+    expect(run([], ['src/Tick.ts']).headline).toBe('')
+  })
   it('collectDeletedPaths：多分支去重並正規化', () => {
     const git = fakeGit({ deletedNameOnly: (b) => (b === 'b1' ? './x.ts\ny.ts\n' : 'x.ts\n') })
     expect(collectDeletedPaths(git, { base: 'main', target: 't', branches: ['b1', 'b2'] })).toEqual(['x.ts', 'y.ts'])
+  })
+})
+
+describe('categorizeMismatch／crosscheckHeadline：政策違規與報告不一致分開標示', () => {
+  it.each([
+    'pbt-outside-audit',
+    'pbt-audit-scope',
+    'pbt-audit-deletion',
+    'analyze-code-change',
+    'propose-skill-scope',
+    'onboard-scope',
+    'write-spec-scope',
+  ])('%s → scope（變更超出任務類型允許的範圍）', (kind) => {
+    expect(categorizeMismatch(kind)).toBe('scope')
+  })
+  it.each(['unreported-changes', 'reported-not-in-diff', 'lines-missing', 'write-spec-source-tampered', 'some-future-kind'])(
+    '%s → consistency（含未知類型：維持舊標題，不誤稱為範圍違規）',
+    (kind) => {
+      expect(categorizeMismatch(kind)).toBe('consistency')
+    },
+  )
+  it('標題依類別組合', () => {
+    const m = (kind: string) => ({ kind, detail: 'x' })
+    expect(crosscheckHeadline([])).toBe('')
+    expect(crosscheckHeadline([m('pbt-outside-audit')])).toBe('變更超出任務類型允許的範圍')
+    expect(crosscheckHeadline([m('unreported-changes')])).toBe('report 與實際變更不一致')
+    expect(crosscheckHeadline([m('pbt-outside-audit'), m('unreported-changes')])).toBe(
+      '變更超出任務類型允許的範圍，且 report 與實際變更不一致',
+    )
   })
 })

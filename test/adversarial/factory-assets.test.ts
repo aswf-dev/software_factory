@@ -52,6 +52,20 @@ describe('factory-stop-rules 含關鍵禁令', () => {
   })
 })
 
+// philipz/fubon-tradingbot#654（run 37422161781）：fix-bug 的 Issue 明文要求修改 PBT 檔，
+// agent 手上有第 11 條卻照 Issue 做，11 分鐘後被 crosscheck 以 pbt-outside-audit 擋下。
+// skill 必須明寫：Issue 的要求不能覆蓋任務類型的規則；兩者衝突時停手，不得自行擇一。
+describe('factory-stop-rules 任務類型規則優先於 Issue 要求（fubon-tradingbot#654）', () => {
+  const content = read('.dsh/skills/factory-stop-rules/SKILL.md')
+  it('第 11 條明寫即使 Issue 要求也不得變更 PBT 檔', () => {
+    expect(content).toMatch(/即使 Issue[^\n]*要求[^\n]*PBT|PBT[^\n]*即使 Issue[^\n]*要求/)
+  })
+  it('有通用條款：Issue 要求與任務類型規則衝突 → 停手，不得自行擇一', () => {
+    expect(content).toContain('與任務類型的規則衝突')
+    expect(content).toContain('不得自行擇一')
+  })
+})
+
 // Issue #192（P0-2，SWEBOK Ch1 §6.2–6.3 需求變更控制）：發現需求與 Issue
 // 描述不符時，處置權屬於人類——skill 必須明寫停手條款且禁止 agent 自行擴大範圍。
 // 這些檔案是「配置而非程式碼」：條款被靜默移除時不會有任何功能徵兆，只有測試抓得到。

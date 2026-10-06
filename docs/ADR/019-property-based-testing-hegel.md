@@ -91,7 +91,7 @@
 |---|---|
 | **PR** | 只放**通過的** property，作為新增的防線。依 §6，只新增、不取代既有範例測試。 |
 | **發現報告** | **失敗的** property **不放進 PR**。改寫成「**候選發現（未回放）**」，附最小反例、Hegel 的 reproduce blob、以及該 property 的依據標註，以留言形式貼在稽核 Issue 上。 |
-| **後續** | 人類確認後才開 `agent-fix-bug` 工作項；它的 `-01-test` 層把反例寫成一般的範例紅燈測試。 |
+| **後續** | 人類確認後才開 `agent-fix-bug` 工作項；它的 `-01-test` 層把反例寫成一般的範例紅燈測試。**修正合併後**，「修正後要加回的 property」由另開的 `agent-pbt-audit` 以驗收條件加回（R13）——fix-bug 不得變更 PBT 檔（§2）。 |
 
 - 這個流程**與 `ADR-018` §7 處理 Quint 反例的方式逐字一致**（違反記為「候選發現（未回放）」，由 `agent-fix-bug` 的紅燈測試回放）。兩個驗證層的發現走同一條後路，人只需要學一次。
 - **不採「audit 直接修 bug」**：那會讓同一個 run 自己出題、自己修，違反 §4 的獨立性原則。
@@ -252,6 +252,17 @@
 | R10 | §9 指標 | 分實測與自報，寫進 Issue 留言，不推 scoreboard | agent 自填的量測值不具量測意義 |
 | R11 | §9 試點 | 更正 in-loop 的意義，新增 `IN_LOOP_ALLOWED_TASK_TYPES` | in-loop 實際上不會啟動 run |
 | R12 | §10 | 新增改用 fast-check 的觸發條件 | 試點對照數據 |
+| R13（2026-10-06） | §5 後續 | 「修正後要加回的 property」改由修正合併後另開的 `agent-pbt-audit` 以驗收條件加回；fix-bug 只寫範例紅燈測試。開單檢查對非 audit 類型「要求變更 PBT 檔」的 PRD 判不合規；crosscheck 的 `pbt-outside-audit` 說明指出合法做法，留言標題改為「變更超出任務類型允許的範圍」 | 見下 |
+
+### R13：加回 property 的合法路徑（2026-10-06）
+
+**問題**：稽核機制在每條候選發現附「修正後要加回的 property」，操作手冊 `docs/30` §7 要人把它放進 fix-bug 工單，crosscheck 卻禁止 fix-bug 變更 PBT 檔（§2）——流程裡沒有合法的執行者。`philipz/fubon-tradingbot#654` 照手冊開單，agent 依 Issue 改了兩支 PBT 檔，11 分鐘的產出被 `pbt-outside-audit` 全數交還人類（run 37422161781）。
+
+**裁決**：不放寬 §2。開發類型不寫 PBT 的理由（§4 的依據獨立性）不變；放寬成「Issue 逐字給的 property 可以加」需要機械比對逐字一致，脆弱且會一步步侵蝕護欄。改為補上合法路徑：
+
+1. fix-bug 只把反例寫成一般範例紅燈測試。
+2. 修正合併後另開 `agent-pbt-audit`（目標模組同原稽核），把要加回的 property 寫成驗收條件；稽核類型本來就允許變更 PBT 檔，依據是 Issue 的驗收條件（§4），無需例外。修正若改變了合約，驗收條件照新合約寫。
+3. 三道防線前移：開單檢查在派工前攔下要求變更 PBT 檔的非 audit 工單（`findPbtEditRequests`：具體路徑＋變更動詞；glob、否定語境、code fence 不判讀）；停手規則第 11 條寫明 Issue 的要求不能覆蓋它；crosscheck 仍是最後一道。
 
 ### R6：各語言 PBT 檔命名慣例（crosscheck 白名單）
 

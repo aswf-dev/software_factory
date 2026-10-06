@@ -936,3 +936,52 @@ describe('main：agent-pbt-audit 以 --target-root 讀目標 repo', () => {
     expect(run('src/Nope.ts').result.ok).toBe(false)
   })
 })
+
+/* ── 非 audit 類型要求變更 PBT 檔（ADR-019 §2；回歸 philipz/fubon-tradingbot#654）── */
+
+const fixBugBody = (prd: string): string =>
+  writeSpecBody({ prd }).replace('\nagent-write-spec\n', '\nagent-fix-bug\n')
+
+describe('checkIssue：非 audit 類型要求變更 PBT 檔', () => {
+  it('回歸 #654：fix-bug 的 AC 要求在 PBT 檔加回 property → 不合規、列出該檔', () => {
+    const r = checkIssue(fixBugBody('目標模組 / 檔案：src/Tick.ts\nAC-2（01-test）在 test/jest/Tick.pbt.test.ts 加回下列 property'))
+    expect(r.ok).toBe(false)
+    expect(r.pbtOutsideAudit).toEqual(['test/jest/Tick.pbt.test.ts'])
+  })
+  it('回歸 #659：只在「不碰」提到 PBT 檔 → 合規', () => {
+    const r = checkIssue(fixBugBody('目標模組 / 檔案：src/Tick.ts\n- 不碰：任何 *.pbt.test.ts（由人類加回）'))
+    expect(r.ok).toBe(true)
+    expect(r.pbtOutsideAudit).toEqual([])
+  })
+  it('agent-pbt-audit 本身可以變更 PBT 檔 → 不做此檢查', () => {
+    const r = checkIssue(
+      pbtAuditBody('目標模組 / 檔案：src/options/TickSizeCalculator.ts\n新 property 加到 test/jest/Tick.pbt.test.ts'),
+      undefined,
+      AUDIT_REPO,
+    )
+    expect(r.ok).toBe(true)
+    expect(r.pbtOutsideAudit).toBeUndefined()
+  })
+})
+
+describe('buildCheckComment：非 audit 類型要求變更 PBT 檔', () => {
+  it('缺任務類型也照樣攔（未宣告類型不是 audit）→ 留言標示「(未宣告類型)」', () => {
+    const body = fixBugBody('目標模組 / 檔案：src/Tick.ts\n- 測試：test/jest/Tick.pbt.test.ts 加回 property').replace(
+      '\nagent-fix-bug\n',
+      '\n_No response_\n',
+    )
+    const r = checkIssue(body)
+    expect(r.taskType).toBeUndefined()
+    expect(r.pbtOutsideAudit).toEqual(['test/jest/Tick.pbt.test.ts'])
+    expect(buildCheckComment(r)).toContain('`(未宣告類型)` 工單要求新增或修改 PBT 測試檔')
+  })
+  it('不合規 → 說明會被 crosscheck 擋、改寫方式與加回 property 的合法路徑', () => {
+    const c = buildCheckComment(checkIssue(fixBugBody('目標模組 / 檔案：src/Tick.ts\n- 測試：test/jest/Tick.pbt.test.ts 加回 property')))
+    expect(c).toContain('❌ **Issue 格式不合規**')
+    expect(c).toContain('`test/jest/Tick.pbt.test.ts`')
+    expect(c).toContain('pbt-outside-audit')
+    expect(c).toContain('`agent-pbt-audit`')
+    expect(c).toContain('docs/30 §7')
+    expect(c).not.toContain('可 dispatch')
+  })
+})

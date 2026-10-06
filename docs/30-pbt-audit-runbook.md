@@ -28,7 +28,8 @@
 3. agent 稽核 → audit PR             ← 自動
 4. 機制貼出稽核摘要與候選發現         ← 自動
 5. 審查 audit PR（hegel-review 12 點） ← 人工（一律人工合併）
-6. 確認候選發現 → 開 agent-fix-bug    ← 人工
+6. 確認候選發現 → 開 agent-fix-bug    ← 人工（只放範例紅燈測試，不放 property）
+7. 修正合併後 → 開 agent-pbt-audit 加回 property ← 人工（以要加回的 property 為驗收條件）
 ```
 
 ---
@@ -122,9 +123,12 @@ audit PR 一律人工合併。審查時逐條對照 `.dsh/skills/hegel-review/SK
 
 1. 把紅燈測試貼進目標 repo 本地執行，確認是紅燈（TS 版沒有公開的 reproduce blob API，這是重現的方式）。重現 property 本身時先 `rm -rf .hegel`，否則本機資料庫會重播舊的失敗。
 2. 判斷是真實缺陷、測試錯誤，還是合約本來就允許的行為。
-3. 確認是缺陷 → 開 `agent-fix-bug`，把紅燈測試與「修正後要加回的 property」放進 Issue；它的 01-test 層會把紅燈寫進 repo。
+3. 確認是缺陷 → 開 `agent-fix-bug`，**只放固定輸入的紅燈測試**（改寫成一般範例測試）；它的 01-test 層會把紅燈寫進 repo。**不要**把「修正後要加回的 property」或任何 `*.pbt.test.*` 路徑寫成 fix-bug 的修改要求：fix-bug 不得變更 PBT 檔（ADR-019 §2），開單檢查會直接判不合規，漏網的也會被 crosscheck 判 `pbt-outside-audit`。
+4. 修正合併後 → 另開 `agent-pbt-audit`，目標模組同原稽核，把「修正後要加回的 property」寫成驗收條件（AC-n）。稽核類型本來就允許變更 PBT 檔，property 的依據是 Issue 的驗收條件（ADR-019 §4），不需要任何例外；修正若改變了合約（例如明訂價格域），驗收條件照新合約寫。
 
 這條後路與 `agent-write-spec` 的 Quint 反例相同（ADR-018 §7），人只需要學一次。
+
+> **修訂（2026-10-06）**：舊版第 3 步要求把「修正後要加回的 property」放進 fix-bug 工單，但 fix-bug 不得變更 PBT 檔——流程裡沒有合法的執行者。philipz/fubon-tradingbot#654 照舊版開單，agent 依 Issue 修改了兩支 PBT 檔，11 分鐘的產出被 crosscheck 以 `pbt-outside-audit` 全數交還人類。改為第 3、4 步的兩段式，並在開單檢查加上派工前攔截（ADR-019 R13）。
 
 ---
 
