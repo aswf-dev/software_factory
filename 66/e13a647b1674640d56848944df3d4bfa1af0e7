@@ -1,0 +1,18 @@
+.dsh/skills/factory-stop-rules/SKILL.md
+  h_1b119f25eaf333 20-21
+config/factory/skills-lock.json
+  h_1b119f25eaf333 14
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 55-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "66e13a647b1674640d56848944df3d4bfa1af0e7",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
