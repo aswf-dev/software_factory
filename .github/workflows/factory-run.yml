@@ -854,10 +854,11 @@ jobs:
               #   - provider-error（RATE_LIMIT/AUTH/401/MISSING_CREDENTIAL/UNKNOWN_MODEL…）→ 沿 chain fallback
               #     （2026-08-28 #171 實測：qwen key 401 應 fallback 而非直接 needs-human）。
               #   - model-refusal（只限 critical；2026-09-27 用戶裁決：Opus 5.5 拒答時改用 Opus 5）
-              #     → 沿 chain fallback。拒答措辭有三種：新版 stop_details.explanation
+              #     → 沿 chain fallback。已知拒答措辭有四種：新版 stop_details.explanation
               #     （如 `This request was declined because it could enable cyber harm.`）、
-              #     `...blocked under Anthropic's Usage Policy.`、pi-ai 預設的
-              #     `The model refused to complete the request`。
+              #     `...blocked under Anthropic's Usage Policy.`、
+              #     `...blocked as it seems to violate Anthropic's Terms of Service ...`、pi-ai 預設的
+              #     `The model refused to complete the request`（比對規則見 attempt-outcome.ts）。
               #   - agent-error（任務層失敗）→ 不重試（docs/02 §6）。
               CLASSIFY=$(node "$GITHUB_WORKSPACE/dist/cli/factory-attempt-classify.js" \
                 --stderr .factory/run/stderr.txt --tier "${TIER:-unknown}" < /dev/null) \

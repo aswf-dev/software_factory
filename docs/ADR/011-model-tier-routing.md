@@ -17,6 +17,8 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 >
 > **後續（#337 驗證與報告 F1–F3）**：#337 以 critical 派工，opus-5-5 單次嘗試完成（run 36950035701）。報告指出的三點處置：**F1** 每次嘗試的時限＝全部剩餘預算，真逾時必然耗盡預算而停止，「逾時沿 chain 升級」實際走不到——行為安全（critical 的下一項 opus-5 並不比 opus-5-5 強），只更正註解；**F2** 預算用盡仍會以 `timeout 0`（無時限）啟動下一項——改為每項嘗試前檢查剩餘預算，用盡即停；**F3** 終止錯誤行改為只認 stderr 最後一個非空行（DSH 以 aborted／hook blocked 結束時不印錯誤行，往回搜尋會撿到 reasoning 中形似錯誤行的內容）；殘留：reasoning 最後一行恰為該格式時仍會誤認，完全排除需改讀 session log。另：run artifact 改為排除 `gh-token`。
 
+> **2026-10-06 修正（第四種拒答措辭）**：fubon-tradingbot#654（agent-fix-bug，總分 4 × 複雜度 high → critical）的 opus-5-5 在第 20 秒被前置攔截（run 37419721657）：`dsh: PI_AI_ERROR: This request was blocked as it seems to violate Anthropic's Terms of Service restrictions on reverse engineering or duplicating model outputs.`。措辭不含 `usage policy|refus|declin`，被分類成 agent-error，chain 其餘三項（opus-5 → deepseek-flash → qwen）一項都沒試即交還人類。修正：`REFUSAL_MESSAGE` 加入 `terms of service` 與 `\bblocked\b`。比對刻意保留寬度——範圍已限於 critical 且為 DSH 終止錯誤行的 PI_AI_ERROR；誤判成拒答只多試 chain 下一項（受預算檢查約束），漏判則整張單停擺，代價不對稱。觸發原因未能確認（推測與 Issue 內文含大段待照抄的 AI 產出程式碼有關）。
+
 > **2026-08-28 裁決（取代先前「只有最高才用 fable」）**：`claude-fable-5` 需額外 credit（帳號方案未包含；實測 run #33175623064 無法使用）——**移除 fable-5**，critical 預設改為同代旗艦 `claude-opus-5`（$5/25、1M ctx、支援 xhigh/max thinking）。
 
 > **2026-09-11 裁決（DeepSeek V4 系列汰換）**：DeepSeek 於 2026-09-10 發布 `DeepSeek-V4.1-Flash`，宣告「在性能、費用、速度、總用時等各項指標上全面超越 V4 Pro」。依官方 API 文件（[Change Log](https://api-docs.deepseek.com/updates/)、[Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing)）：
