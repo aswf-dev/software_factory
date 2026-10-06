@@ -965,6 +965,16 @@ describe('checkIssue：非 audit 類型要求變更 PBT 檔', () => {
 })
 
 describe('buildCheckComment：非 audit 類型要求變更 PBT 檔', () => {
+  it('缺任務類型也照樣攔（未宣告類型不是 audit）→ 留言標示「(未宣告類型)」', () => {
+    const body = fixBugBody('目標模組 / 檔案：src/Tick.ts\n- 測試：test/jest/Tick.pbt.test.ts 加回 property').replace(
+      '\nagent-fix-bug\n',
+      '\n_No response_\n',
+    )
+    const r = checkIssue(body)
+    expect(r.taskType).toBeUndefined()
+    expect(r.pbtOutsideAudit).toEqual(['test/jest/Tick.pbt.test.ts'])
+    expect(buildCheckComment(r)).toContain('`(未宣告類型)` 工單要求新增或修改 PBT 測試檔')
+  })
   it('不合規 → 說明會被 crosscheck 擋、改寫方式與加回 property 的合法路徑', () => {
     const c = buildCheckComment(checkIssue(fixBugBody('目標模組 / 檔案：src/Tick.ts\n- 測試：test/jest/Tick.pbt.test.ts 加回 property')))
     expect(c).toContain('❌ **Issue 格式不合規**')

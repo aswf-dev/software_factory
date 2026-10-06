@@ -139,6 +139,9 @@ describe('findPbtEditRequests', () => {
     ])
     expect(findPbtEditRequests('Add properties to test/a.pbt.test.ts.')).toEqual(['test/a.pbt.test.ts'])
   })
+  it('有變更動詞但整行沒有任何路徑字元（純中文）→ 不列', () => {
+    expect(findPbtEditRequests('新增範例測試。\n修改既有斷言')).toEqual([])
+  })
   it('同一檔先後以完整路徑與檔名出現 → 只列完整路徑（回歸 #654 實際內文）', () => {
     const prd = [
       '- 測試：test/jest/Tick.pbt.test.ts 加回 property',
