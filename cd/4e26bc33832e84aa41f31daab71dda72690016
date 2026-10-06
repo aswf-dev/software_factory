@@ -1,0 +1,20 @@
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 939-977
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 45-51,423-427,500-502,504-508,521,556-564
+src/pbt-audit/intake.test.ts
+  h_1b119f25eaf333 2-9,97-150
+src/pbt-audit/intake.ts
+  h_1b119f25eaf333 94-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd4e26bc33832e84aa41f31daab71dda72690016",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
