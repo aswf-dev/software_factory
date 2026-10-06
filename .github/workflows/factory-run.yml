@@ -1029,9 +1029,14 @@ jobs:
             echo "::warning::REQ id 錨定 advisory（不擋 run）：$(jq -r '[.advisories[].kind] | join(", ")' .factory/crosscheck.json)"
           fi
           if [ "$code" -ne 0 ]; then
-            echo "::error::report 與實際 git diff 不一致（詳見 .factory/crosscheck.json）"
+            # 標題由 crosscheck 依 mismatch 類別產出（scope＝變更超出任務類型範圍、
+            # consistency＝report 與實際不一致）；舊版輸出缺 headline 時退回原標題，
+            # crosscheck 本身失敗（沒有 JSON）時明講，不再一律稱為「不一致」。
+            HEADLINE=$(jq -er '.headline // "report 與實際變更不一致"' .factory/crosscheck.json 2>/dev/null) \
+              || HEADLINE="crosscheck 執行失敗"
+            echo "::error::${HEADLINE}（詳見 .factory/crosscheck.json）"
             {
-              echo "## 工廠執行中止：report 與實際變更不一致"
+              echo "## 工廠執行中止：${HEADLINE}"
               echo ""
               echo "（run: ${{ github.run_id }}）"
               echo ""
