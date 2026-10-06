@@ -30,4 +30,10 @@ describe('checkPbtOutsideAudit', () => {
     expect(f).toEqual([expect.objectContaining({ kind: 'pbt-outside-audit' })])
     expect(f[0]?.detail).toContain('pkg/a_pbt_test.go')
   })
+  it('說明指出合法做法：改寫成範例測試，property 於修正合併後另開 agent-pbt-audit 加回', () => {
+    const detail = checkPbtOutsideAudit(['test/a.pbt.test.ts'])[0]?.detail ?? ''
+    expect(detail).toContain('範例測試')
+    expect(detail).toContain('另開 `agent-pbt-audit`')
+    expect(detail).toContain('docs/30 §7')
+  })
 })

@@ -87,6 +87,14 @@ describe('buildPbtAuditComment', () => {
     expect(c).toContain('修正後要加回的 property')
     expect(c).toContain('agent-fix-bug')
   })
+  // 回歸（philipz/fubon-tradingbot#654）：舊留言與操作手冊叫人把要加回的 property 放進
+  // fix-bug 工單，但 fix-bug 不得變更 PBT 檔（crosscheck pbt-outside-audit）——沒有合法執行者。
+  it('指明加回 property 的合法路徑：不放進 fix-bug 工單，修正合併後另開 agent-pbt-audit', () => {
+    const c = buildPbtAuditComment({ findings: [FINDING] }, MEASURED, '1')
+    expect(c).toContain('不要放進 `agent-fix-bug` 工單')
+    expect(c).toContain('修正合併後另開 `agent-pbt-audit`')
+    expect(c).toContain('docs/30 §7')
+  })
   it('沒有 propertyToRestore（或空白）→ 不輸出該段', () => {
     const { propertyToRestore: _, ...noRestore } = FINDING
     expect(buildPbtAuditComment({ findings: [noRestore] }, MEASURED, '1')).not.toContain('修正後要加回')
