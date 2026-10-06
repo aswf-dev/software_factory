@@ -91,6 +91,42 @@ export function languageOfDir(dir: string, files: readonly string[]): { language
   return { language: top[0] }
 }
 
+/** 變更動詞（中英）；行內出現才把 PBT 路徑視為「要求變更」。 */
+const EDIT_CUE = /加回|新增|加入|加到|放進|寫入|寫進|修改|改寫|更新|補上|測試：|\b(?:add|adds|adding|modify|update|rewrite|edit|append)\b/i
+/** 否定語境：行內出現即整行不判讀（「不碰」清單、「維持綠燈」）。 */
+const NEGATION_CUE = /不碰|不得|不可|不要|不修改|不改|不動|禁止|勿|排除|維持|保持|\b(?:do not|don't|must not|never|without)\b/i
+/** 斷詞：空白與中英標點都是邊界；路徑本身只含 [\w./*{}@-]。 */
+const TOKEN_RE = /[\w@./*{}-]+/g
+
+/**
+ * 非 agent-pbt-audit 工單的 PRD 是否要求新增或修改 PBT 測試檔（ADR-019 §2）。
+ *
+ * 這類工單派工後必定被 crosscheck 判 `pbt-outside-audit`；開單檢查先擋，省下整個
+ * run（回歸：philipz/fubon-tradingbot#654）。判讀刻意保守，只抓「具體路徑＋變更動詞」：
+ * - 含 glob（`*`）的寫法是規則描述，不是要改的檔；
+ * - 行內有否定語境（不碰、維持綠燈…）整行略過；
+ * - code fence 內是程式碼，不是指示。
+ * 漏抓仍有 crosscheck 兜底；誤抓的代價是人改寫 PRD 措辭。
+ */
+export function findPbtEditRequests(requirement: string): string[] {
+  const found: string[] = []
+  let inFence = false
+  for (const line of requirement.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence
+      continue
+    }
+    if (inFence || NEGATION_CUE.test(line) || !EDIT_CUE.test(line)) continue
+    for (const raw of line.match(TOKEN_RE) ?? []) {
+      const token = raw.replace(/[.]+$/, '')
+      if (token.includes('*') || !isPbtTestPath(token) || found.includes(token)) continue
+      found.push(token)
+    }
+  }
+  // 同一檔先以完整路徑、再以檔名出現（或相反）時只留完整路徑
+  return found.filter((f) => !found.some((g) => g !== f && g.endsWith(`/${f}`)))
+}
+
 export function reviewPbtAuditIntake(declared: readonly string[], ctx: PbtAuditIntakeContext): PbtAuditIntakeReview {
   const errors: string[] = []
   const deferred: string[] = []
