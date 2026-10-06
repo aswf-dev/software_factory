@@ -1,0 +1,24 @@
+docs/30-pbt-audit-runbook.md
+  h_1b119f25eaf333 31-32,126-127,131-132
+docs/ADR/019-property-based-testing-hegel.md
+  h_1b119f25eaf333 94,255-265
+src/pbt-audit/comment.test.ts
+  h_1b119f25eaf333 90-97
+src/pbt-audit/comment.ts
+  h_1b119f25eaf333 128,131-135
+src/pbt-audit/scope.test.ts
+  h_1b119f25eaf333 33-38
+src/pbt-audit/scope.ts
+  h_1b119f25eaf333 52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c80fb2f9ba5cc7bdb5a1a770a41f62dc92cd632e",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
