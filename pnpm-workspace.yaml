@@ -11,6 +11,12 @@ overrides:
   undici: '>=8.10.2 <9'
   brace-expansion: '>=5.0.12 <6'
   '@grpc/grpc-js': '>=1.14.5 <2'
+  # pnpm audit（2026-10-06）：proxy-addr critical GHSA-jqcg-44mw-7w3h（dsh>pi-ai>@google/genai>mcp sdk>express）
+  # source-map-js high GHSA-68fv-2mgg-jv7q（vitest>vite>postcss 等）、
+  # compression high GHSA-vc2v-76pw-4v95（dsh>dsh-web-app>dsh-host-webserver）
+  proxy-addr: '>=2.0.8 <3'
+  source-map-js: '>=1.2.2 <2'
+  compression: '>=1.8.2 <2'
 auditConfig:
   ignoreGhsas:
     # http-cache-semantics max-stale（high，2026-10-03 起擋 CI）：上游尚無修補版，
