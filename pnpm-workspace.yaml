@@ -17,6 +17,12 @@ overrides:
   proxy-addr: '>=2.0.8 <3'
   source-map-js: '>=1.2.2 <2'
   compression: '>=1.8.2 <2'
+  # pnpm audit high（2026-10-07）：sharp GHSA-wq5f-xc86-pv6w（librsvg CVE；dsh>dsh-base>dsh-attachment-local）、
+  # MCP SDK OAuth 憑證外洩 GHSA-6qxp-vccf-f47h（client：dsh>dsh-mcp-client，上游鎖 2.0.0；
+  # sdk：dsh>dsh-llm-pi-ai>pi-ai>@google/genai）。dsh 上游升版後可移除。
+  sharp: '>=0.35.5 <0.36'
+  '@modelcontextprotocol/client': '>=2.2.0 <3'
+  '@modelcontextprotocol/sdk': '>=1.31.0 <2'
 auditConfig:
   ignoreGhsas:
     # http-cache-semantics max-stale（high，2026-10-03 起擋 CI）：上游尚無修補版，
