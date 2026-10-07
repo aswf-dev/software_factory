@@ -1024,24 +1024,57 @@ jobs:
           code=$?
           set -e
           cat .factory/crosscheck.json
+          # crosscheck 本身失敗（例如 report.json 不符 schema）時只寫 stderr、不寫 JSON。
+          # 原因必須同時進 log 與留言（philipz/fubon-tradingbot#670：原因只在沒人看得到的
+          # crosscheck.err，人只能下載 artifact 在本機重跑才查到）。
+          # 判斷「有沒有 JSON」要用 jq -e：jq 讀空檔 exit 0 且不輸出，`jq ... || echo 0`
+          # 因此得到空字串而非 0（同一事故的 `integer expression expected`）。
+          HAS_JSON=false
+          jq -e 'type == "object"' .factory/crosscheck.json >/dev/null 2>&1 && HAS_JSON=true
+          if [ "$HAS_JSON" != true ] && [ -s .factory/crosscheck.err ]; then
+            echo "::error::factory-crosscheck 未產出 JSON：$(head -n 1 .factory/crosscheck.err | head -c 500 | iconv -f UTF-8 -t UTF-8 -c)"
+            cat .factory/crosscheck.err
+          fi
           # advisory 單獨提示（不影響 code，不擋 run）
-          if [ "$(jq -r '.advisories | length' .factory/crosscheck.json 2>/dev/null || echo 0)" -gt 0 ]; then
+          ADVISORY_COUNT=0
+          if [ "$HAS_JSON" = true ]; then
+            ADVISORY_COUNT=$(jq -r '(.advisories // []) | length' .factory/crosscheck.json)
+          fi
+          if [ "$ADVISORY_COUNT" -gt 0 ]; then
             echo "::warning::REQ id 錨定 advisory（不擋 run）：$(jq -r '[.advisories[].kind] | join(", ")' .factory/crosscheck.json)"
           fi
           if [ "$code" -ne 0 ]; then
             # 標題由 crosscheck 依 mismatch 類別產出（scope＝變更超出任務類型範圍、
             # consistency＝report 與實際不一致）；舊版輸出缺 headline 時退回原標題，
             # crosscheck 本身失敗（沒有 JSON）時明講，不再一律稱為「不一致」。
-            HEADLINE=$(jq -er '.headline // "report 與實際變更不一致"' .factory/crosscheck.json 2>/dev/null) \
-              || HEADLINE="crosscheck 執行失敗"
+            if [ "$HAS_JSON" = true ]; then
+              HEADLINE=$(jq -r '.headline // "" | if . == "" then "report 與實際變更不一致" else . end' .factory/crosscheck.json)
+            else
+              HEADLINE="crosscheck 執行失敗"
+            fi
             echo "::error::${HEADLINE}（詳見 .factory/crosscheck.json）"
             {
               echo "## 工廠執行中止：${HEADLINE}"
               echo ""
               echo "（run: ${{ github.run_id }}）"
               echo ""
-              jq -r '[.mismatches[] | "- \(.kind)：\(.detail)"] | join("\n")' .factory/crosscheck.json 2>/dev/null \
-                || echo "- （crosscheck 執行失敗，無 mismatch 明細；請查看 run logs）"
+              if [ "$HAS_JSON" = true ]; then
+                jq -r '[(.mismatches // [])[] | "- \(.kind)：\(.detail)"] | join("\n")' .factory/crosscheck.json
+              else
+                echo "factory-crosscheck 未產出 JSON（沒有 mismatch 明細），錯誤輸出如下："
+                echo ""
+                echo '```'
+                if [ -s .factory/crosscheck.err ]; then
+                  # 留言上限 65536 字元；原因在開頭幾行，截斷不損失診斷資訊。
+                  # 以位元組截斷可能切開多位元組字元，iconv -c 丟掉殘缺的尾端；丟棄時
+                  # iconv 以 1 結束，`|| true` 避免 set -e 在貼留言前中止 step。
+                  head -c 4000 .factory/crosscheck.err | iconv -f UTF-8 -t UTF-8 -c || true
+                  echo ""
+                else
+                  echo "（stderr 為空；請查看 run logs）"
+                fi
+                echo '```'
+              fi
               if [ -f target/.factory/run/usage.md ]; then
                 echo ""
                 cat target/.factory/run/usage.md
@@ -1294,4 +1327,6 @@ jobs:
             .factory/model.json
             .factory/issue.json
             .factory/scoreboard-event.json
+            .factory/crosscheck.json
+            .factory/crosscheck.err
           if-no-files-found: ignore
