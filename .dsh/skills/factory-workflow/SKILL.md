@@ -41,6 +41,27 @@ description: 工廠 agent 處理一個 GitHub Issue 工作項的主流程 SOP。
 > （`passed`/`failed`/`skipped`）。`factory-crosscheck` 會驗證該欄位完整性（每條驗收條件
 > 都有對應條目且 status 齊全）；此欄位缺漏或造假時與 `changedPaths` 同樣觸發 needs-human。
 > **此欄位為「誠實自報」＋CI 交叉驗證，不取代人類審查（docs/06 §4.3）。**
+>
+> **`status` 只有這三個值，大小寫一致，不接受同義詞**：達成寫 `passed`（不是 `met`／`done`／`ok`），
+> 未達成寫 `failed`，不適用或不屬於本次 run 寫 `skipped`（不是 `deferred`／`n/a`）。
+> 例如 `agent-write-spec` 不變量階段遇到「模型檢查結果」這類模型階段的驗收條件，寫 `skipped`，
+> 原因寫在選填的 `evidence` 字串。寫錯任何一個值，CI 會判定**整份 report 格式不合規**，
+> 已開好的 PR 也會以 needs-human 收場（philipz/fubon-tradingbot#670）。
+
+**寫完 report 立即自檢**（必做；只驗 JSON 語法不夠，格式錯誤 CI 不會替你修正）。下列命令印出 `true`
+才算通過；印出 `false` 或報錯就修正 report 再跑一次：
+
+```bash
+jq -e '
+  (.issueNumber | type == "number")
+  and (.invocation | type == "object")
+  and ((.requirements // []) | all(.[]; (.id | type == "string")
+        and (.status == "passed" or .status == "failed" or .status == "skipped")))
+  and ((.skillGap // null) == null
+        or ((.skillGap.category | type == "string" and test("^[a-z0-9]+(-[a-z0-9]+)*$"))
+            and (.skillGap.needed | type == "string" and length > 0)))
+' .factory/run/report.json
+```
 
 > **`assertionDelta` 欄位（SR6 的輸入，docs/18 §2.3.1）**：CI 會從 `git diff` **獨立實算**
 > 測試檔的斷言淨增減並與你回報的值比對。只鎖一個方向：**實算為淨減少、而你未回報或
