@@ -19,6 +19,11 @@ export interface FactoryIssueBodyInput {
   /** agent-write-spec 專用（ADR-018 §5）；其他類型不帶，輸出 `_No response_`。 */
   specName?: string | undefined
   specSource?: string | undefined
+  /**
+   * 規劃健檢用的前置工作項（docs/32 §4）；未帶時輸出 `_No response_`。
+   * 只宣告、不查狀態——issue-check 不做任何 GitHub API 呼叫。
+   */
+  prerequisites?: string | undefined
 }
 
 /** Issue 標題：一律帶 `[factory] ` 前綴（與 ISSUE_TEMPLATE 的 title 模式一致）。 */
@@ -55,6 +60,11 @@ export function buildIssueBody(input: FactoryIssueBodyInput): string {
     '### 規格來源',
     '',
     input.specSource ?? NO_RESPONSE,
+    '',
+    // 規劃健檢欄位（docs/32 §4）：一律輸出，未填時比照 GitHub 表單的選填空值。
+    '### 前置工作項（可留空）',
+    '',
+    input.prerequisites ?? NO_RESPONSE,
     '',
   ].join('\n')
 }

@@ -10,7 +10,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DOD_LABELS, FIELD_TITLES } from '../../src/cli/factory-issue-check.js'
+import { DOD_LABELS, FIELD_TITLES, checkIssue } from '../../src/cli/factory-issue-check.js'
 import { IN_LOOP_ALLOWED_TASK_TYPES, OUTPUT_ONLY_TASK_TYPES } from '../../src/cli/apply-score-labels.js'
 import { checkPbtAuditScope } from '../../src/pbt-audit/scope.js'
 import { NO_AUTOMERGE_TASK_TYPES } from '../../src/pipeline/no-automerge.js'
@@ -1929,6 +1929,53 @@ describe('write-spec 開單欄位四處同步（ADR-018 §11）', () => {
     const w = read('.github/workflows/factory-run.yml')
     expect(w).toContain('--catalog target/catalog-info.yaml')
     expect(w).toContain('--target-root target')
+  })
+
+  /**
+   * 規劃健檢欄位（docs/32 §4）：與 spec 欄位同一類漂移風險，但**方向相反**——
+   * 它必須是**選填**，標題漂移會讓「前置工作項」永遠讀不到（每張單都被當成
+   * 未宣告前置），而漏改 Backstage 則讓經由 IDP 開的單結構與原生表單不一致。
+   */
+  const PLANNING_FIELD = 'prerequisites'
+  it('FIELD_TITLES 有前置工作項欄位', () => {
+    expect(FIELD_TITLES[PLANNING_FIELD]).toBeTruthy()
+  })
+  it('ISSUE_TEMPLATE：欄位 label 與 FIELD_TITLES 一致，且**不**是必填', () => {
+    const yml = load(read('.github/ISSUE_TEMPLATE/factory-work-item.yml')) as {
+      body: { id?: string; attributes: { label: string }; validations?: { required?: boolean } }[]
+    }
+    const item = yml.body.find((b) => b.id === PLANNING_FIELD)
+    expect(item, `ISSUE_TEMPLATE 缺 ${PLANNING_FIELD}`).toBeDefined()
+    expect(item!.attributes.label).toBe(FIELD_TITLES[PLANNING_FIELD])
+    // 宣告的是「順序」，不是格式：必填會把 planning 變成 gate，違反 advisory 設計
+    expect(item!.validations?.required ?? false).toBe(false)
+  })
+  it('Backstage：參數存在、不被列為 required，且 body 輸出對應 ### 標題', () => {
+    const p = bsParams() as unknown as {
+      required?: string[]
+      properties: Record<string, { title?: string }>
+    }
+    expect(p.properties.prerequisites?.title).toBe(FIELD_TITLES[PLANNING_FIELD])
+    expect(p.required ?? []).not.toContain('prerequisites')
+    expect(read('backstage/templates/factory-work-item/template.yaml')).toContain(
+      `### ${FIELD_TITLES[PLANNING_FIELD]}\n\n          \${{ parameters.prerequisites or '_No response_' }}`,
+    )
+  })
+  it('buildIssueBody：輸出 ### 標題，且未帶值時為 _No response_（非 write-spec 仍合規）', () => {
+    const body = buildIssueBody({ taskType: 'agent-add-tests', requirement: 'x', targetRepo: 'o/r' })
+    expect(body).toContain(`### ${FIELD_TITLES[PLANNING_FIELD]}\n\n_No response_`)
+    expect(checkIssue(body).ok).toBe(true)
+  })
+  it('帶前置值時 round-trip：解析得回編號，且不影響合規', () => {
+    const body = buildIssueBody({
+      taskType: 'agent-fix-bug',
+      requirement: 'x',
+      targetRepo: 'o/r',
+      prerequisites: '#192, #205',
+    })
+    const r = checkIssue(body)
+    expect(r.planning.prerequisites.ids).toEqual([192, 205])
+    expect(r.ok).toBe(true)
   })
 })
 
