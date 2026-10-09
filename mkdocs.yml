@@ -29,6 +29,9 @@ nav:
   - write-spec 操作手冊: 28-write-spec-runbook.md
   - 棕地導入 Playbook: 29-brownfield-adoption-playbook.md
   - pbt-audit 操作手冊: 30-pbt-audit-runbook.md
+  - 方法論入口（第一次開單）: 31-methodology-entry.md
+  - 工作項規劃指南: 32-writing-work-items.md
+  - 工作項範例: 33-worked-examples.md
   - 架構決策記錄（ADR）: ADR/README.md
   - 詞彙表: GLOSSARY.md
 plugins:

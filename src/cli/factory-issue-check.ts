@@ -79,6 +79,9 @@ export const FIELD_TITLES: Record<string, string> = {
   //（對抗性測試 factory-assets 釘住）。
   spec_name: '規格名稱',
   spec_source: '規格來源',
+  // 規劃健檢欄位（docs/32 §4）：選填，只被解析、不被強制。
+  // 標題在 Backstage 模板、ISSUE_TEMPLATE、buildIssueBody 四處逐字一致。
+  prerequisites: '前置工作項（可留空）',
 }
 
 /** GitHub Issue Forms 對未填選填欄位輸出的字樣；Backstage 模板比照輸出，一律視為未填。 */
@@ -404,6 +407,155 @@ export function buildRiskPathHint(risk: RiskPathReview): string[] {
   return []
 }
 
+/* ── 規劃健檢（docs/32）───────────────────────────────────────────────
+ *
+ * 動機：工廠不缺流程，缺的是「讓人把工單規劃對、順序排對」的當下引導。
+ * repo 已有 `docs/21` §2.0 篩子五問、§4 排序建議與依賴關係註記、`docs/29`
+ * §9 各規模序列——但那些是**文件**，非專家不會去讀，讀了也不等於知道
+ * 「我這張單還缺什麼」。而 `docs/29` §5 自承就緒度→允許類型「沒有機械強制」。
+ *
+ * 本節把「已經寫在文件裡、且機械可判定」的規則，在**開單當下**以具體語句
+ * 回答一句話：**這張單還缺什麼？** 輸出到既有 Issue 留言。
+ *
+ * 三項硬性設計約束：
+ * 1. **純函式**：不做任何網路／GitHub 呼叫，因此不查前置 Issue 的實際狀態。
+ *    宣告的是「順序」不是「格式」——查狀態需要 `issues:read` 與 needs-human
+ *    語意的獨立裁決，屬後續工作項（docs/32 §7）。
+ * 2. **advisory**：與 G5 具體性提示、REQ-n 錨定同級——**刻意不改變 ok/missing
+ *    合規判定與計分**。理由是 `docs/21` §4 的排序仍受 `Q21-4` 未裁決的制約，
+ *    把它變成硬性閘門會在裁決前就實質生效。
+ * 3. **不新增 hard gate 字串**：措辭不得含「格式不合規」（workflow 以該字串
+ *    grep 決定是否紅燈停派，見 buildRiskPathHint 的同款紀律）。
+ *
+ * 這是 Verification 而非 Validation：不判「該不該做」，只判「宣告與引用是否成立」。
+ */
+
+/** 解析前置工作項欄位：抽出 `#N` 編號，依出現順序去重。 */
+export function parsePrerequisites(body: string): number[] {
+  return parsePrerequisiteTokens(extractField(body, 'prerequisites') ?? '').ids
+}
+
+export interface PrerequisiteReview {
+  /** 表單欄位「前置工作項」是否已填（未填 → 後續不發話，避免對每張單重複提醒）。 */
+  declared: boolean
+  /** 已宣告編號（去重、依出現順序）。 */
+  ids: number[]
+  /** 欄位有內容但含非編號文字者——宣告寫法有問題，值得提醒。 */
+  malformed: string[]
+  /** 指向自己的編號（解析自標題 `[factory] … (#N)`）。 */
+  selfRefs: number[]
+}
+
+/** 分隔詞彙的符號（半形與全形）：逗號、頓號、空白、分號、句號。 */
+const PREREQ_SEPARATORS = /[,，、；;。\s]+/
+
+/** 逐段掃描前置欄位：命中的 `#N` 是合法編號，其他非分隔符片段即無法解析的內容。 */
+function parsePrerequisiteTokens(value: string): { ids: number[]; malformed: string[] } {
+  const ids: number[] = []
+  const malformed: string[] = []
+  for (const segment of value.split(PREREQ_SEPARATORS)) {
+    const token = segment.trim()
+    if (token.length === 0) continue
+    const m = token.match(/^#(\d+)$/)
+    if (m === null) {
+      if (!malformed.includes(token)) malformed.push(token)
+      continue
+    }
+    const id = Number(m[1] as string)
+    if (!ids.includes(id)) ids.push(id)
+  }
+  return { ids, malformed }
+}
+
+/**
+ * 審查前置工作項宣告：只做 **格式與自我引用** 的判定，不查遠端狀態。
+ * 自我引用需要 Issue 標題（`gh issue view --json body,title`）；未提供時不判定。
+ */
+export function reviewPrerequisites(body: string, issueTitle?: string): PrerequisiteReview {
+  const declared = extractField(body, 'prerequisites') !== undefined
+  const { ids, malformed } = parsePrerequisiteTokens(extractField(body, 'prerequisites') ?? '')
+  const own = Number(
+    issueTitle?.match(/\(#(\d+)\)\s*$/)?.[1] ?? issueTitle?.match(/#(\d+)\s*$/)?.[1] ?? Number.NaN,
+  )
+  const selfRefs = Number.isNaN(own) ? [] : ids.filter((id) => id === own)
+  return { declared, ids, malformed, selfRefs }
+}
+
+/**
+ * 依 task_type 的「順序建議」對照（docs/32 §4）。只收**有明確出處**者：
+ * - fix-bug 前應先有可跑的測試 → `docs/07` §2.1 測試先行、`docs/29` §3.3 回歸安全網；
+ * - write-docs 不得當規格來源 → `docs/29` §10.2（照實作寫的規格會把缺陷一起當成正確）；
+ * - write-spec 前置 → `docs/28` §1、`docs/29` §10.2（規格來源必須人類撰寫）；
+ * - pbt-audit 前置 → `docs/30`、ADR-019（Hegel 精確釘版、`.gitignore` 含 `.hegel/`）；
+ * - 多 repo 情境 → `docs/29` §6 試驗場規則（尚未試點成功的類型先在小專案試）。
+ */
+const TASK_TYPE_PLANNING_GUIDANCE: Readonly<Record<string, string>> = {
+  'agent-fix-bug':
+    '`agent-fix-bug` 的測試先行（`docs/07` §2.1）需要目標模組**已有可跑的測試**；' +
+    '若還沒有，順序上應先開一張 `agent-add-tests`（`docs/32` §4）。',
+  'agent-write-docs':
+    '`agent-write-docs` 依程式碼寫出的文件**不得**當規格來源——照實作寫不變量會把缺陷' +
+    '一起當成正確（`docs/29` §10.2）。若這張單是為了餵規格流程，請改為由領域專家撰寫或' +
+    '逐條確認的業務規則（`docs/32` §4）。',
+  'agent-write-spec':
+    '`agent-write-spec` 的規格來源必須是**人類撰寫或逐條確認**的業務規則（`docs/29` §10.2），' +
+    '且「不變量 → 模型」之間隔著一次人工核准（`docs/28` §1）；這是兩個 run，不是一張單（`docs/32` §4）。',
+  'agent-pbt-audit':
+    '`agent-pbt-audit` 需要目標 repo 已完成前置作業：Hegel 依賴精確釘版、`.gitignore` 含 ' +
+    '`.hegel/`（`docs/30`；ADR-019）。未完成時派工會直接失敗（`docs/32` §4）。',
+}
+
+export interface PlanningReview {
+  prerequisites: PrerequisiteReview
+  /** 依本次 task_type 的順序建議；無對照、或已有前置宣告則為 undefined。 */
+  guidance?: string | undefined
+}
+
+/**
+ * 規劃健檢（advisory）。輸出只在**有話可說**時產生，避免稀釋既有提示的訊號
+ * （與 `buildRequirementAnchorLines` 的空清單不發話同一紀律）。
+ */
+export function reviewPlanning(body: string, issueTitle?: string): PlanningReview {
+  const prerequisites = reviewPrerequisites(body, issueTitle)
+  const taskType = extractField(body, 'task_type')
+  const advice = taskType === undefined ? undefined : TASK_TYPE_PLANNING_GUIDANCE[taskType]
+  // 已有前置宣告 → 順序已被明確表達，不再給泛泛建議（那會讓「已規劃」與
+  // 「未規劃」看起來一樣）。未宣告時才提醒「順序上可先做什麼」。
+  const guidance = prerequisites.declared ? undefined : advice
+  return { prerequisites, guidance }
+}
+
+/** 🧭 規劃健檢留言列；無話可說時回空陣列。 */
+export function buildPlanningHint(plan: PlanningReview): string[] {
+  const { declared, ids, malformed, selfRefs } = plan.prerequisites
+  const out: string[] = []
+  if (malformed.length > 0) {
+    out.push(
+      '🧭 **規劃健檢**：前置工作項欄位含無法解析的內容：' +
+        malformed.map((t) => `\`${t}\``).join('、') +
+        '。請只填 Issue 編號（例如 `#192`；多個以逗號分隔）。',
+    )
+  }
+  if (selfRefs.length > 0) {
+    out.push(
+      `🧭 **規劃健檢**：前置工作項指向本 Issue 自己（${selfRefs.map((n) => `#${n}`).join('、')}）——` +
+        '這張單將永遠等不到自己完成，請移除。',
+    )
+  }
+  if (declared && ids.length > 0) {
+    out.push(
+      '🧭 **規劃健檢**：已宣告前置工作項 ' +
+        ids.map((n) => `#${n}`).join('、') +
+        '。**請確認它們已合併**再派工——本檢查不做 GitHub 查詢，無法代你確認狀態；' +
+        '順序規則見 `docs/32` §4。',
+    )
+  }
+  if (plan.guidance !== undefined) {
+    out.push(`🧭 **規劃健檢**：${plan.guidance}`)
+  }
+  return out
+}
+
 export interface CheckResult {
   ok: boolean
   missing: RequiredField[]
@@ -425,6 +577,8 @@ export interface CheckResult {
    * 非空即不合規：派工後必定被 crosscheck 判 pbt-outside-audit（philipz/fubon-tradingbot#654）。
    */
   pbtOutsideAudit?: string[] | undefined
+  /** 規劃健檢（advisory；docs/32）：前置宣告審查與順序建議。不影響 ok。 */
+  planning: PlanningReview
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -472,6 +626,7 @@ export function checkIssue(
   body: string,
   hardRules?: HardRulePatterns,
   specCtx: SpecCheckContext = {},
+  issueTitle?: string,
 ): CheckResult {
   const missing: RequiredField[] = []
   if (extractField(body, 'task_type') === undefined) missing.push('task_type')
@@ -519,6 +674,7 @@ export function checkIssue(
     spec,
     pbtAudit,
     pbtOutsideAudit,
+    planning: reviewPlanning(body, issueTitle),
   }
 }
 
@@ -626,6 +782,10 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
   if (r.risk !== undefined) {
     lines.push(...buildRiskPathHint(r.risk))
   }
+  // 規劃健檢（advisory）：位置刻意在風險提示之後、REQ 編號之前——先講「這張單
+  // 的風險」，再講「這張單的順序」，最後才是「驗收條件怎麼編號」。
+  // issue-title 只影響自我引用的判定（未提供時整段不判定），不影響其他檢查。
+  lines.push(...buildPlanningHint(r.planning))
   lines.push(...buildRequirementAnchorLines(r.requirements))
   if (r.ok) {
     lines.push(
@@ -711,10 +871,13 @@ export function main(
   gh: GhRunner = realGh,
 ): { issueNumber: string; result: CheckResult; comment: string } {
   const { issueNumber, paths } = parseCheckArgs(argv)
-  const json = gh(['issue', 'view', issueNumber, '--json', 'body'])
+  const json = gh(['issue', 'view', issueNumber, '--json', 'body,title'])
   let body: string
+  let title: string | undefined
   try {
-    body = (JSON.parse(json) as { body: unknown }).body as string
+    const parsed = JSON.parse(json) as { body: unknown; title?: unknown }
+    body = parsed.body as string
+    title = typeof parsed.title === 'string' ? parsed.title : undefined
   } catch {
     throw new CliError(`issue view JSON invalid: ${json.slice(0, 80)}`)
   }
@@ -734,7 +897,7 @@ export function main(
       ? {}
       : (({ pathKind, listFiles }) => ({ pathKind, listFiles }))(repoFs(targetRoot))),
   }
-  const result = checkIssue(body, hardRules, specCtx)
+  const result = checkIssue(body, hardRules, specCtx, title)
 
   // 建議模型：與 factory-run 共用的解析核心。設定檔損壞 → fail-loud（CliError），
   // 絕不靜默讓建議消失（guardrail 設定錯誤必須紅燈，docs/05）。

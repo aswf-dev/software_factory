@@ -38,14 +38,18 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/27-repo-onboarding.md`](docs/27-repo-onboarding.md) | 新 repo 納管流程（agent-onboard、三軸裁定、雙向探測） |
 | [`docs/29-brownfield-adoption-playbook.md`](docs/29-brownfield-adoption-playbook.md) | 棕地系統導入 Playbook：大中小型分級、就緒度、工作項類型與各級流程、人類閘門 |
 | [`docs/30-pbt-audit-runbook.md`](docs/30-pbt-audit-runbook.md) | agent-pbt-audit 操作手冊：以 Hegel 事後稽核既有模組、前置作業、候選發現處理 |
+| [`docs/31-methodology-entry.md`](docs/31-methodology-entry.md) | **方法論入口**：第一次開單、非工程背景者從這裡開始（不必先讀其他文件） |
+| [`docs/32-writing-work-items.md`](docs/32-writing-work-items.md) | 工作項規劃指南：PRD／DoD 怎麼寫、規劃與排序的差別、前置工作項與規劃健檢 |
+| [`docs/33-worked-examples.md`](docs/33-worked-examples.md) | 工作項範例：可直接複製的真實 Issue（含尚未試跑類型的誠實標註） |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
-| [`docs/ADR/`](docs/ADR/) | 架構決策記錄（D1–D7） |
+| [`docs/ADR/`](docs/ADR/) | 架構決策記錄（ADR-001～019） |
 
 ## 從哪裡開始讀
 
 | 你的角色 | 建議順序 |
 |---|---|
-| **決策者／主管** | `README` → `09` 路線圖 → `10` 未決事項（§1.1 需你裁決的 6 項） |
+| **第一次開單／沒有工程背景** | **`31` 方法論入口 → `32` 規劃指南 → `33` 範例 → `GLOSSARY`** |
+| **決策者／主管** | `README` → `09` 路線圖 → `10` 未決事項（§1.1 需你裁決的 8 項） |
 | **實作工程師** | `02` 架構 → `04` DSH 執行 → `05` 治理 → `07` stacked PR |
 | **審查者** | `06` 監督政策 → `07` §6 審查者指引 |
 | **想理解為什麼** | `00` 來源精要 → `01` 價值流 → `ADR/` |

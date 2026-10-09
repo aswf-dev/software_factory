@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildCheckComment,
+  buildPlanningHint,
   buildRequirementAnchorLines,
   buildRequirementAnchors,
   checkDodSpecificity,
@@ -18,6 +19,9 @@ import {
   loadHardRules,
   main,
   parseCheckArgs,
+  parsePrerequisites,
+  reviewPlanning,
+  reviewPrerequisites,
 } from './factory-issue-check.js'
 
 const COMPLIANT = [
@@ -983,5 +987,151 @@ describe('buildCheckComment：非 audit 類型要求變更 PBT 檔', () => {
     expect(c).toContain('`agent-pbt-audit`')
     expect(c).toContain('docs/30 §7')
     expect(c).not.toContain('可 dispatch')
+  })
+})
+
+/* ── 規劃健檢（docs/32）：非專家的「這張單還缺什麼」─────────────────────
+ *
+ * 契約：advisory——**絕不**改變 ok/missing；措辭**絕不**含「格式不合規」
+ * （workflow 以該字串 grep 決定紅燈停派）。以下測試同時釘住這兩點。
+ */
+
+/** 在合規 body 末端插入前置工作項欄位（GitHub 表單一律輸出選填欄位）。 */
+const withPrereq = (value: string, taskType = 'agent-add-tests'): string =>
+  `${COMPLIANT.replace('agent-add-tests', taskType)}\n### 前置工作項（可留空）\n\n${value}\n`
+
+describe('parsePrerequisites', () => {
+  it('抽出 #N 編號，依出現順序去重', () => {
+    expect(parsePrerequisites(withPrereq('#192, #205'))).toEqual([192, 205])
+    expect(parsePrerequisites(withPrereq('#7 #7 #8'))).toEqual([7, 8])
+  })
+  it('未填（欄位缺席或 _No response_）→ 空陣列', () => {
+    expect(parsePrerequisites(COMPLIANT)).toEqual([])
+    expect(parsePrerequisites(withPrereq('_No response_'))).toEqual([])
+  })
+  it('不含 `#` 的數字或文字皆不算編號（由 malformed 另行提醒）', () => {
+    expect(parsePrerequisites(withPrereq('192'))).toEqual([])
+    expect(parsePrerequisites(withPrereq('先做完單體拆分'))).toEqual([])
+  })
+})
+
+describe('reviewPrerequisites', () => {
+  it('未填 → declared=false，且不含任何問題', () => {
+    const r = reviewPrerequisites(COMPLIANT)
+    expect(r.declared).toBe(false)
+    expect(r.ids).toEqual([])
+    expect(r.malformed).toEqual([])
+    expect(r.selfRefs).toEqual([])
+  })
+  it('填了但含非編號文字 → malformed 逐項列出（含全形逗號與頓號）', () => {
+    const r = reviewPrerequisites(withPrereq('#192, 先做拆分；#205、#7'))
+    expect(r.declared).toBe(true)
+    expect(r.ids).toEqual([192, 205, 7])
+    expect(r.malformed).toEqual(['先做拆分'])
+  })
+  it('缺 `#` 前綴的裸數字 → malformed（欄位規範是 `#N`，避免歧義）', () => {
+    const r = reviewPrerequisites(withPrereq('192'))
+    expect(r.ids).toEqual([])
+    expect(r.malformed).toEqual(['192'])
+  })
+  it('同一段無法解析的內容重複出現 → 只提醒一次（不洗版）', () => {
+    expect(reviewPrerequisites(withPrereq('先做拆分, 先做拆分')).malformed).toEqual(['先做拆分'])
+  })
+  it('含 `#` 但無數字（例如只寫 #）→ malformed 且不產生編號', () => {
+    const r = reviewPrerequisites(withPrereq('#'))
+    expect(r.ids).toEqual([])
+    expect(r.malformed).toEqual(['#'])
+  })
+  it('自我引用由標題末端的 (#N) 判定', () => {
+    expect(reviewPrerequisites(withPrereq('#42'), '[factory] 補測試 (#42)').selfRefs).toEqual([42])
+    expect(reviewPrerequisites(withPrereq('#42, #43'), '[factory] 補測試 (#43)').selfRefs).toEqual([43])
+  })
+  it('標題缺席或格式不符 → 不判定自我引用（不誤報）', () => {
+    expect(reviewPrerequisites(withPrereq('#42')).selfRefs).toEqual([])
+    expect(reviewPrerequisites(withPrereq('#42'), '[factory] 補測試').selfRefs).toEqual([])
+  })
+})
+
+describe('reviewPlanning：順序建議只在一種情況下出現', () => {
+  it('未宣告前置 → fix-bug 給測試先行的順序建議', () => {
+    const p = reviewPlanning(COMPLIANT.replace('agent-add-tests', 'agent-fix-bug'))
+    expect(p.guidance).toContain('agent-add-tests')
+    expect(p.guidance).toContain('`docs/07` §2.1')
+  })
+  it('已宣告前置 → 不再給泛泛建議（避免「已規劃」與「未規劃」看起來一樣）', () => {
+    const p = reviewPlanning(withPrereq('#192', 'agent-fix-bug'))
+    expect(p.prerequisites.declared).toBe(true)
+    expect(p.guidance).toBeUndefined()
+  })
+  it('無對照的 task_type（或未宣告類型）→ 無建議', () => {
+    expect(reviewPlanning(COMPLIANT).guidance).toBeUndefined()
+    expect(reviewPlanning(COMPLIANT.replace('agent-add-tests', '_No response_')).guidance).toBeUndefined()
+  })
+  it('write-docs／write-spec／pbt-audit 各有出處可循的順序建議', () => {
+    for (const tt of ['agent-write-docs', 'agent-write-spec', 'agent-pbt-audit']) {
+      const p = reviewPlanning(COMPLIANT.replace('agent-add-tests', tt))
+      expect(p.guidance, tt).toBeTruthy()
+      expect(p.guidance, tt).toMatch(/docs\/(28|29|30)/)
+    }
+  })
+})
+
+describe('buildPlanningHint', () => {
+  it('無話可說 → 空陣列（不稀釋既有提示的訊號）', () => {
+    expect(buildPlanningHint(reviewPlanning(COMPLIANT))).toEqual([])
+  })
+  it('已宣告合法前置 → 提醒確認已合併，並誠實揭露不做 GitHub 查詢', () => {
+    const lines = buildPlanningHint(reviewPlanning(withPrereq('#192, #205')))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('#192、#205')
+    expect(lines[0]).toContain('請確認它們已合併')
+    expect(lines[0]).toContain('無法代你確認狀態')
+    expect(lines[0]).toContain('docs/32')
+  })
+  it('malformed → 逐項列出並說明正確寫法', () => {
+    const lines = buildPlanningHint(reviewPlanning(withPrereq('#192, 先做拆分')))
+    expect(lines.join('\n')).toContain('含無法解析的內容')
+    expect(lines.join('\n')).toContain('`先做拆分`')
+  })
+  it('自我引用 → 指出「永遠等不到自己完成」', () => {
+    const lines = buildPlanningHint(reviewPlanning(withPrereq('#42'), '[factory] 補測試 (#42)'))
+    expect(lines.join('\n')).toContain('指向本 Issue 自己')
+    expect(lines.join('\n')).toContain('#42')
+  })
+})
+
+describe('規劃健檢的邊界（advisory 契約）', () => {
+  it('絕不改變 ok／missing：同一張單有無規劃健檢都是合規', () => {
+    expect(checkIssue(COMPLIANT).ok).toBe(true)
+    expect(checkIssue(withPrereq('#192, 先做拆分')).ok).toBe(true)
+  })
+  it('不合規的單也照樣輸出規劃健檢（best-effort，與複雜度分析同）', () => {
+    const body = `${COMPLIANT.replace('agent-fix-bug', '')}\n### 前置工作項（可留空）\n\n#9\n`
+    const r = checkIssue(body.replace('agent-add-tests', 'agent-fix-bug'))
+    expect(r.ok).toBe(true)
+    expect(buildCheckComment(r)).toContain('🧭 **規劃健檢**')
+  })
+  it('留言措辭不含「格式不合規」以外的硬性字串——規劃健檢自身不觸發紅燈', () => {
+    const c = buildCheckComment(checkIssue(withPrereq('#192, 先做拆分')))
+    expect(c).toContain('🧭 **規劃健檢**')
+    // 合規單的留言可以有「格式合規」，但**不得**出現會讓 workflow exit 1 的字串
+    expect(c).not.toContain('格式不合規')
+  })
+  it('checkIssue 帶 issueTitle 時才判定自我引用（未帶則不誤報）', () => {
+    expect(checkIssue(withPrereq('#42'), undefined, {}, '[factory] 補測試 (#42)').planning.prerequisites.selfRefs).toEqual([42])
+    expect(checkIssue(withPrereq('#42')).planning.prerequisites.selfRefs).toEqual([])
+  })
+})
+
+describe('main：規劃健檢讀得到標題（自我引用判定）', () => {
+  it('gh 回傳 body,title → 自我引用被判定出來', () => {
+    const req = withPrereq('#42', 'agent-fix-bug')
+    const run = main(['9'], (_args) => JSON.stringify({ body: req, title: '[factory] 補測試 (#42)' }))
+    expect(run.comment).toContain('指向本 Issue 自己')
+  })
+  it('gh 未回傳標題（向後相容）→ 不判定自我引用，其餘照常', () => {
+    const run = main(['9'], (_args) => JSON.stringify({ body: withPrereq('#42') }))
+    expect(run.comment).not.toContain('指向本 Issue 自己')
+    expect(run.comment).toContain('#42')
   })
 })

@@ -67,3 +67,11 @@ body:
       label: 規格來源
       description: 僅 agent-write-spec 必填。repo 內路徑（例如 docs/specs/redlock.md；網頁請先存檔進 repo），或填 issue（以本 Issue 的 PRD 為規格，由 CI 快照）。不接受 URL。
       placeholder: docs/specs/redlock.md
+  # 規劃健檢（docs/32 §4）：本欄位只被解析、不被強制——宣告的是「順序」，不是格式。
+  # 標題與 Backstage 模板、buildIssueBody、FIELD_TITLES 逐字一致（factory-assets 釘住）。
+  - type: input
+    id: prerequisites
+    attributes:
+      label: 前置工作項（可留空）
+      description: 選填。若這張單必須等別的工單先完成，填它的 Issue 編號（例如 #192，多個以逗號分隔）。規劃健檢會提醒，但不阻止派工。
+      placeholder: "#192"

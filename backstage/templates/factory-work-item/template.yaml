@@ -93,6 +93,13 @@ spec:
           type: string
           default: software-factory
           description: 統一（ADR-013）：所有 repo 的 factory trunk 皆為 software-factory 分支，main 絕不觸碰（Q-P2-1）；含機制 repo 自身
+        # 規劃健檢欄位（docs/32 §4）：選填、不進 required。與 GitHub 原生表單
+        # .github/ISSUE_TEMPLATE/factory-work-item.yml 的選填欄位一致——宣告的是
+        # 「順序」，不是格式；issue-check 只解析並提醒，不阻止派工。
+        prerequisites:
+          title: 前置工作項（可留空）
+          type: string
+          description: 選填。若這張單必須等別的工單先完成，填它的 Issue 編號（例如 #192，多個以逗號分隔）。規劃健檢會提醒，但不阻止派工。
       # agent-write-spec 專用欄位（ADR-018 §5、§11）：以 rjsf 的 dependencies＋oneOf
       # 條件式呈現——只有選 agent-write-spec 才出現、且為必填。第二個分支必須列出
       # 其餘 7 種類型，否則選那些類型時沒有分支可匹配（factory-assets 釘住與 enum 同步）。
@@ -153,6 +160,10 @@ spec:
           ### 規格來源
 
           ${{ parameters.specSource or '_No response_' }}
+
+          ### 前置工作項（可留空）
+
+          ${{ parameters.prerequisites or '_No response_' }}
         labels:
           - meta/observation
     - id: dispatch
