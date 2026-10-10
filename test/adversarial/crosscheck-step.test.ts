@@ -272,4 +272,28 @@ describe('run artifact 收錄 crosscheck 輸出', () => {
     expect(paths).toContain('.factory/crosscheck.json')
     expect(paths).toContain('.factory/crosscheck.err')
   })
+
+  it('judge.json 在上傳範圍內（compare 卡片的終態來源；fubon-tradingbot#713 沒上傳 → 全是「-」）', () => {
+    const upload = steps().find((s) => s.name === 'Upload run artifacts')
+    const paths = (upload?.with?.path ?? '').split('\n').map((p) => p.trim())
+    expect(paths).toContain('.factory/judge.json')
+  })
+})
+
+describe('compare job 接線（fubon-tradingbot#713 比對卡片全空的回歸）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  const wf = load(readFileSync(join(ROOT, WORKFLOW), 'utf8')) as { jobs: { compare: { steps: Step[] } } }
+  const run = wf.jobs.compare.steps.find((s) => s.name === 'Generate comparison report and post comment')?.run ?? ''
+
+  it('PR 以 search 的 head: 前綴查找，不用只做精確比對的 --head', () => {
+    expect(run).toContain('--search "head:factory/${{ inputs.issue_number }}-${V}-"')
+    expect(run).not.toMatch(/gh pr list[^\n]*--head /)
+    expect(run).toContain('--pr-a pr-a.json')
+    expect(run).toContain('--pr-b pr-b.json')
+  })
+
+  it('judge.json 從 artifact 根的 .factory/ 讀（不是 target/.factory/run/）', () => {
+    expect(run).toContain('--judge-a "artifacts/a/.factory/judge.json"')
+    expect(run).toContain('--judge-b "artifacts/b/.factory/judge.json"')
+  })
 })
