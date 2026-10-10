@@ -1349,7 +1349,7 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(critical).toBeDefined()
     expect(critical?.primary.model).toBe('claude-opus-5-5')
     expect(critical?.primary.provider).toBe('anthropic')
-    expect(critical?.fallback[0]).toEqual({ provider: 'anthropic', model: 'claude-opus-5', reasoningEffort: 'max' })
+    expect(critical?.fallback[0]).toEqual({ provider: 'anthropic', model: 'claude-opus-5', reasoningEffort: 'xhigh' })
     expect(critical?.fallback[1]?.model).toBe('deepseek-flash')
   })
 

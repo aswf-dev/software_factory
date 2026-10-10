@@ -29,7 +29,7 @@ function tiersYaml(): string {
     '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
     '  high:',
     '    primary: { provider: deepseek, model: deepseek-flash }',
-    '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }, { provider: qwen, model: qwen3.7-flash }]',
+    '    fallback: [{ provider: anthropic, model: claude-sonnet-5-5 }, { provider: qwen, model: qwen3.7-flash }]',
     '  critical:',
     '    primary: { provider: anthropic, model: claude-opus-5 }',
     '    fallback: [{ provider: deepseek, model: deepseek-flash }]',
@@ -224,8 +224,8 @@ describe('main — 手動覆寫與偏好 provider', () => {
       providersPath,
     ])
     expect(r.chain[0]?.provider).toBe('anthropic')
-    // high tier 的 anthropic 項：claude-sonnet-5
-    expect(r.chain[0]?.model).toBe('claude-sonnet-5')
+    // high tier 的 anthropic 項：claude-sonnet-5-5
+    expect(r.chain[0]?.model).toBe('claude-sonnet-5-5')
   })
 
   it('--provider 未知 → CliError（fail-loud）', () => {
