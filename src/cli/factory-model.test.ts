@@ -320,6 +320,39 @@ describe('main — 輸出格式（--format matrix）', () => {
     }
   })
 
+  it('--format matrix 帶出 dual 宣告的 reasoningEffort（僅在有宣告時）', () => {
+    const dualTiers = fixture(
+      'tiers-dual.yaml',
+      tiersYaml().replace(
+        "    fallback: [{ provider: deepseek, model: deepseek-flash }]\n",
+        [
+          '    fallback: [{ provider: deepseek, model: deepseek-flash }]',
+          '    dual:',
+          '      - { provider: anthropic, model: claude-opus-5, reasoningEffort: xhigh }',
+          '      - { provider: anthropic, model: claude-sonnet-5-5, reasoningEffort: high }',
+          '',
+        ].join('\n'),
+      ),
+    )
+    const issue = fixture('issue-matrix-dual.json', issueJson('單一工具函式補測試'))
+    const r = main([
+      '--issue',
+      issue,
+      '--tiers',
+      dualTiers,
+      '--providers',
+      providersPath,
+      '--tier',
+      'critical',
+      '--format',
+      'matrix',
+    ])
+    expect(r).toEqual([
+      { variant: 'a', provider: 'anthropic', model: 'claude-opus-5', reasoningEffort: 'xhigh' },
+      { variant: 'b', provider: 'anthropic', model: 'claude-sonnet-5-5', reasoningEffort: 'high' },
+    ])
+  })
+
   it('--format 收到非法格式 → CliError', () => {
     expect(() => parseArgs(['--format', 'yaml'])).toThrow(/--format 必須是 json\|matrix/)
   })
