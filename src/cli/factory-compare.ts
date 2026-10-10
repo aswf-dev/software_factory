@@ -1,24 +1,52 @@
 /**
  * factory-compare — 雙模型 N-version 競賽比對 CLI。
  *
- * 讀取 Variant A 與 Variant B 的執行結果（judge.json, usage.json, report.json），
- * 產生 Markdown 比對卡片，供 Issue 留言與審查者評估合併決策。
+ * 讀取變體 A／B 的 run artifact（report.json、judge.json、usage.json）與 compare job 以
+ * `gh pr list` 查到的 PR 清單，產生 Issue 留言用的比對卡片。
+ *
+ * 卡片只陳述機器事實（實際跑了哪個模型、終態、交付在哪、花了多少），**不評品質**——
+ * 勝者由人工比對決定，卡片附上比對紀錄範本。judge 沒有品質分數：`finalScore.total`
+ * 是監督風險分數（越高越需要人審），標示時必須講明，不得稱為「品質評分」。
+ *
+ * 輸入檔一律容錯：缺檔、壞 JSON、欄位型別不符都視為「未知」，不讓單一變體的殘缺
+ * artifact 擋住另一變體的比對（compare job 是 `if: always()`）。
+ *
+ * 2026-10-10 fubon-tradingbot#713 回歸：卡片全部顯示「未知／-／未產生 PR」，根因三個——
+ * usage.json 是 `{usage, markdown}` 包裝、judge.json 沒上傳且沒有 `score`、PR 以精確
+ * 分支名查找（`gh pr list --head` 不做前綴比對）。
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import { z } from 'zod'
 import { CliError, runCli } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 
+export type VariantId = 'a' | 'b'
+
+export interface VariantPr {
+  number: number
+  url: string
+  headRefName: string
+  state: string
+  additions?: number | undefined
+  deletions?: number | undefined
+}
+
 export interface VariantData {
-  variant: 'a' | 'b'
-  provider?: string | undefined
-  model?: string | undefined
-  branch?: string | undefined
-  prUrl?: string | undefined
+  variant: VariantId
+  /** session log 實測的 `provider/model`，依出現順序去重；多於一個代表發生 fallback。 */
+  routes: string[]
   outcome?: string | undefined
-  tokensUsed?: number | undefined
+  /** judge `finalScore.total`：監督風險分數，不是品質。 */
+  riskTotal?: number | undefined
+  riskLabel?: string | undefined
+  pr?: VariantPr | undefined
   costUsd?: number | undefined
-  score?: number | undefined
+  /** 成本被低估的原因（cache-read 未計價、未計價模型）；空陣列 = 無已知低估。 */
+  costUnderstated: string[]
+  tokens?: number | undefined
+  /** report.requirements 的 status 統計（agent 自報）。 */
+  requirements?: { passed: number; failed: number; skipped: number } | undefined
+  /** 本次 run 沒有新變更、交付是本變體先前 run 開的 PR。 */
+  reusedExisting: boolean
 }
 
 export interface CompareSummary {
@@ -27,24 +55,31 @@ export interface CompareSummary {
   variantB: VariantData
 }
 
+export interface VariantPaths {
+  reportPath?: string
+  judgePath?: string
+  usagePath?: string
+  /** `gh pr list --json number,url,headRefName,state,additions,deletions` 的輸出檔。 */
+  prPath?: string
+}
+
 export interface CompareCliArgs {
   issueNumber: number
-  reportAPath?: string | undefined
-  reportBPath?: string | undefined
-  judgeAPath?: string | undefined
-  judgeBPath?: string | undefined
-  usageAPath?: string | undefined
-  usageBPath?: string | undefined
-  branchA?: string | undefined
-  branchB?: string | undefined
-  prUrlA?: string | undefined
-  prUrlB?: string | undefined
-  providerA?: string | undefined
-  providerB?: string | undefined
-  modelA?: string | undefined
-  modelB?: string | undefined
-  outPath?: string | undefined
+  a: VariantPaths
+  b: VariantPaths
+  outPath?: string
   format: 'markdown' | 'json'
+}
+
+const PATH_FLAGS: Record<string, [VariantId, keyof VariantPaths]> = {
+  '--report-a': ['a', 'reportPath'],
+  '--report-b': ['b', 'reportPath'],
+  '--judge-a': ['a', 'judgePath'],
+  '--judge-b': ['b', 'judgePath'],
+  '--usage-a': ['a', 'usagePath'],
+  '--usage-b': ['b', 'usagePath'],
+  '--pr-a': ['a', 'prPath'],
+  '--pr-b': ['b', 'prPath'],
 }
 
 function requireValue(argv: string[], index: number, flag: string): string {
@@ -57,64 +92,27 @@ function requireValue(argv: string[], index: number, flag: string): string {
 
 export function parseArgs(argv: string[]): CompareCliArgs {
   let issueNumber: number | undefined
-  let reportAPath: string | undefined
-  let reportBPath: string | undefined
-  let judgeAPath: string | undefined
-  let judgeBPath: string | undefined
-  let usageAPath: string | undefined
-  let usageBPath: string | undefined
-  let branchA: string | undefined
-  let branchB: string | undefined
-  let prUrlA: string | undefined
-  let prUrlB: string | undefined
-  let providerA: string | undefined
-  let providerB: string | undefined
-  let modelA: string | undefined
-  let modelB: string | undefined
+  const paths: Record<VariantId, VariantPaths> = { a: {}, b: {} }
   let outPath: string | undefined
   let format: 'markdown' | 'json' = 'markdown'
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
-    if (arg === '--issue-number') {
-      const raw = requireValue(argv, ++i, '--issue-number')
+    const pathFlag = PATH_FLAGS[arg]
+    if (pathFlag !== undefined) {
+      const [variant, key] = pathFlag
+      paths[variant][key] = requireValue(argv, ++i, arg)
+    } else if (arg === '--issue-number') {
+      const raw = requireValue(argv, ++i, arg)
       const num = Number(raw)
       if (!Number.isInteger(num) || num <= 0) {
         throw new CliError(`--issue-number 必須為正整數，收到 "${raw}"`)
       }
       issueNumber = num
-    } else if (arg === '--report-a') {
-      reportAPath = requireValue(argv, ++i, '--report-a')
-    } else if (arg === '--report-b') {
-      reportBPath = requireValue(argv, ++i, '--report-b')
-    } else if (arg === '--judge-a') {
-      judgeAPath = requireValue(argv, ++i, '--judge-a')
-    } else if (arg === '--judge-b') {
-      judgeBPath = requireValue(argv, ++i, '--judge-b')
-    } else if (arg === '--usage-a') {
-      usageAPath = requireValue(argv, ++i, '--usage-a')
-    } else if (arg === '--usage-b') {
-      usageBPath = requireValue(argv, ++i, '--usage-b')
-    } else if (arg === '--branch-a') {
-      branchA = requireValue(argv, ++i, '--branch-a')
-    } else if (arg === '--branch-b') {
-      branchB = requireValue(argv, ++i, '--branch-b')
-    } else if (arg === '--pr-url-a') {
-      prUrlA = requireValue(argv, ++i, '--pr-url-a')
-    } else if (arg === '--pr-url-b') {
-      prUrlB = requireValue(argv, ++i, '--pr-url-b')
-    } else if (arg === '--provider-a') {
-      providerA = requireValue(argv, ++i, '--provider-a')
-    } else if (arg === '--provider-b') {
-      providerB = requireValue(argv, ++i, '--provider-b')
-    } else if (arg === '--model-a') {
-      modelA = requireValue(argv, ++i, '--model-a')
-    } else if (arg === '--model-b') {
-      modelB = requireValue(argv, ++i, '--model-b')
     } else if (arg === '--out') {
-      outPath = requireValue(argv, ++i, '--out')
+      outPath = requireValue(argv, ++i, arg)
     } else if (arg === '--format') {
-      const val = requireValue(argv, ++i, '--format')
+      const val = requireValue(argv, ++i, arg)
       if (val !== 'markdown' && val !== 'json') {
         throw new CliError(`--format 必須是 markdown|json，收到 "${val}"`)
       }
@@ -127,213 +125,234 @@ export function parseArgs(argv: string[]): CompareCliArgs {
   if (issueNumber === undefined) {
     throw new CliError('缺少必填參數 --issue-number')
   }
-
-  return {
-    issueNumber,
-    reportAPath,
-    reportBPath,
-    judgeAPath,
-    judgeBPath,
-    usageAPath,
-    usageBPath,
-    branchA,
-    branchB,
-    prUrlA,
-    prUrlB,
-    providerA,
-    providerB,
-    modelA,
-    modelB,
-    outPath,
-    format,
-  }
+  return { issueNumber, a: paths.a, b: paths.b, ...(outPath !== undefined ? { outPath } : {}), format }
 }
 
-function tryReadJson(path: string | undefined): Record<string, unknown> | undefined {
+type Json = Record<string, unknown>
+
+function isObject(v: unknown): v is Json {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** 讀 JSON；缺檔或壞 JSON → undefined（容錯，見檔頭）。 */
+function tryReadJson(path: string | undefined): unknown {
   if (path === undefined) return undefined
   try {
-    const text = readFileSync(path, 'utf8')
-    return JSON.parse(text) as Record<string, unknown>
+    return JSON.parse(readFileSync(path, 'utf8')) as unknown
   } catch {
     return undefined
   }
 }
 
-export function buildVariantData(options: {
-  variant: 'a' | 'b'
-  reportPath?: string | undefined
-  judgePath?: string | undefined
-  usagePath?: string | undefined
-  branch?: string | undefined
-  prUrl?: string | undefined
-  provider?: string | undefined
-  model?: string | undefined
-}): VariantData {
-  const { variant, reportPath, judgePath, usagePath, branch, prUrl } = options
-  let provider = options.provider
-  let model = options.model
-  let outcome: string | undefined
-  let tokensUsed: number | undefined
-  let costUsd: number | undefined
-  let score: number | undefined
+const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined)
+const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
 
-  const report = tryReadJson(reportPath)
-  if (report !== undefined) {
-    if (typeof report.tokensUsed === 'number') {
-      tokensUsed = report.tokensUsed
-    }
-    const inv = report.invocation as { provider?: unknown } | undefined
-    if (typeof inv?.provider === 'string' && provider === undefined) {
-      provider = inv.provider
-    }
+/** usage 區塊：usage.json 是 `{usage, markdown}` 包裝；未包裝的也接受。 */
+function unwrapUsage(raw: unknown): Json | undefined {
+  if (!isObject(raw)) return undefined
+  return isObject(raw.usage) ? raw.usage : raw
+}
+
+/**
+ * 從 `gh pr list` 的結果挑出本變體的 PR：只認 `factory/<n>-<variant>-` 開頭（search 的
+ * `head:` 是模糊比對，可能混入他張 Issue 或另一變體），open 優先，否則取第一筆。
+ */
+export function pickPr(raw: unknown, issueNumber: number, variant: VariantId): VariantPr | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const prefix = `factory/${issueNumber}-${variant}-`
+  const mine: VariantPr[] = []
+  for (const item of raw) {
+    if (!isObject(item)) continue
+    const headRefName = str(item.headRefName)
+    const number = num(item.number)
+    const url = str(item.url)
+    if (headRefName === undefined || number === undefined || url === undefined) continue
+    if (!headRefName.startsWith(prefix)) continue
+    mine.push({
+      number,
+      url,
+      headRefName,
+      state: str(item.state) ?? '',
+      additions: num(item.additions),
+      deletions: num(item.deletions),
+    })
   }
+  return mine.find((p) => p.state === 'OPEN') ?? mine[0]
+}
 
-  const judge = tryReadJson(judgePath)
-  if (judge !== undefined) {
-    const result = judge.result as { outcome?: unknown; score?: unknown } | undefined
-    if (typeof result?.outcome === 'string') {
-      outcome = result.outcome
-    }
-    if (typeof result?.score === 'number') {
-      score = result.score
-    }
+function readRoutes(usage: Json | undefined): string[] {
+  const routes: string[] = []
+  const raw = usage?.routes
+  if (!Array.isArray(raw)) return routes
+  for (const r of raw) {
+    if (!isObject(r)) continue
+    const provider = str(r.provider)
+    const model = str(r.model)
+    if (provider === undefined || model === undefined) continue
+    const id = `${provider}/${model}`
+    if (!routes.includes(id)) routes.push(id)
   }
+  return routes
+}
 
-  const usage = tryReadJson(usagePath)
-  if (usage !== undefined) {
-    const totals = usage.totals as { totalTokens?: unknown; costUsd?: unknown } | undefined
-    if (typeof totals?.totalTokens === 'number') {
-      tokensUsed = totals.totalTokens
-    }
-    if (typeof totals?.costUsd === 'number') {
-      costUsd = totals.costUsd
-    }
-    const routes = usage.routes as Array<{ provider?: unknown; model?: unknown }> | undefined
-    if (Array.isArray(routes) && routes[0] !== undefined) {
-      if (typeof routes[0].provider === 'string' && provider === undefined) {
-        provider = routes[0].provider
-      }
-      if (typeof routes[0].model === 'string' && model === undefined) {
-        model = routes[0].model
-      }
-    }
+function readRequirements(report: Json | undefined): VariantData['requirements'] {
+  const raw = report?.requirements
+  if (!Array.isArray(raw)) return undefined
+  const counts = { passed: 0, failed: 0, skipped: 0 }
+  for (const r of raw) {
+    if (!isObject(r)) continue
+    const status = r.status
+    if (status === 'passed' || status === 'failed' || status === 'skipped') counts[status]++
   }
+  return counts
+}
 
+export function buildVariantData(issueNumber: number, variant: VariantId, paths: VariantPaths): VariantData {
+  const rawReport = tryReadJson(paths.reportPath)
+  const report = isObject(rawReport) ? rawReport : undefined
+  const rawJudge = tryReadJson(paths.judgePath)
+  const result = isObject(rawJudge) && isObject(rawJudge.result) ? rawJudge.result : undefined
+  const finalScore = isObject(result?.finalScore) ? result.finalScore : undefined
+  // usage.json 優先；缺席時退回 report.json 內嵌的同一份量測（write-report 會附上）
+  const usage = unwrapUsage(tryReadJson(paths.usagePath)) ?? unwrapUsage(report?.usage)
+  const totals = isObject(usage?.totals) ? usage.totals : undefined
+  const pr = pickPr(tryReadJson(paths.prPath), issueNumber, variant)
+
+  const costUnderstated: string[] = []
+  if (totals?.cacheReadUnpriced === true) costUnderstated.push('cache-read 未計價')
+  const unpriced = Array.isArray(totals?.unpricedModels) ? totals.unpricedModels.filter((m) => typeof m === 'string') : []
+  if (unpriced.length > 0) costUnderstated.push(`未計價模型 ${unpriced.join(', ')}`)
+
+  const changedPaths = report?.changedPaths
   return {
     variant,
-    provider,
-    model,
-    branch,
-    prUrl,
-    outcome,
-    tokensUsed,
-    costUsd,
-    score,
+    routes: readRoutes(usage),
+    outcome: str(result?.outcome),
+    riskTotal: num(finalScore?.total),
+    riskLabel: str(finalScore?.label),
+    pr,
+    costUsd: num(totals?.costUsd),
+    costUnderstated,
+    tokens: num(totals?.totalTokens) ?? num(report?.tokensUsed),
+    requirements: readRequirements(report),
+    reusedExisting: pr !== undefined && Array.isArray(changedPaths) && changedPaths.length === 0,
   }
 }
 
+function formatModel(v: VariantData): string {
+  if (v.routes.length === 0) return '未知'
+  const chain = v.routes.map((r) => `\`${r}\``).join(' → ')
+  return v.routes.length > 1 ? `${chain}（fallback）` : chain
+}
+
+function formatOutcome(outcome: string | undefined): string {
+  if (outcome === undefined) return '-'
+  if (outcome === 'ready-to-automerge' || outcome === 'ready-for-review') return `✅ ${outcome}`
+  if (outcome === 'blocked-in-loop') return `⚠️ ${outcome}`
+  return `❌ ${outcome}`
+}
+
+function formatPr(v: VariantData): string {
+  if (v.pr === undefined) return '未產生 PR'
+  const { number, url, headRefName, additions, deletions } = v.pr
+  const size = additions !== undefined && deletions !== undefined ? ` +${additions}/−${deletions}` : ''
+  const reuse = v.reusedExisting ? '（本次沿用既有 PR）' : ''
+  return `[#${number}](${url}) \`${headRefName}\`${size}${reuse}`
+}
+
+function formatRequirements(r: VariantData['requirements']): string {
+  if (r === undefined) return '-'
+  const parts = [`${r.passed} passed`]
+  if (r.failed > 0) parts.push(`${r.failed} failed`)
+  if (r.skipped > 0) parts.push(`${r.skipped} skipped`)
+  return parts.join('／')
+}
+
+function formatRisk(v: VariantData): string {
+  if (v.riskTotal === undefined) return '-'
+  return v.riskLabel === undefined ? `${v.riskTotal}` : `${v.riskTotal}（${v.riskLabel}）`
+}
+
+function formatCost(v: VariantData): string {
+  if (v.costUsd === undefined) return '-'
+  const note = v.costUnderstated.length > 0 ? `（低估：${v.costUnderstated.join('、')}）` : ''
+  return `$${v.costUsd.toFixed(4)}${note}`
+}
+
+function formatTokens(tokens: number | undefined): string {
+  return tokens === undefined ? '-' : tokens.toLocaleString('en-US')
+}
+
+/** 讓審查者在讀表之前就知道哪些比對不成立。 */
+function warnings(a: VariantData, b: VariantData): string[] {
+  const out: string[] = []
+  for (const v of [a, b]) {
+    const name = `變體 ${v.variant.toUpperCase()}`
+    if (v.pr === undefined) out.push(`${name} 沒有找到 PR——沒有可比對的交付。`)
+    if (v.routes.length === 0) out.push(`${name} 的實際模型未知（沒有 session log 量測）。`)
+  }
+  // 比最後一個 route：fallback 後真正產出交付的是最後的模型（#713 首輪 critical：
+  // B 的 sonnet-5-5 不存在、fallback 到 opus-5-5，與 A 相同）
+  if (a.routes.length > 0 && a.routes.at(-1) === b.routes.at(-1)) {
+    out.push('兩個變體實際執行的模型相同（fallback 坍縮）——本次比對不具模型對照意義。')
+  }
+  return out
+}
+
 export function renderCompareMarkdown(summary: CompareSummary): string {
-  const { issueNumber, variantA, variantB } = summary
-
-  const formatModel = (v: VariantData): string => {
-    if (v.provider && v.model) return `\`${v.provider}/${v.model}\``
-    if (v.model) return `\`${v.model}\``
-    return '未知'
-  }
-
-  const formatPr = (v: VariantData): string => {
-    if (v.prUrl && v.branch) return `[${v.branch}](${v.prUrl})`
-    if (v.prUrl) return `[PR 連結](${v.prUrl})`
-    if (v.branch) return `\`${v.branch}\`（未發 PR）`
-    return '未產生 PR'
-  }
-
-  const formatCost = (cost?: number): string => {
-    if (cost === undefined) return '-'
-    return `$${cost.toFixed(4)}`
-  }
-
-  const formatTokens = (tokens?: number): string => {
-    if (tokens === undefined) return '-'
-    return tokens.toLocaleString()
-  }
-
-  const formatOutcome = (outcome?: string): string => {
-    if (!outcome) return '-'
-    if (outcome === 'ready-to-automerge' || outcome === 'ready-for-review') return `✅ ${outcome}`
-    if (outcome === 'blocked-in-loop') return `⚠️ ${outcome}`
-    return `❌ ${outcome}`
-  }
-
-  const formatScore = (score?: number): string => {
-    if (score === undefined) return '-'
-    return `${score}`
-  }
-
+  const { issueNumber, variantA: a, variantB: b } = summary
+  const row = (label: string, f: (v: VariantData) => string) => `| ${label} | ${f(a)} | ${f(b)} |`
+  const warn = warnings(a, b)
   return [
-    `## ⚔️ 雙模型競賽比對報告 (Issue #${issueNumber})`,
+    `## ⚔️ 雙模型競賽比對報告（Issue #${issueNumber}）`,
     '',
-    '本工作項由兩個獨立 LLM 模型變體平行執行，請審閱產生的程式碼與測試並決定合併版本：',
+    '> 下表只陳述機器事實（跑了哪個模型、終態、交付在哪、花多少），**不代表品質**。勝者由人工比對兩個 PR 後決定。',
     '',
-    '| 評估指標 | 變體 A (Variant A) | 變體 B (Variant B) |',
+    ...(warn.length > 0 ? ['⚠️ **注意**', ...warn.map((w) => `- ${w}`), ''] : []),
+    '| 項目 | 變體 A | 變體 B |',
     '| :--- | :--- | :--- |',
-    `| **模型** | ${formatModel(variantA)} | ${formatModel(variantB)} |`,
-    `| **執行狀態** | ${formatOutcome(variantA.outcome)} | ${formatOutcome(variantB.outcome)} |`,
-    `| **Pull Request** | ${formatPr(variantA)} | ${formatPr(variantB)} |`,
-    `| **品質評分** | ${formatScore(variantA.score)} | ${formatScore(variantB.score)} |`,
-    `| **推論成本** | ${formatCost(variantA.costUsd)} | ${formatCost(variantB.costUsd)} |`,
-    `| **Token 用量** | ${formatTokens(variantA.tokensUsed)} | ${formatTokens(variantB.tokensUsed)} |`,
+    row('**模型**（session log 實測）', formatModel),
+    row('**機器終態**', (v) => formatOutcome(v.outcome)),
+    row('**Pull Request**', formatPr),
+    row('**需求涵蓋**（agent 自報）', (v) => formatRequirements(v.requirements)),
+    row('**監督風險分數**（越高越需人審，非品質）', formatRisk),
+    row('**推論成本**', formatCost),
+    row('**Token 用量**', (v) => formatTokens(v.tokens)),
     '',
-    '### 建議動作',
-    '- 點擊上方 Pull Request 連結檢視 Diff 與測試產出。',
-    '- 決定採用其中一個版本合併至主分支；合併後落選變體的 PR 將被自動關閉。',
+    '### 人工比對紀錄',
+    '審閱兩個 PR 後，複製下列範本留言填寫（各維度 1–3 分）：',
+    '',
+    '```markdown',
+    '## N-version 比對紀錄',
+    '| 維度 (1–3) | 變體 A | 變體 B |',
+    '| :--- | :--- | :--- |',
+    '| 正確性 | | |',
+    '| 證據品質（file:line／測試） | | |',
+    '| 精簡度 | | |',
+    '| 可讀性 | | |',
+    '| 對工單規格的貼合度 | | |',
+    '判定：A / B / 平手 / 兩者皆不收',
+    '理由：',
+    '```',
+    '',
+    '### 合併後',
+    '- 合併勝出的 PR。落選變體的 PR **目前不會自動關閉**（清理 workflow 尚未部署到目標 repo），請手動關閉並附上比對紀錄連結。',
     '',
   ].join('\n')
 }
 
 export function main(argv: string[]): string | CompareSummary {
   const args = parseArgs(argv)
-
-  const variantA = buildVariantData({
-    variant: 'a',
-    reportPath: args.reportAPath,
-    judgePath: args.judgeAPath,
-    usagePath: args.usageAPath,
-    branch: args.branchA,
-    prUrl: args.prUrlA,
-    provider: args.providerA,
-    model: args.modelA,
-  })
-
-  const variantB = buildVariantData({
-    variant: 'b',
-    reportPath: args.reportBPath,
-    judgePath: args.judgeBPath,
-    usagePath: args.usageBPath,
-    branch: args.branchB,
-    prUrl: args.prUrlB,
-    provider: args.providerB,
-    model: args.modelB,
-  })
-
   const summary: CompareSummary = {
     issueNumber: args.issueNumber,
-    variantA,
-    variantB,
+    variantA: buildVariantData(args.issueNumber, 'a', args.a),
+    variantB: buildVariantData(args.issueNumber, 'b', args.b),
   }
-
-  if (args.format === 'json') {
-    if (args.outPath !== undefined) {
-      writeFileSync(args.outPath, JSON.stringify(summary, null, 2), 'utf8')
-    }
-    return summary
-  }
-
-  const markdown = renderCompareMarkdown(summary)
+  const output = args.format === 'json' ? summary : renderCompareMarkdown(summary)
   if (args.outPath !== undefined) {
-    writeFileSync(args.outPath, markdown, 'utf8')
+    writeFileSync(args.outPath, typeof output === 'string' ? output : JSON.stringify(output, null, 2), 'utf8')
   }
-  return markdown
+  return output
 }
 
 /* v8 ignore start */
