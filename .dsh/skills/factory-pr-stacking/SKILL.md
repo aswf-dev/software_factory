@@ -19,7 +19,7 @@ trunk ($BASE_BRANCH)
 
 ## 指令序列（CI 環境，全部非互動）
 
-> **版本相容（重要）**：CI 鎖定 gh-stack **v0.1.0**——它的 `gh stack init` **不接受** `--numbered`/`--prefix`（2026-08-18 試點 #2 實測：那兩個 flag 在 v0.1.0 不存在；部分早期文件與本機舊版 0.0.2 有，但 CI 用 v0.1.0）。v0.1.0 的正確用法是**直接列出各層分支名**（init 會依序建立，slash 保留）。**分支名格式：`factory/<issue編號>-<nn>-<layer>`**（如 `factory/12-01-test`）。雙模型競賽（N-version）模式下，若存在 `.factory/run/variant`（值為 `a` 或 `b`），分支名格式為 **`factory/<issue編號>-$VARIANT-<nn>-<layer>`**（如 `factory/12-a-01-test` 或 `factory/12-b-01-test`），以確保兩變體 PR 彼此隔離。
+> **版本相容（重要）**：CI 鎖定 gh-stack **v0.2.1**——它的 `gh stack init` **不接受** `--numbered`/`--prefix`（2026-08-18 試點 #2 實測：那兩個 flag 在 v0.1.0 不存在；部分早期文件與本機舊版 0.0.2 有，但 CI 用 v0.1.0）。v0.1.0 的正確用法是**直接列出各層分支名**（init 會依序建立，slash 保留）。**分支名格式：`factory/<issue編號>-<nn>-<layer>`**（如 `factory/12-01-test`）。雙模型競賽（N-version）模式下，若存在 `.factory/run/variant`（值為 `a` 或 `b`），分支名格式為 **`factory/<issue編號>-$VARIANT-<nn>-<layer>`**（如 `factory/12-a-01-test` 或 `factory/12-b-01-test`），以確保兩變體 PR 彼此隔離。
 
 ```bash
 export GH_TOKEN=$(cat .factory/run/gh-token 2>/dev/null)

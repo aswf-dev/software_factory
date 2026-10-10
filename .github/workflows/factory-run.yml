@@ -649,7 +649,7 @@ jobs:
           if gh extension list | grep -q "github/gh-stack"; then
             echo "gh-stack already installed"
           else
-            gh extension install github/gh-stack --pin v0.1.0
+            gh extension install github/gh-stack --pin v0.2.1
           fi
           gh stack --version
 
