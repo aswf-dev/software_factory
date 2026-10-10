@@ -15,6 +15,13 @@ import { IN_LOOP_ALLOWED_TASK_TYPES, OUTPUT_ONLY_TASK_TYPES } from '../../src/cl
 import { checkPbtAuditScope } from '../../src/pbt-audit/scope.js'
 import { NO_AUTOMERGE_TASK_TYPES } from '../../src/pipeline/no-automerge.js'
 import { buildIssueBody } from '../../src/factory-draft/issue-body.js'
+import {
+  DEFAULT_LOCK_PATH,
+  DEFAULT_SKILLS_DIR,
+  compareSkills,
+  loadLock,
+  scanSkills,
+} from '../../src/cli/factory-skills-lock.js'
 import { SPEC_NAME_MAX, SPEC_NAME_PATTERN } from '../../src/write-spec/intake.js'
 // Issue #287：三軸合法值的單一真相來源。測試若重打字串，測試自己就是下一個漂移點。
 import { BUSINESS_CRITICALITY, COMPLEXITY, RISK_PROFILE } from '../../src/scoring/types.js'
@@ -654,6 +661,14 @@ describe('Hegel skills vendor 與類型專屬派送（ADR-019 §7、R7）', () =
     for (const name of ['factory-workflow', 'factory-stop-rules', 'factory-self-review', 'factory-pr-stacking']) {
       expect(lock.skills.find((s) => s.name === name)?.onlyFor, name).toBeUndefined()
     }
+  })
+
+  it('skills-lock 與 .dsh/skills 內容一致（改 SKILL.md 必須同 PR 跑 factory-skills-lock --update）', () => {
+    // 2026-10-10 #713：PR #32 與 317a1ae 改了 factory-pr-stacking／factory-workflow 卻沒更新
+    // lock，直到 factory-run 才以 ::warning:: 浮現。runtime 校驗恆不擋 run（Q16-2），
+    // 所以漂移必須在合併前由此擋下。
+    const lock = loadLock(join(ROOT, DEFAULT_LOCK_PATH))
+    expect(compareSkills(scanSkills(join(ROOT, DEFAULT_SKILLS_DIR)), lock)).toEqual([])
   })
 
   it('factory-run 依類型篩選技能，不得整包複製 .dsh/skills（否則 hegel 外溢到所有工單）', () => {

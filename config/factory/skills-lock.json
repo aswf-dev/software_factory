@@ -3,7 +3,7 @@
   "skills": [
     {
       "name": "factory-pr-stacking",
-      "sha256": "2eb97b1259757fe2bdc301683c9b6467f306b27ca3bc4d9a198041ddc2ca03b6"
+      "sha256": "45fc15dd7e76b873b1c9ceb0e09d09e9586dc7e4e2e5ccc49e1bba0ac8398f6e"
     },
     {
       "name": "factory-self-review",
@@ -15,7 +15,7 @@
     },
     {
       "name": "factory-workflow",
-      "sha256": "a5d90bc243aaa4042ae6dff0b97275799ffdb53757910a2e403db6e28c6e0555"
+      "sha256": "817be7ac31aee512fda98d2f88b45017ff62d1c3a76f692873b1d1191b89bd68"
     },
     {
       "name": "hegel",
