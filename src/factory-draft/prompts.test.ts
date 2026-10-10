@@ -12,11 +12,12 @@ describe('SYSTEM_PROMPT 治理邊界', () => {
     expect(SYSTEM_PROMPT).toContain('不決定')
     expect(SYSTEM_PROMPT).toContain('使用者')
   })
-  it('要求 PRD 四段與可驗證的 DoD', () => {
+  it('要求 PRD 必填段落（含已知問題）與可驗證的 DoD', () => {
     expect(SYSTEM_PROMPT).toContain('目標模組/檔案')
     expect(SYSTEM_PROMPT).toContain('做什麼')
     expect(SYSTEM_PROMPT).toContain('為什麼')
     expect(SYSTEM_PROMPT).toContain('範圍')
+    expect(SYSTEM_PROMPT).toContain('已知問題')
     expect(SYSTEM_PROMPT).toContain('可驗證')
   })
   it('要求誠實標示推測內容（品質標示）', () => {

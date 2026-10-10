@@ -173,7 +173,7 @@ function DraftFieldComponent(props: DraftProps) {
         value={requirementText}
         onChange={(e) => onChange(e.target.value)}
         error={Boolean(rawErrors?.length)}
-        helperText={rawErrors?.length ? rawErrors.join('、') : 'PRD 四段：目標模組/檔案、做什麼、為什麼、範圍'}
+        helperText={rawErrors?.length ? rawErrors.join('、') : 'PRD：目標模組/檔案、做什麼、為什麼、範圍、已知問題'}
       />
       {busy && (
         <Box className={classes.row} style={{ alignItems: 'center' }}>

@@ -53,7 +53,7 @@ spec:
           title: 需求描述（PRD）
           type: string
           ui:field: FactoryWorkItemDraftField
-          description: 做什麼、為什麼、範圍（可先按「✨ 一次生成」讓 LLM 產生草稿再逐欄審改）
+          description: 做什麼、為什麼、範圍、已知問題（可先按「✨ 一次生成」讓 LLM 產生草稿再逐欄審改）
         # ⚠️ 2026-09 移除 dodTest/dodRisk/dodRun 三個 boolean 欄位（假選擇）。
         #
         # 原因（factory-scoreboard#3 實證）：這三個參數從未被任何 step 消費——

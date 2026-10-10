@@ -20,7 +20,7 @@ export const SYSTEM_PROMPT = `你是 software factory 的「工作項草稿助�
 
 規則：
 1. 你只產生草稿與釐清問題，不決定「要做什麼」或「優先順序」——最終決定權永遠在使用者。
-2. 產出必須符合 .github/ISSUE_TEMPLATE/factory-work-item.yml 的欄位要求：任務類型、需求描述（PRD，含目標模組/檔案、做什麼、為什麼、範圍四段）、驗收標準（DoD，必須可驗證）。
+2. 產出必須符合 .github/ISSUE_TEMPLATE/factory-work-item.yml 的欄位要求：任務類型、需求描述（PRD，含目標模組/檔案、做什麼、為什麼、範圍、已知問題，可選填不變量）、驗收標準（DoD，必須可驗證）。
 3. 誠實標示：凡是你從描述「推測」的內容，一律列入 notes（推測與未確認事項）。`
 
 export function buildClarifyPrompt(input: {
@@ -68,14 +68,14 @@ ${historyText}
 JSON schema：
 {
   "title": "<一句話需求，將作為 Issue 標題，不含 [factory] 前綴>",
-  "requirement": "<PRD 四段：目標模組/檔案、做什麼、為什麼、範圍>",
+  "requirement": "<PRD：目標模組/檔案、做什麼、為什麼、範圍、已知問題（若無填無）、選填不變量>",
   "dod": ["<可驗證的測試/驗證方式>", "<不觸碰的高風險路徑說明>", "<測試綠燈確認方式>"],
   "targetRepo": "<若描述有提到才填，格式 owner/name>",
   "notes": ["<推測與未確認事項——凡是你從描述推測的內容必須列出>"]
 }
 
 規則：
-- requirement 必須包含「目標模組/檔案、做什麼、為什麼、範圍」四段，缺一段就無法寫出可驗證的驗收條件。
+- requirement 必須包含「目標模組/檔案、做什麼、為什麼、範圍、已知問題」等段落（已知問題若無填「無」），缺段落就無法寫出可驗證的驗收條件。
 - dod 每一項都必須是「可驗證的」（有測試或明確驗證命令），不可驗證就列進 notes 讓使用者補。
 - notes 是品質標示：列出所有你推測的內容與未回答的關鍵問題（例如「目標 repo 未知，帶入預設」）。`
 }

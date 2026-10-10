@@ -49,6 +49,7 @@
 | [ADR-017](017-backstage-work-item-history.md) | Backstage 解凍擴大——工作項歷史唯讀查閱 | 已接受 | `ADR-009`、`03` §3.4 |
 | [ADR-018](018-intent-driven-write-spec.md) | `agent-write-spec` 改為規格書驅動——不變量出自意圖、模型出自程式碼 | 已接受（實作待後續 PR） | `ADR-008`、`21` §2.1、Q21-1／Q21-2 |
 | [ADR-019](019-property-based-testing-hegel.md) | 目標 repo 的程式碼層驗證採 PBT（Hegel），以事後稽核工作項執行 | 已接受（實作中，2026-10-05 修訂） | `ADR-008`、`ADR-018` §1、`11`、`research/pbt-library-survey-2026-10`、`research/hegel-ts-pilot-fubon-2026-10` |
+| [ADR-020](020-sase-adoption.md) | SASE 方法論的採用範圍與不採用理由（ACE／AEE／N-version／LoopScript／CRP 不採用；BriefingScript 增量另開工項） | 已接受 | `research/sase-adoption-analysis-2026-10-09`、`10` Q20-SASE-1～3 |
 
 ## 何時該寫新的 ADR
 

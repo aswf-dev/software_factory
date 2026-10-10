@@ -118,3 +118,21 @@ Plan → Create → Verify → Release → Configure → Operate
 | 「大型專案所以 complexity 加分」 | 「規模等級只決定導入流程」 | 規模等級與三軸計分正交（`29` §1.1） |
 
 > 最後一列尤其重要：**agent 不判定自己的監督層級**。任何暗示 agent 有此權限的表述都與 `06` 的設計相牴觸。
+
+## 10. SASE 方法論對照（僅供外部文獻對話）
+
+下表為**單向對照**：左欄是本專案的標準用語，右欄是 arXiv 2509.06216v3（Structured Agentic Software Engineering, SASE）的對應用語。用途只有一個——與外部文獻對話時能互相指認。
+
+| 工廠用語 | SASE 用語 | 關係 | 出處 |
+|---|---|---|---|
+| 工作項（GitHub Issue）＋ 需求描述（PRD）／驗收標準（DoD） | BriefingScript | 功能對應，型態不同（自由文字 vs 五段結構）。本專案已接受其增量方向，實作另開工項 | `.github/ISSUE_TEMPLATE/factory-work-item.yml`、`ADR-020` 決策 3 |
+| `factory-run.yml` ＋ `task_type` ＋ `risk-paths.yml` ＋ 三軸評分 ＋ 逾時宣告 | LoopScript | 目的已達成（依任務宣告嚴謹度），但非宣告式語言。**不採用** | `ADR-011`、`ADR-020` 決策 2 |
+| `.dsh/skills/*` ＋ `config/factory/skills-lock.json` ＋ `25` | MentorScript | 散文規則 ＋ 雜湊鎖版；**無內容驗證**（sha256 只鎖版本）。增量併入 Q20-SASE-1 | `25`、`ADR-016` |
+| `report.json`／`judge.json`／`crosscheck.json`／`factory-run-<issue>` artifact | Merge-Readiness Pack | 證據分散；「真實性」已由 `18` G4／G6 涵蓋；**保存期限與凍結追溯**列 Q20-SASE-2 | `18`、`ADR-020` 決策 2 |
+| `needs-human` ＋ `openQuestions[]` ＋ SR1–SR8 | Consultation Request Pack | 無結構化徵詢 artifact。**不採用**（隨 `ADR-010` 觸發條件重啟） | `.dsh/skills/factory-stop-rules/SKILL.md`、`ADR-020` 決策 2 |
+| PR 核准 ＋ `spec/approved` ＋ `factory/approved` ＋ HG0–HG7 | Version Controlled Resolution | 無「與請求相連」的裁決 artifact；`spec/*` 標籤流已具兩階段人類裁決的形狀 | `29` §8、`28` §標籤表 |
+| Backstage（已降級凍結）＋ DSH headless ＋ sandbox | ACE／AEE | 雙工作臺方向一致；ACE 部分已裁決「維運負擔不值得」 | `Q03-6`、`ADR-002` |
+| （無對應） | ATLE／ATIE（持久記憶、agent-native 工具鏈） | 硬缺席。列 Q20-SASE-1（記憶）／ATIE 不採用 | `ADR-020` 決策 2 |
+| （無對應） | N-version 平行多版本 | **不採用**（token 預算門檻仍未設定，無成本基線） | `10` L82、`ADR-020` 決策 2 |
+
+> 本表**不作為設計依據**。後續文件引用設計理由時，一律回指 `docs/00-source-summary.md` 的 Gartner 節次，**不得回指 SASE 論文節次**——`00` 的凍結規則（§8）不因本表而改變。裁決理由見 `ADR-020`。
