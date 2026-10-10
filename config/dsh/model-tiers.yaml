@@ -24,7 +24,7 @@
 # 且每個 deepseek/qwen 模型 id 必須在該檔的 models 清單內）。
 # 定價（USD/MTok input/output，官方公布價高峰時段，見 pricing.yaml）：
 #   qwen3.8-flash $0.15/0.47、deepseek-flash $0.30/1.20、
-#   claude-sonnet-5 $2/10、claude-opus-5 $5/25。
+#   claude-sonnet-5-5 $2/10、claude-opus-5 $5/25。
 tiers:
   low:
     primary:
@@ -33,11 +33,21 @@ tiers:
     fallback:
       - provider: deepseek
         model: deepseek-flash
+    dual:
+      - provider: qwen
+        model: qwen3.8-flash
+      - provider: deepseek
+        model: deepseek-flash
   medium:
     primary:
       provider: qwen
       model: qwen3.8-flash
     fallback:
+      - provider: deepseek
+        model: deepseek-flash
+    dual:
+      - provider: qwen
+        model: qwen3.8-flash
       - provider: deepseek
         model: deepseek-flash
   high:
@@ -49,9 +59,14 @@ tiers:
       model: deepseek-flash
     fallback:
       - provider: anthropic
-        model: claude-sonnet-5
+        model: claude-sonnet-5-5
+      - provider: deepseek
+        model: deepseek-flash
+    dual:
       - provider: qwen
         model: qwen3.8-flash
+      - provider: anthropic
+        model: claude-sonnet-5-5
   critical:
     # 最高 tier 預設：claude-opus-5（2026-08-28 用戶裁決：fable-5 需額外 credit 已移除，
     # 不再有「只有最高才用 fable」——最高 tier 直接以同代旗艦 opus-5 為 primary）。
@@ -76,12 +91,18 @@ tiers:
     primary:
       provider: anthropic
       model: claude-opus-5-5
-      reasoningEffort: max
+      reasoningEffort: xhigh
     fallback:
       - provider: anthropic
         model: claude-opus-5
-        reasoningEffort: max
+        reasoningEffort: xhigh
       - provider: deepseek
         model: deepseek-flash
       - provider: qwen
         model: qwen3.8-flash
+    dual:
+      - provider: anthropic
+        model: claude-opus-5-5
+        reasoningEffort: xhigh
+      - provider: anthropic
+        model: claude-sonnet-5-5

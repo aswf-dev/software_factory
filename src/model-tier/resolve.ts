@@ -38,6 +38,7 @@ export interface ModelEntry {
 export interface TierPolicy {
   primary: ModelEntry
   fallback: readonly ModelEntry[]
+  dual?: readonly [ModelEntry, ModelEntry] | undefined
 }
 
 export type TierPolicies = {
@@ -80,6 +81,8 @@ export interface ModelResolution {
   selected: ModelEntry
   /** primary + fallback 的迭代順序（含偏好 provider 過濾）。 */
   chain: readonly ModelEntry[]
+  /** N-version 雙模型配置（Variant A 與 Variant B）。 */
+  dual: readonly [ModelEntry, ModelEntry]
   /** 強制升級原因；undefined = 未觸發。供 factory-run 決定 agent 逾時預算。 */
   escalation?: TierEscalationReason | undefined
 }
@@ -109,6 +112,7 @@ const ModelEntrySchema = z.object({
 const TierPolicySchema = z.object({
   primary: ModelEntrySchema,
   fallback: z.array(ModelEntrySchema).min(1),
+  dual: z.tuple([ModelEntrySchema, ModelEntrySchema]).optional(),
 })
 
 const TiersSchema = z.object({
@@ -157,7 +161,7 @@ export function loadTiers(path: string, declaredProviders: readonly string[]): T
   }
   const tiers = parsed.data.tiers
   for (const [tierId, policy] of Object.entries(tiers) as [ModelTier, TierPolicy][]) {
-    for (const entry of [policy.primary, ...policy.fallback]) {
+    for (const entry of [policy.primary, ...policy.fallback, ...(policy.dual ?? [])]) {
       if (!declaredProviders.includes(entry.provider)) {
         throw new CliError(
           `model-tiers (${path}) tier "${tierId}" 引用未宣告的 provider "${entry.provider}"` +
@@ -184,6 +188,17 @@ export function loadPiAiConfig(path: string): { providers: Record<string, unknow
 /** 讀 settings.providers.yaml 並回傳已宣告的 provider route 清單。 */
 export function loadDeclaredProviders(path: string): string[] {
   return Object.keys(loadPiAiConfig(path).providers)
+}
+
+/**
+ * 解析 N-version 雙模型配置（Variant A 與 Variant B）。
+ * 若 tier policy 顯式宣告 dual[2] 則採用之；否則預設 fallback 至 [primary, fallback[0]]。
+ */
+export function resolveDualModels(policy: TierPolicy): readonly [ModelEntry, ModelEntry] {
+  if (policy.dual !== undefined && policy.dual.length === 2) {
+    return policy.dual
+  }
+  return [policy.primary, policy.fallback[0] as ModelEntry]
 }
 
 /** 依偏好 provider 過濾並去重：偏好項目前置，其餘依序，重複項目只留第一個。 */
@@ -243,6 +258,7 @@ export function resolveModelTier(input: ModelResolutionInput): ModelResolution {
     }
     const chain = buildChain(policy, input.preferredProvider, declaredProviders)
     const selected = chain[0] as ModelEntry
+    const dual = resolveDualModels(policy)
     return {
       tier,
       complexity: input.analysis?.complexity ?? 'high',
@@ -251,6 +267,7 @@ export function resolveModelTier(input: ModelResolutionInput): ModelResolution {
       reason: `手動指定 model_tier=${tier}`,
       selected,
       chain,
+      dual,
     }
   }
   let complexity: Complexity
@@ -308,5 +325,6 @@ export function resolveModelTier(input: ModelResolutionInput): ModelResolution {
   }
   const chain = buildChain(policy, input.preferredProvider, declaredProviders)
   const selected = chain[0] as ModelEntry
-  return { tier, complexity, complexitySource, evidence, reason, selected, chain, escalation }
+  const dual = resolveDualModels(policy)
+  return { tier, complexity, complexitySource, evidence, reason, selected, chain, dual, escalation }
 }

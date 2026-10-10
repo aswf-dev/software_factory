@@ -163,7 +163,7 @@
 | ~~Q02-2 / Q04-3 / Q05-2~~ | Linux runner 的沙箱阻擋 | ✅ **完全解決**：kernel 6.17 含 landlock；真實 agent 逃逸嘗試**被阻擋**（`04` §2.5）。首次為假通過，已修正並複驗 |
 | ~~Q04-4~~ | DSH 版本鎖定策略與 CI 安裝方式 | ✅ **已驗證**：`npm install --no-save @deepseek-ai/dsh@0.1.0-rc.6`（`factory-run.yml`） |
 | ~~Q07-2~~ | `gh stack init --numbered --prefix` 的實際命名格式 | ✅ **已更正（2026-08-18 試點 #2 根因調查）**：gh-stack **v0.1.0（CI 鎖定版）不接受 `--numbered`/`--prefix`**——先前「實測 --prefix → factory/12-01-test」是在本機舊版 0.0.2 上做的，誤標為 v0.1.0。v0.1.0 正確用法是 **positional 分支名**（`gh stack init --base <trunk> factory/12-01-test factory/12-02-impl ...`，init 依序建立、slash 保留）；更新見 `07` §3.2 與 factory-pr-stacking skill |
-| ~~Q07-3~~ | gh-stack 版本鎖定 | ✅ **已鎖 v0.1.0**（`gh extension install github/gh-stack --pin v0.1.0`，`factory-run.yml`） |
+| ~~Q07-3~~ | gh-stack 版本鎖定 | ✅ **已鎖 v0.2.1**（`gh extension install github/gh-stack --pin v0.2.1`，`factory-run.yml`） |
 | ~~Q03-1~~ | Backstage 版本與 create-app 指令 | ✅ **已驗證**：`@backstage/create-app@0.9.0`（`--path` 旗標）；見 `backstage/versions.md` |
 | ~~Q03-2~~ | `github:actions:dispatch` scaffolder action | ✅ **存在**（`@backstage/plugin-scaffolder-backend-module-github`），inputs：`token/repoUrl/workflowId/workflowInputs/branchOrTagName`；**無輸出 schema** |
 | ~~Q03-3~~ | Node v22 支援範圍 | ✅ **22.21.1 為 Active LTS**（Backstage 官方要求 Active LTS） |

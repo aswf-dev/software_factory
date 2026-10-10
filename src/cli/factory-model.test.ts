@@ -7,8 +7,17 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CliError } from './run-cli.js'
 import { main, parseArgs } from './factory-model.js'
+import type { ModelResolution } from '../model-tier/resolve.js'
 
 let tmp: string
+
+function runMain(argv: string[]): ModelResolution {
+  const r = main(argv)
+  if (Array.isArray(r)) {
+    throw new Error('Expected ModelResolution, got MatrixItem[]')
+  }
+  return r
+}
 
 function fixture(name: string, content: string): string {
   const p = join(tmp, name)
@@ -29,7 +38,7 @@ function tiersYaml(): string {
     '    fallback: [{ provider: qwen, model: qwen3.7-flash }]',
     '  high:',
     '    primary: { provider: deepseek, model: deepseek-flash }',
-    '    fallback: [{ provider: anthropic, model: claude-sonnet-5 }, { provider: qwen, model: qwen3.7-flash }]',
+    '    fallback: [{ provider: anthropic, model: claude-sonnet-5-5 }, { provider: qwen, model: qwen3.7-flash }]',
     '  critical:',
     '    primary: { provider: anthropic, model: claude-opus-5 }',
     '    fallback: [{ provider: deepseek, model: deepseek-flash }]',
@@ -136,7 +145,7 @@ describe('parseArgs', () => {
 describe('main — 自動解析', () => {
   it('Issue 分析 low → low tier（取 low 的 primary，不得誤取其他 tier）', () => {
     const issue = fixture('low.json', issueJson('為單一工具函式補測試'))
-    const r = main(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath])
+    const r = runMain(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath])
     expect(r.tier).toBe('low')
     expect(r.complexitySource).toBe('issue-analysis')
     expect(r.selected.model).toBe('tier-low-model')
@@ -146,7 +155,7 @@ describe('main — 自動解析', () => {
   it('Issue 分析 high + score total=4 → critical（claude-opus-5）', () => {
     const issue = fixture('high.json', issueJson('跨服務架構變更，含授權邏輯'))
     const score = fixture('score4.json', scoreJson('high', 4))
-    const r = main([
+    const r = runMain([
       '--issue',
       issue,
       '--score',
@@ -163,14 +172,14 @@ describe('main — 自動解析', () => {
 
   it('無 --issue → catalog fallback（medium → medium tier）', () => {
     const score = fixture('score-m.json', scoreJson('medium', 3))
-    const r = main(['--score', score, '--tiers', tiersPath, '--providers', providersPath])
+    const r = runMain(['--score', score, '--tiers', tiersPath, '--providers', providersPath])
     expect(r.tier).toBe('medium')
     expect(r.complexitySource).toBe('catalog')
   })
 
   it('無 --issue 且 catalog 未標註 → fail-safe high', () => {
     const score = fixture('score-none.json', scoreJson('', 0))
-    const r = main(['--score', score, '--tiers', tiersPath, '--providers', providersPath])
+    const r = runMain(['--score', score, '--tiers', tiersPath, '--providers', providersPath])
     expect(r.tier).toBe('high')
     expect(r.complexitySource).toBe('fail-safe')
   })
@@ -178,7 +187,7 @@ describe('main — 自動解析', () => {
   it('score json 缺 total → 不觸發 critical（scoreTotal undefined）', () => {
     const issue = fixture('high-nototal.json', issueJson('跨服務架構變更'))
     const score = fixture('score-nototal.json', JSON.stringify({ annotations: {}, score: {} }))
-    const r = main([
+    const r = runMain([
       '--issue',
       issue,
       '--score',
@@ -196,7 +205,7 @@ describe('main — 自動解析', () => {
 describe('main — 手動覆寫與偏好 provider', () => {
   it('--tier critical → 覆寫分析結果', () => {
     const issue = fixture('low2.json', issueJson('為單一工具函式補測試'))
-    const r = main([
+    const r = runMain([
       '--issue',
       issue,
       '--tier',
@@ -213,7 +222,7 @@ describe('main — 手動覆寫與偏好 provider', () => {
 
   it('--provider anthropic → chain 內 anthropic 置前', () => {
     const issue = fixture('high2.json', issueJson('跨服務架構變更'))
-    const r = main([
+    const r = runMain([
       '--issue',
       issue,
       '--provider',
@@ -224,8 +233,8 @@ describe('main — 手動覆寫與偏好 provider', () => {
       providersPath,
     ])
     expect(r.chain[0]?.provider).toBe('anthropic')
-    // high tier 的 anthropic 項：claude-sonnet-5
-    expect(r.chain[0]?.model).toBe('claude-sonnet-5')
+    // high tier 的 anthropic 項：claude-sonnet-5-5
+    expect(r.chain[0]?.model).toBe('claude-sonnet-5-5')
   })
 
   it('--provider 未知 → CliError（fail-loud）', () => {
@@ -270,13 +279,13 @@ describe('main — write-spec 階段（--spec-phase）', () => {
   const heavyText = '以 quint 建立可執行規格並用 apalache 模型檢查不變量'
   it('不變量階段：即使文字命中 heavy-verify 也不升 critical', () => {
     const issue = fixture('spec-inv.json', issueJson(heavyText))
-    const r = main(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath, '--spec-phase', 'invariants'])
+    const r = runMain(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath, '--spec-phase', 'invariants'])
     expect(r.tier).not.toBe('critical')
     expect(r.escalation).toBeUndefined()
   })
   it('模型階段：文字沒命中也強制 heavy-verify → critical', () => {
     const issue = fixture('spec-model.json', issueJson('為單一工具函式補測試'))
-    const r = main(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath, '--spec-phase', 'model'])
+    const r = runMain(['--issue', issue, '--tiers', tiersPath, '--providers', providersPath, '--spec-phase', 'model'])
     expect(r.tier).toBe('critical')
     expect(r.escalation).toBe('heavy-verify')
   })
@@ -287,3 +296,65 @@ describe('main — write-spec 階段（--spec-phase）', () => {
     )
   })
 })
+
+describe('main — 輸出格式（--format matrix）', () => {
+  it('--format matrix 輸出雙模型矩陣項目清單', () => {
+    const issue = fixture('issue-matrix.json', issueJson('單一工具函式補測試'))
+    const r = main([
+      '--issue',
+      issue,
+      '--tiers',
+      tiersPath,
+      '--providers',
+      providersPath,
+      '--tier',
+      'high',
+      '--format',
+      'matrix',
+    ])
+    expect(Array.isArray(r)).toBe(true)
+    if (Array.isArray(r)) {
+      expect(r.length).toBe(2)
+      expect(r[0]).toMatchObject({ variant: 'a' })
+      expect(r[1]).toMatchObject({ variant: 'b' })
+    }
+  })
+
+  it('--format matrix 帶出 dual 宣告的 reasoningEffort（僅在有宣告時）', () => {
+    const dualTiers = fixture(
+      'tiers-dual.yaml',
+      tiersYaml().replace(
+        "    fallback: [{ provider: deepseek, model: deepseek-flash }]\n",
+        [
+          '    fallback: [{ provider: deepseek, model: deepseek-flash }]',
+          '    dual:',
+          '      - { provider: anthropic, model: claude-opus-5, reasoningEffort: xhigh }',
+          '      - { provider: anthropic, model: claude-sonnet-5-5, reasoningEffort: high }',
+          '',
+        ].join('\n'),
+      ),
+    )
+    const issue = fixture('issue-matrix-dual.json', issueJson('單一工具函式補測試'))
+    const r = main([
+      '--issue',
+      issue,
+      '--tiers',
+      dualTiers,
+      '--providers',
+      providersPath,
+      '--tier',
+      'critical',
+      '--format',
+      'matrix',
+    ])
+    expect(r).toEqual([
+      { variant: 'a', provider: 'anthropic', model: 'claude-opus-5', reasoningEffort: 'xhigh' },
+      { variant: 'b', provider: 'anthropic', model: 'claude-sonnet-5-5', reasoningEffort: 'high' },
+    ])
+  })
+
+  it('--format 收到非法格式 → CliError', () => {
+    expect(() => parseArgs(['--format', 'yaml'])).toThrow(/--format 必須是 json\|matrix/)
+  })
+})
+

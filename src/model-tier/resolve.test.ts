@@ -11,6 +11,7 @@ import {
   CRITICAL_MIN_TOTAL,
   loadDeclaredProviders,
   loadTiers,
+  resolveDualModels,
   resolveModelTier,
   type TierPolicies,
 } from './resolve.js'
@@ -430,3 +431,72 @@ describe('resolveModelTier — auto 路徑缺 tier 政策', () => {
     ).toThrow(CliError)
   })
 })
+
+describe('resolveDualModels — N-version 雙模型配置', () => {
+  it('未顯式設定 dual 時預設回傳 [primary, fallback[0]]', () => {
+    const policy = {
+      primary: { provider: 'deepseek', model: 'deepseek-flash' },
+      fallback: [{ provider: 'anthropic', model: 'claude-sonnet-5-5' }],
+    }
+    const dual = resolveDualModels(policy)
+    expect(dual).toEqual([
+      { provider: 'deepseek', model: 'deepseek-flash' },
+      { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+    ])
+  })
+
+  it('顯式設定 dual 時優先採用 dual 配置', () => {
+    const policy = {
+      primary: { provider: 'deepseek', model: 'deepseek-flash' },
+      fallback: [{ provider: 'qwen', model: 'qwen3.8-flash' }],
+      dual: [
+        { provider: 'qwen', model: 'qwen3.8-flash' },
+        { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+      ] as const,
+    }
+    const dual = resolveDualModels(policy)
+    expect(dual).toEqual([
+      { provider: 'qwen', model: 'qwen3.8-flash' },
+      { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+    ])
+  })
+
+  it('resolveModelTier 回傳結果包含 dual 屬性', () => {
+    const r = resolveModelTier({
+      tiers: TIERS,
+      declaredProviders: PROVIDERS,
+      manualTier: 'high',
+    })
+    expect(r.dual).toBeDefined()
+    expect(r.dual.length).toBe(2)
+    expect(r.dual[0]?.model).toBe('deepseek-flash')
+    expect(r.dual[1]?.model).toBe('claude-sonnet-5')
+  })
+
+  it('loadTiers 檢查 dual 引用未宣告 provider 時拋出 CliError', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'load-tiers-dual-'))
+    const path = join(dir, 'model-tiers.yaml')
+    try {
+      const content = [
+        'tiers:',
+        '  low:',
+        '    primary: { provider: deepseek, model: m }',
+        '    fallback: [{ provider: deepseek, model: m }]',
+        '    dual:',
+        '      - { provider: deepseek, model: m }',
+        '      - { provider: unknown-provider, model: m }',
+        '  medium:',
+        '    primary: { provider: deepseek, model: m }',
+        '    fallback: [{ provider: deepseek, model: m }]',
+        '  high:',
+        '    primary: { provider: deepseek, model: m }',
+        '    fallback: [{ provider: deepseek, model: m }]',
+      ].join('\n')
+      writeFileSync(path, content, 'utf8')
+      expect(() => loadTiers(path, ['deepseek'])).toThrow(CliError)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+

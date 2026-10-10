@@ -27,6 +27,13 @@ import { CliError, runCli } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 import { extractField } from './factory-issue-check.js'
 
+export interface MatrixItem {
+  variant: 'a' | 'b'
+  provider: string
+  model: string
+  reasoningEffort?: string | undefined
+}
+
 export interface ModelCliPaths {
   issuePath?: string | undefined
   scorePath?: string | undefined
@@ -40,6 +47,7 @@ export interface ModelCliPaths {
    * 不由 Issue 文字的關鍵字決定（內文幾乎必然提到 Quint／形式化）。
    */
   specPhase?: 'invariants' | 'model' | undefined
+  format?: 'json' | 'matrix' | undefined
 }
 
 const DEFAULT_TIERS_PATH = 'config/dsh/model-tiers.yaml'
@@ -61,6 +69,7 @@ export function parseArgs(argv: string[]): ModelCliPaths {
   let tier: ModelTier | 'auto' = 'auto'
   let provider = 'auto'
   let specPhase: 'invariants' | 'model' | undefined
+  let format: 'json' | 'matrix' | undefined
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--issue') {
@@ -85,11 +94,17 @@ export function parseArgs(argv: string[]): ModelCliPaths {
         throw new CliError(`--spec-phase 必須是 invariants|model，收到 "${value}"`)
       }
       specPhase = value
+    } else if (arg === '--format') {
+      const value = requireValue(argv, ++i, '--format')
+      if (value !== 'json' && value !== 'matrix') {
+        throw new CliError(`--format 必須是 json|matrix，收到 "${value}"`)
+      }
+      format = value
     } else {
       throw new CliError(`unknown argument: ${arg}`)
     }
   }
-  return { issuePath, scorePath, tiersPath, providersPath, tier, provider, specPhase }
+  return { issuePath, scorePath, tiersPath, providersPath, tier, provider, specPhase, format }
 }
 
 /** 讀 JSON 檔並回傳 parsed 值；檔案缺失/格式錯誤 → CliError（絕不靜默）。 */
@@ -107,7 +122,7 @@ function readJsonFile(path: string, label: string): unknown {
   }
 }
 
-export function main(argv: string[]): ModelResolution {
+export function main(argv: string[]): ModelResolution | MatrixItem[] {
   const paths = parseArgs(argv)
   const declaredProviders = loadDeclaredProviders(paths.providersPath)
   const tiers = loadTiers(paths.tiersPath, declaredProviders)
@@ -151,7 +166,7 @@ export function main(argv: string[]): ModelResolution {
     if (typeof total === 'number') scoreTotal = total
   }
 
-  return resolveModelTier({
+  const resolution = resolveModelTier({
     tiers,
     declaredProviders,
     manualTier: paths.tier === 'auto' ? undefined : paths.tier,
@@ -160,6 +175,29 @@ export function main(argv: string[]): ModelResolution {
     scoreTotal,
     preferredProvider: paths.provider === 'auto' ? undefined : paths.provider,
   })
+
+  if (paths.format === 'matrix') {
+    return [
+      {
+        variant: 'a',
+        provider: resolution.dual[0].provider,
+        model: resolution.dual[0].model,
+        ...(resolution.dual[0].reasoningEffort !== undefined
+          ? { reasoningEffort: resolution.dual[0].reasoningEffort }
+          : {}),
+      },
+      {
+        variant: 'b',
+        provider: resolution.dual[1].provider,
+        model: resolution.dual[1].model,
+        ...(resolution.dual[1].reasoningEffort !== undefined
+          ? { reasoningEffort: resolution.dual[1].reasoningEffort }
+          : {}),
+      },
+    ]
+  }
+
+  return resolution
 }
 
 /* v8 ignore start -- 副作用區塊：僅在子行程直接執行時進入，
