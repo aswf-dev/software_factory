@@ -385,8 +385,10 @@ jobs:
           echo "=== remote url (masked) ==="
           git config --get remote.origin.url | sed 's/:[^@]*@/:***@/'
           echo "=== probe push (extraheader forced empty via -c) ==="
-          # 平行 run 共用同名探針分支會互相衝突（fetch first），故以 run id 唯一化
-          PROBE="_factory-auth-probe-${{ github.run_id }}"
+          # 平行 run 共用同名探針分支會互相衝突（fetch first），故以 run id 唯一化。
+          # N-version 的兩個變體同屬一個 run、共用 run id，必須再加變體代號
+          # （run 38069005560：變體 A 在此被 rejected，agent 根本沒啟動）。
+          PROBE="_factory-auth-probe-${{ github.run_id }}-${{ matrix.variant }}"
           git switch -c "$PROBE"
           git commit --allow-empty -m "auth probe"
           git -c http.https://github.com/.extraheader= push origin "$PROBE"

@@ -692,6 +692,10 @@ describe('N-version 變體隔離接線', () => {
     expect(wf).toContain('-e "s|<VARIANT>|${VARIANT_ID}|g"')
   })
 
+  it('auth 探針分支依變體唯一化（兩變體共用 run id；run 38069005560 變體 A 被 rejected）', () => {
+    expect(wf).toContain('PROBE="_factory-auth-probe-${{ github.run_id }}-${{ matrix.variant }}"')
+  })
+
   it('crosscheck 帶 --variant 與 ls-remote 取得的遠端分支清單', () => {
     expect(wf).toContain('git -C target ls-remote --heads origin')
     expect(wf).toContain(
