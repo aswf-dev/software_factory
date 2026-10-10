@@ -105,6 +105,14 @@ jq -e '
 > 與你對其內容的**驗證結論**（讀過、確認涵蓋驗收條件）。crosscheck 的 `no-trace` 只攔
 > 「宣稱變更卻零交付」的假完成；誠實標示重複使用不會誤觸。不確定既有 PR 是否完整時，
 > 依 factory-stop-rules 停手交還人類，**不要猜測**。
+>
+> **N-version 變體（`.factory/run/variant` 存在時；2026-10-10 fubon-tradingbot#713 教訓）**：
+> 兩個變體平行處理同一張 Issue，**只有分支以 `factory/<issue編號>-<variant>-` 開頭的 PR 才是
+> 「本工作項的既有交付」**。另一變體的分支／PR（`factory/<issue編號>-<另一代號>-…`）與舊格式
+> `factory/<issue編號>-<nn>-…` 都**不是**你的交付：不得沿用、不得推送、不得閱讀或評論其內容，
+> 也**不得因它存在而放棄交付**——上述重跑指引只適用於本變體自己的 PR。#713 的變體 A 寫完報告
+> 後看到 B 的 PR，誤以為是「先前 run 已交付」而刪掉自己的成果，兩個變體因此無法比對。
+> CI 的 crosscheck 會攔下這種情形（`variant-foreign-reuse`）→ needs-human。
 
 ## 任務型別
 
@@ -213,7 +221,7 @@ jq -e '
 - `git push` 的認證已由 CI 設定（remote URL 內嵌 App token，優先於任何 credential helper）——**直接 push 即可**，不要自行改 remote URL、不要寫入 token 到任何檔案。
 
 
-- **分支命名**：格式 `factory/<issue編號>-<nn>-<layer>`（如 `factory/12-01-test`）為唯一允許；gh-stack **v0.2.1** 用 `gh stack init --base "$BASE_BRANCH" factory/<issue>-01-test ...` 直接列分支名建立（**不接受** `--numbered`/`--prefix`）；不得自行命名（如 `08-18-docs_...`）或以 dash 取代 slash。
+- **分支命名**：格式 `factory/<issue編號>-<nn>-<layer>`（如 `factory/12-01-test`）為唯一允許；**N-version 模式（`.factory/run/variant` 存在）則必須為 `factory/<issue編號>-<variant>-<nn>-<layer>`**（如 `factory/12-a-01-test`），單層 PR 不走 gh-stack、直接 `git` ＋ `gh pr create` 時同樣適用——CI 以 crosscheck 驗證前綴（`variant-branch-prefix`）；gh-stack **v0.2.1** 用 `gh stack init --base "$BASE_BRANCH" factory/<issue>-01-test ...` 直接列分支名建立（**不接受** `--numbered`/`--prefix`）；不得自行命名（如 `08-18-docs_...`）或以 dash 取代 slash。
 - **PR 一律非 draft**：`gh stack submit --auto` 或 `gh pr create` 皆不可加 `--draft`（draft 無法合併，擋住審查流程）。
 
 - 任務描述本身不重複本 skill 內容——需要細節時回到本檔案。

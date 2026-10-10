@@ -39,6 +39,7 @@ function crosscheckScript(): string {
     'inputs.issue_number': '670',
     'inputs.base_branch': 'software-factory',
     'github.run_id': '424242',
+    'matrix.variant': 'a',
     // 非 write-spec 類型：這兩個值只出現在 write-spec 分支內，不會被讀到
     'steps.specphase.outputs.phase': '',
     'steps.specphase.outputs.spec_name': '',
@@ -55,6 +56,10 @@ interface StepResult {
   log: string
   comment: string | undefined
   labels: string
+  /** stub node（扮演 factory-crosscheck）收到的參數。 */
+  nodeArgs: string
+  /** step 寫給 crosscheck 的遠端分支清單；step 沒寫時為 undefined。 */
+  remoteBranches: string | undefined
 }
 
 let dirs: string[] = []
@@ -64,7 +69,11 @@ afterEach(() => {
 })
 
 /** 執行 step：stub 的 `node` 扮演 factory-crosscheck，依參數輸出 stdout／stderr／exit code。 */
-function runStep(crosscheck: { stdout: string; stderr: string; code: number }): StepResult {
+function runStep(
+  crosscheck: { stdout: string; stderr: string; code: number },
+  /** `git ls-remote --heads origin` 的 stub 輸出；null = ls-remote 失敗。 */
+  lsRemote: string | null = '',
+): StepResult {
   const dir = mkdtempSync(join(tmpdir(), 'crosscheck-step-'))
   dirs.push(dir)
   const bin = join(dir, 'bin')
@@ -77,7 +86,21 @@ function runStep(crosscheck: { stdout: string; stderr: string; code: number }): 
     writeFileSync(join(bin, name), `#!/usr/bin/env bash\n${body}\n`)
     chmodSync(join(bin, name), 0o755)
   }
-  stub('node', `cat "$STUB_DIR/cc.stdout"; cat "$STUB_DIR/cc.stderr" >&2; exit ${crosscheck.code}`)
+  stub(
+    'node',
+    `echo "$*" > "$STUB_DIR/node-args.txt"; cat "$STUB_DIR/cc.stdout"; cat "$STUB_DIR/cc.stderr" >&2; exit ${crosscheck.code}`,
+  )
+  if (lsRemote !== null) writeFileSync(join(dir, 'ls-remote.txt'), lsRemote)
+  stub(
+    'git',
+    [
+      'if [ "$1 $2 $3 $4 $5" = "-C target ls-remote --heads origin" ]; then',
+      '  [ -f "$STUB_DIR/ls-remote.txt" ] || { echo "fatal: could not read from remote" >&2; exit 128; }',
+      '  cat "$STUB_DIR/ls-remote.txt"; exit 0',
+      'fi',
+      'echo "unexpected git call: $*" >&2; exit 99',
+    ].join('\n'),
+  )
   stub(
     'gh',
     [
@@ -97,11 +120,15 @@ function runStep(crosscheck: { stdout: string; stderr: string; code: number }): 
   })
   const commentPath = join(dir, 'comment.md')
   const labelsPath = join(dir, 'labels.txt')
+  const remotePath = join(dir, '.factory/remote-branches.txt')
+  const nodeArgsPath = join(dir, 'node-args.txt')
   return {
     status: r.status,
     log: `${r.stdout}${r.stderr}`,
     comment: existsSync(commentPath) ? readFileSync(commentPath, 'utf8') : undefined,
     labels: existsSync(labelsPath) ? readFileSync(labelsPath, 'utf8') : '',
+    nodeArgs: existsSync(nodeArgsPath) ? readFileSync(nodeArgsPath, 'utf8') : '',
+    remoteBranches: existsSync(remotePath) ? readFileSync(remotePath, 'utf8') : undefined,
   }
 }
 
@@ -171,6 +198,29 @@ describe('crosscheck step：既有行為不變', () => {
     expect(r.comment).toBeUndefined()
     expect(r.log).toContain('::warning::REQ id 錨定 advisory（不擋 run）：requirements-uncovered')
     expect(r.log).not.toContain('integer expression expected')
+  })
+})
+
+/** N-version 變體隔離（fubon-tradingbot#713）：遠端分支清單與 --variant 的接線。 */
+describe('crosscheck step：N-version 變體隔離', () => {
+  const ok = JSON.stringify({ issueNumber: 670, ok: true, mismatches: [], advisories: [], headline: '' })
+
+  it('ls-remote 的 refs/heads/ 前綴被剝除後寫給 crosscheck，並傳入 --variant', () => {
+    const r = runStep(
+      { stdout: ok, stderr: '', code: 0 },
+      'abc123\trefs/heads/factory/670-b-01-docs\ndef456\trefs/heads/software-factory\n',
+    )
+    expect(r.status, r.log).toBe(0)
+    expect(r.remoteBranches).toBe('factory/670-b-01-docs\nsoftware-factory\n')
+    expect(r.nodeArgs).toContain('--variant a --remote-branches .factory/remote-branches.txt')
+  })
+
+  it('ls-remote 失敗 → ::warning::、清單為空，crosscheck 照常執行（分支前綴檢查仍有效）', () => {
+    const r = runStep({ stdout: ok, stderr: '', code: 0 }, null)
+    expect(r.status, r.log).toBe(0)
+    expect(r.log).toContain('::warning::git ls-remote 失敗')
+    expect(r.remoteBranches).toBe('')
+    expect(r.nodeArgs).toContain('--variant a')
   })
 })
 

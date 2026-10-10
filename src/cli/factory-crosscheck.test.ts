@@ -27,6 +27,9 @@ import {
   parseShortStat,
   parseStatusPorcelain,
   collectDeletedPaths,
+  checkVariantIsolation,
+  parseRemoteBranches,
+  variantPrefix,
   type CrosscheckActual,
   type GitRunner,
 } from './factory-crosscheck.js'
@@ -1206,6 +1209,9 @@ describe('categorizeMismatch／crosscheckHeadline：政策違規與報告不一�
       expect(categorizeMismatch(kind)).toBe('consistency')
     },
   )
+  it.each(['variant-branch-prefix', 'variant-foreign-reuse'])('%s → isolation（N-version 變體隔離）', (kind) => {
+    expect(categorizeMismatch(kind)).toBe('isolation')
+  })
   it('標題依類別組合', () => {
     const m = (kind: string) => ({ kind, detail: 'x' })
     expect(crosscheckHeadline([])).toBe('')
@@ -1214,5 +1220,156 @@ describe('categorizeMismatch／crosscheckHeadline：政策違規與報告不一�
     expect(crosscheckHeadline([m('pbt-outside-audit'), m('unreported-changes')])).toBe(
       '變更超出任務類型允許的範圍，且 report 與實際變更不一致',
     )
+    expect(crosscheckHeadline([m('variant-foreign-reuse')])).toBe('N-version 變體隔離失敗')
+    expect(crosscheckHeadline([m('variant-branch-prefix'), m('unreported-changes')])).toBe(
+      'N-version 變體隔離失敗，且 report 與實際變更不一致',
+    )
+  })
+})
+
+/**
+ * N-version 變體隔離（fubon-tradingbot#713，run 38066416086）：兩變體平行處理同一張
+ * Issue。變體 B 開了沒有變體前綴的 `factory/713-01-analysis`；變體 A 寫完報告、要推
+ * 分支時看到它，依「既有交付不重複開 PR」把自己的成果刪掉——judge 仍判 ready-for-review。
+ */
+describe('checkVariantIsolation', () => {
+  const base = { issueNumber: 713, variant: 'a' as const, localBranches: [], remoteBranches: [], reportedPaths: [] }
+
+  it('variantPrefix 是 factory/<issue>-<variant>-', () => {
+    expect(variantPrefix(713, 'b')).toBe('factory/713-b-')
+  })
+
+  it('本變體前綴的分支 → 無 mismatch', () => {
+    expect(
+      checkVariantIsolation({ ...base, localBranches: ['factory/713-a-01-docs'], reportedPaths: ['docs/r.md'] }),
+    ).toEqual([])
+  })
+
+  it('本地分支缺變體前綴（#713 變體 B 的 factory/713-01-analysis）→ variant-branch-prefix', () => {
+    const out = checkVariantIsolation({
+      ...base,
+      variant: 'b',
+      localBranches: ['factory/713-01-analysis', 'factory/713-b-01-docs'],
+      reportedPaths: ['docs/r.md'],
+    })
+    expect(out.map((m) => m.kind)).toEqual(['variant-branch-prefix'])
+    expect(out[0]?.detail).toContain('factory/713-01-analysis')
+    expect(out[0]?.detail).not.toContain('factory/713-b-01-docs')
+    expect(out[0]?.detail).toContain('factory/713-b-')
+  })
+
+  it('無自己的交付、遠端只有另一變體的分支（#713 變體 A）→ variant-foreign-reuse', () => {
+    const out = checkVariantIsolation({
+      ...base,
+      remoteBranches: ['factory/713-01-analysis', 'factory/713-b-01-docs', 'factory/7130-a-01-x', 'main'],
+    })
+    expect(out.map((m) => m.kind)).toEqual(['variant-foreign-reuse'])
+    expect(out[0]?.detail).toContain('factory/713-01-analysis')
+    expect(out[0]?.detail).toContain('factory/713-b-01-docs')
+    // 其他 Issue 與非 factory 分支不列入（7130 不是 713 的分支）
+    expect(out[0]?.detail).not.toContain('7130')
+    expect(out[0]?.detail).not.toContain('main')
+  })
+
+  it('遠端有本變體前綴的分支（本變體的重跑）→ 沿用既有交付合法', () => {
+    expect(
+      checkVariantIsolation({ ...base, remoteBranches: ['factory/713-a-01-docs', 'factory/713-b-01-docs'] }),
+    ).toEqual([])
+  })
+
+  it('slash 命名（factory/<issue>/…）一樣算本 Issue 的分支', () => {
+    const out = checkVariantIsolation({ ...base, remoteBranches: ['factory/713/01-docs'] })
+    expect(out.map((m) => m.kind)).toEqual(['variant-foreign-reuse'])
+  })
+
+  it('無自己的交付、遠端也沒有其他分支（停手規則）→ 不歸咎於隔離', () => {
+    expect(checkVariantIsolation(base)).toEqual([])
+  })
+
+  it('report 有變更就不是沿用（由其他檢查負責一致性）', () => {
+    expect(
+      checkVariantIsolation({ ...base, remoteBranches: ['factory/713-b-01-docs'], reportedPaths: ['docs/r.md'] }),
+    ).toEqual([])
+  })
+
+  it('本地有本變體分支就不是沿用', () => {
+    expect(
+      checkVariantIsolation({
+        ...base,
+        localBranches: ['factory/713-a-01-docs'],
+        remoteBranches: ['factory/713-b-01-docs'],
+      }),
+    ).toEqual([])
+  })
+})
+
+describe('parseRemoteBranches', () => {
+  it('一行一個分支名，忽略空行與前後空白', () => {
+    expect(parseRemoteBranches('factory/1-a-01-test\n\n  main  \n')).toEqual(['factory/1-a-01-test', 'main'])
+  })
+})
+
+describe('parseArgs：N-version 旗標', () => {
+  it('--variant 與 --remote-branches 一起解析', () => {
+    const r = parseArgs(['12', 'r.json', '--variant', 'b', '--remote-branches', 'rb.txt'])
+    expect(r.variant).toEqual({ id: 'b', remoteBranchesPath: 'rb.txt' })
+  })
+  it('未指定 --variant → undefined（非 N-version 呼叫維持舊行為）', () => {
+    expect(parseArgs(['12', 'r.json']).variant).toBeUndefined()
+  })
+  it('--variant 值不合法 → CliError', () => {
+    expect(() => parseArgs(['12', 'r.json', '--variant', 'c', '--remote-branches', 'x'])).toThrow(/--variant must be a or b/)
+  })
+  it('--variant 缺 --remote-branches → CliError（接線漏傳時寧可紅燈）', () => {
+    expect(() => parseArgs(['12', 'r.json', '--variant', 'a'])).toThrow(/--variant requires --remote-branches/)
+  })
+  it('--remote-branches 沒有 --variant → CliError', () => {
+    expect(() => parseArgs(['12', 'r.json', '--remote-branches', 'x'])).toThrow(/--remote-branches requires --variant/)
+  })
+  it('旗標缺值 → CliError', () => {
+    expect(() => parseArgs(['12', 'r.json', '--variant'])).toThrow(/--variant requires a value/)
+    expect(() => parseArgs(['12', 'r.json', '--variant', 'a', '--remote-branches'])).toThrow(
+      /--remote-branches requires a value/,
+    )
+  })
+})
+
+describe('main：N-version 變體隔離', () => {
+  let dir: string
+  let reportPath: string
+  let remotePath: string
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'factory-crosscheck-variant-'))
+    reportPath = join(dir, 'report.json')
+    remotePath = join(dir, 'remote-branches.txt')
+  })
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('重現 #713 變體 A：changedPaths=[]、遠端只有 B 的分支 → ok=false 且標題為隔離失敗', () => {
+    writeFileSync(reportPath, makeReport({ changedPaths: [], changedLines: 0 }))
+    writeFileSync(remotePath, 'factory/12-01-analysis\n')
+    const out = main(['12', reportPath, '--variant', 'a', '--remote-branches', remotePath], fakeGit({}))
+    expect(out.ok).toBe(false)
+    expect(out.mismatches.map((m) => m.kind)).toEqual(['variant-foreign-reuse'])
+    expect(out.mismatches[0]?.category).toBe('isolation')
+    expect(out.headline).toBe('N-version 變體隔離失敗')
+  })
+
+  it('變體自己的前綴分支與 report 一致 → ok=true', () => {
+    writeFileSync(reportPath, makeReport())
+    writeFileSync(remotePath, 'factory/12-b-01-test\n')
+    const out = main(
+      ['12', reportPath, '--variant', 'a', '--remote-branches', remotePath],
+      fakeGit({
+        branches: 'factory/12-a-01-test\n',
+        diffNameOnly: () => 'src/a.ts\n',
+        shortStat: () => ' 1 file changed, 30 insertions(+)',
+      }),
+    )
+    expect(out.ok).toBe(true)
   })
 })

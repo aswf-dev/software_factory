@@ -822,6 +822,18 @@ jobs:
                 TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template.txt"
               fi
               echo "task template: $TEMPLATE"
+              # N-version 變體身分（fubon-tradingbot#713）：兩個變體收到同一份模板，
+              # 若 prompt 不說明自己是哪個變體，先交付的變體的 PR 在另一方看來就是
+              # 「先前 run 已交付」，後者會依重跑指引丟棄自己的成果。以前置段落注入，
+              # 而不是改模板：目標 repo 的覆寫模板（L815 優先）也必須帶到這段。
+              # 分支前綴由 crosscheck --variant 機械驗證（Step 4），此處只是告知。
+              VARIANT_ID="${{ matrix.variant }}"
+              VARIANT_PREFIX="factory/${{ inputs.issue_number }}-${VARIANT_ID}-"
+              VARIANT_HEADER="【N-version 雙模型競賽：你是變體 ${VARIANT_ID}】本工作項由兩個不同模型的變體平行執行，另一個變體正在同時處理同一張 Issue；兩份交付會由人類比對後擇一合併，所以你必須獨立完成並交付自己的版本。
+          - 你的分支一律以 \`${VARIANT_PREFIX}\` 開頭（例：\`${VARIANT_PREFIX}01-test\`、\`${VARIANT_PREFIX}01-docs\`）；**不得**使用沒有變體代號的 \`factory/${{ inputs.issue_number }}-<nn>-<layer>\`。變體代號也寫在 \`.factory/run/variant\`。
+          - 只有分支以 \`${VARIANT_PREFIX}\` 開頭的 PR 才算「本工作項的既有交付」。其他 \`factory/${{ inputs.issue_number }}-\` 分支或 PR（另一變體或舊格式）一律忽略：不得沿用、不得推送、不得閱讀或評論其內容，也不得因它存在而放棄交付。
+          - CI 會驗證分支前綴與「是否有自己的交付」，違反即判 needs-human。
+          "
               # 單次嘗試上限：剩餘預算與（首次）總預算的較小值。逾時訊號先 TERM
               # （讓 DSH flush session log 與 stdout），30 秒後才 KILL——DSH headless
               # 在收到 TERM 時仍有機會完成 flush（usage 量測依賴 session log）。
@@ -831,9 +843,10 @@ jobs:
                 "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
                 --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
                 --patch "$GITHUB_WORKSPACE/.factory/model.patch.yml" \
-                "$(sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
+                "$(printf '%s\n\n' "$VARIANT_HEADER"; sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
                         -e "s|<REPO>|${{ inputs.repo }}|" \
                         -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" \
+                        -e "s|<VARIANT>|${VARIANT_ID}|g" \
                         -e "s|<SPEC_PHASE>|${{ steps.specphase.outputs.phase }}|g" \
                         -e "s|<SPEC_NAME>|${{ steps.specphase.outputs.spec_name }}|g" "$TEMPLATE")" \
                 > .factory/run/stdout.txt 2> .factory/run/stderr.txt
@@ -1029,10 +1042,24 @@ jobs:
               ANCHOR_FLAG="--requirement-anchors $ANCHORS"
             fi
           fi
+          # N-version 變體隔離（fubon-tradingbot#713）：crosscheck 驗證本變體的分支前綴，
+          # 並攔「沒有自己的交付、卻有另一變體的分支」（沿用對方 PR）。目標 repo 的
+          # checkout 沒有其他分支的 remote-tracking ref，故以 ls-remote 取得遠端分支清單
+          # 寫檔傳入（crosscheck 只讀本地資料）。ls-remote 失敗時清單為空：沿用檢查
+          # 因此失效，但分支前綴檢查只靠本地分支，仍然有效——以 ::warning:: 讓人看見。
+          # 先寫檔再解析、不用管線：本 step 的 shell 是 `bash -e`（沒有 pipefail），
+          # `git ... | awk` 的結束碼只看 awk，ls-remote 失敗會被吞掉。
+          if git -C target ls-remote --heads origin > .factory/ls-remote.txt; then
+            awk '{ sub("^refs/heads/", "", $2); print $2 }' .factory/ls-remote.txt > .factory/remote-branches.txt
+          else
+            echo "::warning::git ls-remote 失敗：本次無法檢查「沿用另一變體的 PR」"
+            : > .factory/remote-branches.txt
+          fi
+          VARIANT_FLAG="--variant ${{ matrix.variant }} --remote-branches .factory/remote-branches.txt"
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e

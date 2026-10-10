@@ -679,6 +679,45 @@ describe('Hegel skills vendor 與類型專屬派送（ADR-019 §7、R7）', () =
   })
 })
 
+/**
+ * N-version 變體隔離（fubon-tradingbot#713，run 38066416086）：兩個變體收到同一份 prompt，
+ * 變體 B 開了沒有前綴的分支，變體 A 把它當成「先前 run 已交付」而丟棄自己的報告。
+ */
+describe('N-version 變體隔離接線', () => {
+  const wf = read('.github/workflows/factory-run.yml')
+
+  it('agent prompt 前置變體身分段落（目標 repo 覆寫模板也涵蓋），並代入 <VARIANT>', () => {
+    expect(wf).toContain('VARIANT_ID="${{ matrix.variant }}"')
+    expect(wf).toContain("\"$(printf '%s\\n\\n' \"$VARIANT_HEADER\"; sed -e")
+    expect(wf).toContain('-e "s|<VARIANT>|${VARIANT_ID}|g"')
+  })
+
+  it('crosscheck 帶 --variant 與 ls-remote 取得的遠端分支清單', () => {
+    expect(wf).toContain('git -C target ls-remote --heads origin')
+    expect(wf).toContain(
+      'VARIANT_FLAG="--variant ${{ matrix.variant }} --remote-branches .factory/remote-branches.txt"',
+    )
+    expect(wf).toMatch(/\$ANALYZE_FLAG \$ANCHOR_FLAG \$VARIANT_FLAG/)
+  })
+
+  it('所有含「既有 PR 不重複開」重跑規則的模板都限定為本變體的 PR', () => {
+    const dir = join(ROOT, '.github/factory')
+    const withRerun = readdirSync(dir)
+      .filter((f) => /^task-template.*\.txt$/.test(f))
+      .filter((f) => read(`.github/factory/${f}`).includes('不重複開 PR'))
+    expect(withRerun.length, '找不到含重跑規則的模板（glob 失效？）').toBeGreaterThan(0)
+    for (const f of withRerun) {
+      expect(read(`.github/factory/${f}`), f).toContain('`factory/<ISSUE>-<VARIANT>-` 開頭的 PR 才算既有交付')
+    }
+  })
+
+  it('factory-workflow 的重跑指引與分支命名都有 N-version 例外', () => {
+    const skill = read('.dsh/skills/factory-workflow/SKILL.md')
+    expect(skill).toContain('只有分支以 `factory/<issue編號>-<variant>-` 開頭的 PR 才是')
+    expect(skill).toContain('必須為 `factory/<issue編號>-<variant>-<nn>-<layer>`')
+  })
+})
+
 describe('Quint Phase A 資產（Task 16–20）', () => {
   it('vendor 的 quint skills 存在（官方僅提供 quint-lang/quint-modeling，見 ADR-008）', () => {
     for (const name of ['quint-lang', 'quint-modeling']) {
@@ -2111,13 +2150,20 @@ describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標�
       )
       .join('\n')
 
-  it('解析得到 workflow 的五個佔位字替換式', () => {
-    expect(rules.map((r) => r.token).sort()).toEqual(['<BASE_BRANCH>', '<ISSUE>', '<REPO>', '<SPEC_NAME>', '<SPEC_PHASE>'])
+  it('解析得到 workflow 的六個佔位字替換式', () => {
+    expect(rules.map((r) => r.token).sort()).toEqual([
+      '<BASE_BRANCH>',
+      '<ISSUE>',
+      '<REPO>',
+      '<SPEC_NAME>',
+      '<SPEC_PHASE>',
+      '<VARIANT>',
+    ])
   })
   it('每個任務模板替換後都沒有殘留佔位字', () => {
     const dir = join(ROOT, '.github/factory')
     for (const f of readdirSync(dir).filter((n) => n.startsWith('task-template') && n.endsWith('.txt'))) {
-      const leftover = render(read(`.github/factory/${f}`)).match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME)>/g)
+      const leftover = render(read(`.github/factory/${f}`)).match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME|VARIANT)>/g)
       expect(leftover, `${f} 替換後仍殘留 ${leftover?.join(', ')}`).toBeNull()
     }
   })
