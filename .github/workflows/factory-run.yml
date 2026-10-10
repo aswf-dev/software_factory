@@ -90,6 +90,10 @@ jobs:
     # 同一個 run 內兩者都可能用滿，故再加 35 分 → 185 分。這只是上限：一般工作項
     # 不會因此跑得更久，只是保證驗證步驟不會在中途被 job 逾時砍掉。
     timeout-minutes: 185
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [a, b]
     steps:
       # 機制 repo（本 repo：workflow/CLI/skill 所在）在根目錄；
       # 目標 repo（inputs.repo）另行 checkout 至 target/，agent 在 target/ 內工作。
@@ -317,7 +321,8 @@ jobs:
           printf '%s' "$GH_TOKEN" > target/.factory/run/gh-token
           printf '%s' "${{ inputs.base_branch }}" > target/.factory/run/base-branch
           printf '%s' "${{ inputs.repo }}" > target/.factory/run/repo
-          echo "run env written: token=$(wc -c < target/.factory/run/gh-token)B base=$(cat target/.factory/run/base-branch) repo=$(cat target/.factory/run/repo)"
+          printf '%s' "${{ matrix.variant }}" > target/.factory/run/variant
+          echo "run env written: token=$(wc -c < target/.factory/run/gh-token)B base=$(cat target/.factory/run/base-branch) repo=$(cat target/.factory/run/repo) variant=$(cat target/.factory/run/variant)"
 
       # token 安全：目標 repo 未必有 .factory/ 的 gitignore 條目——若 agent 的
       # git add -A 把 .factory/run/gh-token 提交上去會外洩憑證。以 repo 本地的
@@ -526,6 +531,14 @@ jobs:
             > .factory/model.json
           cat .factory/model.json
           echo "model tier selected: $(jq -r .tier .factory/model.json) ($(jq -r .complexitySource .factory/model.json))"
+          # 雙模型競賽（N-version matrix）：依據 matrix.variant 將對應變體置於 chain 首位
+          VARIANT="${{ matrix.variant }}"
+          if [ "$VARIANT" = "b" ]; then
+            jq '.chain = [ .dual[1] ] + [ .chain[] | select(.model != .dual[1].model or .provider != .dual[1].provider) ]' .factory/model.json > .factory/model.json.tmp && mv .factory/model.json.tmp .factory/model.json
+          else
+            jq '.chain = [ .dual[0] ] + [ .chain[] | select(.model != .dual[0].model or .provider != .dual[0].provider) ]' .factory/model.json > .factory/model.json.tmp && mv .factory/model.json.tmp .factory/model.json
+          fi
+          echo "variant $VARIANT prioritized chain model: $(jq -r '.chain[0].provider + "/" + .chain[0].model' .factory/model.json)"
 
       # Step 2.6 — Agent 逾時預算（A1，34735315950 事故修正）。
       #
@@ -1317,7 +1330,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: factory-run-${{ inputs.issue_number }}
+          name: factory-run-${{ inputs.issue_number }}-${{ matrix.variant }}
           # gh-token（App installation token，供 agent 讀取）不得進 artifact：artifact
           # 保存 90 天，而 token 只靠 job 結束時的撤銷失效——runner 若在上傳後、撤銷前
           # 中斷，token 會在 artifact 中存活至 1 小時效期結束。
@@ -1330,3 +1343,82 @@ jobs:
             .factory/crosscheck.json
             .factory/crosscheck.err
           if-no-files-found: ignore
+
+  compare:
+    name: Compare dual models
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: pnpm
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Resolve target owner/name
+        id: target
+        env:
+          TARGET_REPO: ${{ inputs.repo }}
+        run: |
+          set -euo pipefail
+          echo "owner=${TARGET_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${TARGET_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-actions: read
+
+      - name: Download Variant A artifact
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: factory-run-${{ inputs.issue_number }}-a
+          path: artifacts/a
+
+      - name: Download Variant B artifact
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: factory-run-${{ inputs.issue_number }}-b
+          path: artifacts/b
+
+      - name: Generate comparison report and post comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+        run: |
+          # 找出兩個變體的 PR URL（若有的話）
+          PR_A=$(gh pr list --repo "$GH_REPO" --head "factory/${{ inputs.issue_number }}-a" --json url --jq '.[0].url // empty' 2>/dev/null || true)
+          PR_B=$(gh pr list --repo "$GH_REPO" --head "factory/${{ inputs.issue_number }}-b" --json url --jq '.[0].url // empty' 2>/dev/null || true)
+
+          node dist/cli/factory-compare.js \
+            --issue-number "${{ inputs.issue_number }}" \
+            ${PR_A:+--pr-url-a "$PR_A"} \
+            ${PR_B:+--pr-url-b "$PR_B"} \
+            --report-a "artifacts/a/target/.factory/run/report.json" \
+            --report-b "artifacts/b/target/.factory/run/report.json" \
+            --judge-a "artifacts/a/target/.factory/run/judge.json" \
+            --judge-b "artifacts/b/target/.factory/run/judge.json" \
+            --usage-a "artifacts/a/target/.factory/run/usage.json" \
+            --usage-b "artifacts/b/target/.factory/run/usage.json" \
+            --out compare.md
+
+          cat compare.md
+          gh issue comment "${{ inputs.issue_number }}" --repo "$GH_REPO" --body-file compare.md
+

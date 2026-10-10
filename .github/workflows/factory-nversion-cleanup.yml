@@ -1,0 +1,53 @@
+# Factory N-Version Cleanup — 雙模型競賽合併後自動清理落選變體 PR。
+#
+# 當變體 A 或 B 的 PR 被人類合併至 trunk (software-factory) 時，
+# 自動搜尋同 Issue 的另一組變體開啟中的 PR 並自動關閉。
+name: Factory N-Version Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - software-factory
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  cleanup-loser-pr:
+    # 僅在 PR 真正被合併（merged=true）時執行
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect merged branch and close competitor PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          MERGED_PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          # 檢查分支是否符合 factory/<issue>-(a|b)-*
+          if [[ "$HEAD_REF" =~ ^factory/([0-9]+)-(a|b)-.* ]]; then
+            ISSUE_NUM="${BASH_REMATCH[1]}"
+            WINNER_VARIANT="${BASH_REMATCH[2]}"
+            if [ "$WINNER_VARIANT" == "a" ]; then
+              LOSER_VARIANT="b"
+            else
+              LOSER_VARIANT="a"
+            fi
+
+            echo "Merged PR #$MERGED_PR_NUM from Variant $WINNER_VARIANT for Issue #$ISSUE_NUM"
+            echo "Searching for open PRs from Variant $LOSER_VARIANT..."
+
+            # 搜尋同 Issue 的落選變體分支開啟中 PR
+            LOSER_PRS=$(gh pr list --state open --search "head:factory/$ISSUE_NUM-$LOSER_VARIANT-" --json number --jq '.[].number')
+
+            for PR in $LOSER_PRS; do
+              echo "Closing competitor PR #$PR..."
+              gh pr close "$PR" --comment "🏁 此工作項已由人類審查並合併採用變體 ${WINNER_VARIANT^^}（PR #${MERGED_PR_NUM}）。依雙模型競賽機制，本 PR 自動關閉。"
+            done
+          else
+            echo "Merged PR branch $HEAD_REF is not a dual-model variant branch; skip cleanup."
+          fi
