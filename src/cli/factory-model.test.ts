@@ -287,3 +287,32 @@ describe('main — write-spec 階段（--spec-phase）', () => {
     )
   })
 })
+
+describe('main — 輸出格式（--format matrix）', () => {
+  it('--format matrix 輸出雙模型矩陣項目清單', () => {
+    const issue = fixture('issue-matrix.json', issueJson('單一工具函式補測試'))
+    const r = main([
+      '--issue',
+      issue,
+      '--tiers',
+      tiersPath,
+      '--providers',
+      providersPath,
+      '--tier',
+      'high',
+      '--format',
+      'matrix',
+    ])
+    expect(Array.isArray(r)).toBe(true)
+    if (Array.isArray(r)) {
+      expect(r.length).toBe(2)
+      expect(r[0]).toMatchObject({ variant: 'a' })
+      expect(r[1]).toMatchObject({ variant: 'b' })
+    }
+  })
+
+  it('--format 收到非法格式 → CliError', () => {
+    expect(() => parseArgs(['--format', 'yaml'])).toThrow(/--format 必須是 json\|matrix/)
+  })
+})
+

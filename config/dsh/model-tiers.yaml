@@ -33,11 +33,21 @@ tiers:
     fallback:
       - provider: deepseek
         model: deepseek-flash
+    dual:
+      - provider: qwen
+        model: qwen3.8-flash
+      - provider: deepseek
+        model: deepseek-flash
   medium:
     primary:
       provider: qwen
       model: qwen3.8-flash
     fallback:
+      - provider: deepseek
+        model: deepseek-flash
+    dual:
+      - provider: qwen
+        model: qwen3.8-flash
       - provider: deepseek
         model: deepseek-flash
   high:
@@ -50,8 +60,13 @@ tiers:
     fallback:
       - provider: anthropic
         model: claude-sonnet-5-5
+      - provider: deepseek
+        model: deepseek-flash
+    dual:
       - provider: qwen
         model: qwen3.8-flash
+      - provider: anthropic
+        model: claude-sonnet-5-5
   critical:
     # 最高 tier 預設：claude-opus-5（2026-08-28 用戶裁決：fable-5 需額外 credit 已移除，
     # 不再有「只有最高才用 fable」——最高 tier 直接以同代旗艦 opus-5 為 primary）。
@@ -85,3 +100,9 @@ tiers:
         model: deepseek-flash
       - provider: qwen
         model: qwen3.8-flash
+    dual:
+      - provider: anthropic
+        model: claude-opus-5-5
+        reasoningEffort: xhigh
+      - provider: anthropic
+        model: claude-sonnet-5-5
