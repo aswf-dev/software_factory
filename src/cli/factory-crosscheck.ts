@@ -67,7 +67,7 @@ export interface CrosscheckActual {
  * 兩者的處置不同（前者要改工單或改規則，後者要查 agent 的回報），留言標題必須分開，
  * 否則人會往錯的方向查（philipz/fubon-tradingbot#654：報告誠實，標題卻寫「不一致」）。
  */
-export type MismatchCategory = 'scope' | 'consistency'
+export type MismatchCategory = 'scope' | 'consistency' | 'isolation'
 
 export interface CrosscheckMismatch {
   kind: string
@@ -87,18 +87,110 @@ export const SCOPE_MISMATCH_KINDS: ReadonlySet<string> = new Set([
   'write-spec-scope',
 ])
 
+/**
+ * N-version 變體隔離類的 mismatch kind（見 checkVariantIsolation）。report 可能完全誠實、
+ * 變更也在範圍內——問題是兩個變體的交付物混在一起，比對失去意義，處置是修隔離。
+ */
+export const ISOLATION_MISMATCH_KINDS: ReadonlySet<string> = new Set([
+  'variant-branch-prefix',
+  'variant-foreign-reuse',
+])
+
 export function categorizeMismatch(kind: string): MismatchCategory {
-  return SCOPE_MISMATCH_KINDS.has(kind) ? 'scope' : 'consistency'
+  if (SCOPE_MISMATCH_KINDS.has(kind)) return 'scope'
+  if (ISOLATION_MISMATCH_KINDS.has(kind)) return 'isolation'
+  return 'consistency'
 }
+
+/** 各類別在標題中的措辭與順序。 */
+const HEADLINE_PARTS: readonly [MismatchCategory, string][] = [
+  ['scope', '變更超出任務類型允許的範圍'],
+  ['isolation', 'N-version 變體隔離失敗'],
+  ['consistency', 'report 與實際變更不一致'],
+]
 
 /** 留言與 ::error:: 的標題；沒有 mismatch 時為空字串。 */
 export function crosscheckHeadline(mismatches: readonly CrosscheckMismatch[]): string {
-  const scope = mismatches.some((m) => categorizeMismatch(m.kind) === 'scope')
-  const consistency = mismatches.some((m) => categorizeMismatch(m.kind) === 'consistency')
-  if (scope && consistency) return '變更超出任務類型允許的範圍，且 report 與實際變更不一致'
-  if (scope) return '變更超出任務類型允許的範圍'
-  if (consistency) return 'report 與實際變更不一致'
-  return ''
+  const present = new Set(mismatches.map((m) => categorizeMismatch(m.kind)))
+  return HEADLINE_PARTS.filter(([category]) => present.has(category))
+    .map(([, text]) => text)
+    .join('，且 ')
+}
+
+/** N-version 雙模型競賽的變體代號（factory-run.yml 的 matrix.variant）。 */
+export type VariantId = 'a' | 'b'
+
+/** 變體 `v` 在 Issue `n` 上的分支前綴。 */
+export function variantPrefix(issueNumber: number, variant: VariantId): string {
+  return `factory/${issueNumber}-${variant}-`
+}
+
+/** 本 Issue 的 factory 分支（`factory/<n>-*` 或 `factory/<n>/*`，docs/07 §3.2 兩種命名）。 */
+function isIssueBranch(branch: string, issueNumber: number): boolean {
+  return branch.startsWith(`factory/${issueNumber}-`) || branch.startsWith(`factory/${issueNumber}/`)
+}
+
+/** 把 workflow 寫入的遠端分支清單（一行一個分支名）切成陣列。 */
+export function parseRemoteBranches(text: string): string[] {
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+}
+
+/**
+ * N-version 變體隔離（fubon-tradingbot#713，run 38066416086）。
+ *
+ * 兩個變體平行處理同一張 Issue，唯一的區隔是分支前綴 `factory/<n>-<variant>-`。
+ * 實證兩種破口，各對應一條規則：
+ *
+ * 1. `variant-branch-prefix`：本地分支沒有本變體前綴。變體 B 開了
+ *    `factory/713-01-analysis`——另一變體無從分辨那是誰的交付。
+ * 2. `variant-foreign-reuse`：本變體沒有任何交付（無本變體分支、changedPaths 為空），
+ *    遠端卻已有本 Issue 的其他分支。變體 A 寫完報告後看到 B 的 PR，依「既有交付
+ *    不重複開 PR」刪掉自己的成果，judge 仍判 ready-for-review。
+ *
+ * 規則 2 刻意不攔：遠端有**本變體**前綴的分支（本變體自己的重跑，沿用合法），以及
+ * 遠端完全沒有其他分支（多半是停手規則，交由 judge 判定，不歸咎於隔離）。
+ *
+ * 遠端分支清單由 workflow 以 `git ls-remote` 取得、寫檔傳入——crosscheck 維持只讀
+ * 本地資料。目標 repo 的 checkout 沒有其他分支的 remote-tracking ref，本地 git 看不到。
+ */
+export function checkVariantIsolation(input: {
+  issueNumber: number
+  variant: VariantId
+  localBranches: readonly string[]
+  remoteBranches: readonly string[]
+  reportedPaths: readonly string[]
+}): CrosscheckMismatch[] {
+  const { issueNumber, variant, localBranches, reportedPaths } = input
+  const prefix = variantPrefix(issueNumber, variant)
+  const mismatches: CrosscheckMismatch[] = []
+
+  const unprefixed = localBranches.filter((b) => !b.startsWith(prefix))
+  if (unprefixed.length > 0) {
+    mismatches.push({
+      kind: 'variant-branch-prefix',
+      detail:
+        `N-version 變體 ${variant} 的分支必須以 \`${prefix}\` 開頭，實際有 ${unprefixed.join(', ')}` +
+        '——兩個變體共用同一張 Issue，沒有變體前綴的分支會被另一變體誤認為既有交付',
+    })
+  }
+
+  const remote = input.remoteBranches.filter((b) => isIssueBranch(b, issueNumber))
+  const ownRemote = remote.filter((b) => b.startsWith(prefix))
+  const foreignRemote = remote.filter((b) => !b.startsWith(prefix))
+  const ownLocal = localBranches.filter((b) => b.startsWith(prefix))
+  if (reportedPaths.length === 0 && ownLocal.length === 0 && ownRemote.length === 0 && foreignRemote.length > 0) {
+    mismatches.push({
+      kind: 'variant-foreign-reuse',
+      detail:
+        `N-version 變體 ${variant} 沒有自己的交付（沒有 \`${prefix}*\` 分支、changedPaths 為空），` +
+        `但遠端已有其他分支 ${foreignRemote.join(', ')}——疑似把另一變體的 PR 當成既有交付而放棄產出，` +
+        '兩個變體因此無法比對',
+    })
+  }
+  return mismatches
 }
 
 export interface CrosscheckOutput {
@@ -540,12 +632,18 @@ export interface WriteSpecArgs {
   prBodiesPath: string
 }
 
+/** N-version 模式的輸入：變體代號與 workflow 寫入的遠端分支清單（一行一個）。 */
+export interface VariantArgs {
+  id: VariantId
+  remoteBranchesPath: string
+}
+
 /**
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
  *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only]
  *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
- *   [--source-snapshot <file>]]`。
+ *   [--source-snapshot <file>]] [--variant <a|b> --remote-branches <file>]`。
  */
 export function parseArgs(argv: string[]): {
   issueNumber: number
@@ -557,8 +655,11 @@ export function parseArgs(argv: string[]): {
   pbtAuditOnly: boolean
   requirementAnchors: string[]
   writeSpec?: WriteSpecArgs | undefined
+  variant?: VariantArgs | undefined
 } {
   const positional: string[] = []
+  let variantId: string | undefined
+  let remoteBranchesPath: string | undefined
   let base = 'software-factory'
   let target = 'target'
   let analyzeOnly = false
@@ -607,6 +708,10 @@ export function parseArgs(argv: string[]): {
       sourceSnapshotPath = value(++i, arg)
     } else if (arg === '--pr-bodies') {
       prBodiesPath = value(++i, arg)
+    } else if (arg === '--variant') {
+      variantId = value(++i, arg)
+    } else if (arg === '--remote-branches') {
+      remoteBranchesPath = value(++i, arg)
     } else if (!arg.startsWith('--')) {
       positional.push(arg)
     } else {
@@ -651,6 +756,15 @@ export function parseArgs(argv: string[]): {
     }
     writeSpec = { phase: specPhase, specName, sourceSnapshotPath, prBodiesPath }
   }
+  // N-version：兩個旗標必須成對——只給 --variant 會讓「沿用另一變體」的檢查悄悄失效。
+  let variant: VariantArgs | undefined
+  if (variantId !== undefined) {
+    if (variantId !== 'a' && variantId !== 'b') throw new CliError(`--variant must be a or b, got ${variantId}`)
+    if (remoteBranchesPath === undefined) throw new CliError('--variant requires --remote-branches')
+    variant = { id: variantId, remoteBranchesPath }
+  } else if (remoteBranchesPath !== undefined) {
+    throw new CliError('--remote-branches requires --variant')
+  }
   return {
     issueNumber,
     reportPath,
@@ -661,6 +775,7 @@ export function parseArgs(argv: string[]): {
     pbtAuditOnly,
     requirementAnchors,
     writeSpec,
+    variant,
   }
 }
 
@@ -721,6 +836,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     pbtAuditOnly,
     requirementAnchors,
     writeSpec,
+    variant,
   } = parseArgs(argv)
   const report = loadReport(reportPath)
   const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
@@ -743,6 +859,17 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     mismatches.push(...checkPbtAuditScope([...new Set([...changed, ...deleted])], deleted))
   } else {
     mismatches.push(...checkPbtOutsideAudit(changed))
+  }
+  if (variant !== undefined) {
+    mismatches.push(
+      ...checkVariantIsolation({
+        issueNumber,
+        variant: variant.id,
+        localBranches: actual.branches,
+        remoteBranches: parseRemoteBranches(readFileSync(variant.remoteBranchesPath, 'utf8')),
+        reportedPaths: collectReportedPaths(report.changedPaths),
+      }),
+    )
   }
   // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
   const advisories = compareRequirementIds(report.requirements, requirementAnchors)
