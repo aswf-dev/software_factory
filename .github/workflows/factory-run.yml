@@ -301,7 +301,7 @@ jobs:
           else
             RESOLVED="$REQUESTED"
             if [ -n "$DECLARED" ] && [ "$DECLARED" != "$REQUESTED" ]; then
-              echo "::notice::dispatch 指定 task_type=$REQUESTED，與 Issue 宣告的 $DECLARED 不同——以 dispatch 為準（人類覆寫）。"
+              echo "::notice::dispatch 指定 task_type=${REQUESTED}，與 Issue 宣告的 $DECLARED 不同——以 dispatch 為準（人類覆寫）。"
             fi
           fi
           echo "resolved task_type: $RESOLVED"
@@ -938,6 +938,34 @@ jobs:
             "${{ inputs.issue_number }}" "$code" \
             .factory/run/stdout.txt .factory/run/stderr.txt "${REPORT_ARGS[@]}"
 
+      # N-version PR 標題由機制決定，不靠 agent（fubon-tradingbot#721：同一份指引下 opus-5-5
+      # 寫「（變體 a）」、qwen3.8-max 完全沒標變體，PR 列表看不出 #722/#723 是配對）。
+      # 只改本變體前綴（factory/<issue>-<variant>-）的 open PR；格式見 factory-nversion-pr.ts。
+      # 附註性質：失敗不擋 run。agent 逾時/失敗時也跑（PR 可能已開）。
+      - name: Normalize N-version PR titles
+        if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue_number }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          PREFIX="factory/${ISSUE}-${VARIANT}-"
+          ISSUE_TITLE=$(gh issue view "$ISSUE" --repo "$GH_REPO" --json title --jq .title)
+          # search 的 head: 是模糊比對，必須再以前綴精確過濾（#713 教訓，同 compare job）
+          gh pr list --repo "$GH_REPO" --state open --limit 20 --search "head:${PREFIX}" \
+              --json number,headRefName \
+            | jq -r --arg p "$PREFIX" '.[] | select(.headRefName | startswith($p)) | "\(.number) \(.headRefName)"' \
+            | while read -r PR BRANCH; do
+                TITLE=$(node "$GITHUB_WORKSPACE/dist/cli/factory-nversion-pr.js" title \
+                  --issue-number "$ISSUE" --variant "$VARIANT" \
+                  --issue-title "$ISSUE_TITLE" --branch "$BRANCH" | jq -r .title)
+                gh pr edit "$PR" --repo "$GH_REPO" --title "$TITLE" >/dev/null
+                echo "PR #${PR} → ${TITLE}"
+              done
+
       # Step 3.5 — 量測 token 用量與成本（docs/04 §5、docs/08 §2.3）。
       # 真實 run 才有 DSH session log；dry_run 由 stub 產固定 usage（同路徑）。
       # 量測是「附註」不是 gate：session log 找不到時 factory-usage exit 0 且
@@ -973,7 +1001,7 @@ jobs:
           done
           if [ -n "$MISMATCH" ]; then
             REQUESTED=$(paste -sd, "$GITHUB_WORKSPACE/.factory/attempted-routes.txt" 2>/dev/null || echo "（無紀錄）")
-            echo "::error::模型路由不符：要求 $REQUESTED，實際${MISMATCH}"
+            echo "::error::模型路由不符：要求 ${REQUESTED}，實際${MISMATCH}"
             printf '\n> ⚠️ **模型路由不符**：要求 `%s`，實際 `%s`——DSH 未採用工廠的模型設定，請檢查路由。\n' \
               "$REQUESTED" "${MISMATCH# }" >> "$GITHUB_WORKSPACE/target/.factory/run/usage.md"
           else
@@ -985,11 +1013,11 @@ jobs:
           OBSERVED=$(jq -r '.usage.totals.totalTokens // empty' \
             "$GITHUB_WORKSPACE/target/.factory/run/usage.json" 2>/dev/null || true)
           if [ -z "$OBSERVED" ]; then
-            echo "::notice::token budget=$BUDGET（本次量測不可用；逾時 run 常無 session log）"
+            echo "::notice::token budget=${BUDGET}（本次量測不可用；逾時 run 常無 session log）"
           elif [ "$BUDGET" -gt 0 ] && [ "$OBSERVED" -gt "$BUDGET" ]; then
-            echo "::warning::token 用量 $OBSERVED 已超過單一工作項上限 $BUDGET（SR7 停手規則將觸發；請於 judge 留言確認）"
+            echo "::warning::token 用量 $OBSERVED 已超過單一工作項上限 ${BUDGET}（SR7 停手規則將觸發；請於 judge 留言確認）"
           else
-            echo "::notice::token budget=$BUDGET，本次實測 $OBSERVED"
+            echo "::notice::token budget=${BUDGET}，本次實測 $OBSERVED"
           fi
 
       # Step 4 — 交叉驗證（G3，docs/18 §2.3）：把 agent 自報的 report.json 與目標
@@ -1323,7 +1351,7 @@ jobs:
           if [ "$JOB_STATUS" = "success" ]; then
             echo "工廠執行完成。第 1 期：所有變更等待人類審查後合併。"
           else
-            echo "⚠️ 工廠執行未正常完成（job_status=$JOB_STATUS）——終態以 Issue 上的 needs-human 標籤為準，詳情見 run log。"
+            echo "⚠️ 工廠執行未正常完成（job_status=${JOB_STATUS}）——終態以 Issue 上的 needs-human 標籤為準，詳情見 run log。"
           fi
 
       # Step 6.5 — 推送事件至 Scoreboard（ADR-015、docs/26 §2.2）。
@@ -1486,4 +1514,34 @@ jobs:
 
           cat compare.md
           gh issue comment "${{ inputs.issue_number }}" --repo "$GH_REPO" --body-file compare.md
+
+      # 兩個變體都結束後，在每個 open PR 內文頂端插入（重跑時原地取代）指向另一變體 PR
+      # 的區塊（fubon-tradingbot#721：單開 #722 看不到 #723 的存在，審查者可能只看一份就合併）。
+      # 沿用上一步的 pr-a.json／pr-b.json，以前綴精確過濾。附註性質：失敗不擋 job。
+      - name: Link N-version sibling PRs
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          open_prs() {
+            jq -r --arg p "factory/${ISSUE}-$1-" \
+              '[.[] | select(.state == "OPEN" and (.headRefName | startswith($p))) | .number] | join(",")' \
+              "pr-$1.json"
+          }
+          for V in a b; do
+            if [ "$V" = "a" ]; then O=b; else O=a; fi
+            SIBS=$(open_prs "$O")
+            for PR in $(open_prs "$V" | tr ',' ' '); do
+              gh pr view "$PR" --repo "$GH_REPO" --json body --jq .body > "body-$PR.md"
+              node dist/cli/factory-nversion-pr.js body \
+                --issue-number "$ISSUE" --variant "$V" \
+                --sibling-prs "$SIBS" --body-file "body-$PR.md" | jq -r .body > "new-$PR.md"
+              gh pr edit "$PR" --repo "$GH_REPO" --body-file "new-$PR.md" >/dev/null
+              echo "PR #${PR}（變體 ${V}）← 另一變體：${SIBS:-（無）}"
+            done
+          done
 
