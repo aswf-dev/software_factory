@@ -101,7 +101,10 @@ jq -e '
 
 > **重跑／既有交付（2026-09-01 T3 試點 #595 教訓）**：若執行中發現**本工作項的交付物已存在**
 > （如前次 run 已開 PR 且內容完整），**不得重複建立 PR**；此時 `changedPaths` 填 `[]`、
-> `changedLines` 填 `0`（本次 run 無新變更），並在 Issue 留言與 report 中標明**既有 PR 編號**
+> `changedLines` 填 `0`（本次 run 無新變更），report.json 填 **`reusedExistingPr: <PR 編號>`**
+> ——這是 crosscheck 接受沿用的**唯一機械信號**（fubon-tradingbot#717 run 38106446065：正確沿用
+> 卻漏填此欄，`changedPaths=[]` ＋分支上的既有 diff 被判 `unreported-changes` 假紅），並驗證
+> 該 PR 分支前綴是本變體的 `factory/<issue編號>-<variant>-`。再於 Issue 留言標明**既有 PR 編號**
 > 與你對其內容的**驗證結論**（讀過、確認涵蓋驗收條件）。crosscheck 的 `no-trace` 只攔
 > 「宣稱變更卻零交付」的假完成；誠實標示重複使用不會誤觸。不確定既有 PR 是否完整時，
 > 依 factory-stop-rules 停手交還人類，**不要猜測**。

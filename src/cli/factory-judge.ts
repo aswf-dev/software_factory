@@ -87,6 +87,12 @@ export const ReportSchema = z.object({
   invocation: InvocationSchema,
   changedPaths: z.array(z.string()).optional(),
   changedLines: z.number().optional(),
+  /**
+   * 重跑／沿用既有交付（SKILL.md 重跑指引；fubon-tradingbot#717 run 38106446065 教訓）：
+   * agent 依重跑規則沿用本變體前綴的既有 PR 時填該 PR 編號——這是 crosscheck 接受
+   * 「changedPaths=[] 但分支上有既有 diff」的唯一機械信號，漏填會被判 unreported-changes 假紅。
+   */
+  reusedExistingPr: z.number().int().positive().optional(),
   assertionDelta: z.number().optional(),
   addedDependencies: z.array(z.string()).optional(),
   syncFailures: z.number().optional(),
