@@ -724,16 +724,26 @@ describe('N-version 變體隔離接線', () => {
 })
 
 /**
- * N-version 強制只用 low/medium 模型（2026-10-11 用戶裁決）。#717 run 38096708924：auto 判
+ * N-version 雙模型組合（2026-10-11 用戶裁決；同日第二次裁決改 critical）。#717 run 38096708924：auto 判
  * critical，dual 是 opus-5-5 對 sonnet-5-5，sonnet-5-5 不存在 → 兩變體都跑 opus-5-5 xhigh。
  */
-describe('N-version 強制只用 low/medium 模型', () => {
+describe('N-version 雙模型組合（low/medium/high 強制 cheap pair；critical＝opus-5-5 對 qwen3.8-max）', () => {
   const { load } = require('js-yaml') as typeof import('js-yaml')
-  type Entry = { provider: string; model: string }
+  type Entry = { provider: string; model: string; reasoningEffort?: string }
   const tiers = (load(read('config/dsh/model-tiers.yaml')) as { tiers: Record<string, { dual?: Entry[] }> }).tiers
   const LOW_MEDIUM = ['qwen/qwen3.8-flash', 'deepseek/deepseek-flash']
 
-  it.each(['low', 'medium', 'high', 'critical'])(
+  it('critical 的 dual 是 claude-opus-5-5（xhigh）對 qwen3.8-max，順序釘住（a=opus、b=qwen-max）', () => {
+    const dual = tiers.critical?.dual
+    expect(dual, 'critical 未宣告 dual').toBeDefined()
+    expect(dual!.map((e) => `${e.provider}/${e.model}`)).toEqual([
+      'anthropic/claude-opus-5-5',
+      'qwen/qwen3.8-max',
+    ])
+    expect(dual![0]?.reasoningEffort).toBe('xhigh')
+  })
+
+  it.each(['low', 'medium', 'high'])(
     '%s tier 顯式宣告 dual，且恰為 low/medium 的兩個不同模型（未宣告時預設會退回昂貴的 primary）',
     (tier) => {
       const dual = tiers[tier]?.dual
@@ -757,8 +767,8 @@ describe('N-version 強制只用 low/medium 模型', () => {
         { provider: 'qwen', model: 'qwen3.8-flash' },
       ],
       dual: [
-        { provider: 'qwen', model: 'qwen3.8-flash' },
-        { provider: 'deepseek', model: 'deepseek-flash' },
+        { provider: 'anthropic', model: 'claude-opus-5-5', reasoningEffort: 'xhigh' },
+        { provider: 'qwen', model: 'qwen3.8-max' },
       ],
     })
     const run = (own: number, other: number) => {
@@ -771,12 +781,13 @@ describe('N-version 強制只用 low/medium 模型', () => {
     }
     const ids = (es: Entry[]) => es.map((e) => `${e.provider}/${e.model}`)
     const a = run(0, 1)
-    expect(ids(a.chain)).toEqual(['qwen/qwen3.8-flash', 'deepseek/deepseek-flash'])
-    expect(a.selected.model).toBe('qwen3.8-flash')
+    expect(ids(a.chain)).toEqual(['anthropic/claude-opus-5-5', 'qwen/qwen3.8-max'])
+    expect(a.selected.model).toBe('claude-opus-5-5')
+    expect((a.selected as { reasoningEffort?: string }).reasoningEffort).toBe('xhigh') // effort 隨 dual 條目保留
     expect(a.tier).toBe('critical') // tier 保留：仍決定逾時預算與監督分級
     const b = run(1, 0)
-    expect(ids(b.chain)).toEqual(['deepseek/deepseek-flash', 'qwen/qwen3.8-flash'])
-    expect(b.selected.model).toBe('deepseek-flash')
+    expect(ids(b.chain)).toEqual(['qwen/qwen3.8-max', 'anthropic/claude-opus-5-5'])
+    expect(b.selected.model).toBe('qwen3.8-max')
   })
 
   it('workflow 依變體決定 own／other 索引', () => {

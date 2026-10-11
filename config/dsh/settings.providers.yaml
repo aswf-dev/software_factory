@@ -52,6 +52,12 @@ llm-pi-ai:
         - id: qwen3.8-flash
           name: Qwen3.8 Flash
           contextWindow: 1048576
+        # critical tier 的 N-version dual 之一（2026-10-11 用戶裁決）。pi-ai 0.87.1
+        # 收錄於 qwen-token-plan provider；此處宣告讓 dashscope-intl route 認得此 id，
+        # 是否真能推論由 verify-models.sh L2 實測把關。
+        - id: qwen3.8-max
+          name: Qwen3.8 Max
+          contextWindow: 1000000
         - id: qwen3.7-flash
           name: Qwen3.7 Flash
           contextWindow: 131072

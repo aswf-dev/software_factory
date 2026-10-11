@@ -103,10 +103,18 @@ tiers:
         model: deepseek-flash
       - provider: qwen
         model: qwen3.8-flash
-    # dual：同 high（強制 low/medium 模型）。原為 opus-5-5 xhigh 對 sonnet-5-5——sonnet-5-5
-    # 不存在，兩變體都落到 opus-5-5（#717 run 38096708924），且共用一把 Anthropic key（429 風險）。
+    # dual（N-version）：2026-10-11 第二次用戶裁決——critical 用 claude-opus-5-5 對
+    # qwen3.8-max（low/medium/high 維持強制 qwen3.8-flash/deepseek-flash 便宜組合）。
+    # 兩者跨 provider，無「共用一把 Anthropic key」的 429 風險（原 opus 對 sonnet-5-5
+    # 的另一個問題：sonnet-5-5 不存在 → 兩變體都落到 opus-5-5，#717 run 38096708924）。
+    # qwen3.8-max 在 pi-ai 0.87.1 目錄有收錄（qwen-token-plan provider，contextWindow 1M）；
+    # 工廠端於 settings.providers.yaml 的 qwen route 顯式宣告。dashscope-intl 端點是否
+    # 真的服務此 id 以 scripts/verify-models.sh 實測為準（sonnet-5-5 UNKNOWN_MODEL 教訓）。
+    # 注意：qwen3.8-max 的 thinkingLevelMap 不支援 high（只有 low/medium/xhigh），
+    # 故不設 reasoningEffort，走 provider 預設。
     dual:
+      - provider: anthropic
+        model: claude-opus-5-5
+        reasoningEffort: xhigh
       - provider: qwen
-        model: qwen3.8-flash
-      - provider: deepseek
-        model: deepseek-flash
+        model: qwen3.8-max
