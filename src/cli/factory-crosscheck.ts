@@ -193,6 +193,67 @@ export function checkVariantIsolation(input: {
   return mismatches
 }
 
+/**
+ * 沿用成立時要降級為 advisory 的「report vs diff」不一致 kinds：這些 diff 是先前 run
+ * 的既有交付，不是本次未回報的變更。其餘 kinds（uncommitted-changes、scope、isolation、
+ * requirements…）不降級——沿用不能掩蓋本次 run 自己的新問題。
+ */
+export const REUSE_DOWNGRADED_KINDS: ReadonlySet<string> = new Set([
+  'unreported-changes',
+  'diff-not-reported',
+  'lines-missing',
+])
+
+export interface ReuseClaimInput {
+  issueNumber: number
+  reportedPaths: readonly string[]
+  localBranches: readonly string[]
+  /** N-version 模式的遠端分支清單；undefined＝非 N-version（無清單，只驗本地）。 */
+  remoteBranches: readonly string[] | undefined
+  variant: VariantId | undefined
+}
+
+/**
+ * 機械驗證「沿用既有交付」（fubon-tradingbot#717 run 38106446065 教訓：qwen3.8-flash
+ * 正確沿用 PR #719、依重跑指引填 changedPaths=[]，但一致性檢查把分支上 710 行的既有
+ * 交付比對空報告 → unreported-changes 假紅 needs-human；SKILL.md 當時已承諾
+ * 「誠實標示重複使用不會誤觸」，工具端卻沒實作）。
+ *
+ * 成立條件（全部機械可驗，不信自由文字）：
+ *   1. changedPaths 為空（沿用又同時回報新變更＝自相矛盾，寧可紅燈交人類）；
+ *   2. 本地存在本變體前綴（非 N-version 時為本 Issue 前綴）的分支；
+ *   3. N-version 模式下該分支也在遠端清單——交付確由先前 run 推送，不是本次現做的。
+ *
+ * 已知剩餘缺口（刻意接受）：無法分辨「沿用既有 PR」與「本次 run 把新工作推進同一
+ * 前綴分支後宣稱沿用」——那需要 PR createdAt/files 元資料（gh 呼叫）。條件 3 已擋掉
+ * 「本次新建分支」的情形；同分支追加 commit 的偽沿用留待 observe（advisory 會把
+ * 放行的檔案數／行數完整寫出，人類複核 needs-human 留言時看得見）。
+ */
+export function validateReuseClaim(
+  input: ReuseClaimInput,
+): { valid: true; branch: string } | { valid: false; reason: string } {
+  if (input.reportedPaths.length > 0) {
+    return {
+      valid: false,
+      reason: `changedPaths 非空（${input.reportedPaths.length} 個檔案）——與沿用既有交付相互矛盾`,
+    }
+  }
+  const prefix =
+    input.variant === undefined
+      ? `factory/${input.issueNumber}-`
+      : variantPrefix(input.issueNumber, input.variant)
+  const branch = input.localBranches.find((b) =>
+    input.variant === undefined ? isIssueBranch(b, input.issueNumber) : b.startsWith(prefix),
+  )
+  if (branch === undefined) {
+    return { valid: false, reason: `本地找不到前綴 ${prefix} 的分支——「既有交付」不存在於本 checkout` }
+  }
+  if (input.remoteBranches !== undefined && !input.remoteBranches.includes(branch)) {
+    return { valid: false, reason: `分支 ${branch} 不在遠端清單——交付未曾推送，非先前 run 的既有交付` }
+  }
+  return { valid: true, branch }
+}
+
 export interface CrosscheckOutput {
   issueNumber: number
   ok: boolean
@@ -860,19 +921,49 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   } else {
     mismatches.push(...checkPbtOutsideAudit(changed))
   }
+  let remoteBranches: string[] | undefined
   if (variant !== undefined) {
+    remoteBranches = parseRemoteBranches(readFileSync(variant.remoteBranchesPath, 'utf8'))
     mismatches.push(
       ...checkVariantIsolation({
         issueNumber,
         variant: variant.id,
         localBranches: actual.branches,
-        remoteBranches: parseRemoteBranches(readFileSync(variant.remoteBranchesPath, 'utf8')),
+        remoteBranches,
         reportedPaths: collectReportedPaths(report.changedPaths),
       }),
     )
   }
   // advisory 不參與 ok 判定（第一階段觀察期，見 CrosscheckOutput.advisories）
   const advisories = compareRequirementIds(report.requirements, requirementAnchors)
+  // 重跑／沿用既有交付：report 帶 reusedExistingPr 時機械驗證（見 validateReuseClaim）。
+  // 成立 → 把「既有 diff vs 空報告」的不一致降級為 advisory；不成立 → fail-loud。
+  if (report.reusedExistingPr !== undefined) {
+    const claim = validateReuseClaim({
+      issueNumber,
+      reportedPaths: collectReportedPaths(report.changedPaths),
+      localBranches: actual.branches,
+      remoteBranches,
+      variant: variant?.id,
+    })
+    if (claim.valid) {
+      const kept = mismatches.filter((m) => !REUSE_DOWNGRADED_KINDS.has(m.kind))
+      mismatches.length = 0
+      mismatches.push(...kept)
+      const files = actual.paths.filter((p) => !isFactoryInternal(p))
+      advisories.push({
+        kind: 'reuse-of-existing-pr',
+        detail:
+          `沿用既有交付 PR #${report.reusedExistingPr}（分支 ${claim.branch}；其 diff ${files.length} 個檔案、` +
+          `${actual.added + actual.deleted} 行屬先前 run 的交付，非本次未回報變更）；本次 changedPaths=[] 與沿用相符`,
+      })
+    } else {
+      mismatches.push({
+        kind: 'reuse-claim-unverified',
+        detail: `report 宣稱沿用既有 PR #${report.reusedExistingPr}，但機械驗證不成立：${claim.reason}`,
+      })
+    }
+  }
   if (writeSpec !== undefined) {
     const { phase, specName } = writeSpec
     mismatches.push(

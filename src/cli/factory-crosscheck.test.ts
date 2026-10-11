@@ -29,6 +29,8 @@ import {
   collectDeletedPaths,
   checkVariantIsolation,
   parseRemoteBranches,
+  REUSE_DOWNGRADED_KINDS,
+  validateReuseClaim,
   variantPrefix,
   type CrosscheckActual,
   type GitRunner,
@@ -1371,5 +1373,119 @@ describe('main：N-version 變體隔離', () => {
       }),
     )
     expect(out.ok).toBe(true)
+  })
+})
+
+describe('沿用既有交付的合法路徑（reusedExistingPr；fubon-tradingbot#717 run 38106446065 假紅教訓）', () => {
+  const base = { issueNumber: 12, reportedPaths: [] as string[], localBranches: ['factory/12-a-01-docs'], remoteBranches: ['factory/12-a-01-docs'] as string[] | undefined, variant: 'a' as const }
+
+  it('降級集合恰為三種路徑/行數不一致（其餘 kinds 不得被沿用掩蓋）', () => {
+    expect([...REUSE_DOWNGRADED_KINDS].sort()).toEqual(['diff-not-reported', 'lines-missing', 'unreported-changes'])
+  })
+
+  it('N-version：本變體分支本地＋遠端都在 → valid', () => {
+    expect(validateReuseClaim(base)).toEqual({ valid: true, branch: 'factory/12-a-01-docs' })
+  })
+  it('changedPaths 非空 → 與沿用矛盾', () => {
+    const r = validateReuseClaim({ ...base, reportedPaths: ['docs/r.md'] })
+    expect(r.valid).toBe(false)
+    expect(!r.valid && r.reason).toContain('相互矛盾')
+  })
+  it('本地無本變體前綴分支 → 既有交付不存在', () => {
+    const r = validateReuseClaim({ ...base, localBranches: ['factory/12-b-01-docs'] })
+    expect(r.valid).toBe(false)
+    expect(!r.valid && r.reason).toContain('factory/12-a-')
+  })
+  it('分支不在遠端清單 → 本次新做的不能冒充既有交付', () => {
+    const r = validateReuseClaim({ ...base, remoteBranches: [] })
+    expect(r.valid).toBe(false)
+    expect(!r.valid && r.reason).toContain('不在遠端清單')
+  })
+  it('非 N-version：無遠端清單時只驗本地，dash 與 slash 格式都認得', () => {
+    expect(validateReuseClaim({ issueNumber: 12, reportedPaths: [], localBranches: ['factory/12-01-docs'], remoteBranches: undefined, variant: undefined })).toEqual({ valid: true, branch: 'factory/12-01-docs' })
+    expect(validateReuseClaim({ issueNumber: 12, reportedPaths: [], localBranches: ['factory/12/01-docs'], remoteBranches: undefined, variant: undefined })).toEqual({ valid: true, branch: 'factory/12/01-docs' })
+    const r = validateReuseClaim({ issueNumber: 12, reportedPaths: [], localBranches: ['feature/x'], remoteBranches: undefined, variant: undefined })
+    expect(r.valid).toBe(false)
+  })
+
+  describe('main 整合', () => {
+    let dir: string
+    let reportPath: string
+    let rbPath: string
+    beforeAll(() => {
+      dir = mkdtempSync(join(tmpdir(), 'crosscheck-reuse-'))
+      reportPath = join(dir, 'report.json')
+      rbPath = join(dir, 'remote-branches.txt')
+    })
+    afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+    const reuseGit = (extra: { status?: string } = {}) =>
+      fakeGit({
+        branches: 'factory/12-a-01-docs\n',
+        diffNameOnly: () => 'docs/r.md\n',
+        shortStat: () => ' 1 file changed, 710 insertions(+)',
+        ...extra,
+      })
+
+    it('#717 場景重現：合法沿用 → ok=true，三種假紅降級為 advisory', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: [], changedLines: 0, reusedExistingPr: 719 }))
+      writeFileSync(rbPath, 'factory/12-a-01-docs\n')
+      const out = main(['12', reportPath, '--target', 'target', '--variant', 'a', '--remote-branches', rbPath], reuseGit())
+      expect(out.ok).toBe(true)
+      expect(out.mismatches).toEqual([])
+      const adv = out.advisories.find((a) => a.kind === 'reuse-of-existing-pr')
+      expect(adv?.detail).toContain('#719')
+      expect(adv?.detail).toContain('factory/12-a-01-docs')
+      expect(adv?.detail).toContain('710')
+    })
+
+    it('宣稱沿用但 changedPaths 非空 → reuse-claim-unverified（consistency、fail-loud）', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: ['docs/r.md'], changedLines: 710, reusedExistingPr: 719 }))
+      writeFileSync(rbPath, 'factory/12-a-01-docs\n')
+      const out = main(['12', reportPath, '--target', 'target', '--variant', 'a', '--remote-branches', rbPath], reuseGit())
+      expect(out.ok).toBe(false)
+      expect(out.mismatches.map((m) => m.kind)).toEqual(['reuse-claim-unverified'])
+      expect(out.mismatches[0]?.category).toBe('consistency')
+      expect(out.headline).toContain('report 與實際變更不一致')
+    })
+
+    it('宣稱沿用但分支未推送 → reuse-claim-unverified', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: [], changedLines: 0, reusedExistingPr: 719 }))
+      writeFileSync(rbPath, '')
+      const out = main(['12', reportPath, '--target', 'target', '--variant', 'a', '--remote-branches', rbPath], reuseGit())
+      expect(out.ok).toBe(false)
+      // 驗證不成立 → 不降級：三種被沿用掩蓋的不一致與 unverified 全部留在紅燈裡
+      expect(out.mismatches.map((m) => m.kind).sort()).toEqual([
+        'diff-not-reported',
+        'lines-missing',
+        'reuse-claim-unverified',
+        'unreported-changes',
+      ])
+    })
+
+    it('合法沿用不掩蓋本次新問題：uncommitted-changes 依舊紅', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: [], changedLines: 0, reusedExistingPr: 719 }))
+      writeFileSync(rbPath, 'factory/12-a-01-docs\n')
+      const out = main(['12', reportPath, '--target', 'target', '--variant', 'a', '--remote-branches', rbPath], reuseGit({ status: ' M docs/dirty.md\n' }))
+      expect(out.ok).toBe(false)
+      expect(out.mismatches.map((m) => m.kind)).toContain('uncommitted-changes')
+      expect(out.advisories.some((a) => a.kind === 'reuse-of-existing-pr')).toBe(true)
+    })
+
+    it('非 N-version 沿用：無 --variant 也走同一條機械驗證', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: [], changedLines: 0, reusedExistingPr: 595 }))
+      const out = main(['12', reportPath, '--target', 'target'], fakeGit({
+        branches: 'factory/12-01-docs\n',
+        diffNameOnly: () => 'docs/r.md\n',
+        shortStat: () => ' 1 file changed, 20 insertions(+)',
+      }))
+      expect(out.ok).toBe(true)
+      expect(out.advisories.some((a) => a.kind === 'reuse-of-existing-pr')).toBe(true)
+    })
+
+    it('reusedExistingPr 非正整數 → schema 拒收（CliError）', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: [], reusedExistingPr: 0 }))
+      expect(() => main(['12', reportPath, '--target', 'target'], fakeGit({}))).toThrow(CliError)
+    })
   })
 })

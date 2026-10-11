@@ -721,6 +721,17 @@ describe('N-version 變體隔離接線', () => {
     expect(skill).toContain('只有分支以 `factory/<issue編號>-<variant>-` 開頭的 PR 才是')
     expect(skill).toContain('必須為 `factory/<issue編號>-<variant>-<nn>-<layer>`')
   })
+
+  it('重跑沿用有 reusedExistingPr 機械信號（fubon-tradingbot#717 假紅的回歸釘）', () => {
+    const skill = read('.dsh/skills/factory-workflow/SKILL.md')
+    expect(skill).toContain('`reusedExistingPr: <PR 編號>`')
+    expect(skill).toContain('唯一機械信號')
+    // 兩個含重跑指引的模板都要教 agent 填這個欄位，否则 crosscheck 會把合法沿用判成
+    // unreported-changes（#717 run 38106446065：qwen3.8-flash 行為全對仍被假紅）
+    for (const name of ['analyze', 'propose-skill']) {
+      expect(read(`.github/factory/task-template-${name}.txt`)).toContain('reusedExistingPr')
+    }
+  })
 })
 
 /**
