@@ -58,12 +58,15 @@ fi
 command -v jq >/dev/null || { echo "錯誤：需要 jq" >&2; exit 1; }
 [ -f dist/cli/factory-model.js ] || { echo "建置 dist（factory-model CLI）…"; npm run build >/dev/null; }
 
-# tier chain 的聯集 = 實際可能被路由到的所有模型（去重、保持順序）
+# tier chain ∪ tier dual = 實際可能被路由到的所有模型（去重、保持順序）。
+# dual 必須納入：N-version 變體只跑 dual 兩個模型（factory-run.yml 的 chain 重排），
+# 但 factory-model 的 .chain 是 primary+fallback——只看 chain 會漏掉 dual 專有模型
+# （實例：qwen3.8-max 只在 critical dual，2026-10-11 首跑 verify-models 沒驗到它）。
 MODELS="$(
   for T in low medium high critical; do
     node dist/cli/factory-model.js --tier "$T" \
       --tiers "$WORK/tiers.yaml" --providers "$WORK/providers.yaml" 2>/dev/null \
-      | jq -r '.chain[] | "\(.provider) \(.model) \(.reasoningEffort // "-")"'
+      | jq -r '(.chain[]?, .dual[]?) | "\(.provider) \(.model) \(.reasoningEffort // "-")"'
   done | awk '!seen[$0]++'
 )"
 

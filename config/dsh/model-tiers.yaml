@@ -1,7 +1,7 @@
 # DSH 模型分級路由政策（docs/ADR/011、docs/04 §7）。
 #
-# 依 Issue 複雜度選擇模型 tier（低/中 → qwen3.8-flash（預設）、高 → deepseek-flash、
-# 最高 critical → claude-opus-5）。每個 tier 的 primary 為首選，fallback
+# 依 Issue 複雜度選擇模型 tier（低/中/高 → qwen3.8-flash（預設；high 自 2026-10-11 起）、
+# 最高 critical → claude-opus-5-5）。每個 tier 的 primary 為首選，fallback
 # 僅在 provider 層失敗（429/credential/UNKNOWN_MODEL）時依序嘗試；任務層失敗
 # 不重試（docs/02 §6）。
 #
@@ -51,22 +51,25 @@ tiers:
       - provider: deepseek
         model: deepseek-flash
   high:
-    # 2026-09-11：原 deepseek-v4-pro。官方自 2026-09-14 12:00（北京時間）起將
-    # V4 Pro 請求全部路由至 V4.1 Flash，續留舊 id 只是讓 provider 端替換，
-    # 明寫新 id 才與實際計費模型一致。
+    # 2026-10-11 用戶裁決：primary 由 deepseek-flash 改為 qwen3.8-flash（與 low/medium 相同）。
+    # （沿革：2026-09-11 原 deepseek-v4-pro → deepseek-flash；官方自 2026-09-14 起將 V4 Pro
+    # 請求全部路由至 V4.1 Flash。）fallback 未變。
     primary:
-      provider: deepseek
-      model: deepseek-flash
+      provider: qwen
+      model: qwen3.8-flash
     fallback:
       - provider: anthropic
         model: claude-sonnet-5-5
       - provider: deepseek
         model: deepseek-flash
+    # dual（N-version 雙模型競賽）：2026-10-11 用戶裁決「強制使用 low/medium」——每個 tier
+    # 的 dual 一律是 low/medium 的兩個模型，tier 只決定逾時預算與監督分級。原 high dual
+    # 的 claude-sonnet-5-5 不在 pi-ai 0.87.1 目錄（UNKNOWN_MODEL → fallback）。對抗性測試釘住。
     dual:
       - provider: qwen
         model: qwen3.8-flash
-      - provider: anthropic
-        model: claude-sonnet-5-5
+      - provider: deepseek
+        model: deepseek-flash
   critical:
     # 最高 tier 預設：claude-opus-5（2026-08-28 用戶裁決：fable-5 需額外 credit 已移除，
     # 不再有「只有最高才用 fable」——最高 tier 直接以同代旗艦 opus-5 為 primary）。
@@ -100,9 +103,18 @@ tiers:
         model: deepseek-flash
       - provider: qwen
         model: qwen3.8-flash
+    # dual（N-version）：2026-10-11 第二次用戶裁決——critical 用 claude-opus-5-5 對
+    # qwen3.8-max（low/medium/high 維持強制 qwen3.8-flash/deepseek-flash 便宜組合）。
+    # 兩者跨 provider，無「共用一把 Anthropic key」的 429 風險（原 opus 對 sonnet-5-5
+    # 的另一個問題：sonnet-5-5 不存在 → 兩變體都落到 opus-5-5，#717 run 38096708924）。
+    # qwen3.8-max 在 pi-ai 0.87.1 目錄有收錄（qwen-token-plan provider，contextWindow 1M）；
+    # 工廠端於 settings.providers.yaml 的 qwen route 顯式宣告。dashscope-intl 端點是否
+    # 真的服務此 id 以 scripts/verify-models.sh 實測為準（sonnet-5-5 UNKNOWN_MODEL 教訓）。
+    # 注意：qwen3.8-max 的 thinkingLevelMap 不支援 high（只有 low/medium/xhigh），
+    # 故不設 reasoningEffort，走 provider 預設。
     dual:
       - provider: anthropic
         model: claude-opus-5-5
         reasoningEffort: xhigh
-      - provider: anthropic
-        model: claude-sonnet-5-5
+      - provider: qwen
+        model: qwen3.8-max

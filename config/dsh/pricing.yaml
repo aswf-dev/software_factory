@@ -28,6 +28,12 @@ pricing:
   qwen3.8-flash:
     inputUsdPerMTok: 0.15
     outputUsdPerMTok: 0.47
+  # qwen3.8-max：token-plan 為預付制，pi-ai 0.87.1 目錄 cost=0，官方未公布每 token 價。
+  # 下列為**保守估計值**（參照 qwen-max 歷史價帶 ≈ flash×10），方向為高估而非低估
+  # （與本表原則一致）；官方公布每 token 定價後應立即替換。
+  qwen3.8-max:
+    inputUsdPerMTok: 1.6
+    outputUsdPerMTok: 6.4
   deepseek-flash:
     inputUsdPerMTok: 0.3
     outputUsdPerMTok: 1.2

@@ -49,7 +49,7 @@ on:
         options: [success, blocked, guardrail]
         default: success
       model_tier:
-        description: 模型 tier（auto＝依 Issue 複雜度自動選擇；low/medium→qwen3.8-flash、high→deepseek-flash、critical→claude-opus-5，ADR-011）
+        description: 模型 tier（auto＝依 Issue 複雜度自動選擇；low/medium/high→qwen3.8-flash、critical→claude-opus-5-5，ADR-011；N-version 雙模型：low/medium/high＝qwen3.8-flash 對 deepseek-flash、critical＝claude-opus-5-5 對 qwen3.8-max）
         required: false
         type: choice
         options: [auto, low, medium, high, critical]
@@ -533,13 +533,21 @@ jobs:
             > .factory/model.json
           cat .factory/model.json
           echo "model tier selected: $(jq -r .tier .factory/model.json) ($(jq -r .complexitySource .factory/model.json))"
-          # 雙模型競賽（N-version matrix）：依據 matrix.variant 將對應變體置於 chain 首位
+          # 雙模型競賽（N-version matrix）：chain 只含兩個 dual 模型——本變體的在前、
+          # 另一變體的在後（provider 層失敗時 fallback 到對方模型；比對卡片會標示坍縮）。
+          # **不接回 tier 原本的 fallback 鏈**：那條鏈在 high／critical 是 sonnet／opus，
+          # 會讓「強制只用 low/medium 模型」失效（fubon-tradingbot#713 首輪與 #717：auto
+          # 判 critical，兩變體都落到 opus-5-5 xhigh）。dual 本身限定 low/medium 模型，
+          # 由對抗性測試釘住。tier 仍決定逾時預算與監督分級，只是不再決定模型。
+          #
+          # 舊寫法 `.chain[] | select(.model != .dual[i].model …)` 有作用域錯誤：select 內的
+          # `.` 是 chain 元素，`.dual[i]` 恆為 null、什麼都沒濾掉。改以 `$d` 綁定。
           VARIANT="${{ matrix.variant }}"
-          if [ "$VARIANT" = "b" ]; then
-            jq '.chain = [ .dual[1] ] + [ .chain[] | select(.model != .dual[1].model or .provider != .dual[1].provider) ]' .factory/model.json > .factory/model.json.tmp && mv .factory/model.json.tmp .factory/model.json
-          else
-            jq '.chain = [ .dual[0] ] + [ .chain[] | select(.model != .dual[0].model or .provider != .dual[0].provider) ]' .factory/model.json > .factory/model.json.tmp && mv .factory/model.json.tmp .factory/model.json
-          fi
+          if [ "$VARIANT" = "b" ]; then OWN=1; OTHER=0; else OWN=0; OTHER=1; fi
+          jq --argjson own "$OWN" --argjson other "$OTHER" \
+            '.dual as $d | .chain = [$d[$own], $d[$other]] | .selected = $d[$own]' \
+            .factory/model.json > .factory/model.json.tmp && mv .factory/model.json.tmp .factory/model.json
+          echo "variant $VARIANT chain: $(jq -r '[.chain[] | .provider + "/" + .model] | join(" → ")' .factory/model.json)"
           echo "variant $VARIANT prioritized chain model: $(jq -r '.chain[0].provider + "/" + .chain[0].model' .factory/model.json)"
 
       # Step 2.6 — Agent 逾時預算（A1，34735315950 事故修正）。
