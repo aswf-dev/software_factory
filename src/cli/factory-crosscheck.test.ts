@@ -1391,10 +1391,14 @@ describe('沿用既有交付的合法路徑（reusedExistingPr；fubon-tradingbo
     expect(r.valid).toBe(false)
     expect(!r.valid && r.reason).toContain('相互矛盾')
   })
-  it('本地無本變體前綴分支 → 既有交付不存在', () => {
-    const r = validateReuseClaim({ ...base, localBranches: ['factory/12-b-01-docs'] })
+  it('遠端與本地都無本變體前綴分支 → 既有交付不存在', () => {
+    const r = validateReuseClaim({ ...base, localBranches: ['factory/12-b-01-docs'], remoteBranches: ['factory/12-b-01-docs'] })
     expect(r.valid).toBe(false)
     expect(!r.valid && r.reason).toContain('factory/12-a-')
+    expect(!r.valid && r.reason).toContain('遠端與本地都找不到')
+  })
+  it('乾淨沿用（run 38109497975 教訓）：agent 未 checkout，遠端清單就是權威證據', () => {
+    expect(validateReuseClaim({ ...base, localBranches: [] })).toEqual({ valid: true, branch: 'factory/12-a-01-docs' })
   })
   it('分支不在遠端清單 → 本次新做的不能冒充既有交付', () => {
     const r = validateReuseClaim({ ...base, remoteBranches: [] })
@@ -1437,6 +1441,17 @@ describe('沿用既有交付的合法路徑（reusedExistingPr；fubon-tradingbo
       expect(adv?.detail).toContain('#719')
       expect(adv?.detail).toContain('factory/12-a-01-docs')
       expect(adv?.detail).toContain('710')
+    })
+
+    it('乾淨沿用重現（run 38109497975）：未 checkout、無本地分支、無 diff → ok=true＋advisory', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: [], changedLines: 0, reusedExistingPr: 719 }))
+      writeFileSync(rbPath, 'factory/12-a-01-docs\n')
+      const out = main(['12', reportPath, '--target', 'target', '--variant', 'a', '--remote-branches', rbPath], fakeGit({}))
+      expect(out.ok).toBe(true)
+      expect(out.mismatches).toEqual([])
+      const adv = out.advisories.find((a) => a.kind === 'reuse-of-existing-pr')
+      expect(adv?.detail).toContain('#719')
+      expect(adv?.detail).toContain('factory/12-a-01-docs')
     })
 
     it('宣稱沿用但 changedPaths 非空 → reuse-claim-unverified（consistency、fail-loud）', () => {
