@@ -280,6 +280,37 @@ describe('run artifact 收錄 crosscheck 輸出', () => {
   })
 })
 
+/**
+ * session log 診斷（fubon-tradingbot#717）：本 repo 是 public，目標 repo 可能是 private。
+ * 原始 session log 含目標 repo 的程式碼與工具輸出——只能上傳無內容的結構診斷。
+ */
+describe('session log 只以無內容診斷形式進 artifact', () => {
+  const upload = () => {
+    const s = steps().find((x) => x.name === 'Upload run artifacts')
+    return (s?.with?.path ?? '').split('\n').map((p) => p.trim())
+  }
+
+  it('上傳 .factory/session-diag.json', () => {
+    expect(upload()).toContain('.factory/session-diag.json')
+  })
+
+  it('原始 session log（.dsh/sessions）與 HOME 不得出現在上傳清單', () => {
+    for (const p of upload().filter((x) => x !== '.factory/session-diag.json')) {
+      expect(p, `上傳清單含 ${p}`).not.toMatch(/sessions|\.dsh|\$HOME|~\//)
+    }
+  })
+
+  it('診斷 step 在 upload 之前、always() 執行且不擋 run', () => {
+    const all = steps() as (Step & { if?: string; 'continue-on-error'?: boolean })[]
+    const diag = all.findIndex((s) => s.name === 'Session integrity diagnostics (content-free)')
+    const up = all.findIndex((s) => s.name === 'Upload run artifacts')
+    expect(diag).toBeGreaterThan(-1)
+    expect(diag).toBeLessThan(up)
+    expect(all[diag]?.if).toContain('always()')
+    expect(all[diag]?.['continue-on-error']).toBe(true)
+  })
+})
+
 describe('compare job 接線（fubon-tradingbot#713 比對卡片全空的回歸）', () => {
   const { load } = require('js-yaml') as typeof import('js-yaml')
   const wf = load(readFileSync(join(ROOT, WORKFLOW), 'utf8')) as { jobs: { compare: { steps: Step[] } } }
