@@ -1560,6 +1560,9 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     expect(s).toContain('api.deepseek.com/models') // L1：模型 id 在供應商端存在
     expect(s).toContain('dsh --profile headless') // L2：pi-ai 認得且能推論
     expect(s).toContain('factory-model.js') // 驗的是 tier chain 的模型，非寫死清單
+    // dual 也要納入（N-version 變體只跑 dual；qwen3.8-max 只在 critical dual，
+    // 2026-10-11 首跑 verify-models 因只讀 .chain[] 而漏驗它）
+    expect(s).toContain('.dual[]?')
     // 缺 credential 必須是 SKIP 而非 FAIL——否則紅燈會混淆「沒鑰匙」與「模型壞了」
     expect(s).toContain('SKIP')
   })
