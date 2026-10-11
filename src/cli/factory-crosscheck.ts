@@ -214,20 +214,24 @@ export interface ReuseClaimInput {
 }
 
 /**
- * 機械驗證「沿用既有交付」（fubon-tradingbot#717 run 38106446065 教訓：qwen3.8-flash
- * 正確沿用 PR #719、依重跑指引填 changedPaths=[]，但一致性檢查把分支上 710 行的既有
- * 交付比對空報告 → unreported-changes 假紅 needs-human；SKILL.md 當時已承諾
- * 「誠實標示重複使用不會誤觸」，工具端卻沒實作）。
+ * 機械驗證「沿用既有交付」（fubon-tradingbot#717 兩段教訓：
+ * run 38106446065——qwen3.8-flash 正確沿用 PR #719、依重跑指引填 changedPaths=[]，
+ * 但一致性檢查把分支上 710 行的既有交付比對空報告 → unreported-changes 假紅；
+ * run 38109497975——修正版上線後兩個變體都正確填了 reusedExistingPr，卻因
+ * 「本地找不到分支」被拒：agent 用 gh 檢視既有 PR、完全沒 checkout 舊分支，
+ * 這是最乾淨的沿用姿態，反而被舊條件②懲罰）。
  *
  * 成立條件（全部機械可驗，不信自由文字）：
  *   1. changedPaths 為空（沿用又同時回報新變更＝自相矛盾，寧可紅燈交人類）；
- *   2. 本地存在本變體前綴（非 N-version 時為本 Issue 前綴）的分支；
- *   3. N-version 模式下該分支也在遠端清單——交付確由先前 run 推送，不是本次現做的。
+ *   2. **既有交付存在**：N-version 模式下以遠端分支清單為權威證據（`git ls-remote`
+ *      在 crosscheck 當下取得；分支在遠端＝先前 run 推送過，agent 不需 checkout）；
+ *      只在本地、不在遠端的前綴分支＝本次 run 現做的，不算既有交付。
+ *      非 N-version（無遠端清單）時退回本地分支證據（#595 型情境）。
  *
  * 已知剩餘缺口（刻意接受）：無法分辨「沿用既有 PR」與「本次 run 把新工作推進同一
- * 前綴分支後宣稱沿用」——那需要 PR createdAt/files 元資料（gh 呼叫）。條件 3 已擋掉
- * 「本次新建分支」的情形；同分支追加 commit 的偽沿用留待 observe（advisory 會把
- * 放行的檔案數／行數完整寫出，人類複核 needs-human 留言時看得見）。
+ * 前綴分支後宣稱沿用」——那需要 PR createdAt/files 元資料（gh 呼叫）。遠端存在性
+ * 已擋掉「本次新建且未推送」的情形；同分支追加 commit 的偽沿用留待 observe
+ * （advisory 會把放行的檔案數／行數完整寫出，人類複核時看得見）。
  */
 export function validateReuseClaim(
   input: ReuseClaimInput,
@@ -242,16 +246,27 @@ export function validateReuseClaim(
     input.variant === undefined
       ? `factory/${input.issueNumber}-`
       : variantPrefix(input.issueNumber, input.variant)
-  const branch = input.localBranches.find((b) =>
-    input.variant === undefined ? isIssueBranch(b, input.issueNumber) : b.startsWith(prefix),
-  )
-  if (branch === undefined) {
+  const matches = (b: string): boolean =>
+    input.variant === undefined ? isIssueBranch(b, input.issueNumber) : b.startsWith(prefix)
+  if (input.remoteBranches !== undefined) {
+    // N-version：遠端清單是權威證據（agent 不必 checkout 既有分支）。
+    const remoteMatch = input.remoteBranches.find(matches)
+    if (remoteMatch !== undefined) return { valid: true, branch: remoteMatch }
+    const localMatch = input.localBranches.find(matches)
+    return {
+      valid: false,
+      reason:
+        localMatch !== undefined
+          ? `分支 ${localMatch} 只在本地、不在遠端清單——是本次 run 現做的，非先前 run 的既有交付`
+          : `遠端與本地都找不到前綴 ${prefix} 的分支——「既有交付」不存在`,
+    }
+  }
+  // 非 N-version（無遠端清單）：退回本地分支證據（#595 型情境）。
+  const localMatch = input.localBranches.find(matches)
+  if (localMatch === undefined) {
     return { valid: false, reason: `本地找不到前綴 ${prefix} 的分支——「既有交付」不存在於本 checkout` }
   }
-  if (input.remoteBranches !== undefined && !input.remoteBranches.includes(branch)) {
-    return { valid: false, reason: `分支 ${branch} 不在遠端清單——交付未曾推送，非先前 run 的既有交付` }
-  }
-  return { valid: true, branch }
+  return { valid: true, branch: localMatch }
 }
 
 export interface CrosscheckOutput {
