@@ -1422,7 +1422,7 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     })['llm-pi-ai'].providers,
   )
 
-  it('用戶模型優先序：low/medium=qwen3.8-flash（2026-08-27 起為預設）、high=deepseek-flash、critical=opus-5-5', () => {
+  it('用戶模型優先序：low/medium/high=qwen3.8-flash（high 自 2026-10-11 起）、critical=opus-5-5', () => {
     expect(tiers.low.primary.provider).toBe('qwen')
     expect(tiers.low.primary.model).toBe('qwen3.8-flash')
     expect(tiers.medium.primary.provider).toBe('qwen')
@@ -1431,7 +1431,8 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     // 2026-09-11 起該 deepseek fallback 為 v4.1-flash。
     expect(tiers.low.fallback.map((e) => e.model)).toContain('deepseek-flash')
     expect(tiers.medium.fallback.map((e) => e.model)).toContain('deepseek-flash')
-    expect(tiers.high.primary.model).toBe('deepseek-flash')
+    expect(tiers.high.primary.provider).toBe('qwen')
+    expect(tiers.high.primary.model).toBe('qwen3.8-flash')
     expect(tiers.critical).toBeDefined() // critical tier 必備（最高 tier 的出口）
     expect(tiers.critical?.primary.model).toBe('claude-opus-5-5')
     expect(tiers.critical?.primary.provider).toBe('anthropic')
