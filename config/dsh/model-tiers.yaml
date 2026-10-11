@@ -62,11 +62,14 @@ tiers:
         model: claude-sonnet-5-5
       - provider: deepseek
         model: deepseek-flash
+    # dual（N-version 雙模型競賽）：2026-10-11 用戶裁決「強制使用 low/medium」——每個 tier
+    # 的 dual 一律是 low/medium 的兩個模型，tier 只決定逾時預算與監督分級。原 high dual
+    # 的 claude-sonnet-5-5 不在 pi-ai 0.87.1 目錄（UNKNOWN_MODEL → fallback）。對抗性測試釘住。
     dual:
       - provider: qwen
         model: qwen3.8-flash
-      - provider: anthropic
-        model: claude-sonnet-5-5
+      - provider: deepseek
+        model: deepseek-flash
   critical:
     # 最高 tier 預設：claude-opus-5（2026-08-28 用戶裁決：fable-5 需額外 credit 已移除，
     # 不再有「只有最高才用 fable」——最高 tier 直接以同代旗艦 opus-5 為 primary）。
@@ -100,9 +103,10 @@ tiers:
         model: deepseek-flash
       - provider: qwen
         model: qwen3.8-flash
+    # dual：同 high（強制 low/medium 模型）。原為 opus-5-5 xhigh 對 sonnet-5-5——sonnet-5-5
+    # 不存在，兩變體都落到 opus-5-5（#717 run 38096708924），且共用一把 Anthropic key（429 風險）。
     dual:
-      - provider: anthropic
-        model: claude-opus-5-5
-        reasoningEffort: xhigh
-      - provider: anthropic
-        model: claude-sonnet-5-5
+      - provider: qwen
+        model: qwen3.8-flash
+      - provider: deepseek
+        model: deepseek-flash

@@ -7,6 +7,7 @@
  *
  * 本檔定義「契約」：Task 5–8 與 Task 16–20 依此建立檔案後轉綠。
  */
+import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -719,6 +720,69 @@ describe('N-version 變體隔離接線', () => {
     const skill = read('.dsh/skills/factory-workflow/SKILL.md')
     expect(skill).toContain('只有分支以 `factory/<issue編號>-<variant>-` 開頭的 PR 才是')
     expect(skill).toContain('必須為 `factory/<issue編號>-<variant>-<nn>-<layer>`')
+  })
+})
+
+/**
+ * N-version 強制只用 low/medium 模型（2026-10-11 用戶裁決）。#717 run 38096708924：auto 判
+ * critical，dual 是 opus-5-5 對 sonnet-5-5，sonnet-5-5 不存在 → 兩變體都跑 opus-5-5 xhigh。
+ */
+describe('N-version 強制只用 low/medium 模型', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  type Entry = { provider: string; model: string }
+  const tiers = (load(read('config/dsh/model-tiers.yaml')) as { tiers: Record<string, { dual?: Entry[] }> }).tiers
+  const LOW_MEDIUM = ['qwen/qwen3.8-flash', 'deepseek/deepseek-flash']
+
+  it.each(['low', 'medium', 'high', 'critical'])(
+    '%s tier 顯式宣告 dual，且恰為 low/medium 的兩個不同模型（未宣告時預設會退回昂貴的 primary）',
+    (tier) => {
+      const dual = tiers[tier]?.dual
+      expect(dual, `${tier} 未宣告 dual`).toBeDefined()
+      expect(dual!.map((e) => `${e.provider}/${e.model}`).sort()).toEqual([...LOW_MEDIUM].sort())
+    },
+  )
+
+  /** 實際執行 workflow 裡的 jq：critical tier 的 model.json 進去，chain 只能剩兩個 dual 模型。 */
+  it('chain 重排只含兩個 dual 模型（不接回 tier 的 sonnet／opus fallback），且修正 .dual 作用域錯誤', () => {
+    const wf = read('.github/workflows/factory-run.yml')
+    const program = wf.match(/'(\.dual as \$d \| \.chain = [^']+)'/)?.[1]
+    expect(program, 'workflow 找不到 chain 重排的 jq 程式').toBeDefined()
+    const modelJson = JSON.stringify({
+      tier: 'critical',
+      selected: { provider: 'anthropic', model: 'claude-opus-5-5', reasoningEffort: 'xhigh' },
+      chain: [
+        { provider: 'anthropic', model: 'claude-opus-5-5', reasoningEffort: 'xhigh' },
+        { provider: 'anthropic', model: 'claude-opus-5', reasoningEffort: 'xhigh' },
+        { provider: 'deepseek', model: 'deepseek-flash' },
+        { provider: 'qwen', model: 'qwen3.8-flash' },
+      ],
+      dual: [
+        { provider: 'qwen', model: 'qwen3.8-flash' },
+        { provider: 'deepseek', model: 'deepseek-flash' },
+      ],
+    })
+    const run = (own: number, other: number) => {
+      const r = spawnSync('jq', ['-c', '--argjson', 'own', `${own}`, '--argjson', 'other', `${other}`, program!], {
+        input: modelJson,
+        encoding: 'utf8',
+      })
+      expect(r.status, r.stderr).toBe(0)
+      return JSON.parse(r.stdout) as { chain: Entry[]; selected: Entry; tier: string }
+    }
+    const ids = (es: Entry[]) => es.map((e) => `${e.provider}/${e.model}`)
+    const a = run(0, 1)
+    expect(ids(a.chain)).toEqual(['qwen/qwen3.8-flash', 'deepseek/deepseek-flash'])
+    expect(a.selected.model).toBe('qwen3.8-flash')
+    expect(a.tier).toBe('critical') // tier 保留：仍決定逾時預算與監督分級
+    const b = run(1, 0)
+    expect(ids(b.chain)).toEqual(['deepseek/deepseek-flash', 'qwen/qwen3.8-flash'])
+    expect(b.selected.model).toBe('deepseek-flash')
+  })
+
+  it('workflow 依變體決定 own／other 索引', () => {
+    const wf = read('.github/workflows/factory-run.yml')
+    expect(wf).toContain('if [ "$VARIANT" = "b" ]; then OWN=1; OTHER=0; else OWN=0; OTHER=1; fi')
+    expect(wf).not.toMatch(/select\(\.model != \.dual\[[01]\]/)
   })
 })
 
