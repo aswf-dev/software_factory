@@ -1361,6 +1361,21 @@ jobs:
             > "$GITHUB_WORKSPACE/.factory/scoreboard-event.json" \
             || echo "::warning::scoreboard 推送失敗（不擋 run）"
 
+      # session log 的無內容結構診斷（fubon-tradingbot#717：qwen 描述不存在的環境、零交付）。
+      # 區分「工具結果沒送達模型」與「模型自行編造」需要 session log，但本 repo 是 public、
+      # 目標 repo 可能是 private——原始 session log 含目標 repo 的程式碼，**絕不上傳**。
+      # factory-session-diag 只輸出計數／長度／工具名／布林旗標。失敗不擋 run。
+      - name: Session integrity diagnostics (content-free)
+        if: always() && inputs.dry_run != true
+        continue-on-error: true
+        run: |
+          node "$GITHUB_WORKSPACE/dist/cli/factory-session-diag.js" \
+            --sessions-root "$HOME/.dsh/sessions" \
+            --out "$GITHUB_WORKSPACE/.factory/session-diag.json" > /dev/null \
+            || { echo "::warning::session 診斷失敗（不擋 run）"; exit 0; }
+          jq -r '.sessions[] | "session: models=\(.models|join(",")) steps=\(.steps) calls=\(.toolCalls) results=\(.toolResults) noResult=\(.callsWithoutResult) resultAfterNextStep=\(.resultAfterNextStep) orphan=\(.orphanResults) errors=\(.errorResults) phantomArgs=\(.phantomInArgs)@\(.firstPhantomInArgsStep // "-") phantomResults=\(.phantomInResults)@\(.firstPhantomInResultsStep // "-")"' \
+            "$GITHUB_WORKSPACE/.factory/session-diag.json"
+
       # 診斷：agent 的 stdout/stderr/report 上傳成 artifact（失敗也要，否則無從查）
       - name: Upload run artifacts
         if: always()
@@ -1382,6 +1397,7 @@ jobs:
             .factory/crosscheck.json
             .factory/crosscheck.err
             .factory/judge.json
+            .factory/session-diag.json
           if-no-files-found: ignore
 
   compare:
