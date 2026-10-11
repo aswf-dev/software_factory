@@ -113,10 +113,10 @@ jobs:
           COMMENTS=$(gh issue view "$ISSUE" --repo "$REPO" \
             --json comments --jq '[.comments[].body] | join("\n")' 2>/dev/null || true)
           if printf '%s' "$COMMENTS" | grep -qF "$RUN_ID"; then
-            echo "run $RUN_ID 已有終態留言（$REPO #$ISSUE）；cleanup idle"
+            echo "run $RUN_ID 已有終態留言（$REPO #${ISSUE}）；cleanup idle"
           else
             echo "::warning::run $RUN_ID 異常結束（逾時/取消）且無終態留言——補貼 needs-human（G2 cleanup）"
             gh issue comment "$ISSUE" --repo "$REPO" \
-              --body "⚠️ 工廠執行異常結束（run: $RUN_ID，逾時或取消）——agent 已啟動但未留下終態判定。已交還人類，請查看 Actions run logs。"
+              --body "⚠️ 工廠執行異常結束（run: ${RUN_ID}，逾時或取消）——agent 已啟動但未留下終態判定。已交還人類，請查看 Actions run logs。"
             gh issue edit "$ISSUE" --repo "$REPO" --add-label needs-human
           fi
