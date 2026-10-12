@@ -1,0 +1,48 @@
+.dsh/skills/factory-pr-stacking/SKILL.md
+  h_1b119f25eaf333 45-50,58
+.dsh/skills/factory-workflow/SKILL.md
+  h_1b119f25eaf333 228-231
+.github/workflows/factory-nversion-pick.yml
+  h_1b119f25eaf333 1,3-17,20-41,44,47,51-52,54,56-58,60-71,73-112,114,116-117
+.github/workflows/factory-run-cleanup.yml
+  h_1b119f25eaf333 113-116,119-120,122-123,125-127
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 52,73-81,105-107,336-338,559-567,865-869,992-1033,1202,1226-1227,1268,1295-1297,1308,1311,1314,1317-1322,1324-1332,1337-1338,1373,1453-1454,1505,1512-1540,1542-1543,1573-1585,1593,1619-1685
+config/factory/skills-lock.json
+  h_1b119f25eaf333 6,18
+docs/18-silent-failure-hardening.md
+  h_1b119f25eaf333 37-43
+docs/ADR/020-sase-adoption.md
+  h_1b119f25eaf333 3,36
+docs/ADR/021-nversion-parallel-pattern.md
+  h_1b119f25eaf333 1-152
+docs/ADR/README.md
+  h_1b119f25eaf333 52-53
+docs/GLOSSARY.md
+  h_1b119f25eaf333 136
+src/cli/factory-compare.test.ts
+  h_1b119f25eaf333 277-280
+src/cli/factory-compare.ts
+  h_1b119f25eaf333 339
+src/cli/factory-terminal.test.ts
+  h_1b119f25eaf333 1-236
+src/cli/factory-terminal.ts
+  h_1b119f25eaf333 1-268
+test/adversarial/crosscheck-step.test.ts
+  h_1b119f25eaf333 149,154-155,173
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 605-609,611-616,1254,1257-1279,1965,1967-1970,2235-2239,2241,2244-2245,2363-2366
+test/adversarial/nversion-pr-steps.test.ts
+  h_1b119f25eaf333 38,166-444
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c5857cd2731ad2654c95b83fc6d00aa063d0bd5d",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
