@@ -240,6 +240,8 @@ jobs:
           gh label create "spec/model-outdated"   --color "e99695" --force
           # agent-pbt-audit（ADR-019 R2）：判定類型後自動貼上，只用於篩選與試行統計。
           gh label create "pbt/audit"             --color "bfd4f2" --force
+          # 依序模式（ADR-022）：人工覆寫「本階段已完成」——由人貼上，工廠只建立不發射。
+          gh label create "stage/done"            --color "0e8a16" --force
           echo "factory labels ensured ($GH_REPO)"
 
       # 集中式 Issue 格式檢查（ADR-012）：檢查邏輯只存在機制 repo（dist CLI），
@@ -275,6 +277,37 @@ jobs:
             exit 1
           fi
           echo "格式合規"
+
+      # 依序模式（ADR-022）：本 Issue 宣告的前置工作項必須都已完成，才花 LLM 成本。
+      # 以 GitHub 即時狀態判定（factory-stage prereqs）：前置 Issue 的某一組交付全部合併，
+      # 或被人貼上 stage/done。未完成 → 留言說明並停派。
+      #   - 不貼 needs-human：這不是 agent 的失敗，貼了會污染停手原因統計（docs/08 §2.5）；
+      #   - 不提供略過用的 input（ADR-018 §12 先例）：真要略過，清空 Issue 的前置欄位，留有紀錄；
+      #   - 兩個變體都會執行本步；只有變體 a 留言，避免同一則說明貼兩次。
+      #   - gh 查詢失敗 → 同樣停派（fail-closed），原因印在 run log。
+      - name: Check prerequisites (ADR-022)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue_number }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          mkdir -p .factory
+          if ! node dist/cli/factory-stage.js prereqs --repo "$GH_REPO" --issue "$ISSUE" > .factory/prereqs.json; then
+            echo "::error::前置工作項檢查失敗（無法查詢 GitHub）——停止派工"
+            exit 1
+          fi
+          cat .factory/prereqs.json
+          if [ "$(jq -r .blocked .factory/prereqs.json)" = "true" ]; then
+            if [ "$VARIANT" = "a" ]; then
+              jq -r .comment .factory/prereqs.json > .factory/prereqs.md
+              gh issue comment "$ISSUE" --body-file .factory/prereqs.md
+            fi
+            echo "::error::前置工作項尚未完成——停止派工（ADR-022）"
+            exit 1
+          fi
+          echo "前置工作項皆已完成（或未宣告）"
 
       # 任務類型以 **Issue 為準**（docs/02 §3.2：Issue 是工作項契約）。
       #

@@ -1080,12 +1080,12 @@ describe('buildPlanningHint', () => {
   it('無話可說 → 空陣列（不稀釋既有提示的訊號）', () => {
     expect(buildPlanningHint(reviewPlanning(COMPLIANT))).toEqual([])
   })
-  it('已宣告合法前置 → 提醒確認已合併，並誠實揭露不做 GitHub 查詢', () => {
+  it('已宣告合法前置 → 說明派工時會以即時狀態檢查、未完成即停派（ADR-022）', () => {
     const lines = buildPlanningHint(reviewPlanning(withPrereq('#192, #205')))
     expect(lines).toHaveLength(1)
     expect(lines[0]).toContain('#192、#205')
-    expect(lines[0]).toContain('請確認它們已合併')
-    expect(lines[0]).toContain('無法代你確認狀態')
+    expect(lines[0]).toContain('派工時會依 GitHub 即時狀態檢查')
+    expect(lines[0]).toContain('ADR-022')
     expect(lines[0]).toContain('docs/32')
   })
   it('malformed → 逐項列出並說明正確寫法', () => {

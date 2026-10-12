@@ -418,9 +418,9 @@ export function buildRiskPathHint(risk: RiskPathReview): string[] {
  * 回答一句話：**這張單還缺什麼？** 輸出到既有 Issue 留言。
  *
  * 三項硬性設計約束：
- * 1. **純函式**：不做任何網路／GitHub 呼叫，因此不查前置 Issue 的實際狀態。
- *    宣告的是「順序」不是「格式」——查狀態需要 `issues:read` 與 needs-human
- *    語意的獨立裁決，屬後續工作項（docs/32 §7）。
+ * 1. **純函式**：不做任何網路／GitHub 呼叫，因此開單時不查前置 Issue 的實際狀態。
+ *    狀態在**派工時**由 factory-run 的 `factory-stage prereqs` 以即時狀態檢查，
+ *    未完成即停派（ADR-022）；本節只負責「宣告寫得對不對」。
  * 2. **advisory**：與 G5 具體性提示、REQ-n 錨定同級——**刻意不改變 ok/missing
  *    合規判定與計分**。理由是 `docs/21` §4 的排序仍受 `Q21-4` 未裁決的制約，
  *    把它變成硬性閘門會在裁決前就實質生效。
@@ -546,7 +546,7 @@ export function buildPlanningHint(plan: PlanningReview): string[] {
     out.push(
       '🧭 **規劃健檢**：已宣告前置工作項 ' +
         ids.map((n) => `#${n}`).join('、') +
-        '。**請確認它們已合併**再派工——本檢查不做 GitHub 查詢，無法代你確認狀態；' +
+        '。派工時會依 GitHub 即時狀態檢查：前置還沒完成就在花 LLM 成本前停派（ADR-022）；' +
         '順序規則見 `docs/32` §4。',
     )
   }

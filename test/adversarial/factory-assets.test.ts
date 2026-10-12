@@ -2445,8 +2445,10 @@ describe('App token 一律收窄（agent 不得取得 actions:write）', () => {
     expect(mints.length).toBeGreaterThanOrEqual(4)
   })
 
-  it.each(['contents', 'issues', 'pull-requests'])('每處明列 permission-%s: write', (p) => {
-    for (const m of mints) expect(m.with[`permission-${p}`], `${m.file}`).toBe('write')
+  // 明列才是保護所在：遺漏任何一項，token 就繼承 App 安裝的全部權限。
+  // 值可以比 write 更窄（factory-stage-finalize 只需要 pull-requests: read，ADR-022）。
+  it.each(['contents', 'issues', 'pull-requests'])('每處明列 permission-%s（write 或更窄的 read）', (p) => {
+    for (const m of mints) expect(['write', 'read'], `${m.file}`).toContain(m.with[`permission-${p}`])
   })
 
   it('每處 permission-actions 皆為 read', () => {
