@@ -49,7 +49,7 @@ on:
         options: [success, blocked, guardrail]
         default: success
       model_tier:
-        description: 模型 tier（auto＝依 Issue 複雜度自動選擇；low/medium/high→qwen3.8-flash、critical→claude-opus-5-5，ADR-011；N-version 雙模型：low/medium/high＝qwen3.8-flash 對 deepseek-flash、critical＝claude-opus-5-5 對 qwen3.8-max）
+        description: 模型 tier（auto＝依 Issue 複雜度自動選擇；low/medium/high→qwen3.8-flash、critical→claude-opus-5-5，ADR-011；N-version 開啟時改用 dual 雙模型：low/medium/high＝qwen3.8-flash 對 deepseek-flash、critical＝claude-opus-5-5 對 qwen3.8-max）
         required: false
         type: choice
         options: [auto, low, medium, high, critical]
@@ -70,6 +70,15 @@ on:
         required: false
         type: number
         default: 0
+      # ADR-021：N-version 改為可選、預設開啟。Backstage／aswf.dev／標籤觸發都不傳此值，
+      # 一律開啟；要關閉只能從 Actions 頁面或 `gh workflow run -f nversion=false`。
+      # 關閉時只跑變體 a（分支前綴仍是 factory/<issue>-a-），compare job 照跑且仍是
+      # Issue 終態的唯一寫入者。
+      nversion:
+        description: N-version 雙模型競賽（true＝兩個變體平行執行、由人擇一；false＝只跑一個變體，用 tier 原本的模型鏈）
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: factory-${{ inputs.repo }}-${{ inputs.issue_number }}
@@ -93,7 +102,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [a, b]
+        # ADR-021：nversion=false 時只跑變體 a。`inputs.nversion` 在 workflow_dispatch
+        # 是布林值；未傳時取預設 true。
+        variant: ${{ fromJSON(inputs.nversion && '["a","b"]' || '["a"]') }}
     steps:
       # 機制 repo（本 repo：workflow/CLI/skill 所在）在根目錄；
       # 目標 repo（inputs.repo）另行 checkout 至 target/，agent 在 target/ 內工作。
@@ -322,7 +333,9 @@ jobs:
           printf '%s' "${{ inputs.base_branch }}" > target/.factory/run/base-branch
           printf '%s' "${{ inputs.repo }}" > target/.factory/run/repo
           printf '%s' "${{ matrix.variant }}" > target/.factory/run/variant
-          echo "run env written: token=$(wc -c < target/.factory/run/gh-token)B base=$(cat target/.factory/run/base-branch) repo=$(cat target/.factory/run/repo) variant=$(cat target/.factory/run/variant)"
+          # ADR-021：skill 依此決定 PR 開成 draft（N-version）或正式 PR（單一變體）
+          printf '%s' "${{ inputs.nversion }}" > target/.factory/run/nversion
+          echo "run env written: token=$(wc -c < target/.factory/run/gh-token)B base=$(cat target/.factory/run/base-branch) repo=$(cat target/.factory/run/repo) variant=$(cat target/.factory/run/variant) nversion=$(cat target/.factory/run/nversion)"
 
       # token 安全：目標 repo 未必有 .factory/ 的 gitignore 條目——若 agent 的
       # git add -A 把 .factory/run/gh-token 提交上去會外洩憑證。以 repo 本地的
@@ -543,10 +556,15 @@ jobs:
           # 舊寫法 `.chain[] | select(.model != .dual[i].model …)` 有作用域錯誤：select 內的
           # `.` 是 chain 元素，`.dual[i]` 恆為 null、什麼都沒濾掉。改以 `$d` 綁定。
           VARIANT="${{ matrix.variant }}"
-          if [ "$VARIANT" = "b" ]; then OWN=1; OTHER=0; else OWN=0; OTHER=1; fi
-          jq --argjson own "$OWN" --argjson other "$OTHER" \
-            '.dual as $d | .chain = [$d[$own], $d[$other]] | .selected = $d[$own]' \
-            .factory/model.json > .factory/model.json.tmp && mv .factory/model.json.tmp .factory/model.json
+          # ADR-021：nversion=false 時保留 tier 原本的 chain（不改寫成 dual）。
+          if [ "${{ inputs.nversion }}" = "true" ]; then
+            if [ "$VARIANT" = "b" ]; then OWN=1; OTHER=0; else OWN=0; OTHER=1; fi
+            jq --argjson own "$OWN" --argjson other "$OTHER" \
+              '.dual as $d | .chain = [$d[$own], $d[$other]] | .selected = $d[$own]' \
+              .factory/model.json > .factory/model.json.tmp && mv .factory/model.json.tmp .factory/model.json
+          else
+            echo "N-version 已關閉：使用 tier 原本的模型鏈"
+          fi
           echo "variant $VARIANT chain: $(jq -r '[.chain[] | .provider + "/" + .model] | join(" → ")' .factory/model.json)"
           echo "variant $VARIANT prioritized chain model: $(jq -r '.chain[0].provider + "/" + .chain[0].model' .factory/model.json)"
 
@@ -844,6 +862,11 @@ jobs:
           - 只有分支以 \`${VARIANT_PREFIX}\` 開頭的 PR 才算「本工作項的既有交付」。其他 \`factory/${{ inputs.issue_number }}-\` 分支或 PR（另一變體或舊格式）一律忽略：不得沿用、不得推送、不得閱讀或評論其內容，也不得因它存在而放棄交付。
           - CI 會驗證分支前綴與「是否有自己的交付」，違反即判 needs-human。
           "
+              # ADR-021：nversion=false 時只有一個變體，不能告訴 agent「另一個變體正在
+              # 同時處理」——那會讓它等待或避讓一個不存在的對手。仍需告知分支前綴。
+              if [ "${{ inputs.nversion }}" != "true" ]; then
+                VARIANT_HEADER="【單一變體執行】本工作項只有你一個執行者。分支一律以 \`${VARIANT_PREFIX}\` 開頭（例：\`${VARIANT_PREFIX}01-test\`）；CI 會驗證分支前綴，違反即判 needs-human。"
+              fi
               # 單次嘗試上限：剩餘預算與（首次）總預算的較小值。逾時訊號先 TERM
               # （讓 DSH flush session log 與 stdout），30 秒後才 KILL——DSH headless
               # 在收到 TERM 時仍有機會完成 flush（usage 量測依賴 session log）。
@@ -964,6 +987,48 @@ jobs:
                   --issue-title "$ISSUE_TITLE" --branch "$BRANCH" | jq -r .title)
                 gh pr edit "$PR" --repo "$GH_REPO" --title "$TITLE" >/dev/null
                 echo "PR #${PR} → ${TITLE}"
+              done
+
+      # ADR-021：PR 的 draft 狀態由機制統一設定，不依賴 agent 或 gh-stack 的預設值。
+      # gh-stack v0.2.1 的 `submit --auto` 原始碼預設開 draft（`isDraft := !opts.open`），
+      # 但實際觀察到的工廠 PR 從未是 draft，兩者對不上——所以由機制在這裡補正（skill 也
+      # 寫明要求，兩層並存：skill 讓 PR 盡量一開始就對，避免正式 PR 先觸發 CODEOWNERS
+      # 審查請求；這裡保證最終狀態正確）。
+      #   nversion=true ：本變體的 open PR 一律轉 draft；勝者由選勝者 workflow 轉回正式。
+      #   nversion=false：一律確保是正式 PR。
+      # 轉 draft 失敗（例如該 repo 的方案不支援 draft PR）不擋 run：記入
+      # .factory/draft-state.txt 隨 artifact 上傳，由比對卡片警示。
+      - name: Normalize PR draft state
+        if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue_number }}
+          VARIANT: ${{ matrix.variant }}
+          NVERSION: ${{ inputs.nversion }}
+        run: |
+          set -euo pipefail
+          mkdir -p .factory
+          : > .factory/draft-state.txt
+          PREFIX="factory/${ISSUE}-${VARIANT}-"
+          gh pr list --repo "$GH_REPO" --state open --limit 20 --search "head:${PREFIX}" \
+              --json number,headRefName,isDraft \
+            | jq -r --arg p "$PREFIX" '.[] | select(.headRefName | startswith($p)) | "\(.number) \(.isDraft)"' \
+            | while read -r PR DRAFT; do
+                if [ "$NVERSION" = "true" ]; then
+                  [ "$DRAFT" = "true" ] && continue
+                  if gh pr ready "$PR" --repo "$GH_REPO" --undo >/dev/null 2>&1; then
+                    echo "PR #${PR} → draft"
+                  else
+                    echo "unsupported ${PR}" >> .factory/draft-state.txt
+                    echo "::warning::PR #${PR} 無法轉成 draft（此 repo 可能不支援 draft PR）；維持正式 PR"
+                  fi
+                else
+                  [ "$DRAFT" = "false" ] && continue
+                  gh pr ready "$PR" --repo "$GH_REPO" >/dev/null
+                  echo "PR #${PR} → ready for review"
+                fi
               done
 
       # Step 3.5 — 量測 token 用量與成本（docs/04 §5、docs/08 §2.3）。
@@ -1134,7 +1199,7 @@ jobs:
             {
               echo "## 工廠執行中止：${HEADLINE}"
               echo ""
-              echo "（run: ${{ github.run_id }}）"
+              echo "（run: ${{ github.run_id }}，變體 ${{ matrix.variant }}；Issue 終態由 compare job 彙整所有變體後另行留言，ADR-021）"
               echo ""
               if [ "$HAS_JSON" = true ]; then
                 jq -r '[(.mismatches // [])[] | "- \(.kind)：\(.detail)"] | join("\n")' .factory/crosscheck.json
@@ -1158,8 +1223,9 @@ jobs:
                 cat target/.factory/run/usage.md
               fi
             } > .factory/crosscheck-comment.txt
+            # 只留細節，不貼終態標籤：Issue 的終態由 compare job 唯一寫入（ADR-021）。
+            # 本步 exit 非零會記入 .factory/steps.json，compare 據此判定本變體 needs-human。
             gh issue comment "${{ inputs.issue_number }}" --body-file .factory/crosscheck-comment.txt
-            gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
           fi
           exit $code
 
@@ -1199,8 +1265,8 @@ jobs:
             git -C target -c http.https://github.com/.extraheader= push -q origin "$BRANCH"
           fi
           gh issue comment "$ISSUE" --body-file .factory/spec-verify.md
+          # 不貼終態標籤：失敗記入 .factory/steps.json，由 compare job 判定 needs-human（ADR-021）
           if [ "$code" -ne 0 ]; then
-            gh issue edit "$ISSUE" --add-label needs-human
             echo "::error::規格驗證證據不完整（詳見 .factory/spec-verify.json）"
             exit 1
           fi
@@ -1226,7 +1292,9 @@ jobs:
           cat .factory/judge.json
 
       # agent 逾時/失敗捕獲：judge 只在 success 跑，逾時會靜默（2026-08-21 實測
-      # run #32491052696 逾時後無 needs-human）。此步補最小 report + 留言 + 標籤。
+      # run #32491052696 逾時後無 needs-human）。此步補最小 report（讓 compare 判得出
+      # 「逾時」）並留下本變體的細節留言。**不貼終態標籤**：Issue 的終態由 compare job
+      # 彙整所有變體後唯一寫入（ADR-021）——N-version 時另一個變體可能已經成功。
       - name: Handle agent timeout/failure
         if: always() && steps.agent.outcome == 'failure'
         env:
@@ -1237,86 +1305,37 @@ jobs:
           node "$GITHUB_WORKSPACE/dist/cli/write-report.js" \
             "${{ inputs.issue_number }}" 1 \
             .factory/run/stdout.txt .factory/run/stderr.txt --timed-out || true
+          NOTE="⏱️ 變體 ${{ matrix.variant }} 的 factory agent 未在時限內完成（逾時或失敗）。請查看 run ${{ github.run_id }} 的 logs；Issue 終態由 compare job 彙整後另行留言。"
           USAGE_MD=".factory/run/usage.md"
           if [ -f "$USAGE_MD" ]; then
-            { echo "⏱️ factory agent 未在時限內完成（逾時或失敗）——已轉交人類接手。請查看 run ${{ github.run_id }} 的 logs。"; cat "$USAGE_MD"; } \
-              > .factory/run/handover.md
+            { echo "$NOTE"; cat "$USAGE_MD"; } > .factory/run/handover.md
             gh issue comment "${{ inputs.issue_number }}" --body-file .factory/run/handover.md
           else
-            gh issue comment "${{ inputs.issue_number }}" \
-              --body "⏱️ factory agent 未在時限內完成（逾時或失敗）——已轉交人類接手。請查看 run ${{ github.run_id }} 的 logs。"
+            gh issue comment "${{ inputs.issue_number }}" --body "$NOTE"
           fi
-          gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
 
-      - name: Apply judge labels and comment
-        id: apply-labels
-        if: steps.agent.outcome == 'success' && (steps.crosscheck.outcome == 'success' || steps.crosscheck.outcome == 'skipped') && (steps.specverify.outcome == 'success' || steps.specverify.outcome == 'skipped')
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          GH_REPO: ${{ inputs.repo }}
+      # ADR-021：記下本變體各步驟的結果，供 compare job 推導本變體的終態。
+      # judge 步驟只在前面全部成功時才跑，所以失敗路徑（agent 逾時、crosscheck、規格
+      # 驗證）沒有 judge.json——compare 只能靠這份紀錄分辨「失敗」與「沒啟動」。
+      # 必須在 Upload run artifacts 之前，且 always()（失敗時最需要它）。
+      - name: Record step outcomes
+        if: always()
         run: |
-          # 第三參數 = usage markdown（存在才傳；apply-judge-labels 對缺檔容錯，
-          # 量測是附註不是 gate）
-          USAGE_ARG=""
-          if [ -f target/.factory/run/usage.md ]; then
-            USAGE_ARG=" target/.factory/run/usage.md"
-          fi
-          node dist/cli/apply-judge-labels.js \
-            "${{ inputs.issue_number }}" .factory/judge.json${USAGE_ARG}
-
-      # 終態守衛（G1，docs/18 §2.1）——堵住「失敗未進入控制流」的靜默路徑：
-      # agent 已啟動但 job 失敗（judge/apply-labels 步驟 crash、gh API 錯誤等）時，
-      # 若 Issue 沒有本 run 的終態留言，補貼 needs-human 並留言。
-      # 不重複貼的依據：所有終態留言（timeout handler / crosscheck / 本守衛）
-      # 都內含 github.run_id；grep 到即代表已有交還紀錄。
-      - name: Ensure terminal state (guard)
-        if: always() && job.status != 'success' && steps.agent.outcome != 'skipped'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          GH_REPO: ${{ inputs.repo }}
-        run: |
-          set +e
-          COMMENTS=$(gh issue view "${{ inputs.issue_number }}" \
-            --json comments --jq '[.comments[].body] | join("\n")' 2>/dev/null)
-          set -e
-          if printf '%s' "$COMMENTS" | grep -qF "${{ github.run_id }}"; then
-            echo "terminal state already posted for run ${{ github.run_id }}; guard idle"
-          else
-            echo "::warning::run ${{ github.run_id }} 未留下終態留言——補貼 needs-human（G1 終態守衛）"
-            mkdir -p .factory
-            echo "⚠️ 工廠執行未正常完成（run: ${{ github.run_id }}）——agent 已啟動但未收到終態判定（可能 judge/labels 步驟失敗）。已交還人類，請查看 Actions run logs。" \
-              > .factory/guard-comment.txt
-            if [ -f target/.factory/run/usage.md ]; then
-              { echo ""; cat target/.factory/run/usage.md; } >> .factory/guard-comment.txt
-            fi
-            # 技能缺口（docs/25 §2.1）：judge/labels 失敗時，這是缺口進入 Issue 的
-            # **唯一**路徑。少了它，該筆缺口就只存在於 Scoreboard 與 ~90 天後過期的
-            # artifacts——實測 3 筆（run 34731487680、34371349788、34372193923）
-            # 正是如此消失的。CLI 恆 exit 0，取不到時寫出空檔，守衛不受影響。
-            node dist/cli/factory-skill-gap.js \
-              --report target/.factory/run/report.json \
-              --out .factory/guard-skill-gap.md \
-              || echo "::warning::skill-gap 取出失敗（不擋守衛）"
-            if [ -s .factory/guard-skill-gap.md ]; then
-              { echo ""; echo "---"; echo ""; cat .factory/guard-skill-gap.md; } >> .factory/guard-comment.txt
-            fi
-            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/guard-comment.txt
-            # 有缺口時一併補上 skill-gap 標籤（聚類用，不影響終態）。兩個標籤同時
-            # 指定時若任一不存在，gh 會整條失敗，故退回只貼 needs-human——
-            # 守衛的第一要務是「終態不失守」，標籤是附註。
-            if [ -s .factory/guard-skill-gap.md ]; then
-              gh issue edit "${{ inputs.issue_number }}" --add-label needs-human,skill-gap \
-                || gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
-            else
-              gh issue edit "${{ inputs.issue_number }}" --add-label needs-human
-            fi
-          fi
+          mkdir -p .factory
+          jq -n \
+            --arg agent "${{ steps.agent.outcome }}" \
+            --arg crosscheck "${{ steps.crosscheck.outcome }}" \
+            --arg specverify "${{ steps.specverify.outcome }}" \
+            --arg judge "${{ steps.judge.outcome }}" \
+            '{agent: $agent, crosscheck: $crosscheck, specverify: $specverify, judge: $judge}' \
+            > .factory/steps.json
+          cat .factory/steps.json
 
       # PBT 稽核摘要（ADR-019 R4、R10）：候選發現與試行指標由**機制**貼到稽核 Issue
       #（agent 不開 Issue、不自己留言）。Issue 留言永久保存，是試行報告的資料來源。
       #
-      # 刻意排在 G1 終態守衛**之後**：這則留言內嵌 run id，若排在守衛之前，judge／labels
-      # 失敗時守衛會 grep 到它而誤判「已有終態紀錄」，needs-human 就不會被補上。
+      # 這則留言內嵌 run id。過去必須排在 G1 終態守衛之後，否則守衛會 grep 到 run id 而
+      # 誤判「已有終態」；ADR-021 起 G1 移到 compare job、改認專屬終態標記，已無此限制。
       # CLI 恆 exit 0（留言是紀錄不是 gate）；AGENT_END_EPOCH 缺席代表 agent 步驟
       # 被砍（逾時），以現在時間代替，讓「卡住」在牆鐘上看得見。
       - name: Post PBT audit summary
@@ -1351,7 +1370,7 @@ jobs:
           if [ "$JOB_STATUS" = "success" ]; then
             echo "工廠執行完成。第 1 期：所有變更等待人類審查後合併。"
           else
-            echo "⚠️ 工廠執行未正常完成（job_status=${JOB_STATUS}）——終態以 Issue 上的 needs-human 標籤為準，詳情見 run log。"
+            echo "⚠️ 變體 ${{ matrix.variant }} 未正常完成（job_status=${JOB_STATUS}）——Issue 終態由 compare job 彙整所有變體後寫入（ADR-021），詳情見 run log。"
           fi
 
       # Step 6.5 — 推送事件至 Scoreboard（ADR-015、docs/26 §2.2）。
@@ -1431,6 +1450,8 @@ jobs:
             .factory/crosscheck.err
             .factory/judge.json
             .factory/session-diag.json
+            .factory/steps.json
+            .factory/draft-state.txt
           if-no-files-found: ignore
 
   compare:
@@ -1481,13 +1502,45 @@ jobs:
           path: artifacts/a
 
       - name: Download Variant B artifact
+        if: inputs.nversion
         uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: factory-run-${{ inputs.issue_number }}-b
           path: artifacts/b
 
+      # ADR-021：compare job 是 Issue 終態的**唯一寫入者**（變體各自只留細節留言）。
+      # 排在比對卡片之前：終態是必要的，卡片是附註，卡片失敗不得連帶讓終態缺席。
+      # 先貼標籤、後留言：留言帶終態標記，G1／G2 只認這個標記；若標籤失敗，
+      # 標記就不會出現，G1 會接手補 needs-human，而不是誤以為終態已完整寫入。
+      - name: Write terminal state
+        id: terminal
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue_number }}
+          NVERSION: ${{ inputs.nversion }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          DIRS="--variant-dir a=artifacts/a"
+          if [ "$NVERSION" = "true" ]; then DIRS="$DIRS --variant-dir b=artifacts/b"; fi
+          node dist/cli/factory-terminal.js --run-id "$RUN_ID" --nversion "$NVERSION" $DIRS > terminal.json
+          cat terminal.json
+          if [ "$(jq -r .write terminal.json)" != "true" ]; then
+            echo "所有變體都沒啟動 agent：前置閘門已留下自己的訊號，不寫終態"
+            exit 0
+          fi
+          LABELS=$(jq -r '.labels | join(",")' terminal.json)
+          if [ -n "$LABELS" ]; then
+            gh issue edit "$ISSUE" --repo "$GH_REPO" --add-label "$LABELS"
+          fi
+          jq -r .comment terminal.json > terminal.md
+          gh issue comment "$ISSUE" --repo "$GH_REPO" --body-file terminal.md
+
       - name: Generate comparison report and post comment
+        if: always() && inputs.nversion
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
@@ -1517,6 +1570,19 @@ jobs:
             --usage-b "artifacts/b/target/.factory/run/usage.json" \
             --out compare.md
 
+          # ADR-021：有 PR 無法轉成 draft 時（例如該 repo 的方案不支援），在卡片頂端警示——
+          # 此時兩個變體都是正式 PR，CODEOWNERS 已收到審查請求，選勝者前不要合併。
+          : > draft-warn.md
+          for V in a b; do
+            if [ -s "artifacts/${V}/.factory/draft-state.txt" ]; then
+              echo "> ⚠️ 變體 ${V} 有 PR 無法轉成 draft（此 repo 可能不支援 draft PR），目前仍是正式 PR。請先執行選勝者 workflow，再合併。" >> draft-warn.md
+            fi
+          done
+          if [ -s draft-warn.md ]; then
+            { cat draft-warn.md; echo ""; cat compare.md; } > compare-with-warn.md
+            mv compare-with-warn.md compare.md
+          fi
+
           cat compare.md
           gh issue comment "${{ inputs.issue_number }}" --repo "$GH_REPO" --body-file compare.md
 
@@ -1524,7 +1590,7 @@ jobs:
       # 的區塊（fubon-tradingbot#721：單開 #722 看不到 #723 的存在，審查者可能只看一份就合併）。
       # 沿用上一步的 pr-a.json／pr-b.json，以前綴精確過濾。附註性質：失敗不擋 job。
       - name: Link N-version sibling PRs
-        if: always()
+        if: always() && inputs.nversion
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -1549,4 +1615,71 @@ jobs:
               echo "PR #${PR}（變體 ${V}）← 另一變體：${SIBS:-（無）}"
             done
           done
+
+      # 終態守衛（G1，docs/18 §2.1；ADR-021 起移到 compare job）——堵住「終態寫入失敗卻
+      # 沒有人知道」的靜默路徑：Write terminal state 沒有成功時，若 Issue 上還沒有本 run 的
+      # **終態標記**，補貼 needs-human 並留言。
+      #
+      # 只認標記（`<!-- factory:terminal run=<id> -->`），不認任何含 run id 的留言：變體的
+      # 細節留言、規格階段留言、PBT 摘要都含 run id，舊判斷會因此誤以為終態已寫入。
+      # 所有變體都沒啟動 agent 時不補（前置閘門已留下自己的訊號，與 G2 同規則）；
+      # 變體沒有產物時視為「可能已啟動」，寧可多交還一次也不讓終態缺席。
+      - name: Ensure terminal state (guard)
+        if: always() && steps.terminal.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue_number }}
+          NVERSION: ${{ inputs.nversion }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          MARKER="<!-- factory:terminal run=${RUN_ID} -->"
+          set +e
+          COMMENTS=$(gh issue view "$ISSUE" --repo "$GH_REPO" \
+            --json comments --jq '[.comments[].body] | join("\n")' 2>/dev/null)
+          set -e
+          if printf '%s' "$COMMENTS" | grep -qF "$MARKER"; then
+            echo "terminal state already posted for run ${RUN_ID}; guard idle"
+            exit 0
+          fi
+          VARIANTS="a"
+          if [ "$NVERSION" = "true" ]; then VARIANTS="a b"; fi
+          REACHED=false
+          for V in $VARIANTS; do
+            F="artifacts/${V}/.factory/steps.json"
+            if [ ! -f "$F" ]; then REACHED=true; continue; fi
+            A=$(jq -r '.agent // ""' "$F" 2>/dev/null || echo "")
+            if [ -n "$A" ] && [ "$A" != "skipped" ]; then REACHED=true; fi
+          done
+          if [ "$REACHED" != "true" ]; then
+            echo "no variant reached the agent step; guard idle"
+            exit 0
+          fi
+          echo "::warning::run ${RUN_ID} 未留下終態標記——補貼 needs-human（G1 終態守衛）"
+          mkdir -p .factory
+          { echo "$MARKER"
+            echo "⚠️ 工廠執行未正常完成（run: ${RUN_ID}）——compare job 未能寫入終態。已交還人類，請查看 Actions run logs。"
+          } > .factory/guard-comment.txt
+          # 技能缺口（docs/25 §2.1）：終態寫入失敗時，這是缺口進入 Issue 的唯一路徑。
+          # CLI 恆 exit 0，取不到時寫出空檔，守衛不受影響。
+          GAP=false
+          for V in $VARIANTS; do
+            node dist/cli/factory-skill-gap.js \
+              --report "artifacts/${V}/target/.factory/run/report.json" \
+              --out ".factory/guard-skill-gap-${V}.md" \
+              || echo "::warning::skill-gap 取出失敗（不擋守衛）"
+            if [ -s ".factory/guard-skill-gap-${V}.md" ]; then
+              GAP=true
+              { echo ""; echo "---"; echo ""; echo "（變體 ${V}）"; echo ""; cat ".factory/guard-skill-gap-${V}.md"; } >> .factory/guard-comment.txt
+            fi
+          done
+          # 先貼標籤、後留言（留言帶標記）。兩個標籤同時指定時若任一不存在，gh 會整條
+          # 失敗，故退回只貼 needs-human——守衛的第一要務是「終態不失守」。
+          if [ "$GAP" = "true" ]; then
+            gh issue edit "$ISSUE" --repo "$GH_REPO" --add-label needs-human,skill-gap \
+              || gh issue edit "$ISSUE" --repo "$GH_REPO" --add-label needs-human
+          else
+            gh issue edit "$ISSUE" --repo "$GH_REPO" --add-label needs-human
+          fi
+          gh issue comment "$ISSUE" --repo "$GH_REPO" --body-file .factory/guard-comment.txt
 

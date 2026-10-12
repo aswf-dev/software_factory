@@ -336,7 +336,7 @@ export function renderCompareMarkdown(summary: CompareSummary): string {
     '```',
     '',
     '### 合併後',
-    '- 合併勝出的 PR。落選變體的 PR **目前不會自動關閉**（清理 workflow 尚未部署到目標 repo），請手動關閉並附上比對紀錄連結。',
+    '- 兩個變體的 PR 都是 draft。比對後執行「Factory N-version Pick」workflow（輸入 Issue 編號與勝出變體）：勝者轉為正式 PR，落選方的 draft 會被關閉，**分支保留**，若勝者審查時被否決仍可改選。',
     '',
   ].join('\n')
 }

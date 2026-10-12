@@ -42,7 +42,12 @@ gh stack add -m "test: add failing tests for issue #<編號>" -A
 gh stack add -m "feat: implement for issue #<編號>" -A
 # ...文件...
 gh stack add -m "docs: update notes for issue #<編號>" -A
-gh stack submit --auto
+# draft 狀態依模式而定（ADR-021）：N-version 開 draft（--auto 的預設），單一變體加 --open
+if [ "$(cat .factory/run/nversion 2>/dev/null)" = "true" ]; then
+  gh stack submit --auto
+else
+  gh stack submit --auto --open
+fi
 ```
 
 ## 必須遵守
@@ -50,7 +55,7 @@ gh stack submit --auto
 - **分支一律經 `gh stack init --base "$BASE_BRANCH" factory/<issue編號>-<nn>-<layer>` 建立**——分支名必須以 `factory/` 前綴開頭並含 Issue 編號（2026-08-18 試跑發現：部分 run 未遵循此慣例，造成分支無法與 Issue 對應；試點 #2 亦見 `factory-569-01-test` 用 dash 取代 slash 的偏差——**slashes 保留，勿用 dash 代替**）。**不允許**自行命名分支（如 `08-18-docs_...`）、用 `--numbered`/`--prefix`（v0.1.0 不支援）或直接 `git branch` 建分支。
 - **base 一律用 `$BASE_BRANCH`**（`.factory/run/base-branch`），不得寫死 `main`——對非試點 repo，main 是受保護的真實 trunk，絕不觸碰（Q-P2-1）。
 - **`gh stack add` 永遠提供 `-m`**：省略時會開啟編輯器，在 CI 中卡住直到逾時。
-- **`gh stack submit` 使用 `--auto`**：不互動提示；**不要加 `--draft`**（draft PR 無法合併，會擋住人類審查流程）。
+- **`gh stack submit` 使用 `--auto`**：不互動提示。draft 狀態依 `.factory/run/nversion` 而定（ADR-021）：`true`（N-version）時**不要加 `--open`**——`--auto` 預設即開 draft，由選勝者 workflow 轉正；`false` 或檔案不存在時**加 `--open`**，開成正式 PR（draft 無法合併，會擋住人類審查）。gh-stack 沒有 `--draft` 旗標。
 - **同步一律用 `gh stack sync`，不用 `gh stack rebase`**：`sync` 非互動、衝突時自動還原所有分支（交易性）；`rebase` 衝突時需互動介入。
 - `gh stack sync` 連續兩次失敗 → 依 factory-stop-rules 停手。
 - **每層必須獨立綠燈（docs/07 §2.2）**：測試層不得引用尚未存在的 API（如未 export 的函式）——那會讓該層單獨無法編譯。若測試需要一個不存在的 export，**把該 export 併入測試層本身**（export 是測試基礎設施）；02-impl 只放真實的行為變更，不放純 export/改名。

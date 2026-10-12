@@ -274,8 +274,10 @@ describe('renderCompareMarkdown', () => {
     expect(md).toContain('不代表品質')
     expect(md).toContain('### 人工比對紀錄')
     expect(md).toContain('判定：A / B / 平手 / 兩者皆不收')
-    expect(md).toContain('不會自動關閉')
-    expect(md).not.toContain('將被自動關閉')
+    // ADR-021：落選方由選勝者 workflow 關閉（分支保留），不是靠人手動關閉
+    expect(md).toContain('Factory N-version Pick')
+    expect(md).toContain('分支保留')
+    expect(md).not.toContain('不會自動關閉')
     expect(md).not.toContain('⚠️ **注意**')
   })
 

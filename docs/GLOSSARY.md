@@ -133,6 +133,6 @@ Plan → Create → Verify → Release → Configure → Operate
 | PR 核准 ＋ `spec/approved` ＋ `factory/approved` ＋ HG0–HG7 | Version Controlled Resolution | 無「與請求相連」的裁決 artifact；`spec/*` 標籤流已具兩階段人類裁決的形狀 | `29` §8、`28` §標籤表 |
 | Backstage（已降級凍結）＋ DSH headless ＋ sandbox | ACE／AEE | 雙工作臺方向一致；ACE 部分已裁決「維運負擔不值得」 | `Q03-6`、`ADR-002` |
 | （無對應） | ATLE／ATIE（持久記憶、agent-native 工具鏈） | 硬缺席。列 Q20-SASE-1（記憶）／ATIE 不採用 | `ADR-020` 決策 2 |
-| （無對應） | N-version 平行多版本 | **不採用**（token 預算門檻仍未設定，無成本基線） | `10` L82、`ADR-020` 決策 2 |
+| （無對應） | N-version 平行多版本 | **採用**（可選、預設開啟；兩個變體以 draft PR 交付、由人選勝者；`compare` 是 Issue 終態唯一寫入者） | `ADR-021`（取代 `ADR-020` 決策 2 該列） |
 
 > 本表**不作為設計依據**。後續文件引用設計理由時，一律回指 `docs/00-source-summary.md` 的 Gartner 節次，**不得回指 SASE 論文節次**——`00` 的凍結規則（§8）不因本表而改變。裁決理由見 `ADR-020`。
