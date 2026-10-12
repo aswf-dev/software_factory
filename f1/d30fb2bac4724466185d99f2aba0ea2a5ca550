@@ -1,0 +1,36 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 243-244,281-311
+.github/workflows/factory-stage-finalize.yml
+  h_1b119f25eaf333 1-117
+docs/31-methodology-entry.md
+  h_1b119f25eaf333 131
+docs/32-writing-work-items.md
+  h_1b119f25eaf333 16,20,97,103-120,123,160,173-174
+docs/ADR/022-sequential-stages.md
+  h_1b119f25eaf333 1-132
+docs/ADR/README.md
+  h_1b119f25eaf333 54
+src/cli/factory-issue-check.test.ts
+  h_1b119f25eaf333 1083,1087-1088
+src/cli/factory-issue-check.ts
+  h_1b119f25eaf333 421-423,549
+src/cli/factory-stage.test.ts
+  h_1b119f25eaf333 1-277
+src/cli/factory-stage.ts
+  h_1b119f25eaf333 1-252
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 2448-2451
+test/adversarial/stage-steps.test.ts
+  h_1b119f25eaf333 1-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f1d30fb2bac4724466185d99f2aba0ea2a5ca550",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
