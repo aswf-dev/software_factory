@@ -58,8 +58,13 @@
 ### 4. 完成時的接力：aswf.dev 轉送、機制 repo 執行（Q5、Q27、Q29、Q33）
 
 ```
-目標 repo 合併 PR ──webhook──▶ aswf.dev：驗證簽章、遞送 ID 去重、篩選 ──派工──▶ factory-stage-finalize.yml
+目標 repo 合併 PR ───────────┐
+目標 repo 的 Issue 貼 stage/done ─┴─webhook──▶ aswf.dev：驗證簽章、遞送 ID 去重、篩選 ──派工──▶ factory-stage-finalize.yml
 ```
+
+貼上 `stage/done` 也會觸發接力（2026-10-13 修訂，Q49）：人工覆寫之後，下游不必等人到機制 repo
+手動執行。貼標籤需要該 repo 的權限，授權同樣由 GitHub 檢查；App 自己貼的標籤不轉送（工廠從不發射
+`stage/done`，此為防禦）。GitHub App 需訂閱 **Issues** 事件。
 
 `factory-stage-finalize.yml`（`workflow_dispatch`，也可由人手動執行作為 webhook 故障時的備援）呼叫
 `factory-stage finalize`：

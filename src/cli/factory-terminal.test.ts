@@ -102,7 +102,7 @@ describe('aggregateTerminal', () => {
     expect(r).toMatchObject({ write: true, outcome: 'ready-for-review', labels: ['oversight/review'] })
     expect(r.comment).toContain(terminalMarker(9))
     expect(r.comment).toContain('## 工廠執行結果：ready-for-review')
-    expect(r.comment).toContain('Factory N-version Pick')
+    expect(r.comment).toContain('在勝者的 PR 按「Ready for review」')
   })
 
   it('N-version：一邊可審查、一邊失敗 → 仍是 ready-for-review，且不貼 needs-human', () => {
@@ -157,7 +157,7 @@ describe('aggregateTerminal', () => {
     const r = aggregateTerminal({ runId: 9, nversion: false, variants: [judged('a', 'ready-to-automerge', ['oversight/on-loop'])] })
     expect(r.outcome).toBe('ready-to-automerge')
     expect(r.comment).toContain('第 1 期')
-    expect(r.comment).not.toContain('Factory N-version Pick')
+    expect(r.comment).not.toContain('Ready for review')
   })
 
   it('用量段落附在終態留言（docs/08 §2.3）；N-version 標明變體，單一變體不標', () => {
