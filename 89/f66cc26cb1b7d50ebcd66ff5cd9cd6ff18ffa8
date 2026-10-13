@@ -1,0 +1,30 @@
+.github/workflows/factory-nversion-pick.yml
+  h_1b119f25eaf333 4-13,16-18,47-56,102,106-117,130-140,150,162
+docs/32-writing-work-items.md
+  h_1b119f25eaf333 119
+docs/ADR/021-nversion-parallel-pattern.md
+  h_1b119f25eaf333 105-117
+docs/ADR/022-sequential-stages.md
+  h_1b119f25eaf333 61-62,65-68
+src/cli/factory-compare.test.ts
+  h_1b119f25eaf333 278-281
+src/cli/factory-compare.ts
+  h_1b119f25eaf333 367-369
+src/cli/factory-terminal.test.ts
+  h_1b119f25eaf333 105,160
+src/cli/factory-terminal.ts
+  h_1b119f25eaf333 184
+test/adversarial/nversion-pr-steps.test.ts
+  h_1b119f25eaf333 441,464,472-524
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "89f66cc26cb1b7d50ebcd66ff5cd9cd6ff18ffa8",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
