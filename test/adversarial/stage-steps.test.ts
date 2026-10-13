@@ -98,6 +98,17 @@ describe('派工時的前置檢查（factory-run.yml）', () => {
     expect(r.stdout).toContain('前置工作項檢查失敗')
   })
 
+  it('格式卡只由變體 a 留言，但兩個變體都仍會因不合規而紅燈', () => {
+    const format = steps().find((s) => s.name === 'Check issue format (central enforcement)')!
+    expect(format.env?.VARIANT).toBe('${{ matrix.variant }}')
+    expect(format.run).toContain('if [ "$VARIANT" = "a" ]; then')
+    const commentAt = format.run!.indexOf('gh issue comment')
+    const guardAt = format.run!.indexOf('if [ "$VARIANT" = "a" ]; then')
+    expect(guardAt).toBeLessThan(commentAt)
+    // 停派判定不得被包進變體判斷
+    expect(format.run!.indexOf('格式不合規')).toBeGreaterThan(commentAt)
+  })
+
   it('沒有提供略過檢查的 dispatch input（ADR-018 §12 先例）', () => {
     const inputs = Object.keys(workflow('factory-run.yml').on.workflow_dispatch.inputs)
     expect(inputs.filter((k) => /prereq|skip|force/i.test(k))).toEqual([])

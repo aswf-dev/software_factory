@@ -48,7 +48,14 @@ function execStep(script: string, opts: { gh: string; node: string; files?: Reco
   const r = spawnSync('bash', ['-e', '-c', script], {
     cwd: dir,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, STUB_DIR: dir, GITHUB_WORKSPACE: dir, ...opts.env },
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      STUB_DIR: dir,
+      GITHUB_WORKSPACE: dir,
+      GITHUB_OUTPUT: join(dir, 'gh_output'),
+      ...opts.env,
+    },
   })
   const read = (f: string): string => {
     try {
@@ -57,7 +64,7 @@ function execStep(script: string, opts: { gh: string; node: string; files?: Reco
       return ''
     }
   }
-  return { status: r.status, stderr: r.stderr, edits: read('edits.log'), nodeCalls: read('node.log') }
+  return { status: r.status, stderr: r.stderr, edits: read('edits.log'), nodeCalls: read('node.log'), outputs: read('gh_output') }
 }
 
 describe('標題正規化 step（run job）', () => {
@@ -224,8 +231,11 @@ describe('nversion 開關（ADR-021）', () => {
   it('compare：B 的 artifact、比對卡片、互指區塊只在 N-version 時執行', () => {
     const c = workflow('factory-run.yml').jobs['compare']!.steps
     expect(c.find((s) => s.name === 'Download Variant B artifact')!.if).toBe('inputs.nversion')
-    expect(c.find((s) => s.name === 'Generate comparison report and post comment')!.if).toBe('always() && inputs.nversion')
-    expect(c.find((s) => s.name === 'Link N-version sibling PRs')!.if).toBe('always() && inputs.nversion')
+    // 卡片與互指區塊額外要求「至少一個變體啟動了 agent」：前置閘門擋下的 run 若照貼，
+    // 會多出一張「兩個變體都沒有 PR」的卡片（2026-10-13 沙箱實測 #11）
+    for (const name of ['Generate comparison report and post comment', 'Link N-version sibling PRs']) {
+      expect(c.find((s) => s.name === name)!.if, name).toBe("always() && inputs.nversion && steps.terminal.outputs.write == 'true'")
+    }
   })
 })
 
@@ -290,6 +300,16 @@ describe('compare job 是 Issue 終態的唯一寫入者（ADR-021）', () => {
     expect(guard().if).toBe("always() && steps.terminal.outcome != 'success'")
   })
 
+  it('對外揭露 write output：沒有變體啟動 agent 時為 false（卡片據此抑制）', () => {
+    const r = execLogged(terminal().run ?? '', {
+      cases: '',
+      node: `echo '{"write":false,"labels":[]}'`,
+      env: { GH_REPO: 'o/r', ISSUE: '721', NVERSION: 'true', RUN_ID: '5', GH_TOKEN: 'x' },
+    })
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.outputs.trim()).toBe('write=false')
+  })
+
   it('先貼標籤、後留言（留言帶終態標記；標籤失敗時不得留下標記）', () => {
     const r = execLogged(terminal().run ?? '', {
       cases: '',
@@ -298,6 +318,7 @@ describe('compare job 是 Issue 終態的唯一寫入者（ADR-021）', () => {
     })
     expect(r.status, r.stderr).toBe(0)
     expect(r.calls).toEqual(['issue edit 721 --repo o/r --add-label oversight/review', 'issue comment 721 --repo o/r --body-file terminal.md'])
+    expect(r.outputs.trim()).toBe('write=true')
   })
 
   it('標籤失敗 → step 失敗且沒有留言（讓 G1 接手）', () => {
