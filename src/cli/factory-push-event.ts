@@ -49,8 +49,23 @@ export interface FactoryPushEventArgs {
    * （factory-scoreboard#19）。寫入 `extra.run_repo`，非 owner/name 格式則不寫。
    */
   runRepo?: string | undefined
+  /**
+   * N-version 變體代號（CI 以 `matrix.variant` 帶入）。
+   *
+   * 兩個變體在同一個 run 裡平行執行、共用 `run_id`。冪等鍵若不含變體，兩筆事件
+   * 會得到相同的 `event_id`，被接收端 `ON CONFLICT DO UPDATE` 合併成一筆拼湊
+   * 紀錄（docs/26 §3）。只接受 `a`／`b`；其他值降級為 undefined，不中止。
+   */
+  variant?: VariantId | undefined
   /** 只組裝並印出事件，不實際送出（供 CI dry_run 與本機驗證）。 */
   dryRun: boolean
+}
+
+/** N-version 變體代號；與 `factory-compare` 的 VariantId 同一組值。 */
+export type VariantId = 'a' | 'b'
+
+function parseVariant(value: string): VariantId | undefined {
+  return value === 'a' || value === 'b' ? value : undefined
 }
 
 export function parseArgs(argv: string[]): FactoryPushEventArgs {
@@ -64,6 +79,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
   let modelPath: string | undefined
   let skillsDigest: string | undefined
   let runRepo: string | undefined
+  let variant: VariantId | undefined
   let dryRun = false
   const positional: string[] = []
 
@@ -85,7 +101,12 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
     else if (arg === '--model') modelPath = need('--model')
     else if (arg === '--skills-digest') skillsDigest = need('--skills-digest')
     else if (arg === '--run-repo') runRepo = need('--run-repo')
-    else if (arg === '--dry-run') dryRun = true
+    else if (arg === '--variant') {
+      // 先取值再驗證：空字串（未展開的 matrix 運算式）也算「有給值」，降級而非中止。
+      const v = next()
+      if (v === undefined || v.startsWith('--')) throw new CliError('--variant requires a value')
+      variant = parseVariant(v)
+    } else if (arg === '--dry-run') dryRun = true
     else if (arg.startsWith('--')) throw new CliError(`unknown argument: ${arg}`)
     else positional.push(arg)
   }
@@ -118,6 +139,7 @@ export function parseArgs(argv: string[]): FactoryPushEventArgs {
     modelPath,
     skillsDigest,
     runRepo,
+    variant,
     dryRun,
   }
 }
@@ -156,9 +178,14 @@ function firstStopRule(stopDecision: Record<string, unknown> | undefined): strin
   return null
 }
 
-/** event_id = sha256(run_id:issue_number) 前 32 字元（docs/26 §3，與接收端同演算法）。 */
-export function deriveEventId(runId: number | null, issueNumber: number): string {
-  return createHash('sha256').update(`${runId ?? 'no-run'}:${issueNumber}`).digest('hex').slice(0, 32)
+/**
+ * event_id = sha256(run_id:issue_number[:variant]) 前 32 字元（docs/26 §3，與接收端同演算法）。
+ *
+ * 有變體時把變體接在最後；沒有變體時維持舊種子，既有事件的冪等鍵因此不變。
+ */
+export function deriveEventId(runId: number | null, issueNumber: number, variant?: VariantId): string {
+  const seed = `${runId ?? 'no-run'}:${issueNumber}${variant === undefined ? '' : `:${variant}`}`
+  return createHash('sha256').update(seed).digest('hex').slice(0, 32)
 }
 
 /** `philipz/software_factory` → owner + repo；無斜線時 owner 留空字串由呼叫端決定。 */
@@ -207,7 +234,7 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
   const { owner, repo } = splitRepo(args.repo)
 
   return {
-    event_id: deriveEventId(args.runId, args.issueNumber),
+    event_id: deriveEventId(args.runId, args.issueNumber, args.variant),
     schema_version: 2,
     occurred_at: now().toISOString(),
     source: 'factory-ci',
@@ -239,8 +266,16 @@ export function buildEvent(args: FactoryPushEventArgs, now: () => Date = () => n
     //
     // run_repo 與上述訊號同置 extra，理由相同：接收端 zod 會剝除未知頂層欄位，
     // extra 原樣保存，兩端部署順序因此無關。
-    extra: withRunRepo(buildRequirementExtra(report, crosscheck, judge), args.runRepo),
+    //
+    // variant 同理放 extra：看板據此把同一 run 的兩筆事件分開統計（例如依模型、
+    // 依變體），而不必升級 schema 版本。
+    extra: withVariant(withRunRepo(buildRequirementExtra(report, crosscheck, judge), args.runRepo), args.variant),
   }
+}
+
+function withVariant(extra: Record<string, unknown>, variant: VariantId | undefined): Record<string, unknown> {
+  if (variant !== undefined) extra['variant'] = variant
+  return extra
 }
 
 /** GitHub `owner/name`；與 factory-scoreboard 的採用條件一致，不送會被拒用的值。 */

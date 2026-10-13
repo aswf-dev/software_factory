@@ -1368,6 +1368,10 @@ jobs:
       # 機制 repo 由 philipz 遷至 aswf-dev 後，看板無法再以單一設定推得 run 連結，
       # 故由事件自述（extra.run_repo，factory-scoreboard#19）。CLI 對未知旗標會報錯，
       # 而本 step continue-on-error——旗標與 CLI 必須同版上線，否則事件靜默遺失。
+      #
+      # --variant：N-version 的兩個變體共用 github.run_id。冪等鍵不含變體時，兩筆事件
+      # 撞同一個 event_id，被看板 ON CONFLICT DO UPDATE 合併成拼湊紀錄（成本少算一半、
+      # 一個模型從看板消失）。變體接進冪等鍵並寫入 extra.variant（docs/26 §3）。
       - name: Push event to scoreboard
         if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
         continue-on-error: true
@@ -1386,6 +1390,7 @@ jobs:
             --model "$GITHUB_WORKSPACE/.factory/model.json" \
             --skills-digest "${SKILLS_DIGEST:-}" \
             --run-repo "${{ github.repository }}" \
+            --variant "${{ matrix.variant }}" \
             > "$GITHUB_WORKSPACE/.factory/scoreboard-event.json" \
             || echo "::warning::scoreboard 推送失敗（不擋 run）"
 

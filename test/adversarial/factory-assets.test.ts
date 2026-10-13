@@ -2321,6 +2321,20 @@ describe('機制 repo 遷移接線（aswf-dev/software_factory，factory-scorebo
     expect(step!.run).toContain('--run-repo "${{ github.repository }}"')
   })
 
+  it('Push event to scoreboard 帶 --variant，且位於有 variant matrix 的 job', () => {
+    // N-version 的兩個變體共用 run_id；少了變體，兩筆事件撞同一個 event_id，被看板
+    // 合併成拼湊紀錄（docs/26 §3）。step 若被搬到沒有 matrix 的 job，`matrix.variant`
+    // 會展開成空字串、CLI 降級為「不帶變體」——同樣會靜默撞號，所以一併釘住所在 job。
+    const wf = load(read('.github/workflows/factory-run.yml')) as {
+      jobs: Record<string, { strategy?: { matrix?: { variant?: unknown } }; steps: { name?: string; run?: string }[] }>
+    }
+    const job = Object.values(wf.jobs).find((j) => j.steps.some((s) => s.name === 'Push event to scoreboard'))
+    expect(job, '找不到含 Push event to scoreboard 的 job').toBeDefined()
+    expect(job!.strategy?.matrix?.variant, '該 job 沒有 variant matrix').toEqual(['a', 'b'])
+    const step = job!.steps.find((s) => s.name === 'Push event to scoreboard')!
+    expect(step.run).toContain('--variant "${{ matrix.variant }}"')
+  })
+
   it.each([
     'backstage/templates/factory-work-item/template.yaml',
     'backstage/templates/agent-add-tests/template.yaml',

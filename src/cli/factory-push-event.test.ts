@@ -146,6 +146,79 @@ describe('deriveEventId — docs/26 §3 idempotency', () => {
   })
 })
 
+// N-version（雙模型 matrix）的兩個變體共用同一個 run_id。冪等鍵若不含變體，兩筆
+// 事件會撞同一個 event_id，被接收端 ON CONFLICT DO UPDATE 合併成一筆拼湊紀錄：
+// 成本只剩一個變體、另一個模型從看板消失、skill_gap 可能來自另一個變體。
+describe('deriveEventId — N-version 變體（docs/26 §3）', () => {
+  it('同一 run、同一 issue 的兩個變體得到不同的 event_id', () => {
+    expect(deriveEventId(33891806331, 228, 'a')).not.toBe(deriveEventId(33891806331, 228, 'b'))
+  })
+
+  it('同一變體重試仍得到相同的 event_id（冪等性不變）', () => {
+    expect(deriveEventId(33891806331, 228, 'a')).toBe(deriveEventId(33891806331, 228, 'a'))
+  })
+
+  it('帶變體與不帶變體不相撞', () => {
+    expect(deriveEventId(33891806331, 228, 'a')).not.toBe(deriveEventId(33891806331, 228))
+  })
+
+  it('釘住演算法：sha256(run:issue:variant) 前 32 字元（與接收端補算保持一致）', () => {
+    expect(deriveEventId(33891806331, 228, 'a')).toBe('b388ecef2c0bcc6770fdaf53e683aefc')
+  })
+
+  it('不帶變體時維持舊演算法（舊事件的冪等鍵不變）', () => {
+    expect(deriveEventId(33891806331, 228, undefined)).toBe('d428b5cb1f9a79f690a66cc8cfc1911f')
+  })
+})
+
+describe('--variant（N-version 變體代號）', () => {
+  it('解析 a／b', () => {
+    expect(parseArgs(baseArgv(['--variant', 'a'])).variant).toBe('a')
+    expect(parseArgs(baseArgv(['--variant', 'b'])).variant).toBe('b')
+  })
+
+  it('未帶旗標 → undefined', () => {
+    expect(parseArgs(baseArgv()).variant).toBeUndefined()
+  })
+
+  it('非 a／b 的值降級為 undefined，不中止（收集面永不影響執行面）', () => {
+    for (const bad of ['c', 'A', '', 'ab', '../a']) {
+      expect(parseArgs(baseArgv(['--variant', bad])).variant, bad).toBeUndefined()
+    }
+  })
+
+  it('旗標缺值 → CliError（與其他旗標同規則）', () => {
+    expect(() => parseArgs(baseArgv(['--variant']))).toThrow(CliError)
+  })
+
+  it('buildEvent：event_id 含變體，且變體寫入 extra.variant', () => {
+    const a = buildEvent(parseArgs(baseArgv(['--variant', 'a'])), fixedNow)
+    const b = buildEvent(parseArgs(baseArgv(['--variant', 'b'])), fixedNow)
+    expect(a.event_id).toBe(deriveEventId(33891806331, 228, 'a'))
+    expect(b.event_id).toBe(deriveEventId(33891806331, 228, 'b'))
+    expect(a.event_id).not.toBe(b.event_id)
+    expect(a.extra['variant']).toBe('a')
+    expect(b.extra['variant']).toBe('b')
+  })
+
+  it('buildEvent：未帶變體 → 舊 event_id、extra 不寫 variant（向後相容）', () => {
+    const e = buildEvent(parseArgs(baseArgv()), fixedNow)
+    expect(e.event_id).toBe('d428b5cb1f9a79f690a66cc8cfc1911f')
+    expect(e.extra['variant']).toBeUndefined()
+  })
+
+  it('與 run_repo、requirements 訊號並存於 extra，互不覆蓋', () => {
+    const report = writeJson('r-variant.json', { requirements: [{ id: 'REQ-1', status: 'failed' }] })
+    const e = buildEvent(
+      parseArgs(baseArgv(['--report', report, '--run-repo', 'aswf-dev/software_factory', '--variant', 'b'])),
+      fixedNow,
+    )
+    expect(e.extra['variant']).toBe('b')
+    expect(e.extra['run_repo']).toBe('aswf-dev/software_factory')
+    expect(e.extra['requirements_failed']).toEqual(['REQ-1'])
+  })
+})
+
 describe('buildEvent — 純資料搬運（docs/26 §2.3）', () => {
   it('assembles a complete event from all four artifacts', () => {
     const report = writeJson('report.json', { usage: usageBlock, skillGap: { category: 'monorepo-test-path', needed: 'x' } })

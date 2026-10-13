@@ -14,7 +14,7 @@
 
 ```jsonc
 {
-  "event_id": "uuid",              // 冪等鍵（由 run_id + issue_number 派生）
+  "event_id": "uuid",              // 冪等鍵（由 run_id + issue_number [+ variant] 派生，§3）
   "schema_version": 2,
   "occurred_at": "2026-10-14T08:37:38Z",   // factory-run 結束時間（ISO 8601）
   "source": "factory-ci",          // factory-ci | backstage-form | …
@@ -86,6 +86,8 @@
 | `requirements_total` | `number` | 驗收條件總數 |
 | `requirement_advisories` | `string[]` | crosscheck advisory 的 `kind`（不含 `detail`）|
 | `skill_gap_unreported` | `true`（不存在即否）| 本次 run 異常收場卻未回報 `skillGap`——**「可能漏報」的訊號，不是缺口本身** |
+| `run_repo` | `string`（`owner/name`）| run 實際執行所在的機制 repo（factory-scoreboard#19）；格式不符則不寫 |
+| `variant` | `'a'`／`'b'`（不存在即非 N-version）| N-version 變體代號；同一 run 的兩筆事件以此區分，並已接進冪等鍵（§3）|
 
 **`skill_gap_unreported` 的三個設計約束**：
 
@@ -181,11 +183,27 @@ Content-Type: application/json
 
 ## 3. 冪等性
 
-**`event_id` 由 `run_id` ＋ `issue_number` 派生**（UUIDv5 或 `sha256(run_id:issue_number)` 前 32 字元）。
+**`event_id` 由 `run_id` ＋ `issue_number` ＋（N-version 時）`variant` 派生**：
 
-- 同一 run 重試（Actions re-run）→ 相同 `event_id` → 接收端以 `INSERT OR REPLACE` 或 `ON CONFLICT DO UPDATE` 處理
+- 有變體：`sha256(run_id:issue_number:variant)` 前 32 字元
+- 無變體：`sha256(run_id:issue_number)` 前 32 字元（舊演算法，既有事件的冪等鍵不變）
+
+- 同一 run、同一變體重試（Actions re-run）→ 相同 `event_id` → 接收端以 `INSERT OR REPLACE` 或 `ON CONFLICT DO UPDATE` 處理
 - **不重複計數**：聚類與成本統計以 `event_id` 去重
 - 接收端回傳 `200`（新建）或 `200` + `{"deduplicated": true}`（已存在）
+
+> **為何冪等鍵要含變體（2026-10-12）**：N-version 的兩個變體在同一個 run 的 matrix 裡平行執行，
+> 共用 `run_id`。冪等鍵只含 `run_id:issue_number` 時，兩筆事件撞同一個 `event_id`，接收端的
+> `ON CONFLICT DO UPDATE`（多數欄位 `COALESCE(新值, 舊值)`）把它們合併成一筆**拼湊紀錄**：成本與
+> token 只剩後到的變體、依模型統計少一個模型、`skill_gap` 可能來自另一個變體。
+>
+> **接收端的對應改動**（factory-scoreboard，本 repo 合併後另開）：
+> 1. 送出端未帶 `event_id` 時的補算加入 `extra.variant`，與本節演算法一致；
+> 2. 技能缺口聚類改以 Issue 計數（`COUNT(DISTINCT repo || '#' || issue_number)`）——同一張單兩個變體
+>    回報同一缺口時，不得算成兩次，否則 `docs/25` §3 的「≥3 次」門檻兩張單就會達到；
+> 3. 依終態的統計註明計數單位是「變體次數」；Issue 層級的終態以 `GROUP BY run_id, issue_number` 推導。
+>
+> **歷史資料不回填**：N-version 上線（2026-10-10）至本修正之間的事件已被合併，維持原狀。
 
 ---
 
@@ -250,5 +268,6 @@ curl -s "$SCOREBOARD_URL/api/v1/events?from=<date>" | jq '[.[].run_id]'
 | 日期 | 變動 |
 |---|---|
 | 2026-09-05 | 建立：事件 schema v2、推送規格、冪等性、對帳、權威來源界線與隱私規則 |
+| 2026-10-12 | **冪等鍵加入 N-version 變體**（§3）：兩個變體共用 `run_id`，原冪等鍵使兩筆事件被合併成拼湊紀錄。`factory-push-event` 新增 `--variant`；§1.3 補登 `variant` 與先前漏登的 `run_repo`。**schema v2 未變動**；接收端的補算與兩項統計查詢需另行修改（§3）；歷史資料不回填 |
 | 2026-09-20 | **Q26-1 接線並定案**：新增 §1.4（彙總而非逐 skill、描述實際載入而非 lock 宣告、掃不到時為 `null`）；§1.2 來源欄更正為 `factory-skills-lock --verify` 的 `digest`；`factory-push-event` 不再讀 `report.skillsDigest`（受測者不得填寫自己的量測值）。**schema v2 未變動，接收端零改動** |
 | 2026-09-17 | 新增 §1.3 記載 `extra` 槽目前承載的四個欄位（含新增的 `skill_gap_unreported`）；Q26-1 補記 `skills_digest` 實測恆為 `null` 且連帶使 `docs/25` §5 的生效驗證第 4 步無法執行。**schema v2 未變動，接收端零改動** |
