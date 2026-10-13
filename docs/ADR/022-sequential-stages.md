@@ -86,7 +86,8 @@ App token 只發給單一目標 repo：`contents: write`（刪分支）、`issue
 4. 允許清單以即時狀態判斷（在本 workflow，決策 4 第 1 點）。
 5. 刪除前以即時狀態重新判定（在本 workflow）。
 6. D1 只存遞送紀錄（ID、時間、處理結果），90 天自動清除。
-7. Cloudflare Access 的 Bypass 只開這一個確切路徑（`aswf.dev`、`www.aswf.dev`）。
+7. Cloudflare Access 的 Bypass 只開這一個確切路徑，且只開 GitHub App 實際指向的主機（`aswf.dev`；
+   `www.aswf.dev` 沒有必要——多開一個主機只是多一處暴露面）。
 8. webhook 檔案明確加進 aswf.dev 的 `risk-paths.yml` H1 與 CODEOWNERS。
 9. 回應只回狀態碼，不回內部錯誤訊息。
 
