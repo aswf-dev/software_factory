@@ -53,6 +53,8 @@ export interface CompareSummary {
   issueNumber: number
   variantA: VariantData
   variantB: VariantData
+  /** dry_run：agent 是模擬程式，模型／用量／成本都是模擬值（只在 true 時出現）。 */
+  dryRun?: true | undefined
 }
 
 export interface VariantPaths {
@@ -69,6 +71,7 @@ export interface CompareCliArgs {
   b: VariantPaths
   outPath?: string
   format: 'markdown' | 'json'
+  dryRun?: true | undefined
 }
 
 const PATH_FLAGS: Record<string, [VariantId, keyof VariantPaths]> = {
@@ -95,6 +98,7 @@ export function parseArgs(argv: string[]): CompareCliArgs {
   const paths: Record<VariantId, VariantPaths> = { a: {}, b: {} }
   let outPath: string | undefined
   let format: 'markdown' | 'json' = 'markdown'
+  let dryRun = false
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
@@ -117,6 +121,13 @@ export function parseArgs(argv: string[]): CompareCliArgs {
         throw new CliError(`--format 必須是 markdown|json，收到 "${val}"`)
       }
       format = val
+    } else if (arg === '--dry-run') {
+      // 值取自 workflow 的 `${{ inputs.dry_run }}`：只認 true／false，其他值報錯而不是猜
+      const val = requireValue(argv, ++i, arg)
+      if (val !== 'true' && val !== 'false') {
+        throw new CliError(`--dry-run 必須是 true|false，收到 "${val}"`)
+      }
+      dryRun = val === 'true'
     } else {
       throw new CliError(`unknown argument: ${arg}`)
     }
@@ -125,7 +136,14 @@ export function parseArgs(argv: string[]): CompareCliArgs {
   if (issueNumber === undefined) {
     throw new CliError('缺少必填參數 --issue-number')
   }
-  return { issueNumber, a: paths.a, b: paths.b, ...(outPath !== undefined ? { outPath } : {}), format }
+  return {
+    issueNumber,
+    a: paths.a,
+    b: paths.b,
+    ...(outPath !== undefined ? { outPath } : {}),
+    format,
+    ...(dryRun ? { dryRun: true as const } : {}),
+  }
 }
 
 type Json = Record<string, unknown>
@@ -284,7 +302,10 @@ function formatTokens(tokens: number | undefined): string {
 }
 
 /** 讓審查者在讀表之前就知道哪些比對不成立。 */
-function warnings(a: VariantData, b: VariantData): string[] {
+function warnings(a: VariantData, b: VariantData, dryRun: boolean): string[] {
+  // dry_run 的 stub 不開 PR、不跑模型：「沒有 PR」與「模型相同／坍縮」都是模擬造成的，
+  // 列出來只會誤導（2026-10-13 沙箱 #10 的卡片因此誤判 fallback 坍縮）。改由頂端註記說明。
+  if (dryRun) return []
   const out: string[] = []
   for (const v of [a, b]) {
     const name = `變體 ${v.variant.toUpperCase()}`
@@ -302,16 +323,23 @@ function warnings(a: VariantData, b: VariantData): string[] {
 export function renderCompareMarkdown(summary: CompareSummary): string {
   const { issueNumber, variantA: a, variantB: b } = summary
   const row = (label: string, f: (v: VariantData) => string) => `| ${label} | ${f(a)} | ${f(b)} |`
-  const warn = warnings(a, b)
+  const dryRun = summary.dryRun === true
+  const warn = warnings(a, b, dryRun)
   return [
     `## ⚔️ 雙模型競賽比對報告（Issue #${issueNumber}）`,
     '',
     '> 下表只陳述機器事實（跑了哪個模型、終態、交付在哪、花多少），**不代表品質**。勝者由人工比對兩個 PR 後決定。',
     '',
+    ...(dryRun
+      ? [
+          '🧪 **dry_run**：agent 是模擬程式，沒有呼叫任何模型、也不開 PR。**模型欄是路由設定**（各變體 chain 的第一順位），用來確認變體路由是否正確；用量與成本都是模擬值。',
+          '',
+        ]
+      : []),
     ...(warn.length > 0 ? ['⚠️ **注意**', ...warn.map((w) => `- ${w}`), ''] : []),
     '| 項目 | 變體 A | 變體 B |',
     '| :--- | :--- | :--- |',
-    row('**模型**（session log 實測）', formatModel),
+    row(dryRun ? '**模型**（dry_run：路由設定，非實測）' : '**模型**（session log 實測）', formatModel),
     row('**機器終態**', (v) => formatOutcome(v.outcome)),
     row('**Pull Request**', formatPr),
     row('**需求涵蓋**（agent 自報）', (v) => formatRequirements(v.requirements)),
@@ -347,6 +375,7 @@ export function main(argv: string[]): string | CompareSummary {
     issueNumber: args.issueNumber,
     variantA: buildVariantData(args.issueNumber, 'a', args.a),
     variantB: buildVariantData(args.issueNumber, 'b', args.b),
+    ...(args.dryRun ? { dryRun: true as const } : {}),
   }
   const output = args.format === 'json' ? summary : renderCompareMarkdown(summary)
   if (args.outPath !== undefined) {

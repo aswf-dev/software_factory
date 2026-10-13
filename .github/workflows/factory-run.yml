@@ -749,8 +749,11 @@ jobs:
           if [ "${{ inputs.dry_run }}" == "true" ]; then
             # agent 一律在目標 repo checkout 內工作（sandbox workspaceRoot = cwd）
             cd target
+            # --model-json：stub 的 usage 回報本變體 chain 的第一順位，讓 dry-run 的比對卡片
+            # 能看出變體路由是否正確（原本寫死 deepseek，兩邊永遠相同、誤判坍縮）。
             node "$GITHUB_WORKSPACE/dist/cli/dry-run-agent.js" \
               "${{ inputs.dry_run_scenario }}" "${{ inputs.issue_number }}" \
+              --model-json "$GITHUB_WORKSPACE/.factory/model.json" \
               > .factory/run/dry.txt 2>&1
             code=0
           else
@@ -1612,6 +1615,7 @@ jobs:
             --judge-b "artifacts/b/.factory/judge.json" \
             --usage-a "artifacts/a/target/.factory/run/usage.json" \
             --usage-b "artifacts/b/target/.factory/run/usage.json" \
+            --dry-run "${{ inputs.dry_run && 'true' || 'false' }}" \
             --out compare.md
 
           # ADR-021：有 PR 無法轉成 draft 時（例如該 repo 的方案不支援），在卡片頂端警示——
