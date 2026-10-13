@@ -181,7 +181,7 @@ export function aggregateTerminal({ runId, nversion, variants }: TerminalInput):
   if (nversion) {
     lines.push(
       outcome === 'ready-for-review'
-        ? 'N-version：至少一個變體可審查。請比對兩個變體的 PR，再執行「Factory N-version Pick」workflow 指定勝者——勝者轉為正式 PR，落選方的 draft 會被關閉（分支保留）。'
+        ? 'N-version：至少一個變體可審查。請比對兩個變體的 PR，**在勝者的 PR 按「Ready for review」**——工廠會自動把同一變體的其餘 PR 轉正、關閉另一變體的 draft（分支保留），審查後照常按 Merge。（備援：機制 repo 的「Factory N-version Pick」workflow）'
         : 'N-version：沒有任何變體可審查，已交還人類。',
       '',
       '| 變體 | 終態 | 說明 |',

@@ -438,7 +438,7 @@ describe('選勝者 workflow（factory-nversion-pick，ADR-021）', () => {
           : [{ number: 21, headRefName: 'factory/721-b-01-test', isDraft: true }],
       )
     const r = execLogged(step().run ?? '', {
-      cases: `  "pr list") case "$*" in *721-a-*) echo '${open('a')}' ;; *) echo '${open('b')}' ;; esac ;;`,
+      cases: `  "pr list") case "$*" in *"--state merged"*) echo '[]' ;; *721-a-*) echo '${open('a')}' ;; *) echo '${open('b')}' ;; esac ;;`,
       env,
     })
     expect(r.status, r.stderr).toBe(0)
@@ -461,12 +461,65 @@ describe('選勝者 workflow（factory-nversion-pick，ADR-021）', () => {
 
   it('勝者的 PR 若不是 draft（例如 repo 不支援 draft）→ 不呼叫 pr ready，照常關閉落選方', () => {
     const r = execLogged(step().run ?? '', {
-      cases: `  "pr list") case "$*" in *721-a-*) echo '[{"number":11,"headRefName":"factory/721-a-01-test","isDraft":false}]' ;; *) echo '[]' ;; esac ;;`,
+      cases: `  "pr list") case "$*" in *"--state merged"*) echo '[]' ;; *721-a-*) echo '[{"number":11,"headRefName":"factory/721-a-01-test","isDraft":false}]' ;; *) echo '[]' ;; esac ;;`,
       env,
     })
     expect(r.status, r.stderr).toBe(0)
     expect(r.calls.some((c) => c.startsWith('pr ready'))).toBe(false)
     expect(r.calls.find((c) => c.startsWith('issue comment'))).toContain('沒有開著的 PR')
+  })
+
+  /* ── Q48：在目標 repo 按 Ready for review 選勝者（aswf.dev 轉送，帶 picked_by）── */
+
+  const winnerA = `[{"number":11,"headRefName":"factory/721-a-01-test","isDraft":false},{"number":12,"headRefName":"factory/721-a-02-impl","isDraft":true}]`
+  const openB = `[{"number":21,"headRefName":"factory/721-b-01-test","isDraft":false}]`
+
+  it('picked_by／delivery_id 是選用輸入（手動執行留空）', () => {
+    const inputs = wf().on.workflow_dispatch.inputs
+    expect(inputs['picked_by']).toMatchObject({ required: false, type: 'string', default: '' })
+    expect(inputs['delivery_id']).toMatchObject({ required: false, type: 'string', default: '' })
+    // 只經 env 傳入，不內插進 shell（避免 payload 字串成為指令）
+    expect(step().run).not.toContain('${{ inputs.picked_by }}')
+    expect(step().env?.['PICKED_BY']).toBe('${{ inputs.picked_by }}')
+  })
+
+  it('從目標 repo 觸發：擁有者已轉正的那一層不重複轉，其餘層轉正；留言記錄按下按鈕的帳號', () => {
+    const r = execLogged(step().run ?? '', {
+      cases: `  "pr list") case "$*" in *"--state merged"*) echo '[]' ;; *721-a-*) echo '${winnerA}' ;; *) echo '${openB}' ;; esac ;;`,
+      env: { ...env, ACTOR: 'softwarefactory-bot[bot]', PICKED_BY: 'alice' },
+    })
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.calls.filter((c) => c.startsWith('pr ready'))).toEqual(['pr ready 12 --repo o/r'])
+    expect(r.calls.filter((c) => c.startsWith('pr close'))).toHaveLength(1)
+    const comment = r.calls.find((c) => c.startsWith('issue comment'))!
+    expect(comment).toContain('由 @alice 在目標 repo 的 PR 按下 Ready for review 選定')
+    expect(comment).not.toContain('softwarefactory-bot')
+  })
+
+  it('picked_by 格式不符（可能混入 Markdown）→ 不採用，改記 github.actor', () => {
+    const r = execLogged(step().run ?? '', {
+      cases: `  "pr list") case "$*" in *"--state merged"*) echo '[]' ;; *721-a-*) echo '${winnerA}' ;; *) echo '[]' ;; esac ;;`,
+      env: { ...env, PICKED_BY: 'x](https://evil)' },
+    })
+    expect(r.status, r.stderr).toBe(0)
+    const comment = r.calls.find((c) => c.startsWith('issue comment'))!
+    expect(comment).toContain('由 @philipz 以 workflow 指定')
+    expect(comment).not.toContain('evil')
+  })
+
+  it('Q41：被換下的變體已有 PR 合併 → 拒絕改選、在 Issue 說明並請人貼 stage/done，且不動任何 PR', () => {
+    const merged = `[{"number":21,"headRefName":"factory/721-b-01-test"},{"number":99,"headRefName":"factory/7210-b-01-test"}]`
+    const r = execLogged(step().run ?? '', {
+      cases: `  "pr list") case "$*" in *"--state merged"*) echo '${merged}' ;; *721-a-*) echo '${winnerA}' ;; *) echo '[]' ;; esac ;;`,
+      env: { ...env, PICKED_BY: 'alice' },
+    })
+    expect(r.status).not.toBe(0)
+    expect(r.calls.some((c) => c.startsWith('pr ready') || c.startsWith('pr close'))).toBe(false)
+    const comment = r.calls.find((c) => c.startsWith('issue comment'))!
+    expect(comment).toContain('無法改選變體 a')
+    expect(comment).toContain('#21')
+    expect(comment).not.toContain('#99')
+    expect(comment).toContain('stage/done')
   })
 
   it('取代舊的 factory-nversion-cleanup.yml（那支只對機制 repo 有效，從未部署到目標 repo）', () => {

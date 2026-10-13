@@ -364,7 +364,9 @@ export function renderCompareMarkdown(summary: CompareSummary): string {
     '```',
     '',
     '### 合併後',
-    '- 兩個變體的 PR 都是 draft。比對後執行「Factory N-version Pick」workflow（輸入 Issue 編號與勝出變體）：勝者轉為正式 PR，落選方的 draft 會被關閉，**分支保留**，若勝者審查時被否決仍可改選。',
+    '- 兩個變體的 PR 都是 draft。比對後**在勝者的 PR 按「Ready for review」**：工廠會自動把同一變體的其餘 PR 轉正、關閉另一變體的 draft（**分支保留**），審查後照常按 Merge。',
+    '- 勝者審查時被否決：重新開啟落選方的 PR，再按一次 Ready for review 即可改選；勝者已有 PR 合併後就不能改選。',
+    '- 只需要本 repo 的 write 權限，不需要機制 repo 的權限。備援：機制 repo 的「Factory N-version Pick」workflow。',
     '',
   ].join('\n')
 }

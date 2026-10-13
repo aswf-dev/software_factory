@@ -275,7 +275,10 @@ describe('renderCompareMarkdown', () => {
     expect(md).toContain('### 人工比對紀錄')
     expect(md).toContain('判定：A / B / 平手 / 兩者皆不收')
     // ADR-021：落選方由選勝者 workflow 關閉（分支保留），不是靠人手動關閉
-    expect(md).toContain('Factory N-version Pick')
+    // Q48：主要入口是在目標 repo 的勝者 PR 按 Ready for review；workflow 只是備援
+    expect(md).toContain('在勝者的 PR 按「Ready for review」')
+    expect(md).toContain('不需要機制 repo 的權限')
+    expect(md).toContain('勝者已有 PR 合併後就不能改選')
     expect(md).toContain('分支保留')
     expect(md).not.toContain('不會自動關閉')
     expect(md).not.toContain('⚠️ **注意**')

@@ -1,10 +1,21 @@
 # Factory N-version Pick — 由人指定 N-version 的勝出變體（ADR-021）。
 #
 # 背景：N-version 的兩個變體都以 draft PR 交付（factory-run.yml 的「Normalize PR draft
-# state」），所以審查佇列裡不會同時出現兩份。人比對兩邊後執行本 workflow：
+# state」），所以審查佇列裡不會同時出現兩份。人比對兩邊後選定勝者，觸發方式有兩種：
+#
+#   1. **主要入口：在目標 repo 的勝者 PR 按「Ready for review」**（2026-10-13 裁決 Q48）。
+#      GitHub 只允許對該 repo 有 write 權限的人或 PR 作者改變 PR 狀態，所以按下按鈕的
+#      人已由 GitHub 確認有權決定。webhook → aswf.dev 轉送站（排除 bot 觸發、只放行
+#      factory/<issue>-<a|b>- 分支）→ 以 App 派工本 workflow，帶 picked_by＝按下按鈕的
+#      GitHub 帳號。專案擁有者全程只在自己的 repo 操作，不需要機制 repo 的任何權限。
+#   2. 備援：在本 repo 的 Actions 頁手動執行（picked_by 留空，留言記錄 github.actor）。
+#
+# 本 workflow 做的事：
 #   - 勝者的 draft 轉為正式 PR（由底層往上，`01-` 先於 `02-`）；
 #   - 落選方的 draft 關閉，**分支保留**——勝者若在審查時被否決，可以重新開啟落選方的
-#     PR，再以另一個變體重跑本 workflow 改選；
+#     PR、再按一次 Ready for review 改選（Q41）；
+#   - **改選的限制**：若被換下的變體已有 PR 合併，拒絕並在 Issue 留言——兩個變體各合併
+#     一部分會成為 mixed 狀態（ADR-022），只能由人處理；
 #   - 在 Issue 留言記錄選擇（稽核歷程存放在 GitHub，ADR-001）。
 #
 # 落選分支的刪除不在這裡做：要等勝者的 PR 全部合併後才刪（Q26-B），合併發生在目標
@@ -33,6 +44,16 @@ on:
         required: false
         type: string
         default: aswf-dev/software_factory
+      picked_by:
+        description: 在目標 repo 按下 Ready for review 的 GitHub 帳號（由 aswf.dev 轉送站帶入；手動執行留空）
+        required: false
+        type: string
+        default: ''
+      delivery_id:
+        description: webhook 遞送 ID（由 aswf.dev 帶入，僅供稽核；手動執行留空）
+        required: false
+        type: string
+        default: ''
 
 # 與 factory-run 共用同一個 concurrency group：選勝者與該 Issue 的執行互斥，
 # 不會在變體還在交付時就把 PR 轉正或關閉。
@@ -78,9 +99,22 @@ jobs:
           WINNER: ${{ inputs.variant }}
           ACTOR: ${{ github.actor }}
           RUN_ID: ${{ github.run_id }}
+          PICKED_BY: ${{ inputs.picked_by }}
         run: |
           set -euo pipefail
           if [ "$WINNER" = "a" ]; then LOSER=b; else LOSER=a; fi
+          PICKED_BY="${PICKED_BY:-}"
+          # picked_by 來自 webhook payload 的 sender.login（GitHub 簽章過），只接受合法帳號字元，
+          # 其他一律當成未提供——它會被寫進留言，不能讓任意字串混進 Markdown。
+          if [ -n "$PICKED_BY" ] && ! [[ "$PICKED_BY" =~ ^[A-Za-z0-9-]{1,39}$ ]]; then
+            echo "::warning::picked_by 格式不符，改記 github.actor"
+            PICKED_BY=""
+          fi
+          if [ -n "$PICKED_BY" ]; then
+            WHO="由 @${PICKED_BY} 在目標 repo 的 PR 按下 Ready for review 選定"
+          else
+            WHO="由 @${ACTOR} 以 workflow 指定"
+          fi
           # search 的 head: 是模糊比對，必須再以前綴精確過濾（7210 vs 721，#713 教訓）
           list_open() {
             gh pr list --repo "$GH_REPO" --state open --limit 30 --search "head:factory/${ISSUE}-$1-" \
@@ -93,6 +127,17 @@ jobs:
             echo "::error::變體 ${WINNER} 沒有 open PR，無法選為勝者（已合併、已關閉，或從未交付）"
             exit 1
           fi
+          # Q41：被換下的變體已有 PR 合併 → 拒絕改選。否則兩個變體各合併一部分，成為
+          # ADR-022 的 mixed 狀態，機器無法再判定完成。
+          MERGED_LOSER=$(gh pr list --repo "$GH_REPO" --state merged --limit 30 --search "head:factory/${ISSUE}-${LOSER}-" \
+              --json number,headRefName \
+            | jq -r --arg p "factory/${ISSUE}-${LOSER}-" '[.[] | select(.headRefName | startswith($p)) | "#\(.number)"] | join("、")')
+          if [ -n "$MERGED_LOSER" ]; then
+            gh issue comment "$ISSUE" --repo "$GH_REPO" \
+              --body "⚠️ **無法改選變體 ${WINNER}**（${WHO}，run ${RUN_ID}）：變體 ${LOSER} 的 PR ${MERGED_LOSER} 已經合併。兩個變體各合併一部分時，機器無法判定本階段是否完成——請由人處理，確認完成後在本 Issue 貼上 \`stage/done\`（ADR-022）。"
+            echo "::error::變體 ${LOSER} 已有合併的 PR（${MERGED_LOSER}），拒絕改選"
+            exit 1
+          fi
           LOSE=$(list_open "$LOSER")
           # 由底層往上轉正式：stacked PR 的上層以下層分支為 base，順序與審查順序一致
           while read -r PR DRAFT; do
@@ -102,7 +147,7 @@ jobs:
           if [ -n "$LOSE" ]; then
             while read -r PR _; do
               gh pr close "$PR" --repo "$GH_REPO" \
-                --comment "🏁 N-version 選定變體 ${WINNER}；本 PR（變體 ${LOSER}）關閉，分支保留——若勝者被否決，可重新開啟本 PR 並以變體 ${LOSER} 重跑選勝者 workflow。" >/dev/null
+                --comment "🏁 N-version 選定變體 ${WINNER}；本 PR（變體 ${LOSER}）關閉，分支保留。若勝者被否決，可重新開啟本 PR 後按 Ready for review 改選（勝者已有 PR 合併時不可改選）。" >/dev/null
               echo "落選 PR #${PR} → closed（分支保留）"
             done <<< "$LOSE"
           fi
@@ -114,4 +159,4 @@ jobs:
             CLOSED="落選變體 ${LOSER} 沒有開著的 PR。"
           fi
           gh issue comment "$ISSUE" --repo "$GH_REPO" \
-            --body "🏁 **N-version 選定變體 ${WINNER}**（由 @${ACTOR} 指定，run ${RUN_ID}）：${WINS} 已轉為正式 PR，等待審查。${CLOSED}"
+            --body "🏁 **N-version 選定變體 ${WINNER}**（${WHO}，run ${RUN_ID}）：${WINS} 已轉為正式 PR，等待審查。${CLOSED}"

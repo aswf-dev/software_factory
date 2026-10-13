@@ -102,6 +102,19 @@
 - 新增 `factory-nversion-pick.yml`（`workflow_dispatch`：Issue 編號、勝出變體）：勝者 draft 由底層
   往上轉正式；落選方 draft 關閉，**分支保留**——勝者若在審查時被否決，可重新開啟落選方再改選。
   與 `factory-run` 共用 concurrency group。
+- **選勝者的入口在目標 repo（2026-10-13 修訂，Q39／Q48／Q50）**：專案擁有者在勝者的 PR 按
+  **Ready for review**，webhook 經 aswf.dev 轉送後由 App 派工本 workflow，帶 `picked_by`＝按下
+  按鈕的 GitHub 帳號。
+  - **授權交給 GitHub**：只有對該 repo 有 write 權限的人或 PR 作者能改變 PR 狀態，所以按下按鈕
+    就代表有權決定；不需要另一份核准名單，擁有者也不需要機制 repo 的任何權限。
+  - **workflow 仍在機制 repo 執行**（Q50）：放進每個目標 repo 會重新引入 ADR-012 消除的多份副本問題；
+    執行紀錄公開可讀，結果回寫到目標 repo 的 Issue 與 PR。
+  - App 自己觸發的 ready 事件（選勝者轉正勝者、`nversion=false` 的 draft 補正）由轉送站排除（Q40），
+    不會自我觸發。
+  - **改選**（Q41）：重新開啟落選方的 PR 再按一次 Ready for review；被換下的變體已有 PR 合併時拒絕，
+    並請人貼 `stage/done`——否則兩個變體各合併一部分，成為 ADR-022 的 mixed 狀態。
+  - 評估過但未採用的替代方案：aswf.dev 選勝者頁面（Access 只提供 email，要另做 email 與 repo 權限的對應）、
+    Backstage（Q03-6 凍結，且同樣要求機制 repo 權限）。機制 repo 的 Actions 頁手動執行保留為備援。
 - **移除** `factory-nversion-cleanup.yml`：由選勝者 workflow 取代。
 - 落選分支的刪除要等勝者全部合併後（合併事件發生在目標 repo，本 repo 收不到），由後續的
   aswf.dev webhook 轉送、機制 repo `factory-stage-finalize` 處理（另案）。
