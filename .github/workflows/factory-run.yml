@@ -253,6 +253,7 @@ jobs:
           # gh 在 Actions 不會自動用 GITHUB_TOKEN——需顯式傳（2026-08-19 實測）
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           mkdir -p .factory
           # --risk-paths 讀目標 repo（target/ 已於前一步 checkout）：事前風險路徑
@@ -270,7 +271,12 @@ jobs:
             --target-root target \
             > .factory/issue-check.txt 2>&1 || true
           cat .factory/issue-check.txt
-          gh issue comment "${{ inputs.issue_number }}" --body-file .factory/issue-check.txt
+          # N-version 時兩個變體都會執行本步，但同一張單的格式卡貼一次就夠
+          #（2026-10-13 沙箱實測：同一則逐字相同的卡片連續貼了兩次）。
+          # 兩個變體都仍會因不合規而紅燈——留言與否不影響停派判定。
+          if [ "$VARIANT" = "a" ]; then
+            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/issue-check.txt
+          fi
           # 不合規 → exit 1（紅燈停派；與機制 repo 自身 factory-issue-check 同語意）
           if grep -q '格式不合規' .factory/issue-check.txt; then
             echo "::error::Issue 格式不合規（factory-issue-check）——停止派工，請依留言修正後重新 dispatch"
@@ -1563,7 +1569,12 @@ jobs:
           if [ "$NVERSION" = "true" ]; then DIRS="$DIRS --variant-dir b=artifacts/b"; fi
           node dist/cli/factory-terminal.js --run-id "$RUN_ID" --nversion "$NVERSION" $DIRS > terminal.json
           cat terminal.json
-          if [ "$(jq -r .write terminal.json)" != "true" ]; then
+          # WRITE 對外揭露「本次是否有任何變體啟動 agent」：比對卡片與互指區塊必須
+          # 據此抑制，否則前置閘門擋下的 run 會多出一張「兩個變體都沒有 PR」的卡片
+          #（2026-10-13 沙箱實測 #11）。
+          WRITE=$(jq -r .write terminal.json)
+          echo "write=$WRITE" >> "$GITHUB_OUTPUT"
+          if [ "$WRITE" != "true" ]; then
             echo "所有變體都沒啟動 agent：前置閘門已留下自己的訊號，不寫終態"
             exit 0
           fi
@@ -1575,7 +1586,7 @@ jobs:
           gh issue comment "$ISSUE" --repo "$GH_REPO" --body-file terminal.md
 
       - name: Generate comparison report and post comment
-        if: always() && inputs.nversion
+        if: always() && inputs.nversion && steps.terminal.outputs.write == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -1627,7 +1638,7 @@ jobs:
       # 的區塊（fubon-tradingbot#721：單開 #722 看不到 #723 的存在，審查者可能只看一份就合併）。
       # 沿用上一步的 pr-a.json／pr-b.json，以前綴精確過濾。附註性質：失敗不擋 job。
       - name: Link N-version sibling PRs
-        if: always() && inputs.nversion
+        if: always() && inputs.nversion && steps.terminal.outputs.write == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
