@@ -1,0 +1,14 @@
+docs/ADR/022-sequential-stages.md
+  h_1b119f25eaf333 89-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "95edded9a265eb53429db1446484ba9fa8746b05",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
