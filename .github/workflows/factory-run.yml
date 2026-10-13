@@ -90,7 +90,7 @@ permissions:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # job 級逾時是 step 逾時的**上限**：A1 讓 heavy-verify 的 agent step 需要 115 分，
     # 若 job 仍留 60 分，step 永遠跑不到自己的預算就被 job 砍掉（且 job 逾時不會
     # 觸發 step 的失敗處理 → 終態留言可能缺失）。取 150 分＝最大 step 預算 115 分
@@ -1500,7 +1500,7 @@ jobs:
     name: Compare dual models
     needs: run
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
