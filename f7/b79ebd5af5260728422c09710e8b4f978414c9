@@ -1,0 +1,18 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 256,274-279,1569-1574,1586,1637
+test/adversarial/nversion-pr-steps.test.ts
+  h_1b119f25eaf333 51-58,67,234-238,303-312,321
+test/adversarial/stage-steps.test.ts
+  h_1b119f25eaf333 101-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7b79ebd5af5260728422c09710e8b4f978414c9",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
