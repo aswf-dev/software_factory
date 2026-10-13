@@ -229,6 +229,17 @@ describe('nversion 開關（ADR-021）', () => {
   })
 })
 
+describe('dry_run 的模型路由可被驗證（2026-10-13 沙箱 #10）', () => {
+  it('stub agent 收到本變體的 model.json；比對卡片收到字面 true／false 的 --dry-run', () => {
+    const w = readFileSync(join(ROOT, WORKFLOW), 'utf8')
+    expect(jobs().run.steps.find((s) => s.name === 'Run factory agent')!.run).toContain('--model-json "$GITHUB_WORKSPACE/.factory/model.json"')
+    // model.json 必須在 agent 之前產出（Select model tier 已依變體改寫 chain）
+    const names = jobs().run.steps.map((s) => s.name)
+    expect(names.indexOf('Select model tier')).toBeLessThan(names.indexOf('Run factory agent'))
+    expect(w).toContain(`--dry-run "\${{ inputs.dry_run && 'true' || 'false' }}"`)
+  })
+})
+
 describe('PR draft 狀態由機制統一設定（ADR-021，D 方案的機制層）', () => {
   const step = (): Step => jobs().run.steps.find((x) => x.name === 'Normalize PR draft state')!
 

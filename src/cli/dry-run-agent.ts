@@ -5,7 +5,7 @@
  * 計分閘門、標籤、judge 終點、needs-human 路徑。stub 是確定性的：
  * 同一 scenario 永遠產出同一份報告。
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { renderUsageMarkdown } from '../usage/render.js'
 import type { UsageReport } from '../usage/types.js'
@@ -20,6 +20,8 @@ export interface DryRunInput {
   scenario: DryRunScenario
   issueNumber: number
   cwd: string
+  /** `Select model tier` 產出的 model.json；有給時 usage 回報本變體 chain 的第一順位。 */
+  modelJsonPath?: string | undefined
 }
 
 export interface DryRunReport {
@@ -96,9 +98,53 @@ export const DRY_RUN_USAGE: UsageReport = {
   sessionCount: 1,
 }
 
-/** 解析位置參數：`<scenario> <issueNumber>`。 */
+export interface ModelRoute {
+  provider: string
+  model: string
+}
+
+/**
+ * 本變體實際被路由到的模型：model.json 的 `chain[0]`（N-version 時已由 workflow
+ * 改寫為「本變體的 dual 模型在前」）。讀不到或形狀不對 → undefined（沿用固定值）。
+ */
+export function routedModel(modelJsonPath: string): ModelRoute | undefined {
+  try {
+    const first = (JSON.parse(readFileSync(modelJsonPath, 'utf8')) as { chain?: unknown }).chain
+    const head = Array.isArray(first) ? (first[0] as Record<string, unknown> | undefined) : undefined
+    const provider = head?.['provider']
+    const model = head?.['model']
+    return typeof provider === 'string' && provider !== '' && typeof model === 'string' && model !== ''
+      ? { provider, model }
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * dry-run 的 usage：數量固定，route 換成本變體被路由到的模型。
+ *
+ * 2026-10-13 沙箱實測（agent-playground/node-redlock#10）：route 原本寫死
+ * deepseek/deepseek-flash，兩個變體回報同一個模型，比對卡片因此誤判
+ * 「fallback 坍縮」——dry-run 反而無法驗證 N-version 最重要的接線（變體路由）。
+ * 成本與 token 仍是模擬值，比對卡片以 `--dry-run` 標示（factory-compare）。
+ */
+export function dryRunUsage(route?: ModelRoute | undefined): UsageReport {
+  if (route === undefined) return DRY_RUN_USAGE
+  return {
+    ...DRY_RUN_USAGE,
+    routes: DRY_RUN_USAGE.routes.map((r) => ({ ...r, provider: route.provider, model: route.model })),
+  }
+}
+
+/** 解析參數：`<scenario> <issueNumber> [--model-json <path>]`。 */
 export function parseArgs(argv: string[]): DryRunInput {
-  const extra = argv[2]
+  let modelJsonPath: string | undefined
+  if (argv[2] === '--model-json') {
+    modelJsonPath = argv[3]
+    if (modelJsonPath === undefined || modelJsonPath === '') throw new CliError('--model-json requires a value')
+  }
+  const extra = argv[modelJsonPath === undefined ? 2 : 4]
   if (extra !== undefined) {
     throw new CliError(`unexpected argument: ${extra}`)
   }
@@ -110,7 +156,7 @@ export function parseArgs(argv: string[]): DryRunInput {
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new CliError(`issueNumber must be a positive integer, got ${argv[1] ?? '(missing)'}`)
   }
-  return { scenario, issueNumber, cwd: process.cwd() }
+  return { scenario, issueNumber, cwd: process.cwd(), ...(modelJsonPath === undefined ? {} : { modelJsonPath }) }
 }
 
 export function main(argv: string[], cwd = process.cwd()): DryRunReport {
@@ -123,8 +169,9 @@ export function main(argv: string[], cwd = process.cwd()): DryRunReport {
   // （docs/04 §5 接線驗證；真實 run 由 factory-usage CLI 覆寫同路徑檔案）
   const usageJson = join(input.cwd, '.factory/run/usage.json')
   const usageMd = join(input.cwd, '.factory/run/usage.md')
-  writeFileSync(usageJson, `${JSON.stringify(DRY_RUN_USAGE, null, 2)}\n`)
-  writeFileSync(usageMd, renderUsageMarkdown(DRY_RUN_USAGE))
+  const usage = dryRunUsage(input.modelJsonPath === undefined ? undefined : routedModel(input.modelJsonPath))
+  writeFileSync(usageJson, `${JSON.stringify(usage, null, 2)}\n`)
+  writeFileSync(usageMd, renderUsageMarkdown(usage))
   return report
 }
 

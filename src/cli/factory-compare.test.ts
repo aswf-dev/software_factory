@@ -330,6 +330,39 @@ describe('renderCompareMarkdown', () => {
   })
 })
 
+describe('dry_run 標示（2026-10-13 沙箱 #10：模擬值被當成實測、誤判 fallback 坍縮）', () => {
+  const same = (v: 'a' | 'b') => variant({ variant: v, routes: ['deepseek/deepseek-flash'], outcome: 'ready-for-review' })
+
+  it('parseArgs：--dry-run 只認 true／false；false 與未給時不出現欄位', () => {
+    expect(parseArgs(['--issue-number', '1', '--dry-run', 'true']).dryRun).toBe(true)
+    expect(parseArgs(['--issue-number', '1', '--dry-run', 'false'])).toEqual({ issueNumber: 1, a: {}, b: {}, format: 'markdown' })
+    expect(() => parseArgs(['--issue-number', '1', '--dry-run', 'yes'])).toThrow(/--dry-run 必須是 true\|false/)
+    expect(() => parseArgs(['--issue-number', '1', '--dry-run'])).toThrow(/--dry-run requires a value/)
+  })
+
+  it('dry_run：頂端註記模擬值、模型欄標為路由設定，且不出現坍縮／沒有 PR 的警告', () => {
+    const md = renderCompareMarkdown({ issueNumber: 10, variantA: same('a'), variantB: same('b'), dryRun: true })
+    expect(md).toContain('🧪 **dry_run**')
+    expect(md).toContain('**模型**（dry_run：路由設定，非實測）')
+    expect(md).not.toContain('session log 實測')
+    expect(md).not.toContain('fallback 坍縮')
+    expect(md).not.toContain('沒有找到 PR')
+    expect(md).not.toContain('⚠️ **注意**')
+  })
+
+  it('非 dry_run：同樣的資料仍照舊警告坍縮（真實 run 的坍縮是真的）', () => {
+    const md = renderCompareMarkdown({ issueNumber: 10, variantA: same('a'), variantB: same('b') })
+    expect(md).toContain('fallback 坍縮')
+    expect(md).toContain('**模型**（session log 實測）')
+    expect(md).not.toContain('🧪')
+  })
+
+  it('main 把 --dry-run true 帶進 json 輸出', () => {
+    expect(main(['--issue-number', '8', '--format', 'json', '--dry-run', 'true'])).toMatchObject({ issueNumber: 8, dryRun: true })
+    expect(main(['--issue-number', '8', '--format', 'json', '--dry-run', 'false'])).not.toHaveProperty('dryRun')
+  })
+})
+
 describe('main', () => {
   it('markdown 寫入 --out；未指定 --out 只回傳', () => {
     const outPath = join(tmpDir, 'compare.md')
