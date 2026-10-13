@@ -50,11 +50,6 @@ jobs:
           else
             echo "LSM: (securityfs not mounted)"
           fi
-          # canary only（runner-images#14748 評估取證，取證後移除）：
-          # 26.04 image 的預設 JDK 與 24.04 不同，而 Apalache 走 PATH 上的 java；
-          # bwrap 是否在 image 內（沙箱首選後端）也需實證，不能只看設定推論。
-          echo "java: $(java -version 2>&1 | head -1)"
-          echo "bwrap: $(command -v bwrap || echo '(absent)')"
 
       - name: Install dependencies (dsh is a devDependency)
         run: pnpm install --frozen-lockfile

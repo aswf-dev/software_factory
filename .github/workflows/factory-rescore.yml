@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   rescore:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       # 機制 repo（本 workflow 所在 = software_factory：CLI/dist 在此）
