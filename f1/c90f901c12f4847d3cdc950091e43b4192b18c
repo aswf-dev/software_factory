@@ -1,0 +1,24 @@
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 746-747,750,1607
+src/cli/dry-run-agent.test.ts
+  h_1b119f25eaf333 1,5,80-125
+src/cli/dry-run-agent.ts
+  h_1b119f25eaf333 8,23-24,101-140,142-147,159,172-174
+src/cli/factory-compare.test.ts
+  h_1b119f25eaf333 333-365
+src/cli/factory-compare.ts
+  h_1b119f25eaf333 56-57,74,101,124-130,139-146,305-308,326-327,333-338,342,378
+test/adversarial/nversion-pr-steps.test.ts
+  h_1b119f25eaf333 232-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f1c90f901c12f4847d3cdc950091e43b4192b18c",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
