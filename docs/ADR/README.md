@@ -51,6 +51,7 @@
 | [ADR-019](019-property-based-testing-hegel.md) | 目標 repo 的程式碼層驗證採 PBT（Hegel），以事後稽核工作項執行 | 已接受（實作中，2026-10-05 修訂） | `ADR-008`、`ADR-018` §1、`11`、`research/pbt-library-survey-2026-10`、`research/hegel-ts-pilot-fubon-2026-10` |
 | [ADR-020](020-sase-adoption.md) | SASE 方法論的採用範圍與不採用理由（ACE／AEE／LoopScript／CRP 不採用；BriefingScript 增量另開工項） | 已接受（N-version 一列由 ADR-021 取代） | `research/sase-adoption-analysis-2026-10-09`、`10` Q20-SASE-1～3 |
 | [ADR-021](021-nversion-parallel-pattern.md) | N-version 平行執行——追認與修正（可選開關、`compare` 為唯一終態寫入者、G1／G2 認終態標記、draft PR 由人選勝者）；附代理設計模式採用邊界 | 已接受 | `ADR-020`、`ADR-010`、`docs/24`、`docs/18`、`docs/26` §3 |
+| [ADR-022](022-sequential-stages.md) | 依序模式——以「前置工作項」串接工作項：派工時以即時狀態檢查前置、未完成即停派；完成時刪落選分支並通知下游（aswf.dev webhook 轉送） | 已接受 | `ADR-021`、`ADR-018` §12、`docs/24` §2.1、`docs/32` §4 |
 
 ## 何時該寫新的 ADR
 
