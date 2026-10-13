@@ -1,0 +1,28 @@
+.github/workflows/factory-issue-check.yml
+  h_1b119f25eaf333 40
+.github/workflows/factory-nversion-pick.yml
+  h_1b119f25eaf333 69
+.github/workflows/factory-onboard.yml
+  h_1b119f25eaf333 55
+.github/workflows/factory-rescore.yml
+  h_1b119f25eaf333 39
+.github/workflows/factory-run-cleanup.yml
+  h_1b119f25eaf333 32
+.github/workflows/factory-run.yml
+  h_1b119f25eaf333 93,1503
+.github/workflows/factory-stage-finalize.yml
+  h_1b119f25eaf333 52
+.github/workflows/verify-models.yml
+  h_1b119f25eaf333 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1b7d66514870792e81344c04f44dd26320054111",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
