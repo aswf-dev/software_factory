@@ -34,6 +34,13 @@ step（G5 已於 #200 實作、G8 已於 #199 落地，見 §4 註）。
 
 ### 2.1 G1 — 終態守衛（Ensure terminal state）
 
+> **2026-10-12 修訂（ADR-021）**：N-version 讓兩個變體共用 `run_id`，以下「grep run id」的判斷
+> 會誤判。現行設計：Issue 終態由 `compare` job **唯一寫入**，留言帶
+> `<!-- factory:terminal run=<id> -->`；G1 移到 `compare` 最後一步，條件改為
+> `always() && steps.terminal.outcome != 'success'`，且**只認這個標記**。G2 同樣只認標記
+> （這也修好 G2 在規格流程上從未生效的舊問題：規格階段在 agent 啟動前就會留下含 run id 的留言）。
+> 以下為原始設計紀錄。
+
 **位置**：`.github/workflows/factory-run.yml`。
 
 在 `Apply judge labels and comment` 之後新增守衛 step：

@@ -1,0 +1,117 @@
+# Factory Stage Finalize — 某張 Issue 的 PR 合併後，判定該階段是否完成並接力（ADR-022）。
+#
+# 觸發來源：
+#   - aswf.dev 的 GitHub App webhook 轉送站：收到目標 repo 的 PR 合併事件（已驗證簽章、
+#     以遞送 ID 去重、只放行 factory/<issue>-… 合併進 software-factory 的事件）後派工；
+#   - 人手動派工：webhook 故障時的備援，等同人工流程。
+#
+# 判斷全部以 GitHub 即時狀態為準，不採信事件內容（factory-stage finalize）：
+#   1. 目標 repo 必須已納管（software-factory 分支上有 catalog-info.yaml）——允許清單只在這裡；
+#   2. 階段完成（某一組交付全部合併，或人工貼 stage/done）→ 刪落選變體的分支、
+#      在宣告本 Issue 為前置的下游 Issue 留言「可以派工」（帶標記，重複執行只留一次）；
+#   3. 兩個變體各合併一部分 → 在本 Issue 請人貼 stage/done（只問一次）；
+#   4. 其他（只合併了某一層等）→ 不做任何事。
+#
+# 不派工下游 Issue：派工仍由人按（Q29-A）。本 workflow 不呼叫 LLM。
+name: Factory Stage Finalize
+
+run-name: "Stage Finalize (${{ inputs.repo }} #${{ inputs.issue_number }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 剛有 PR 合併的 Issue 編號
+        required: true
+        type: number
+      repo:
+        description: 目標 repo（owner/name）
+        required: true
+        type: string
+      delivery_id:
+        description: webhook 遞送 ID（由 aswf.dev 帶入，僅供稽核；手動執行留空）
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: 只計算、不刪分支、不留言
+        required: false
+        type: boolean
+        default: false
+
+# 與 factory-run、選勝者共用 concurrency group：同一張 Issue 的動作互斥。
+concurrency:
+  group: factory-${{ inputs.repo }}-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: pnpm
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Resolve target owner/name
+        id: target
+        env:
+          TARGET_REPO: ${{ inputs.repo }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TARGET_REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || [[ "$TARGET_REPO" == *..* ]]; then
+            echo "::error::repo 必須是 owner/name：${TARGET_REPO}"
+            exit 1
+          fi
+          echo "owner=${TARGET_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${TARGET_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      # token 只發給這一個目標 repo：刪分支需要 contents:write，留言需要 issues:write。
+      # 每個權限都必須明列：create-github-app-token 遺漏任何一項時，token 會繼承 App
+      # 安裝的**全部**權限（含 actions:write）。
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: read
+          permission-actions: read
+
+      - name: Finalize stage
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue_number }}
+          DELIVERY: ${{ inputs.delivery_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          FLAGS=""
+          if [ "$DRY_RUN" = "true" ]; then FLAGS="--dry-run"; fi
+          node dist/cli/factory-stage.js finalize --repo "$REPO" --issue "$ISSUE" $FLAGS > finalize.json
+          cat finalize.json
+          {
+            echo "## Stage finalize：${REPO} #${ISSUE}"
+            echo ""
+            echo "- webhook 遞送 ID：${DELIVERY:-（手動執行）}"
+            echo "- dry run：${DRY_RUN}"
+            echo ""
+            echo '```json'
+            cat finalize.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

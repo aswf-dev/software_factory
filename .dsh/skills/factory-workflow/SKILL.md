@@ -225,7 +225,10 @@ jq -e '
 
 
 - **分支命名**：格式 `factory/<issue編號>-<nn>-<layer>`（如 `factory/12-01-test`）為唯一允許；**N-version 模式（`.factory/run/variant` 存在）則必須為 `factory/<issue編號>-<variant>-<nn>-<layer>`**（如 `factory/12-a-01-test`），單層 PR 不走 gh-stack、直接 `git` ＋ `gh pr create` 時同樣適用——CI 以 crosscheck 驗證前綴（`variant-branch-prefix`）；gh-stack **v0.2.1** 用 `gh stack init --base "$BASE_BRANCH" factory/<issue>-01-test ...` 直接列分支名建立（**不接受** `--numbered`/`--prefix`）；不得自行命名（如 `08-18-docs_...`）或以 dash 取代 slash。
-- **PR 一律非 draft**：`gh stack submit --auto` 或 `gh pr create` 皆不可加 `--draft`（draft 無法合併，擋住審查流程）。
+- **PR 的 draft 狀態依 `.factory/run/nversion` 而定**（ADR-021）：
+  - `true`（N-version）：PR 一律開成 **draft**——`gh stack submit --auto`（gh-stack 的 `--auto` 預設即開 draft，**不要加 `--open`**）；單層 PR 用 `gh pr create --draft`。人比對兩個變體後，由選勝者 workflow 把勝者轉為正式 PR。
+  - `false` 或檔案不存在（單一變體）：PR 一律開成**正式 PR**——`gh stack submit --auto --open`；單層 PR 用 `gh pr create`，**不加 `--draft`**（draft 無法合併，會擋住審查）。
+  - 請一開始就做對：正式 PR 一建立就會自動通知 CODEOWNERS 審查，事後改成 draft 收不回這個通知。CI 在你結束後仍會統一補正 draft 狀態。
 
 - 任務描述本身不重複本 skill 內容——需要細節時回到本檔案。
 - **輸出紀律**：設計/推導/思考過程不輸出到 stdout（DSH stdout 有輸出上限，過量輸出會導致執行中斷）——產物直接寫入目標檔案，stdout 只留簡短進度與最終摘要。

@@ -146,12 +146,13 @@ describe('crosscheck step：crosscheck 本身失敗（沒有 JSON）時原因必
     expect(r.log).toContain('requirements.0.status: Invalid option')
   })
 
-  it('Issue 留言帶出 stderr 的原因，並貼 needs-human、以非零結束', () => {
+  it('Issue 留言帶出 stderr 的原因、以非零結束；不貼終態標籤（由 compare job 唯一寫入，ADR-021）', () => {
     const r = runStep({ stdout: '', stderr: REPORT_INVALID, code: 1 })
     expect(r.status).not.toBe(0)
     expect(r.comment).toContain('## 工廠執行中止：crosscheck 執行失敗')
     expect(r.comment).toContain('requirements.0.status: Invalid option')
-    expect(r.labels).toContain('--add-label needs-human')
+    // N-version 時另一個變體可能成功；由本變體貼 needs-human 會讓 Issue 標籤變成兩邊的聯集
+    expect(r.labels).toBe('')
   })
 
   it('stderr 過長時留言截斷（GitHub 留言上限 65536 字元）', () => {
@@ -169,7 +170,7 @@ describe('crosscheck step：crosscheck 本身失敗（沒有 JSON）時原因必
     expect((4000 - Buffer.byteLength(head + pad)) % 3).toBe(1)
     const r = runStep({ stdout: '', stderr, code: 1 })
     expect(r.comment, r.log).toContain('requirements.0.status: Invalid option')
-    expect(r.labels).toContain('--add-label needs-human')
+    expect(r.status).not.toBe(0)
   })
 })
 

@@ -1,6 +1,6 @@
 # ADR-020：SASE 方法論的採用範圍與不採用理由
 
-- **狀態**：已接受
+- **狀態**：已接受（§2 的 N-version 一列由 `ADR-021` 取代）
 - **日期**：2026-10-09
 - **決定者**：平台架構（使用者經 grilling 逐項裁決，共 5 輪）
 - **對應**：`docs/research/sase-adoption-analysis-2026-10-09.md`（完整分析與對照表）、`ADR-010`（多 agent，CRP 隨其觸發條件）、`ADR-005`（自主性上限，ACE 的邊界）、`Q03-6`（Backstage 降級凍結）、`ADR-019` R3（新增表單欄位的同步成本先例）、`docs/18`（G4／G6，MRP 的既有歸屬）
@@ -33,7 +33,7 @@ SASE 僅作為**對照組**留存於 `docs/research/`，並在 `docs/GLOSSARY.md
 | **ACE** 雙工作臺 | **不採用** | `Q03-6` 已裁決 Backstage 降級為純 GitHub 觸發、工件凍結；本 repo 為單人環境，無 N-to-N 指揮中心使用者（`Q12-4`）。SASE 的 ACE 會逆轉該裁決 |
 | **AEE／ATIE** agent-native 工具鏈與 MCP | **不採用** | repo 零 MCP（無 `.mcp.json`，`config/dsh/` 無 MCP 設定）；無證據顯示 grep／文字搜尋造成失敗 |
 | 論文**研究議程與教育**章節（§7.6、§3.3 benchmark） | **不採用** | 非生產系統範圍 |
-| **N-version** 平行多版本 | **不採用** | token 預算門檻至今仍為 0＝不設限（`docs/10` L82），成本基線不存在；Anthropic 429 已是既有外部限制（`docs/13` L61），平行化會加劇 |
+| ~~**N-version** 平行多版本~~ | ~~**不採用**~~ → **已由 `ADR-021` 取代（2026-10-12）**：N-version 已於 2026-10-10 上線，使用者裁決成本暫不列入考量；改為可選、預設開啟，並修正終態漏洞 | 原理由：token 預算門檻至今仍為 0＝不設限（`docs/10` L82），成本基線不存在；Anthropic 429 已是既有外部限制（`docs/13` L61），平行化會加劇 |
 | **LoopScript** | **不採用** | 其核心主張（依任務分量宣告嚴謹度與資源）**已由非 SASE 手段實現**：`task_type` 分類 ＋ `risk-paths.yml` H1–H7 ＋ 三軸評分 ＋ `model-tiers.yaml` ＋ 本 ADR 家族中的 `ADR-011` 逾時宣告。最大單筆全損（50 分鐘／19.4M token／USD $0.306／0 commit／0 PR）**是靠宣告修好的**（`ADR-011` L51–55）。`factory-run.yml` 與 `runWorkItem` 的編排重複列為**工程觀察**（見「後果／中性」） |
 | **CRP** 結構化徵詢 | **不採用**，隨 `ADR-010` 觸發條件一併重啟 | 兩次自然停手被判定「誠實且正確」（`docs/15` L148–149、`docs/13` L35）；#199 的重建成本源自 `apply-judge-labels` **契約缺口**（`docs/research/228` L18）；CRP 是多角色路由機制，單人環境無人可路由 |
 | **BriefingScript** | **方向接受**，實作待另案開單（規格見 §3） | `docs/15` L150–152（人類寫的驗收標準數學上不可能滿足）、`.factory/skill-gap-recovery/camunda_hazelcast-25.md` L27（DoD 未補專有驗收條目 → 反覆停手）、`docs/14` L71–80（180 顆 PR、`defect/*` 0 筆，判讀為「感測器未運作」） |

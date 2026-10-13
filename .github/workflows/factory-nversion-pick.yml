@@ -1,0 +1,117 @@
+# Factory N-version Pick — 由人指定 N-version 的勝出變體（ADR-021）。
+#
+# 背景：N-version 的兩個變體都以 draft PR 交付（factory-run.yml 的「Normalize PR draft
+# state」），所以審查佇列裡不會同時出現兩份。人比對兩邊後執行本 workflow：
+#   - 勝者的 draft 轉為正式 PR（由底層往上，`01-` 先於 `02-`）；
+#   - 落選方的 draft 關閉，**分支保留**——勝者若在審查時被否決，可以重新開啟落選方的
+#     PR，再以另一個變體重跑本 workflow 改選；
+#   - 在 Issue 留言記錄選擇（稽核歷程存放在 GitHub，ADR-001）。
+#
+# 落選分支的刪除不在這裡做：要等勝者的 PR 全部合併後才刪（Q26-B），合併發生在目標
+# repo、本 repo 收不到事件，由之後的 webhook 與 factory-stage-finalize 處理。
+#
+# 取代原本的 factory-nversion-cleanup.yml：那支以 github.token 執行，只對機制 repo 本身
+# 有效，目標 repo 從未部署過。本 workflow 以 App token 對目標 repo 操作。
+name: Factory N-version Pick
+
+run-name: "N-version Pick (${{ inputs.repo }} #${{ inputs.issue_number }} → ${{ inputs.variant }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 目標 Issue 編號
+        required: true
+        type: number
+      variant:
+        description: 勝出變體
+        required: true
+        type: choice
+        options: [a, b]
+      repo:
+        description: 目標 repo（owner/name）
+        required: false
+        type: string
+        default: aswf-dev/software_factory
+
+# 與 factory-run 共用同一個 concurrency group：選勝者與該 Issue 的執行互斥，
+# 不會在變體還在交付時就把 PR 轉正或關閉。
+concurrency:
+  group: factory-${{ inputs.repo }}-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve target owner/name
+        id: target
+        env:
+          TARGET_REPO: ${{ inputs.repo }}
+        run: |
+          set -euo pipefail
+          echo "owner=${TARGET_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${TARGET_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-actions: read
+
+      - name: Promote winner and close loser drafts
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          ISSUE: ${{ inputs.issue_number }}
+          WINNER: ${{ inputs.variant }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$WINNER" = "a" ]; then LOSER=b; else LOSER=a; fi
+          # search 的 head: 是模糊比對，必須再以前綴精確過濾（7210 vs 721，#713 教訓）
+          list_open() {
+            gh pr list --repo "$GH_REPO" --state open --limit 30 --search "head:factory/${ISSUE}-$1-" \
+                --json number,headRefName,isDraft \
+              | jq -r --arg p "factory/${ISSUE}-$1-" \
+                  '[.[] | select(.headRefName | startswith($p))] | sort_by(.headRefName) | .[] | "\(.number) \(.isDraft)"'
+          }
+          WIN=$(list_open "$WINNER")
+          if [ -z "$WIN" ]; then
+            echo "::error::變體 ${WINNER} 沒有 open PR，無法選為勝者（已合併、已關閉，或從未交付）"
+            exit 1
+          fi
+          LOSE=$(list_open "$LOSER")
+          # 由底層往上轉正式：stacked PR 的上層以下層分支為 base，順序與審查順序一致
+          while read -r PR DRAFT; do
+            if [ "$DRAFT" = "true" ]; then gh pr ready "$PR" --repo "$GH_REPO" >/dev/null; fi
+            echo "勝者 PR #${PR} → ready for review"
+          done <<< "$WIN"
+          if [ -n "$LOSE" ]; then
+            while read -r PR _; do
+              gh pr close "$PR" --repo "$GH_REPO" \
+                --comment "🏁 N-version 選定變體 ${WINNER}；本 PR（變體 ${LOSER}）關閉，分支保留——若勝者被否決，可重新開啟本 PR 並以變體 ${LOSER} 重跑選勝者 workflow。" >/dev/null
+              echo "落選 PR #${PR} → closed（分支保留）"
+            done <<< "$LOSE"
+          fi
+          WINS=$(awk '{printf "%s#%s", (NR>1?"、":""), $1}' <<< "$WIN")
+          if [ -n "$LOSE" ]; then
+            LOSES=$(awk '{printf "%s#%s", (NR>1?"、":""), $1}' <<< "$LOSE")
+            CLOSED="落選變體 ${LOSER} 的 PR ${LOSES} 已關閉（分支保留至勝者全部合併）。"
+          else
+            CLOSED="落選變體 ${LOSER} 沒有開著的 PR。"
+          fi
+          gh issue comment "$ISSUE" --repo "$GH_REPO" \
+            --body "🏁 **N-version 選定變體 ${WINNER}**（由 @${ACTOR} 指定，run ${RUN_ID}）：${WINS} 已轉為正式 PR，等待審查。${CLOSED}"

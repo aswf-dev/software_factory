@@ -602,12 +602,18 @@ describe('agent-pbt-audit 的 in-loop 豁免前提與接線（ADR-019 R11、§5�
     // 必須在 agent 之前，否則擋不住浪費預算
     expect(wf.indexOf('- name: PBT audit preflight')).toBeLessThan(wf.indexOf('- name: Run factory agent'))
   })
-  it('workflow：PBT 稽核摘要排在 G1 終態守衛之後（留言含 run id，排前面會讓守衛誤判已有終態）', () => {
+  it('workflow：PBT 稽核摘要含 run id，但 G1 只認終態標記，所以不會讓守衛誤判（ADR-021）', () => {
+    // 過去 G1 認「任何含 run id 的留言」，PBT 摘要必須排在守衛之後；ADR-021 起 G1 移到
+    // compare job 並只認 `<!-- factory:terminal run=<id> -->`，順序不再是保護手段——
+    // 改釘住「守衛判斷用的是標記」這個真正的不變量。
+    const { load } = require('js-yaml') as typeof import('js-yaml')
     const wf = read('.github/workflows/factory-run.yml')
-    const guard = wf.indexOf('- name: Ensure terminal state (guard)')
-    const summary = wf.indexOf('- name: Post PBT audit summary')
-    expect(guard).toBeGreaterThan(0)
-    expect(summary).toBeGreaterThan(guard)
+    expect(wf.indexOf('- name: Post PBT audit summary')).toBeGreaterThan(0)
+    const guard = (load(wf) as { jobs: Record<string, { steps: { name?: string; run?: string }[] }> }).jobs['compare']!
+      .steps.find((s) => s.name === 'Ensure terminal state (guard)')
+    expect(guard, 'G1 必須在 compare job').toBeDefined()
+    expect(guard!.run).toContain('MARKER="<!-- factory:terminal run=${RUN_ID} -->"')
+    expect(guard!.run).toContain('grep -qF "$MARKER"')
     expect(wf).toContain('AGENT_START_EPOCH=$(date +%s)')
     expect(wf).toContain('AGENT_END_EPOCH=$(date +%s)')
   })
@@ -1245,11 +1251,32 @@ describe('factory-run 逾時捕獲與診斷（2026-08-21 run #32491052696 實測
       expect(agentStep).toContain('fromJSON(steps.agent-timeout.outputs.step_timeout_minutes)')
     }
   })
-  it('逾時/失敗捕獲：寫 --timed-out report + needs-human 標籤', () => {
+  it('逾時/失敗捕獲：寫 --timed-out report 與細節留言，但不貼終態標籤（由 compare 唯一寫入，ADR-021）', () => {
     expect(c).toContain('--timed-out')
-    expect(c).toContain('Handle agent timeout/failure')
-    expect(c).toContain('--add-label needs-human')
     expect(c).toContain("steps.agent.outcome == 'failure'")
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const run = (load(c) as { jobs: { run: { steps: { name?: string; run?: string }[] } } }).jobs.run.steps
+    const handler = run.find((s) => s.name === 'Handle agent timeout/failure')
+    expect(handler, '找不到 Handle agent timeout/failure').toBeDefined()
+    expect(handler!.run).toContain('gh issue comment')
+    // N-version 時另一變體可能已成功；本變體貼 needs-human 會讓 Issue 標籤變成兩邊的聯集
+    expect(handler!.run).not.toContain('--add-label')
+    // 逾時必須能被 compare 判讀：write-report 的 --timed-out 寫進 report.json，
+    // 而步驟結果寫進 .factory/steps.json 並上傳
+    expect(run.find((s) => s.name === 'Record step outcomes')?.run).toContain('.factory/steps.json')
+  })
+  it('run job 的任何步驟都不貼 needs-human 以外的終態——終態只有 compare 與前置閘門會寫（ADR-021）', () => {
+    const { load } = require('js-yaml') as typeof import('js-yaml')
+    const run = (load(c) as { jobs: { run: { steps: { name?: string; run?: string }[] } } }).jobs.run.steps
+    // agent 啟動之後的步驟不得貼標籤；只有 agent 之前的前置閘門（PBT preflight 等）可以
+    const agentIdx = run.findIndex((s) => s.name === 'Run factory agent')
+    const offenders = run
+      .slice(agentIdx + 1)
+      .filter((s) => /--add-label/.test(s.run ?? ''))
+      .map((s) => s.name)
+    expect(offenders).toEqual([])
+    expect(run.some((s) => s.name === 'Apply judge labels and comment')).toBe(false)
+    expect(run.some((s) => s.name === 'Ensure terminal state (guard)')).toBe(false)
   })
   it('上傳 run artifacts（失敗也要，診斷用）', () => {
     // 只驗證用 upload-artifact 上傳、不綁版本：@v4（node20）已因 Node 20 棄用
@@ -1935,10 +1962,12 @@ describe('用量與成本契約（docs/04 §5、docs/08 §2.3、docs/ADR/011）'
     expect(c).toContain('--pricing')
   })
 
-  it('factory-run.yml 把 usage.md 傳給 apply-judge-labels（終態留言附用量段落）', () => {
+  it('終態留言附用量段落：compare 以 factory-terminal 讀各變體的 usage.md（ADR-021）', () => {
     const c = read('.github/workflows/factory-run.yml')
-    expect(c).toContain('apply-judge-labels.js')
-    expect(c).toContain('usage.md')
+    expect(c).toContain('dist/cli/factory-terminal.js')
+    // usage.md 位於 target/.factory/run/，整個目錄已在上傳範圍內；factory-terminal 從 artifact 讀
+    expect(c).toContain('target/.factory/run/')
+    expect(read('src/cli/factory-terminal.ts')).toContain("'target/.factory/run/usage.md'")
   })
 
   it('apply-judge-labels 的 buildJudgeComment 支援 usage 參數（留言可附用量）', () => {
@@ -2203,16 +2232,17 @@ describe('write-spec 集中驗證接線（ADR-018 §7）', () => {
     expect(step.if).toBe("steps.specphase.outputs.phase != '' && steps.crosscheck.outcome == 'success'")
     expect(step.run).toContain('dist/cli/factory-spec-verify.js --phase "$PHASE" --spec-name "$SPEC"')
   })
-  it('驗證失敗時 judge 與終態標籤都不執行（不會對不完整的證據給出終態）', () => {
-    for (const id of ['judge']) {
-      expect(steps().find((s) => s.id === id)!.if).toContain("steps.specverify.outcome == 'success' || steps.specverify.outcome == 'skipped'")
-    }
-    expect(steps().find((s) => s.name === 'Apply judge labels and comment')!.if).toContain('steps.specverify.outcome')
+  it('驗證失敗時 judge 不執行，且失敗記入 steps.json（不會對不完整的證據給出終態）', () => {
+    expect(steps().find((s) => s.id === 'judge')!.if).toContain("steps.specverify.outcome == 'success' || steps.specverify.outcome == 'skipped'")
+    // ADR-021：終態由 compare 依 steps.json 判定——specverify 失敗必須被記下，否則
+    // compare 只看到「沒有 judge.json」而無法說明原因
+    expect(steps().find((s) => s.name === 'Record step outcomes')!.run).toContain('steps.specverify.outcome')
   })
-  it('反例 ITF 只寫 traces/ 並推回分支；失敗時貼 needs-human', () => {
+  it('反例 ITF 只寫 traces/ 並推回分支；失敗時以非零結束（不貼終態標籤，ADR-021）', () => {
     const run = steps().find((s) => s.id === 'specverify')!.run!
     expect(run).toContain('git -C target add -A "specs/${SPEC}/traces"')
-    expect(run).toMatch(/if \[ "\$code" -ne 0 \]; then[\s\S]*?--add-label needs-human[\s\S]*?exit 1/)
+    expect(run).toMatch(/if \[ "\$code" -ne 0 \]; then[\s\S]*?exit 1/)
+    expect(run).not.toContain('--add-label')
   })
   it('Quint 工具鏈快取在安裝之前（避免並行下載撞 rate limit）', () => {
     const cache = idx((s) => s.uses === 'actions/cache@v6' && s.name === 'Cache Quint toolchain')
@@ -2330,7 +2360,10 @@ describe('機制 repo 遷移接線（aswf-dev/software_factory，factory-scorebo
     }
     const job = Object.values(wf.jobs).find((j) => j.steps.some((s) => s.name === 'Push event to scoreboard'))
     expect(job, '找不到含 Push event to scoreboard 的 job').toBeDefined()
-    expect(job!.strategy?.matrix?.variant, '該 job 沒有 variant matrix').toEqual(['a', 'b'])
+    // ADR-021：matrix 依 nversion 開關決定 [a, b] 或 [a]
+    expect(job!.strategy?.matrix?.variant, '該 job 沒有 variant matrix').toBe(
+      `\${{ fromJSON(inputs.nversion && '["a","b"]' || '["a"]') }}`,
+    )
     const step = job!.steps.find((s) => s.name === 'Push event to scoreboard')!
     expect(step.run).toContain('--variant "${{ matrix.variant }}"')
   })
@@ -2412,8 +2445,10 @@ describe('App token 一律收窄（agent 不得取得 actions:write）', () => {
     expect(mints.length).toBeGreaterThanOrEqual(4)
   })
 
-  it.each(['contents', 'issues', 'pull-requests'])('每處明列 permission-%s: write', (p) => {
-    for (const m of mints) expect(m.with[`permission-${p}`], `${m.file}`).toBe('write')
+  // 明列才是保護所在：遺漏任何一項，token 就繼承 App 安裝的全部權限。
+  // 值可以比 write 更窄（factory-stage-finalize 只需要 pull-requests: read，ADR-022）。
+  it.each(['contents', 'issues', 'pull-requests'])('每處明列 permission-%s（write 或更窄的 read）', (p) => {
+    for (const m of mints) expect(['write', 'read'], `${m.file}`).toContain(m.with[`permission-${p}`])
   })
 
   it('每處 permission-actions 皆為 read', () => {

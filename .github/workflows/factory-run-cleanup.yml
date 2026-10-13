@@ -110,13 +110,19 @@ jobs:
           ISSUE="${{ steps.resolve.outputs.issue }}"
           REPO="${{ steps.resolve.outputs.repo }}"
           RUN_ID="${{ steps.resolve.outputs.run_id }}"
+          # ADR-021：只認 compare job（或 G1）寫入的終態標記，不認任何含 run id 的留言——
+          # 變體的細節留言、規格階段留言、PBT 摘要都含 run id，舊判斷會誤以為終態已寫入
+          # （規格流程的 run 甚至在 agent 啟動前就已留下含 run id 的留言，G2 從未生效）。
+          MARKER="<!-- factory:terminal run=${RUN_ID} -->"
           COMMENTS=$(gh issue view "$ISSUE" --repo "$REPO" \
             --json comments --jq '[.comments[].body] | join("\n")' 2>/dev/null || true)
-          if printf '%s' "$COMMENTS" | grep -qF "$RUN_ID"; then
-            echo "run $RUN_ID 已有終態留言（$REPO #${ISSUE}）；cleanup idle"
+          if printf '%s' "$COMMENTS" | grep -qF "$MARKER"; then
+            echo "run $RUN_ID 已有終態標記（$REPO #${ISSUE}）；cleanup idle"
           else
-            echo "::warning::run $RUN_ID 異常結束（逾時/取消）且無終態留言——補貼 needs-human（G2 cleanup）"
-            gh issue comment "$ISSUE" --repo "$REPO" \
-              --body "⚠️ 工廠執行異常結束（run: ${RUN_ID}，逾時或取消）——agent 已啟動但未留下終態判定。已交還人類，請查看 Actions run logs。"
+            echo "::warning::run $RUN_ID 異常結束（逾時/取消）且無終態標記——補貼 needs-human（G2 cleanup）"
+            # 先貼標籤、後留言：留言帶標記，標籤失敗時不留下「已處理」的假象。
             gh issue edit "$ISSUE" --repo "$REPO" --add-label needs-human
+            gh issue comment "$ISSUE" --repo "$REPO" \
+              --body "${MARKER}
+          ⚠️ 工廠執行異常結束（run: ${RUN_ID}，逾時或取消）——agent 已啟動但未留下終態判定。已交還人類，請查看 Actions run logs。"
           fi
