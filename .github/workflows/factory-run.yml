@@ -1537,7 +1537,7 @@ jobs:
           permission-actions: read
 
       - name: Download Variant A artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: factory-run-${{ inputs.issue_number }}-a
@@ -1545,7 +1545,7 @@ jobs:
 
       - name: Download Variant B artifact
         if: inputs.nversion
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: factory-run-${{ inputs.issue_number }}-b
