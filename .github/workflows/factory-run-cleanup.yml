@@ -89,7 +89,7 @@ jobs:
       - name: Mint app token
         if: steps.resolve.outputs.issue != '' && steps.stage.outputs.reached == 'true'
         id: app-token
-        uses: actions/create-github-app-token@v3.2.0
+        uses: actions/create-github-app-token@v3.3.0
         with:
           client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
