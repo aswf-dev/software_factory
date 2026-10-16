@@ -31,7 +31,7 @@
   "dependencies": {
     "js-yaml": "5.4.3",
     "minimatch": "10.2.6",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "overrides": {
     "adm-zip": "0.6.1"
