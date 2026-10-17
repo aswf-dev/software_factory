@@ -363,10 +363,10 @@ describe('factory-run.yml 具備必要結構', () => {
   it('guardrail patch 與鎖版 DSH', () => {
     expect(content).toContain('config/dsh/factory-guardrail.patch.yml')
     // DSH 鎖版：devDependency（package.json 精確 pin）→ pnpm install（lockfile）安裝
-    // 2026-10 起鎖 0.2.0 系列（本機 Web GUI 與 CI 共用）：DSH 0.1.2 起
+    // 2026-10 起鎖 0.2.1 系列（本機 Web GUI 與 CI 共用）：DSH 0.1.2 起
     // web 有 launch-token 瀏覽器認證（start.sh 依賴）；credentials/session 格式隨
     // 版本演進（0.1.0-rc.8 的解析器只認舊 flat layout，讀新格式會 boot 失敗），
-    // 故必須精確鎖版並與執行中的 harness 同步。Regex 鎖 0.2.0 alpha/rc 系列、允許
+    // 故必須精確鎖版並與執行中的 harness 同步。Regex 鎖 0.2.1 alpha/rc 系列、允許
     // patch 號浮動，避免升級時誤紅。
     //
     // 0.1.7 → 0.2.0 升級已確認：session log 仍為 `session.v<N>.jsonl(.zstd)`
@@ -377,7 +377,7 @@ describe('factory-run.yml 具備必要結構', () => {
     // src/usage/session-log.ts 的檔名比對已同步放寬為 `session(.v<N>)?.jsonl(.zstd)?`；
     // 若未一併更新，factory-usage 會一個 session 都找不到，量測靜默歸零而
     // **不會讓任何 run 變紅**（usage 是附註不是 gate）——典型無聲失效。
-    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.2\.0-(alpha|rc)\.\d+"/)
+    expect(read('package.json')).toMatch(/"@deepseek-ai\/dsh": "\^?0\.2\.1-(alpha|rc)\.\d+"/)
     expect(content).toContain('pnpm install')
   })
 })
