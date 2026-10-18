@@ -273,3 +273,56 @@ describe('nextActions', () => {
     expect((doc.actions[0] as { reason: string }).reason).toContain('需 HG5 簽核')
   })
 })
+
+describe('人類步驟（模板裡沒有 per 的 kind: human）', () => {
+  const humanTemplate = TemplateSchema.parse({
+    template: 'S',
+    version: 1,
+    source: 'test',
+    phases: ['P0', 'P1', 'P2'],
+    gates: ['HG4'],
+    steps: [
+      { id: 'A', phase: 'P1', action: '分析', kind: 'work-item', task_type: 'agent-analyze', per: 'module' },
+      { id: 'B', phase: 'P2', action: '撰寫業務規則', kind: 'human', gates: ['HG4'] },
+      { id: 'C', phase: 'P2', action: '補測試', kind: 'work-item', task_type: 'agent-add-tests', per: 'module' },
+    ],
+  })
+
+  it('P0／P1／P5 的人類步驟算系統層，P2–P4 算模組層', () => {
+    expect(isSystemStep({ id: 'X', phase: 'P0', action: 'x', kind: 'human' })).toBe(true)
+    expect(isSystemStep({ id: 'X', phase: 'P1', action: 'x', kind: 'human' })).toBe(true)
+    expect(isSystemStep({ id: 'X', phase: 'P5', action: 'x', kind: 'human' })).toBe(true)
+    expect(isSystemStep({ id: 'X', phase: 'P2', action: 'x', kind: 'human' })).toBe(false)
+    expect(isSystemStep({ id: 'X', phase: 'P3', action: 'x', kind: 'human' })).toBe(false)
+  })
+
+  it('上一個工作項完成、人類步驟的閘門未簽 → 建議簽核，而不是下一個工作項', () => {
+    const doc = nextActions({
+      system: 'a/b',
+      template: humanTemplate,
+      process: { ...process, phases: ['P0', 'P1', 'P2'] } as ProcessSpec,
+      modules: [billing],
+      issues: [issue(1, 'agent-analyze', 'src/billing/a.ts', [], 'CLOSED')],
+      gates: [],
+      generatedAt: '2026-10-18T00:00:00Z',
+    })
+    expect(doc.actions).toEqual([
+      expect.objectContaining({ kind: 'gate', gate: 'HG4', template_step: 'B', scope: 'a/b/billing' }),
+    ])
+  })
+
+  it('人類步驟的閘門已簽 → 視為完成，繼續建議下一個工作項', () => {
+    const doc = nextActions({
+      system: 'a/b',
+      template: humanTemplate,
+      process: { ...process, phases: ['P0', 'P1', 'P2'] } as ProcessSpec,
+      modules: [billing],
+      issues: [issue(1, 'agent-analyze', 'src/billing/a.ts', [], 'CLOSED')],
+      gates: [{ id: 'HG4', scope: 'a/b/billing', state: 'signed', signed_by: 'alice', signed_at: 'x', evidence: 'https://a.test' }],
+      generatedAt: '2026-10-18T00:00:00Z',
+    })
+    expect(doc.actions).toEqual([
+      expect.objectContaining({ kind: 'work-item', task_type: 'agent-add-tests', template_step: 'C' }),
+    ])
+  })
+})

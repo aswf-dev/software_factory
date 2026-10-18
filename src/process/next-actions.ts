@@ -14,6 +14,7 @@
  * 系統層步驟（`per: system|repo`）不產生建議，只在未完成時給 warning：P2–P4 是逐模組推進，
  * 用一個全域指標序列化它們會與 docs/29 §6 的「模組各自推進」衝突。
  */
+import { z } from 'zod'
 import { extractField } from '../cli/factory-issue-check.js'
 import { moduleOfIssue } from '../graph/build.js'
 import type { IssueInput } from '../graph/build.js'
@@ -52,6 +53,31 @@ export interface GateAction {
 
 export type NextAction = WorkItemAction | GateAction
 
+const WorkItemActionSchema = z.object({
+  kind: z.literal('work-item'),
+  scope: z.string().min(1),
+  template_step: z.string().min(1),
+  task_type: z.string().min(1),
+  task_types: z.array(z.string().min(1)),
+  reason: z.string().min(1),
+})
+
+const GateActionSchema = z.object({
+  kind: z.literal('gate'),
+  scope: z.string().min(1),
+  gate: z.string().min(1),
+  template_step: z.string().min(1),
+  reason: z.string().min(1),
+})
+
+/** 輸出契約（factory-snapshot 會把它崁進快照，consumer 可直接驗證）。 */
+export const NextActionsSchema = z.object({
+  system: z.string().min(1),
+  generated_at: z.string().min(1),
+  actions: z.array(z.discriminatedUnion('kind', [WorkItemActionSchema, GateActionSchema])),
+  warnings: z.array(z.string()),
+})
+
 export interface NextActionsDocument {
   system: string
   generated_at: string
@@ -59,9 +85,16 @@ export interface NextActionsDocument {
   warnings: string[]
 }
 
-/** 步驟屬於系統層（`per: system|repo`）而非模組層。 */
+/**
+ * 步驟屬於系統層而非模組層。
+ *
+ * `per` 明確標示時照它；模板裡的人類步驟沒有 `per`，依 `docs/29` §9 的階段語意：
+ * P0／P1／P5 是系統層，P2–P4 是模組層。
+ */
 export function isSystemStep(step: Step): boolean {
-  return step.per === 'system' || step.per === 'repo'
+  if (step.per === 'system' || step.per === 'repo') return true
+  if (step.per !== undefined) return false
+  return step.kind === 'human' && (step.phase === 'P0' || step.phase === 'P1' || step.phase === 'P5')
 }
 
 /** 步驟接受的任務類型：`task_type` 或所有 work-item 替代方案。 */
@@ -128,7 +161,7 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
   const systemSteps = steps.filter(isSystemStep)
 
   const unfinishedSystem = systemSteps.filter(
-    (step) => step.required !== false && !isStepDone(step, input.issues),
+    (step) => step.required !== false && step.conditional !== true && !isStepDone(step, input.issues),
   )
   if (unfinishedSystem.length > 0) {
     warnings.push(
@@ -144,6 +177,24 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
 
     for (const step of moduleSteps) {
       if (step.required === false) continue
+
+      // 人類步驟不會產生工作項；它的「完成」由閘門簽核代表。
+      // 閘門未簽 → 建議簽核；已簽 → 視為已完成；沒有閘門 → 只能 warning，不能猜。
+      if (step.kind === 'human') {
+        const gate = gateSigned(step, input.gates, scopes)
+        if (!gate.signed) {
+          actions.push({
+            kind: 'gate',
+            scope,
+            gate: gate.missing[0] as string,
+            template_step: step.id,
+            reason: `${step.id} 為人類步驟，需完成並由 ${gate.missing.join('、')} 簽核`,
+          })
+          break
+        }
+        warnings.push(`${scope}：${step.id} 為人類步驟（無待簽閘門），未自動建議`)
+        continue
+      }
 
       if (isStepDone(step, moduleIssues)) {
         const gate = gateSigned(step, input.gates, scopes)
