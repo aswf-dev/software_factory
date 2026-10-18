@@ -1,0 +1,18 @@
+docs/10-open-questions.md
+  h_1b119f25eaf333 41
+docs/ADR/025-tenant-process-templates.md
+  h_1b119f25eaf333 44
+templates/ONBOARDING.md
+  h_1b119f25eaf333 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "848a9be741a134d24832c23bf0b17c2e0b24d140",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
