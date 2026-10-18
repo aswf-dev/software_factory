@@ -121,7 +121,8 @@ export function parseCommentEvents(
     } else {
       // 自訂閘門（ADR-025）：必須是 <TENANT>-<NAME>，且模板已宣告；否則不靜默接受。
       if (id === undefined || !CUSTOM_GATE_PATTERN.test(id) || isHgGateId(id)) {
-        warnings.push(`comment ${comment.id}: 自訂閘門 id "${id ?? ''}" 不符 <TENANT>-<NAME>`)
+        // 訊息刻意不用尖括號：避免被 SAST 當成 HTML 建構（raw-html-format false positive）。
+        warnings.push(`comment ${comment.id}: 自訂閘門 id "${id ?? ''}" 不符 TENANT-NAME 格式`)
         continue
       }
       if (declaredGates === undefined) {

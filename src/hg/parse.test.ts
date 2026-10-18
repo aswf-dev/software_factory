@@ -272,7 +272,7 @@ describe('自訂閘門（ADR-025）', () => {
       comment(22, '<!-- factory:gate id=HG2 state=signed evidence=https://a.test -->'),
     )
     expect(gateWithHg.events).toEqual([])
-    expect(gateWithHg.warnings[0]).toContain('<TENANT>-<NAME>')
+    expect(gateWithHg.warnings[0]).toContain('TENANT-NAME')
   })
 
   it('缺少 id 的自訂閘門標記被拒', () => {
@@ -281,7 +281,7 @@ describe('自訂閘門（ADR-025）', () => {
       ['ACME-SECURITY'],
     )
     expect(events).toEqual([])
-    expect(warnings[0]).toContain('<TENANT>-<NAME>')
+    expect(warnings[0]).toContain('TENANT-NAME')
   })
 
   it('格式不符（沒有連字號）也被拒', () => {
@@ -290,6 +290,6 @@ describe('自訂閘門（ADR-025）', () => {
       ['ACME'],
     )
     expect(events).toEqual([])
-    expect(warnings[0]).toContain('<TENANT>-<NAME>')
+    expect(warnings[0]).toContain('TENANT-NAME')
   })
 })
