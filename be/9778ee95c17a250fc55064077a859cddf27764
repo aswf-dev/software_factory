@@ -1,0 +1,15 @@
+.github/workflows/factory-snapshot.yml
+  h_1b119f25eaf333 73-85,88-115,118-119,128,144
+  h_1b119f25eaf333 86-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "be9778ee95c17a250fc55064077a859cddf27764",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
