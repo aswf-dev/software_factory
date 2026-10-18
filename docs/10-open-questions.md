@@ -38,7 +38,7 @@
 | **Q-ORCH-2** | 模組身份是否強制要求 `docs/business-rules/<module>.md`（列入 HG2 必要條件）；連帶影響大型專案的兩人簽核是否須機器可驗 | `ADR-023`、`research/55` §3.3 | `29` §10.2 的規格來源前提、`ADR-023` 的模組錨定順序 |
 | **Q-ORCH-3** | 是否允許「批次建立 N 張工作項」（人按一次、建多張）；若允許，誰承擔 label／格式正確性，部分失敗怎麼回報 | `ADR-024` | `ADR-024` §「待決」與重評觸發條件 2 |
 | **Q-ORCH-4** | 自訂 gate（`ADR-025` 的 `<TENANT>-<NAME>`）需要幾人簽核、何種證據等級、是否可撤回／需要 quorum | `ADR-025`、`29` §8 | **已裁決（2026-10-18，c；2026-10-19 補充）**：先支援**單簽核者**＋證據必填＋可撤回（與 HG 同規則）；**quorum 不做**——團隊自行取得共識後，由一位代表簽核，`evidence` 應指向共識文件（會議紀錄、ADR、審查結論）。模板以 `gate_defs` 宣告 signers／scope／evidence；自訂閘門必填、HG 可省略 |
-| **Q-ORCH-5** | 多租戶資料隔離（Access policy 與 snapshot 可見性）與跨租戶 phase 映射 | `ADR-025`、`ADR-015` | **已裁決（2026-10-18，b）**：同一平台、依租戶分 Access policy。實作：Scoreboard `TENANT_ACCESS`（email／網域）套用於 live 快照與租戶模板定義頁；租戶由模板 id 前綴或 repo owner 推導；政策為空＝過渡期不啟用。phase 映射仍為獨立待決 |
+| **Q-ORCH-5** | 多租戶資料隔離（Access policy 與 snapshot 可見性）與跨租戶 phase 映射 | `ADR-025`、`ADR-015` | **已裁決（2026-10-18，b）**：同一平台、依租戶分 Access policy。實作：Scoreboard `TENANT_ACCESS`（email／網域）套用於 live 快照與租戶模板定義頁；租戶由模板 id 前綴或 repo owner 推導；政策為空＝過渡期不啟用。phase 映射**已裁決（2026-10-19，A）**：維持 `P0`–`P5`，不自訂階段名；階段語意由 step `action` 表達。重評條件：租戶要求自訂階段名顯示於 UI（屆時走「自訂名＋強制 `maps_to`」方案） |
 
 > **本節原有的 Q09-2（試點 repo）與 Q01-2（前提就緒）已於 2026-08-16 裁決**，移至 §1.7。
 >
