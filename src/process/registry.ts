@@ -7,7 +7,7 @@
  * 目錄是**機械的事實來源**：`factory-template` CLI 讀它，CI 檢查它與 `templates/**` 一致。
  */
 import { z } from 'zod'
-import { TEMPLATE_ID_PATTERN } from './spec.js'
+import { TEMPLATE_ID_PATTERN, TemplateSchema } from './spec.js'
 import type { Template } from './spec.js'
 
 const TENANT = /^[a-z][a-z0-9-]*$/
@@ -22,6 +22,11 @@ export const TemplateEntrySchema = z.object({
   version: z.number().int().positive(),
   path: z.string().regex(TEMPLATE_PATH, 'path 必須是 templates/<tenant>/<name>.yaml'),
   source: z.string().min(1).optional(),
+  /**
+   * 模板本體（與 `path` 的檔案相同）。consumer（Scoreboard）只需抓一份 JSON 就能畫圖，
+   * 不必在瀏覽器／Worker 裡解析 YAML；CI 以 `validateRegistry` 釘住兩者相等。
+   */
+  template: TemplateSchema,
 })
 
 export const TemplateRegistrySchema = z.object({
@@ -73,6 +78,16 @@ export function loadRegistry(text: string): RegistryResult {
     : { ok: false, errors }
 }
 
+/** 決定性序列化：物件鍵排序，讓「內容相同、鍵序不同」不被誤判。 */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 /** 依 id 找目錄項（`<tenant>/<name>`；版本由系統釘選，不在 id 裡）。 */
 export function findTemplate(registry: TemplateRegistry, id: string): TemplateEntry | undefined {
   return registry.templates.find((entry) => entry.id === id)
@@ -103,6 +118,9 @@ export function validateRegistry(
     }
     if (template.version !== entry.version) {
       errors.push(`${entry.id}: 目錄 version ${entry.version}，模板檔是 ${template.version}`)
+    }
+    if (canonical(entry.template) !== canonical(template)) {
+      errors.push(`${entry.id}: 目錄內嵌的 template 與 ${entry.path} 不一致（請用 factory-template 重新產生）`)
     }
   }
 

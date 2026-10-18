@@ -4,7 +4,7 @@
 
 ## 目錄（`templates/index.json`）
 
-`templates/index.json` 是模板的機械事實來源：每個模板一筆 `{id, tenant, name, version, path}`。系統釘 `template: <tenant>/<name>` ＋ `template_version`，consumer 用目錄回答「檔案在哪」。
+`templates/index.json` 是模板的機械事實來源：每個模板一筆 `{id, tenant, name, version, path, template}`——`template` 是模板本體（`phases`／`gates`／`steps`）。consumer（Scoreboard）只需抓這一份 JSON 就能畫圖，不必解析 YAML；`factory-template` 會驗證目錄內嵌內容與 `path` 的檔案相等。系統釘 `template: <tenant>/<name>` ＋ `template_version`，consumer 用目錄回答「檔案在哪」。
 
 ```bash
 node dist/cli/factory-template.js list --root .

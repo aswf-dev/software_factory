@@ -13,12 +13,23 @@ const templateYaml = (tenant: string, name: string, version = 1): string =>
     '  - {id: S0, phase: P0, action: x, kind: human}',
   ].join('\n')
 
+const templateBody = (tenant: string, name: string, version = 1) => ({
+  tenant,
+  name,
+  version,
+  source: 'test',
+  phases: ['P0'],
+  gates: ['HG1', 'HG2', 'HG4', 'HG5', 'HG6'],
+  steps: [{ id: 'S0', phase: 'P0', action: 'x', kind: 'human' }],
+})
+
 const entry = (tenant: string, name: string, version = 1) => ({
   id: `${tenant}/${name}`,
   tenant,
   name,
   version,
   path: `templates/${tenant}/${name}.yaml`,
+  template: templateBody(tenant, name, version),
 })
 
 const registryJson = (entries: unknown[]): string =>
