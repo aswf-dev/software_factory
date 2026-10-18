@@ -1,0 +1,23 @@
+[
+  {
+    "number": 408,
+    "title": "#408 補 billing 的匯率換算測試",
+    "labels": [],
+    "state": "CLOSED",
+    "body": "> 流程步驟：M10\n\n### 任務類型\n\nagent-add-tests\n\n### 需求描述（PRD）\n\n目標模組 / 檔案：src/billing/invoice.ts\n\n### 驗收標準（DoD）\n\n- [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）\n\n### 前置工作項（可留空）\n\n_No response_\n"
+  },
+  {
+    "number": 412,
+    "title": "#412 修復結算批次漏單",
+    "labels": [],
+    "state": "OPEN",
+    "body": "> 流程步驟：M11\n\n### 任務類型\n\nagent-fix-bug\n\n### 需求描述（PRD）\n\n目標模組 / 檔案：src/settlement/batch.ts\n\n### 驗收標準（DoD）\n\n- [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）\n\n### 前置工作項（可留空）\n\n#408\n"
+  },
+  {
+    "number": 415,
+    "title": "#415 settlement 的驗證閘門（Hegel）",
+    "labels": [{ "name": "needs-human" }],
+    "state": "OPEN",
+    "body": "> 流程步驟：M12\n\n### 任務類型\n\nagent-pbt-audit\n\n### 需求描述（PRD）\n\n目標模組 / 檔案：src/settlement/gate.ts\n\n### 驗收標準（DoD）\n\n- [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）\n\n### 前置工作項（可留空）\n\n_No response_\n"
+  }
+]

@@ -1,0 +1,89 @@
+# 流程快照（ADR-024 資料路徑）：把 factory-graph ＋ factory-next 的輸出發佈成
+# rolling release，供 Scoreboard 讀取——Worker 不重算任何判定（ADR-001、ADR-023 §2）。
+#
+# 目前只有合成系統（processes/samples/*），用離線 fixture 產生；index.json 以
+# `sample: true` 標示，consumer 不得當成真實納管資料。
+# 真實系統納管後（processes/<system>.yaml），在同一支 workflow 加對應 step，
+# 改讀目標 repo 的 factory/process.yaml 與 tracking issue 即可。
+name: Factory Snapshot
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每日 00:00 UTC（台北 08:00）。快照是唯讀產物，延遲一天不影響判定。
+    - cron: '0 0 * * *'
+
+permissions:
+  # 發佈 rolling release 需要寫入；除此之外只讀 Issue。
+  contents: write
+  issues: read
+
+concurrency:
+  group: factory-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLIs
+        run: pnpm build
+
+      - name: Generate snapshot (sample system, offline fixtures)
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node dist/cli/factory-snapshot.js \
+            --repo aswf-dev/payment-platform \
+            --system aswf-dev/payment-platform \
+            --process processes/samples/payment-platform.yaml \
+            --template processes/templates/M.yaml \
+            --modules processes/samples/payment-platform.modules.yaml \
+            --issues-file processes/samples/payment-platform.issues.json \
+            --tracking-issue 391 \
+            --comments-file processes/samples/payment-platform.comments.json \
+            --generated-at "$generated_at" > out/payment-platform.json
+          node -e '
+          const fs = require("node:fs");
+          const snapshot = JSON.parse(fs.readFileSync("out/payment-platform.json", "utf8"));
+          const index = {
+            schema_version: 1,
+            generated_at: snapshot.generated_at,
+            systems: [
+              {
+                id: snapshot.system,
+                repo: snapshot.source.github,
+                sample: true,
+                file: "payment-platform.json",
+                generated_at: snapshot.generated_at,
+              },
+            ],
+          };
+          fs.writeFileSync("out/index.json", JSON.stringify(index, null, 2) + "\n");
+          '
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view snapshot-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create snapshot-latest --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "流程快照（rolling）" \
+              --notes "由 factory-snapshot workflow 產生。index.json 的 sample: true 代表合成系統，不是真實納管資料。"
+          fi
+          gh release upload snapshot-latest out/index.json out/payment-platform.json --clobber --repo "$GITHUB_REPOSITORY"

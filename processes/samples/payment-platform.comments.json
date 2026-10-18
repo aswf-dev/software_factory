@@ -1,0 +1,10 @@
+[
+  [
+    {
+      "id": 9001,
+      "body": "<!-- factory:hg id=HG2 state=signed evidence=https://github.com/aswf-dev/payment-platform/issues/391#issuecomment-9001 -->\nHG2 已簽核：規模 M、billing 就緒度 R1。",
+      "user": { "login": "tech-lead" },
+      "created_at": "2026-10-18T01:20:00Z"
+    }
+  ]
+]

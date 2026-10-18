@@ -200,3 +200,48 @@ describe('main', () => {
     expect(doc.nodes[0]?.id).toBe('aswf-dev/example')
   })
 })
+
+describe('offline inputs（--issues-file／--comments-file）', () => {
+  it('--issues-file 取代 gh issue list，完全不呼叫 gh', () => {
+    const calls: string[][] = []
+    const fake: GraphDeps = {
+      gh: (args) => {
+        calls.push(args)
+        throw new Error('gh should not be called in offline mode')
+      },
+      readFile: (path) => (path === 'issues.json' ? issuesJson : processYaml),
+      now: () => '2026-10-18T01:00:00Z',
+    }
+    const doc = graph(parseOptions(['--repo', 'a/b', '--issues-file', 'issues.json']), fake)
+    expect(doc.nodes.some((node) => node.id === 'issue:1')).toBe(true)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('--comments-file 取代 comments API，HG 狀態仍可解讀', () => {
+    const fake: GraphDeps = {
+      gh: () => {
+        throw new Error('gh should not be called in offline mode')
+      },
+      readFile: (path) => {
+        if (path === 'issues.json') return issuesJson
+        if (path === 'comments.json') return commentsJson
+        return processYaml
+      },
+      now: () => '2026-10-18T01:00:00Z',
+    }
+    const doc = graph(
+      parseOptions([
+        '--repo',
+        'a/b',
+        '--issues-file',
+        'issues.json',
+        '--tracking-issue',
+        '391',
+        '--comments-file',
+        'comments.json',
+      ]),
+      fake,
+    )
+    expect(doc.gates.find((gate) => gate.id === 'HG2')).toMatchObject({ state: 'signed', signed_by: 'alice' })
+  })
+})
