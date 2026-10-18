@@ -1,0 +1,19 @@
+docs/10-open-questions.md
+  s_697446f76f6548::t_2e210eac1ab8aa 25,37-38,43-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f8fe9ae7cb9de8919694ff7490794fbd45fc4a9d",
+  "prompts": {},
+  "sessions": {
+    "s_697446f76f6548": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "40e41700-e480-4d06-99f0-4d9a6c21da7f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
