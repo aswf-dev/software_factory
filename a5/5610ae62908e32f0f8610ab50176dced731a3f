@@ -1,0 +1,18 @@
+templates/README.md
+  h_1b119f25eaf333 23
+templates/example/review-first.yaml
+  h_1b119f25eaf333 1-21
+templates/index.json
+  h_1b119f25eaf333 693-765
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a55610ae62908e32f0f8610ab50176dced731a3f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
