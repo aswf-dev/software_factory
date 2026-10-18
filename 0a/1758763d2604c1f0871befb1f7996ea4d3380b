@@ -1,0 +1,16 @@
+src/cli/factory-snapshot.test.ts
+  h_1b119f25eaf333 81-82,117,121-127
+src/cli/factory-snapshot.ts
+  h_1b119f25eaf333 19,29-32,95-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0a1758763d2604c1f0871befb1f7996ea4d3380b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
