@@ -74,6 +74,57 @@ export const ProcessSpecSchema = z.object({
   extra_steps: z.array(StepSchema).optional(),
 })
 
+export const READINESS_LEVELS = ['R0', 'R1', 'R2'] as const
+export type Readiness = (typeof READINESS_LEVELS)[number]
+
+/**
+ * 目標 repo 的 `factory/process.yaml`（模組級，ADR-023 附錄 A.2）。
+ *
+ * 模組是**變更治理單位**：識別碼 `<system>/<module-id>`，`paths` 是就緒度與覆蓋率的
+ * 機械歸屬。`readiness` 只能由人填並附 `readiness_evidence`——本模組不推導它。
+ */
+export const ModuleEntrySchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'module id 只允許小寫英數與連字號'),
+  paths: z.array(z.string().min(1)).min(1),
+  build_unit: z.string().min(1).optional(),
+  spec: z.string().min(1).optional(),
+  readiness: z.enum(READINESS_LEVELS).optional(),
+  readiness_evidence: z.string().min(1).optional(),
+  owner: z.string().min(1).optional(),
+})
+
+export const ModuleSpecSchema = z.object({
+  system: z.string().min(1),
+  modules: z.array(ModuleEntrySchema).min(1),
+})
+
+export type ModuleEntry = z.infer<typeof ModuleEntrySchema>
+export type ModuleSpec = z.infer<typeof ModuleSpecSchema>
+
+/** 解析 `factory/process.yaml`；`readiness` 未附 evidence 視為錯誤（ADR-023 附錄 A.3）。 */
+export function loadModuleSpec(text: string): ValidationResult & { modules?: ModuleSpec } {
+  let raw: unknown
+  try {
+    raw = load(text)
+  } catch {
+    return { ok: false, errors: ['YAML 無法解析'] }
+  }
+  const parsed = ModuleSpecSchema.safeParse(raw)
+  if (!parsed.success) return { ok: false, errors: schemaErrors(parsed.error.issues) }
+  const errors: string[] = []
+  const seen = new Set<string>()
+  for (const module of parsed.data.modules) {
+    if (seen.has(module.id)) errors.push(`modules.${module.id}: id 重複`)
+    seen.add(module.id)
+    if (module.readiness !== undefined && module.readiness_evidence === undefined) {
+      errors.push(`modules.${module.id}: readiness 必須附 readiness_evidence`)
+    }
+  }
+  return errors.length === 0
+    ? { ok: true, errors: [], modules: parsed.data }
+    : { ok: false, errors }
+}
+
 export type Step = z.infer<typeof StepSchema>
 export type Template = z.infer<typeof TemplateSchema>
 export type ProcessSpec = z.infer<typeof ProcessSpecSchema>

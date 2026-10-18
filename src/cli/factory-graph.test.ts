@@ -1,0 +1,202 @@
+import { describe, expect, it } from 'vitest'
+import { graph, main, parseIssues, parseOptions } from './factory-graph.js'
+import type { GhRunner, GraphDeps } from './factory-graph.js'
+
+const issuesJson = JSON.stringify([
+  {
+    number: 1,
+    title: 'add tests',
+    body: '### 任務類型\n\nagent-add-tests\n',
+    labels: [{ name: 'oversight/review' }],
+    state: 'OPEN',
+  },
+])
+
+const commentsJson = JSON.stringify([
+  [
+    {
+      id: 10,
+      body: '<!-- factory:hg id=HG2 state=signed evidence=https://a.test -->',
+      user: { login: 'alice' },
+      created_at: '2026-10-18T00:00:00Z',
+    },
+  ],
+])
+
+const processYaml = [
+  'system: aswf-dev/example',
+  'scale: S',
+  'scale_evidence: docs/research/1.md',
+  'template: S',
+  'phases: [P0]',
+  'gates: [HG1]',
+].join('\n')
+
+const modulesYaml = [
+  'system: aswf-dev/example',
+  'modules:',
+  '  - id: billing',
+  '    paths: ["src/billing/**"]',
+].join('\n')
+
+function deps(overrides: Partial<GraphDeps> = {}): GraphDeps {
+  const gh: GhRunner = (args) => {
+    if (args[0] === 'issue') return issuesJson
+    return commentsJson
+  }
+  return {
+    gh,
+    readFile: (path) => (path.endsWith('modules.yaml') ? modulesYaml : processYaml),
+    now: () => '2026-10-18T01:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('parseOptions', () => {
+  it('解析必要參數並套用預設值', () => {
+    expect(parseOptions(['--repo', 'a/b'])).toEqual({ repo: 'a/b', system: 'a/b', limit: 200 })
+  })
+
+  it('接受所有選填參數', () => {
+    const options = parseOptions([
+      '--repo',
+      'a/b',
+      '--system',
+      'aswf-dev/x',
+      '--process',
+      'p.yaml',
+      '--modules',
+      'm.yaml',
+      '--tracking-issue',
+      '7',
+      '--limit',
+      '50',
+      '--generated-at',
+      '2026-10-18T00:00:00Z',
+    ])
+    expect(options).toEqual({
+      repo: 'a/b',
+      system: 'aswf-dev/x',
+      processPath: 'p.yaml',
+      modulesPath: 'm.yaml',
+      trackingIssue: 7,
+      limit: 50,
+      generatedAt: '2026-10-18T00:00:00Z',
+    })
+  })
+
+  it('拒絕非旗標參數與缺值', () => {
+    expect(() => parseOptions(['x'])).toThrow('無法辨識的參數')
+    expect(() => parseOptions(['--repo'])).toThrow('需要一個值')
+    expect(() => parseOptions(['--repo', '--system', 'x'])).toThrow('需要一個值')
+  })
+
+  it('拒絕缺少或格式錯誤的 repo', () => {
+    expect(() => parseOptions([])).toThrow('缺少 --repo')
+    expect(() => parseOptions(['--repo', 'noslash'])).toThrow('--repo 格式不正確')
+  })
+
+  it('拒絕不合法的 limit', () => {
+    expect(() => parseOptions(['--repo', 'a/b', '--limit', '0'])).toThrow('--limit 必須是正整數')
+    expect(() => parseOptions(['--repo', 'a/b', '--limit', 'x'])).toThrow('--limit 必須是正整數')
+  })
+
+  it('拒絕不合法的 tracking issue', () => {
+    expect(() => parseOptions(['--repo', 'a/b', '--tracking-issue', '0'])).toThrow('--tracking-issue 必須是正整數')
+    expect(() => parseOptions(['--repo', 'a/b', '--tracking-issue', 'x'])).toThrow('--tracking-issue 必須是正整數')
+  })
+})
+
+describe('parseIssues', () => {
+  it('轉換欄位並正規化 state', () => {
+    const issues = parseIssues(
+      JSON.stringify([
+        { number: 2, title: 't', body: null, labels: [{ name: 'a' }], state: 'CLOSED' },
+      ]),
+    )
+    expect(issues).toEqual([{ number: 2, title: 't', body: '', labels: ['a'], state: 'CLOSED' }])
+  })
+
+  it('OPEN 以外的狀態視為 OPEN', () => {
+    const issues = parseIssues(
+      JSON.stringify([{ number: 3, title: 't', body: 'x', labels: [], state: 'OPEN' }]),
+    )
+    expect(issues[0]?.state).toBe('OPEN')
+  })
+
+  it('回報 JSON 解析失敗與結構不符', () => {
+    expect(() => parseIssues('nope')).toThrow('Issue 清單 JSON 無法解析')
+    expect(() => parseIssues('{"number":1}')).toThrow('Issue 清單結構不符')
+  })
+})
+
+describe('graph', () => {
+  it('只用 Issue 清單時輸出工作項', () => {
+    const doc = graph({ repo: 'a/b', system: 'a/b', limit: 200 }, deps())
+    expect(doc.system).toBe('a/b')
+    expect(doc.generated_at).toBe('2026-10-18T01:00:00Z')
+    expect(doc.nodes.map((n) => n.id)).toContain('issue:1')
+  })
+
+  it('帶入 process、模組與閘門', () => {
+    const doc = graph(
+      {
+        repo: 'a/b',
+        system: 'aswf-dev/example',
+        processPath: 'process.yaml',
+        modulesPath: 'modules.yaml',
+        trackingIssue: 9,
+        limit: 200,
+      },
+      deps(),
+    )
+    expect(doc.nodes.find((n) => n.kind === 'system')).toMatchObject({ scale: 'S' })
+    expect(doc.nodes.find((n) => n.kind === 'module')?.id).toBe('aswf-dev/example/billing')
+    expect(doc.gates.map((gate) => gate.id)).toEqual(['HG1', 'HG2', 'HG4', 'HG5', 'HG6', 'HG7'])
+    expect(doc.gates.find((gate) => gate.id === 'HG2')).toMatchObject({ state: 'signed', signed_by: 'alice' })
+    expect(doc.gates.find((gate) => gate.id === 'HG1')).toMatchObject({ state: 'missing' })
+  })
+
+  it('指定 generated-at 時不呼叫 now', () => {
+    const doc = graph(
+      { repo: 'a/b', system: 'a/b', limit: 200, generatedAt: '2026-10-18T09:00:00Z' },
+      deps({ now: () => { throw new Error('now 不該被呼叫') } }),
+    )
+    expect(doc.generated_at).toBe('2026-10-18T09:00:00Z')
+  })
+
+  it('process 或模組檔案無效時拋出 CliError', () => {
+    const broken = deps({ readFile: () => 'system: [unclosed' })
+    expect(() => graph({ repo: 'a/b', system: 'a/b', limit: 200, processPath: 'p.yaml' }, broken)).toThrow('p.yaml 無效')
+    expect(() => graph({ repo: 'a/b', system: 'a/b', limit: 200, modulesPath: 'm.yaml' }, broken)).toThrow('m.yaml 無效')
+  })
+
+  it('把正確的 gh 參數傳給 CLI', () => {
+    const calls: string[][] = []
+    const gh: GhRunner = (args) => {
+      calls.push(args)
+      return args[0] === 'issue' ? issuesJson : commentsJson
+    }
+    graph({ repo: 'a/b', system: 'a/b', limit: 5, trackingIssue: 9 }, deps({ gh }))
+    expect(calls[0]).toEqual([
+      'issue',
+      'list',
+      '--repo',
+      'a/b',
+      '--state',
+      'all',
+      '--limit',
+      '5',
+      '--json',
+      'number,title,body,labels,state',
+    ])
+    expect(calls[1]).toEqual(['api', '--paginate', '--slurp', 'repos/a/b/issues/9/comments'])
+  })
+})
+
+describe('main', () => {
+  it('由 argv 組出文件', () => {
+    const doc = main(['--repo', 'a/b', '--system', 'aswf-dev/example'], deps())
+    expect(doc.nodes[0]?.id).toBe('aswf-dev/example')
+  })
+})

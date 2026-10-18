@@ -305,9 +305,16 @@ modules:
 
 ---
 
-## 附錄 B：`factory-graph --json` 輸出契約草稿（本次不實作）
+## 附錄 B：`factory-graph --json` 輸出契約（2026-10-18 已實作，#59）
 
 > 用途：讓 scoreboard 只負責畫，**不重寫第二份判定邏輯**。判定全部來自既有的 `src/scoring/**`、`src/cli/factory-stage.ts`、`src/labels.ts`。
+>
+> **實作**：CLI 在 `src/cli/factory-graph.ts`，組裝在 `src/graph/build.ts`，可驗證的契約是 `GraphDocumentSchema`。
+> **canonical fixture**：`docs/research/fixtures/factory-graph.sample.json`（標明 SAMPLE DATA，供 Scoreboard vendor；
+> 改契約請回本 repo，不要各自改欄位名）。
+>
+> v1 的誠實邊界（會出現在 `warnings`，不藏在程式裡）：前置完成只依 `stage/done` 標籤，**不含 PR 合併狀態**；
+> 沒提供模組清單時工作項掛在系統節點下；`warnings` 永遠是 advisory，不得變成閘門（`ADR-024` §4）。
 
 ```jsonc
 {
