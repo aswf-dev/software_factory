@@ -276,6 +276,33 @@ describe('nextActions', () => {
   })
 })
 
+describe('人類步驟的完成訊號（閘門）', () => {
+  const humanWithGate: Step = { id: 'H1', phase: 'P1', action: '安全審查', kind: 'human', gates: ['HG4'] }
+
+  it('閘門已簽 → 人類步驟視為完成', () => {
+    expect(isStepDone(humanWithGate, [], [{ id: 'HG4', scope: 'system', state: 'signed' }])).toBe(true)
+  })
+
+  it('閘門缺簽或未提供 → 未完成', () => {
+    expect(isStepDone(humanWithGate, [], [{ id: 'HG4', scope: 'system', state: 'missing' }])).toBe(false)
+    expect(isStepDone(humanWithGate, [])).toBe(false)
+  })
+
+  it('簽了閘門後不再產生「系統層步驟尚未完成」warning', () => {
+    const doc = nextActions(
+      input({
+        template: TemplateSchema.parse({
+          ...template,
+          steps: [humanWithGate],
+        }),
+        issues: [],
+        gates: [{ id: 'HG4', scope: 'system', state: 'signed' }],
+      }),
+    )
+    expect(doc.warnings.some((warning) => warning.includes('系統層步驟尚未完成'))).toBe(false)
+  })
+})
+
 describe('人類步驟（模板裡沒有 per 的 kind: human）', () => {
   const humanTemplate = TemplateSchema.parse({
     tenant: 'factory',
