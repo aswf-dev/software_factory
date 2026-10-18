@@ -1,0 +1,24 @@
+docs/10-open-questions.md
+  h_1b119f25eaf333 40
+docs/ADR/025-tenant-process-templates.md
+  h_1b119f25eaf333 49
+src/cli/factory-hg.test.ts
+  h_1b119f25eaf333 157-158
+src/process/spec.test.ts
+  h_1b119f25eaf333 336-338,371-403
+src/process/spec.ts
+  h_1b119f25eaf333 63-87,119-120,269-282
+templates/README.md
+  h_1b119f25eaf333 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "76fc51b0c243788282e1a36bba63d3e4898383e6",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
