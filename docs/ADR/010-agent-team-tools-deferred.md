@@ -72,3 +72,11 @@ factory 的 skills（`.dsh/skills/factory-*`）與 GitHub Actions templates（`f
 **對「以 stacked PR 三層做多 agent 物理隔離」提案的具體反對**：`docs/07` §2.2 要求 fix-bug 的 01-test 紅燈驗證**在同一 agent 沙箱內完成**；拆給兩個無狀態 agent 後，第二個**沒見過紅燈**，無法確認測試真能捕捉該缺陷——而 `docs/07` §2.1 明列 01-test 置底正是為了「防堵 agent 為了讓測試通過而弱化測試」。**這是靜默失效**。
 
 此外，該提案欲解決的「Gate 2.5 截斷」另有成因：`run-work-item.ts:131-152` 記載 issue #35 實測為「agent 停在 Let me re-run a few times 卻仍 exit 0」，已由 `task-template-*.txt` 的輸出紀律與「完成後立即停止」處理；平行化亦已由 Actions 層「每 issue 一個獨立 run」達成。
+
+## 補記：2026-10-18（OpenRig 評估，維持不採用其方法論）
+
+評估了 OpenRig（`v0.6.10`，Apache-2.0）作為工單編排層的可行性。結論：**本 ADR 的結論不變**，且新增一項區分——
+
+- 本 ADR 約束的是「**agent 自主組隊**」（agent 啟動另一個 agent、遞迴 spawn）。
+- 「**以 UI 呈現與制定流程**」屬**協調層**議題，不在此限：它不啟動任何 agent，只描述流程並讓變更留下 diff。相關決策見 `ADR-023`（`docs/research/55`）。
+- OpenRig 的 agent 團隊方法論仍不採用，理由（runtime 列舉不含 DSH、無 PR／merge 概念、單一具名簽核無 quorum、無 GitHub 整合、workflow runtime 自標 v1 minimum）見 `docs/research/55` §5.2。
