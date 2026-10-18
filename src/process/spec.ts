@@ -60,6 +60,31 @@ export const FACTORY_TASK_TYPES = [
 /** meta-contract：任何模板都不得移除的工廠閘門（ADR-025 §3）。 */
 export const MANDATORY_GATES = ['HG1', 'HG2', 'HG4', 'HG5', 'HG6'] as const
 
+/** 閘門的適用範圍與證據等級（與 Scoreboard 的 GateDef 同一組詞彙）。 */
+export const GATE_SCOPES = ['system', 'module', 'phase', 'pr', 'workitem', 'release'] as const
+export const GATE_EVIDENCE = [
+  'tracking-issue-comment',
+  'pr-review',
+  'spec-approved-label',
+  'issue-form',
+  'adr',
+  'meeting-record',
+] as const
+
+/**
+ * 閘門的簽核 metadata（ADR-025 §3、`Q-ORCH-4` 裁決 c：先支援單簽核者，
+ * quorum 另案）。自訂閘門**必須**宣告；HG 閘門可選擇覆寫預設值。
+ */
+export const GateSpecSchema = z.object({
+  id: GateIdSchema,
+  signers: z.array(z.string().min(1)).min(1),
+  scope: z.enum(GATE_SCOPES),
+  evidence: z.enum(GATE_EVIDENCE),
+  note_zh: z.string().min(1).optional(),
+  note_en: z.string().min(1).optional(),
+})
+export type GateSpec = z.infer<typeof GateSpecSchema>
+
 const AlternativeSchema = z.object({
   kind: z.enum(STEP_KINDS),
   action: z.string().min(1).optional(),
@@ -91,6 +116,8 @@ export const TemplateSchema = z.object({
   source: z.string().min(1),
   phases: z.array(PhaseSchema).min(1),
   gates: z.array(GateIdSchema),
+  /** 自訂閘門必填；HG 閘門可省略（沿用工廠預設 metadata）。 */
+  gate_defs: z.array(GateSpecSchema).optional(),
   steps: z.array(StepSchema).min(1),
 })
 
@@ -237,6 +264,20 @@ export function validateTemplate(input: unknown): ValidationResult & { template?
     if (!gate.startsWith(tenantPrefix)) {
       errors.push(`gates: 自訂 gate ${gate} 必須以 ${tenantPrefix} 開頭`)
     }
+  }
+
+  // 閘門 metadata（Q-ORCH-4）：每筆 def 必須對應已宣告的 gate、id 不重複；
+  // 自訂閘門必須有 def（HG 可省略，沿用工廠預設）。
+  const declaredGates = new Set(parsed.data.gates)
+  const defIds = new Set<string>()
+  for (const def of parsed.data.gate_defs ?? []) {
+    if (!declaredGates.has(def.id)) errors.push(`gate_defs: ${def.id} 未在 gates 宣告`)
+    if (defIds.has(def.id)) errors.push(`gate_defs: ${def.id} 重複`)
+    defIds.add(def.id)
+  }
+  for (const gate of parsed.data.gates) {
+    if (/^HG[0-7]$/.test(gate)) continue
+    if (!defIds.has(gate)) errors.push(`gate_defs: 自訂閘門 ${gate} 必須宣告簽核 metadata`)
   }
 
   return { ok: errors.length === 0, errors, template: parsed.data }

@@ -333,6 +333,9 @@ describe('meta-contract（ADR-025）', () => {
       ...minimalTemplate,
       tenant: 'acme',
       gates: [...gates, 'ACME-SECURITY'],
+      gate_defs: [
+        { id: 'ACME-SECURITY', signers: ['security-lead'], scope: 'phase', evidence: 'adr' },
+      ],
     })
     expect(good).toEqual({ ok: true, errors: [], template: expect.objectContaining({ tenant: 'acme' }) })
   })
@@ -363,6 +366,39 @@ describe('meta-contract（ADR-025）', () => {
       ],
     })
     expect(result.errors.join(' ')).toContain('agent-nope')
+  })
+
+  it('自訂閘門必須宣告 gate_defs；HG 可省略', () => {
+    const base = { ...minimalTemplate, tenant: 'acme', gates: [...gates, 'ACME-SECURITY'] }
+    const missing = validateTemplate(base)
+    expect(missing.errors.join(' ')).toContain('ACME-SECURITY 必須宣告簽核 metadata')
+
+    const declared = validateTemplate({
+      ...base,
+      gate_defs: [
+        { id: 'ACME-SECURITY', signers: ['security-lead'], scope: 'phase', evidence: 'adr' },
+      ],
+    })
+    expect(declared).toEqual({ ok: true, errors: [], template: expect.objectContaining({ tenant: 'acme' }) })
+  })
+
+  it('gate_defs 的 id 必須已宣告且不得重複', () => {
+    const undeclared = validateTemplate({
+      ...minimalTemplate,
+      gates,
+      gate_defs: [{ id: 'HG7', signers: ['a'], scope: 'system', evidence: 'adr' }],
+    })
+    expect(undeclared.errors.join(' ')).toContain('HG7 未在 gates 宣告')
+
+    const duplicated = validateTemplate({
+      ...minimalTemplate,
+      gates,
+      gate_defs: [
+        { id: 'HG2', signers: ['a'], scope: 'system', evidence: 'adr' },
+        { id: 'HG2', signers: ['b'], scope: 'system', evidence: 'adr' },
+      ],
+    })
+    expect(duplicated.errors.join(' ')).toContain('HG2 重複')
   })
 
   it('租戶模板以 <tenant>/<name> 識別，系統釘版本', () => {
