@@ -20,6 +20,7 @@ node dist/cli/factory-template.js resolve --root . --id factory/M
 | `templates/factory/S.yaml` | `factory/S` | 小型 preset（`docs/29` §9.1） |
 | `templates/factory/M.yaml` | `factory/M` | 中型 preset（§9.2） |
 | `templates/factory/L.yaml` | `factory/L` | 大型 preset（§9.3） |
+| `templates/example/review-first.yaml` | `example/review-first` | **範例**（非真實租戶）：演示租戶模板、自訂閘門 `EXAMPLE-SECURITY` 與 Scoreboard 的目錄／定義預覽 |
 
 規則：
 
