@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "templates": [
+    {
+      "id": "factory/S",
+      "tenant": "factory",
+      "name": "S",
+      "version": 1,
+      "path": "templates/factory/S.yaml",
+      "source": "docs/29-brownfield-adoption-playbook.md §9.1"
+    },
+    {
+      "id": "factory/M",
+      "tenant": "factory",
+      "name": "M",
+      "version": 1,
+      "path": "templates/factory/M.yaml",
+      "source": "docs/29-brownfield-adoption-playbook.md §9.2"
+    },
+    {
+      "id": "factory/L",
+      "tenant": "factory",
+      "name": "L",
+      "version": 1,
+      "path": "templates/factory/L.yaml",
+      "source": "docs/29-brownfield-adoption-playbook.md §9.3"
+    }
+  ]
+}

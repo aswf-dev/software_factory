@@ -102,7 +102,7 @@
 
 1. **本 PR（文件）**：ADR-025、ADR-023 §2 互引、`docs/10` 新增 `Q-ORCH-4/5`。
 2. `src/process/spec.ts`：`TemplateSchema` 加 `tenant`／`name`／`version`；meta-contract 驗證；自訂 gate id 規則；`ProcessSpec` 加 `template_version`、移除 `scale === template`；S/M/L 移到 `templates/factory/`。
-3. Loader／registry：`loadTemplate(id, version)`，目錄掃描或 `templates/index.yaml`。
+3. Loader／registry：`loadTemplate(id, version)`，目錄掃描或 `templates/index.yaml`。——**已實作**：`templates/index.json` ＋ `factory-template` CLI ＋ `src/process/registry.ts`（entries 與 `templates/**` 一致性由 CI 釘住）。
 4. `factory-graph`／`factory-next`：loader 換手（邏輯不動）。
 5. `factory-snapshot`：快照帶 `template`／`template_version`。
 6. `factory-hg`／`hg/parse.ts`：接受 `factory:gate` 的自訂 id（僅限模板已宣告者；未知 id → warning）。
