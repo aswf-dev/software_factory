@@ -1,0 +1,124 @@
+# 中型專案的流程模板（docs/29 §9.2）。
+#
+# 與 S 的差異：P0 逐 repo 納管、P1 一份 A1 跨 repo ＋ 每模組 A2–A4、
+# P2 文件化依模組、P5 只到 modular monolith（ADR-023）。
+template: M
+version: 1
+source: docs/29-brownfield-adoption-playbook.md §9.2
+phases: [P0, P1, P2, P3, P4, P5]
+gates: [HG1, HG2, HG3, HG4, HG5, HG6, HG7]
+
+steps:
+  - id: M0
+    phase: P0
+    action: 開導入追蹤 Issue
+    kind: human
+  - id: M1
+    phase: P0
+    action: 每個 repo 安裝 App、建立 software-factory 分支
+    kind: human
+  - id: M2
+    phase: P0
+    action: 納管提案
+    kind: work-item
+    task_type: agent-onboard
+    per: repo
+  - id: M3
+    phase: P0
+    action: 裁定三軸、搬檔、雙向探測
+    kind: human
+    gates: [HG1]
+  - id: M4
+    phase: P0
+    action: 宣告 spec.system；核心 repo 加 factory.io/quint-spec
+    kind: human
+    gates: [HG1]
+  - id: M5
+    phase: P1
+    action: 規模與就緒度量測（A0，跨 repo）
+    kind: work-item
+    task_type: agent-analyze
+    per: system
+    gates: [HG2]
+  - id: M6
+    phase: P1
+    action: 架構盤點（A1，跨 repo）
+    kind: work-item
+    task_type: agent-analyze
+    per: system
+  - id: M7
+    phase: P1
+    action: 測試、相依、風險盤點（A2–A4，每模組各 1）
+    kind: work-item
+    task_type: agent-analyze
+    per: module
+    gates: [HG6]
+  - id: M8
+    phase: P2
+    action: 精簡 arc42 文件集（每模組 1–2 張 ＋ 系統 1 張）
+    kind: work-item
+    task_type: agent-write-docs
+    per: module
+    gates: [HG3]
+  - id: M9
+    phase: P2
+    action: 撰寫核心模組業務規則
+    kind: human
+    gates: [HG4, HG6]
+  - id: M10
+    phase: P3
+    action: 依 A2 清單補測試
+    kind: work-item
+    task_type: agent-add-tests
+    per: module
+    gates: [HG3]
+  - id: M11
+    phase: P3
+    action: 修復揭露的缺陷
+    kind: work-item
+    task_type: agent-fix-bug
+    per: defect
+    gates: [HG3]
+  - id: M12
+    phase: P3
+    action: 驗證閘門（每核心模組擇一）
+    kind: work-item
+    per: module
+    alternatives:
+      - kind: work-item
+        action: Quint 可執行規格
+        task_type: agent-write-spec
+      - kind: work-item
+        action: Hegel 性質測試稽核
+        task_type: agent-pbt-audit
+      - kind: human
+        action: 豁免單（HG5 簽核）
+    gates: [HG5, HG6]
+  - id: M13
+    phase: P4
+    action: 維護（依需要）
+    kind: work-item
+    required: false
+    alternatives:
+      - kind: work-item
+        action: 升級相依
+        task_type: agent-update-deps
+      - kind: work-item
+        action: 修復缺陷
+        task_type: agent-fix-bug
+      - kind: work-item
+        action: 提出技能草案
+        task_type: agent-propose-skill
+    gates: [HG0, HG3]
+  - id: M14
+    phase: P5
+    action: 撰寫 ADR（是否模組化）
+    kind: human
+    conditional: true
+    gates: [HG7]
+  - id: M15
+    phase: P5
+    action: 同一 repo 內劃模組邊界（modular monolith）
+    kind: human
+    conditional: true
+    gates: [HG7]
