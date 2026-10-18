@@ -3,6 +3,7 @@ import {
   PHASES,
   ProcessSpecSchema,
   TemplateSchema,
+  loadModuleSpec,
   loadProcessSpec,
   loadTemplate,
   requiredSteps,
@@ -256,5 +257,52 @@ describe('常數', () => {
 
   it('ProcessSpecSchema 可單獨用於驗證', () => {
     expect(ProcessSpecSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('loadModuleSpec', () => {
+  const valid = [
+    'system: aswf-dev/example',
+    'modules:',
+    '  - id: billing',
+    '    paths: ["src/billing/**"]',
+    '    readiness: R1',
+    '    readiness_evidence: docs/research/1-a2.md',
+  ].join('\n')
+
+  it('載入合法模組清單', () => {
+    const result = loadModuleSpec(valid)
+    expect(result.ok).toBe(true)
+    expect(result.modules?.modules[0]?.id).toBe('billing')
+  })
+
+  it('回報 YAML 解析失敗', () => {
+    expect(loadModuleSpec('a: [unclosed').errors).toEqual(['YAML 無法解析'])
+  })
+
+  it('回報 schema 錯誤', () => {
+    expect(loadModuleSpec('system: a').ok).toBe(false)
+  })
+
+  it('拒絕 readiness 沒有 evidence', () => {
+    const text = ['system: a/b', 'modules:', '  - id: billing', '    paths: ["x/**"]', '    readiness: R2'].join('\n')
+    expect(loadModuleSpec(text).errors[0]).toContain('必須附 readiness_evidence')
+  })
+
+  it('拒絕重複的 module id', () => {
+    const text = [
+      'system: a/b',
+      'modules:',
+      '  - id: billing',
+      '    paths: ["x/**"]',
+      '  - id: billing',
+      '    paths: ["y/**"]',
+    ].join('\n')
+    expect(loadModuleSpec(text).errors[0]).toContain('id 重複')
+  })
+
+  it('拒絕不合法的 module id', () => {
+    const text = ['system: a/b', 'modules:', '  - id: Billing', '    paths: ["x/**"]'].join('\n')
+    expect(loadModuleSpec(text).ok).toBe(false)
   })
 })

@@ -93,6 +93,14 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // factory-graph assembles the topology the UI draws; a missed branch here
+        // is a node or gate silently missing from the picture (ADR-023 附錄 B).
+        'src/graph/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
         // HG sign-off reading decides whether the topology UI draws a lock and
         // whether factory-graph reports a gate as signed; a missed branch here
         // is a gate silently shown as missing (ADR-023 §4, ADR-024 §4).

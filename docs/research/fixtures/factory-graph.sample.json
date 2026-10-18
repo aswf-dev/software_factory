@@ -1,0 +1,116 @@
+{
+  "_comment": "SAMPLE DATA — canonical `factory-graph --json` fixture (ADR-023 附錄 B). 供 factory-scoreboard vendor；請勿手改欄位名，改契約請回 software_factory。合成資料，非真實系統。",
+  "system": "aswf-dev/payment-platform",
+  "generated_at": "2026-10-18T09:00:00+08:00",
+  "source": {
+    "github": "aswf-dev/payment-platform",
+    "rev": null
+  },
+  "nodes": [
+    {
+      "id": "aswf-dev/payment-platform",
+      "kind": "system",
+      "label": "aswf-dev/payment-platform",
+      "scale": "M",
+      "phase": "P2"
+    },
+    {
+      "id": "aswf-dev/payment-platform/billing",
+      "kind": "module",
+      "label": "billing",
+      "readiness": "R1",
+      "owner": "payment-team",
+      "spec": "docs/business-rules/billing.md"
+    },
+    {
+      "id": "aswf-dev/payment-platform/settlement",
+      "kind": "module",
+      "label": "settlement",
+      "readiness": "R2",
+      "owner": "payment-team"
+    },
+    {
+      "id": "issue:408",
+      "kind": "workitem",
+      "label": "#408 補 billing 的匯率換算測試",
+      "task_type": "agent-add-tests",
+      "state": "closed",
+      "prereqs": [],
+      "needs_human": false
+    },
+    {
+      "id": "issue:412",
+      "kind": "workitem",
+      "label": "#412 修復結算批次漏單",
+      "task_type": "agent-fix-bug",
+      "state": "waiting-prereq",
+      "prereqs": [
+        408
+      ],
+      "oversight": "review",
+      "needs_human": false
+    },
+    {
+      "id": "issue:415",
+      "kind": "workitem",
+      "label": "#415 settlement 的驗證閘門（Hegel）",
+      "task_type": "agent-pbt-audit",
+      "state": "needs-human",
+      "prereqs": [],
+      "oversight": "review",
+      "needs_human": true
+    }
+  ],
+  "edges": [
+    {
+      "from": "aswf-dev/payment-platform",
+      "to": "aswf-dev/payment-platform/billing",
+      "kind": "contains"
+    },
+    {
+      "from": "aswf-dev/payment-platform",
+      "to": "aswf-dev/payment-platform/settlement",
+      "kind": "contains"
+    },
+    {
+      "from": "aswf-dev/payment-platform/billing",
+      "to": "issue:408",
+      "kind": "contains"
+    },
+    {
+      "from": "aswf-dev/payment-platform/settlement",
+      "to": "issue:412",
+      "kind": "contains"
+    },
+    {
+      "from": "aswf-dev/payment-platform/settlement",
+      "to": "issue:415",
+      "kind": "contains"
+    },
+    {
+      "from": "issue:408",
+      "to": "issue:412",
+      "kind": "prerequisite"
+    }
+  ],
+  "gates": [
+    {
+      "id": "HG2",
+      "scope": "system",
+      "state": "signed",
+      "signed_by": "tech-lead",
+      "signed_at": "2026-10-18T01:20:00Z",
+      "evidence": "https://github.com/aswf-dev/payment-platform/issues/391#issuecomment-1"
+    },
+    {
+      "id": "HG5",
+      "scope": "aswf-dev/payment-platform/settlement",
+      "state": "missing"
+    }
+  ],
+  "warnings": [
+    "HG1（system）尚未簽核",
+    "HG6（system）尚未簽核",
+    "前置完成判定僅依 stage/done 標籤，未含 PR 合併狀態（v1 限制）"
+  ]
+}
