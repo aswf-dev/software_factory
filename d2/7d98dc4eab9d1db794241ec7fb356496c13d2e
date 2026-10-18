@@ -1,0 +1,24 @@
+.github/workflows/factory-snapshot.yml
+  h_1b119f25eaf333 1-89
+processes/samples/README.md
+  h_1b119f25eaf333 1-18
+processes/samples/payment-platform.comments.json
+  h_1b119f25eaf333 1-10
+processes/samples/payment-platform.issues.json
+  h_1b119f25eaf333 1-23
+src/cli/factory-graph.test.ts
+  h_1b119f25eaf333 203-247
+src/cli/factory-graph.ts
+  h_1b119f25eaf333 76-79,125-128,166-167,169-182,200-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d27d98dc4eab9d1db794241ec7fb356496c13d2e",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
