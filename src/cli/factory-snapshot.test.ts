@@ -34,7 +34,6 @@ function deps(files: Record<string, string>, issues = issuesJson): FakeDeps {
     calls,
     gh: (args) => {
       calls.push(args)
-      if (args[0] === 'issue') return issues
       throw new Error(`unexpected gh call: ${args.join(' ')}`)
     },
     readFile: (path) => {
@@ -50,6 +49,7 @@ const fullFiles = {
   [PROCESS]: read(PROCESS),
   [MODULES]: read(MODULES),
   [TEMPLATE]: read(TEMPLATE),
+  'issues.json': issuesJson,
 }
 
 const argv = (overrides: string[] = []): string[] => [
@@ -63,6 +63,8 @@ const argv = (overrides: string[] = []): string[] => [
   TEMPLATE,
   '--modules',
   MODULES,
+  '--issues-file',
+  'issues.json',
   '--generated-at',
   '2026-10-18T00:00:00Z',
   ...overrides,
@@ -104,6 +106,8 @@ describe('factory-snapshot', () => {
       PROCESS,
       '--modules',
       MODULES,
+      '--issues-file',
+      'issues.json',
     ])
     const result = snapshot(options, deps(fullFiles))
 
@@ -119,6 +123,8 @@ describe('factory-snapshot', () => {
       PROCESS,
       '--template',
       TEMPLATE,
+      '--issues-file',
+      'issues.json',
     ])
     const result = snapshot(options, deps(fullFiles))
 
@@ -127,8 +133,17 @@ describe('factory-snapshot', () => {
   })
 
   it('fails loudly when the template file is invalid', () => {
-    const options = parseOptions(['--repo', 'aswf-dev/payment-platform', '--process', PROCESS, '--template', 'bad.yaml'])
-    expect(() => snapshot(options, deps({ [PROCESS]: fullFiles[PROCESS]!, 'bad.yaml': 'not: [valid' }))).toThrowError(
+    const options = parseOptions([
+      '--repo',
+      'aswf-dev/payment-platform',
+      '--process',
+      PROCESS,
+      '--template',
+      'bad.yaml',
+      '--issues-file',
+      'issues.json',
+    ])
+    expect(() => snapshot(options, deps({ [PROCESS]: fullFiles[PROCESS]!, 'bad.yaml': 'not: [valid', 'issues.json': issuesJson }))).toThrowError(
       /bad\.yaml 無效/,
     )
   })
@@ -145,17 +160,18 @@ describe('factory-snapshot', () => {
       PROCESS,
       '--template',
       'processes/templates/S.yaml',
+      '--issues-file',
+      'issues.json',
     ])
     expect(() =>
       snapshot(options, deps({ ...fullFiles, 'processes/templates/S.yaml': read('processes/templates/S.yaml') })),
     ).toThrowError(/process 與模板不一致/)
   })
 
-  it('is read-only: the only gh call is the issue list', () => {
+  it('is read-only: offline mode makes no gh calls', () => {
     const fake = deps(fullFiles)
     snapshot(parseOptions(argv()), fake)
-    expect(fake.calls).toHaveLength(1)
-    expect(fake.calls[0]?.slice(0, 2)).toEqual(['issue', 'list'])
+    expect(fake.calls).toHaveLength(0)
   })
 })
 

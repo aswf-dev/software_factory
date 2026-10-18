@@ -113,7 +113,6 @@
   ],
   "warnings": [
     "HG1（system）尚未簽核",
-    "HG6（system）尚未簽核",
-    "前置完成判定僅依 stage/done 標籤，未含 PR 合併狀態（v1 限制）"
+    "HG6（system）尚未簽核"
   ]
 }

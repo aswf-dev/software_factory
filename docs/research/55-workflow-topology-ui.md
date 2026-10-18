@@ -319,7 +319,7 @@ modules:
 > **canonical fixture**：`docs/research/fixtures/factory-graph.sample.json`（標明 SAMPLE DATA，供 Scoreboard vendor；
 > 改契約請回本 repo，不要各自改欄位名）。
 >
-> v1 的誠實邊界（會出現在 `warnings`，不藏在程式裡）：前置完成只依 `stage/done` 標籤，**不含 PR 合併狀態**；
+> 完成判定（2026-10-18 起）：Issue 關閉 **或** `stage/done` **或** 已合併 PR（分支 `factory/<issue>-…` 或 body closing keyword）；沒有 PR 清單時退回合規的 advisory。
 > 沒提供模組清單時工作項掛在系統節點下；`warnings` 永遠是 advisory，不得變成閘門（`ADR-024` §4）。
 
 ```jsonc

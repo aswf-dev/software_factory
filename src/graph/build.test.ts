@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGraph, moduleOfIssue, parseStepId, workItemState } from './build.js'
+import { buildGraph, linkedIssueNumbers, moduleOfIssue, parseStepId, workItemState } from './build.js'
 import type { BuildInput, IssueInput } from './build.js'
 import type { ModuleEntry, ProcessSpec } from '../process/spec.js'
 
@@ -150,13 +150,13 @@ describe('buildGraph', () => {
     expect(doc.warnings).toContain('#2: 前置 #99 不在清單中')
   })
 
-  it('缺少任務類型時產生 warning，並對有前置的系統提示 v1 限制', () => {
+  it('缺少任務類型時產生 warning，未提供 PR 清單時給 advisory', () => {
     const doc = buildGraph({
       ...base,
       issues: [issue(1, '### 需求描述（PRD）\n\n沒有類型'), issue(2, prd('src/a.ts', '#1'))],
     })
     expect(doc.warnings).toContain('#1: 缺少任務類型欄位')
-    expect(doc.warnings).toContain('前置完成判定僅依 stage/done 標籤，未含 PR 合併狀態（v1 限制）')
+    expect(doc.warnings).toContain('未提供 PR 清單：完成判定只依 Issue 狀態／stage/done')
   })
 
   it('帶出 oversight 與 needs_human', () => {
@@ -252,5 +252,65 @@ describe('step_id', () => {
       plain.nodes.find((n) => n.id === 'issue:1')?.state,
     )
     expect(tagged.gates).toEqual(plain.gates)
+  })
+})
+
+describe('PR／merge 狀態（ADR-022）', () => {
+  const map = (issues: IssueInput[]) => new Map(issues.map((i) => [i.number, i]))
+  const pr = (overrides: Partial<import('./build.js').PullRequestInput> = {}) => ({
+    number: 900,
+    state: 'MERGED' as const,
+    mergedAt: '2026-10-18T00:00:00Z',
+    headRefName: 'factory/1-01-test',
+    body: '',
+    ...overrides,
+  })
+
+  it('linkedIssueNumbers 讀分支前綴與 closing keyword', () => {
+    expect(linkedIssueNumbers(pr())).toEqual([1])
+    expect(linkedIssueNumbers(pr({ headRefName: 'feat/x', body: 'Closes #12' }))).toEqual([12])
+    expect(linkedIssueNumbers(pr({ headRefName: 'feat/x', body: 'Fixes #3 and resolves #4' }))).toEqual([3, 4])
+    expect(linkedIssueNumbers(pr({ headRefName: 'feat/x', body: 'no reference' }))).toEqual([])
+  })
+
+  it('merged PR 讓開啟中的 Issue 視為完成', () => {
+    const target = issue(1, prd('src/a.ts'))
+    expect(workItemState(target, map([target]), new Set([1]))).toEqual({ state: 'closed', unresolved: [] })
+  })
+
+  it('open／closed-unmerged 的 PR 不算完成', () => {
+    const target = issue(1, prd('src/a.ts'))
+    const merged = new Set<number>()
+    for (const p of [pr({ state: 'OPEN', mergedAt: null }), pr({ state: 'CLOSED', mergedAt: null })]) {
+      if (p.state === 'MERGED' || p.mergedAt !== null) for (const n of linkedIssueNumbers(p)) merged.add(n)
+    }
+    expect(merged.size).toBe(0)
+    expect(workItemState(target, map([target]), merged).state).toBe('open')
+  })
+
+  it('前置 PR 已合併 → 下游不再 waiting-prereq（即使前置 Issue 不在清單）', () => {
+    const target = issue(2, prd('src/a.ts', '#1'))
+    expect(workItemState(target, map([target]), new Set([1]))).toEqual({ state: 'open', unresolved: [] })
+  })
+
+  it('buildGraph 以 PR 清單判定完成，且不再輸出 v1 限制 warning', () => {
+    const doc = buildGraph({
+      ...base,
+      issues: [issue(1, prd('src/a.ts')), issue(2, prd('src/a.ts', '#1'))],
+      pullRequests: [
+        pr({ headRefName: 'factory/1-01-test' }),
+        // open + no merge date → must not count
+        pr({ number: 901, state: 'OPEN', mergedAt: null, headRefName: 'factory/2-01-test' }),
+      ],
+    })
+    expect(doc.nodes.find((n) => n.id === 'issue:1')?.state).toBe('closed')
+    expect(doc.nodes.find((n) => n.id === 'issue:2')?.state).toBe('open')
+    expect(doc.warnings.some((w) => w.includes('PR 合併狀態'))).toBe(false)
+    expect(doc.warnings.some((w) => w.includes('未提供 PR 清單'))).toBe(false)
+  })
+
+  it('完全沒有 PR 清單時給 advisory，但仍可運作', () => {
+    const doc = buildGraph({ ...base, issues: [issue(1, prd('src/a.ts'))] })
+    expect(doc.warnings).toContain('未提供 PR 清單：完成判定只依 Issue 狀態／stage/done')
   })
 })
