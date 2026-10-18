@@ -207,14 +207,20 @@
 ### 6.3 資料流
 
 ```
-GitHub（真相）──┬─→ factory-graph --json（既有判定：scoring / stage / labels）
+GitHub（真相）──┬─→ factory-graph --json（狀態：nodes / edges / gates / warnings）
                 │            │
                 │            ├─→ scoreboard：唯讀拓撲圖（v1）
                 │            └─→ 快取（靜態 JSON，選用）
+                ├─→ factory-next（模板 ＋ 狀態 → 待開工作項清單，ADR-024）
+                │            │
+                │            └─→ 人按下送出 → 既有 Backstage 表單／issue form → factory-run
                 └─→ 人（HG 簽核、PR 合併、派工）
                           │
                           └─→ process.yaml 的 PR（結構變更）
 ```
+
+> 2026-10-18（#65）：`factory-next` 已實作，但**只算、不建立**。清單裡的 `warnings` 與 `reason`
+> 都是 advisory；「按下送出」仍由人完成（`ADR-024` §2）。
 
 ### 6.4 兩份文件的分工（避免漂移）
 
