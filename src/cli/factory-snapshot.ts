@@ -16,7 +16,7 @@ import { collectInputs, parseOptions, type GraphDeps, type GraphOptions } from '
 import { buildGraph, GraphDocumentSchema } from '../graph/build.js'
 import { NextActionsSchema, nextActions } from '../process/next-actions.js'
 import type { NextActionsDocument } from '../process/next-actions.js'
-import { TEMPLATE_ID_PATTERN, loadTemplate, validateProcess } from '../process/spec.js'
+import { TEMPLATE_ID_PATTERN, validateProcess } from '../process/spec.js'
 
 /** v1。consumer 必須拒絕不認得的版本，而不是猜測相容。 */
 export const SNAPSHOT_SCHEMA_VERSION = 1
@@ -60,12 +60,8 @@ export function snapshot(options: GraphOptions, deps: GraphDeps): FactorySnapsho
   const warnings: string[] = []
   let next: NextActionsDocument | null = null
 
-  if (inputs.process !== undefined && options.templatePath !== undefined) {
-    const templateResult = loadTemplate(deps.readFile(options.templatePath))
-    if (!templateResult.ok || templateResult.template === undefined) {
-      throw new CliError(`${options.templatePath} 無效：${templateResult.errors.join('; ')}`)
-    }
-    const template = templateResult.template
+  if (inputs.process !== undefined && inputs.template !== undefined) {
+    const template = inputs.template
     const validation = validateProcess(inputs.process, template)
     if (!validation.ok) {
       throw new CliError(`process 與模板不一致：${validation.errors.join('; ')}`)

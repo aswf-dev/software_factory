@@ -285,7 +285,8 @@ HG2 已簽核：規模 M、billing 就緒度 R1。
 
 | 規則 | 內容 |
 |---|---|
-| 欄位 | `id`（HG0–HG7）、`state`（`signed`／`revoked`）、選填 `scope`（預設 `system`；模組層級填 module-id）、`evidence`（`signed` 時必填，須為 http(s) 連結） |
+| 欄位 | `id`（HG0–HG7，或模板已宣告的自訂閘門 `<TENANT>-<NAME>`）、`state`（`signed`／`revoked`）、選填 `scope`（預設 `system`；模組層級填 module-id）、`evidence`（`signed` 時必填，須為 http(s) 連結） |
+| 自訂閘門 | 租戶模板宣告的額外閘門用 `<!-- factory:gate id=ACME-SECURITY … -->`；只認模板已宣告者，未宣告或未提供模板時產生 warning（`ADR-025` §3） |
 | 誰能簽 | 只有**人類**。`[bot]` 結尾的作者一律忽略——工廠不得簽自己的閘門 |
 | 以誰為準 | 同一 `(id, scope)` 以**最後一筆**為準；`revoked` 表示撤回，該閘門回到未簽 |
 | 記錄在哪 | 導入追蹤 Issue（每系統一張）。HG0 在 Issue 本身、HG3 在 PR，不在此清單 |

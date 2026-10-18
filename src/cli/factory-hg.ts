@@ -3,6 +3,7 @@
  *
  * 用法：
  *   factory-hg show --repo owner/name --issue 12 [--gates HG1,HG2] [--scope system]
+ *                    [--template templates/factory/M.yaml]   # 讓租戶自訂閘門可被辨識
  *
  * 輸出（JSON）：
  *   { repo, issue, scope, gates: [{id, scope, state, signed_by?, signed_at?, evidence?}], warnings[] }
@@ -11,17 +12,20 @@
  * 供 `factory-graph` 與拓撲 UI 使用。要不要拿它當閘門，是呼叫端的決定（ADR-024 §4）。
  */
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
-import { HG_IDS, TRACKED_GATE_IDS, gateReport } from '../hg/parse.js'
+import { CUSTOM_GATE_PATTERN, HG_IDS, TRACKED_GATE_IDS, gateReport } from '../hg/parse.js'
 import type { GateId, GateReport, HgComment } from '../hg/parse.js'
+import { loadTemplate } from '../process/spec.js'
 
 /** gh CLI 注入點（測試以 fake 取代）。 */
 export type GhRunner = (args: string[]) => string
 
 /* v8 ignore start -- 真實 gh 二進位的薄包裝：單元測試一律注入 fake runner */
 const realGh: GhRunner = (args) => execFileSync('gh', args, { encoding: 'utf8' })
+const realReadFile = (path: string): string => readFileSync(path, 'utf8')
 /* v8 ignore stop */
 
 const REPO_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
@@ -41,6 +45,8 @@ export interface HgShowOptions {
   issue: number
   gates: readonly GateId[]
   scope: string
+  /** README：模板路徑；提供時，模板宣告的自訂閘門才會被辨識。 */
+  templatePath?: string
 }
 
 export interface HgShowResult extends GateReport {
@@ -76,7 +82,10 @@ export function parseOptions(argv: readonly string[]): HgShowOptions {
   const scope = values.get('scope') ?? 'system'
   if (scope.trim().length === 0) throw new CliError('--scope 不可為空')
 
-  return { repo, issue, gates, scope }
+  const options: HgShowOptions = { repo, issue, gates, scope }
+  const templatePath = values.get('template')
+  if (templatePath !== undefined) options.templatePath = templatePath
+  return options
 }
 
 function parseGateList(raw: string): GateId[] {
@@ -84,7 +93,8 @@ function parseGateList(raw: string): GateId[] {
   for (const token of raw.split(',')) {
     const id = token.trim()
     if (id.length === 0) continue
-    if (!(HG_IDS as readonly string[]).includes(id)) throw new CliError(`未知的閘門 id：${id}`)
+    const isHg = (HG_IDS as readonly string[]).includes(id)
+    if (!isHg && !CUSTOM_GATE_PATTERN.test(id)) throw new CliError(`未知的閘門 id：${id}`)
     if (!ids.includes(id as GateId)) ids.push(id as GateId)
   }
   if (ids.length === 0) throw new CliError('--gates 至少要指定一個閘門')
@@ -116,19 +126,41 @@ export function parseComments(raw: string): HgComment[] {
   return comments
 }
 
-export function show(options: HgShowOptions, gh: GhRunner): HgShowResult {
+export function show(
+  options: HgShowOptions,
+  gh: GhRunner,
+  readFile: (path: string) => string = realReadFile,
+): HgShowResult {
+  let declaredGates: readonly GateId[] | undefined
+  if (options.templatePath !== undefined) {
+    const loaded = loadTemplate(readFile(options.templatePath))
+    if (!loaded.ok || loaded.template === undefined) {
+      throw new CliError(`${options.templatePath} 無效：${loaded.errors.join('; ')}`)
+    }
+    declaredGates = loaded.template.gates
+  }
+
+  const expected =
+    declaredGates === undefined
+      ? options.gates
+      : [...new Set([...options.gates, ...declaredGates])]
+
   const raw = gh([
     'api',
     '--paginate',
     '--slurp',
     `repos/${options.repo}/issues/${options.issue}/comments`,
   ])
-  const report = gateReport(parseComments(raw), options.gates, options.scope)
+  const report = gateReport(parseComments(raw), expected, options.scope, declaredGates)
   return { repo: options.repo, issue: options.issue, scope: options.scope, ...report }
 }
 
-export function main(argv: readonly string[], gh: GhRunner = realGh): HgShowResult {
-  return show(parseOptions(argv), gh)
+export function main(
+  argv: readonly string[],
+  gh: GhRunner = realGh,
+  readFile: (path: string) => string = realReadFile,
+): HgShowResult {
+  return show(parseOptions(argv), gh, readFile)
 }
 
 /* v8 ignore start -- 副作用區塊：僅在子行程直接執行時進入 */

@@ -20,11 +20,12 @@ import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 import { buildGraph } from '../graph/build.js'
 import type { GraphDocument, IssueInput, PullRequestInput } from '../graph/build.js'
-import type { ModuleEntry, ProcessSpec } from '../process/spec.js'
+import type { ModuleEntry, ProcessSpec, Template } from '../process/spec.js'
 import type { GateStatus } from '../hg/parse.js'
 import { parseComments } from './factory-hg.js'
-import { gateReport } from '../hg/parse.js'
-import { loadModuleSpec, loadProcessSpec } from '../process/spec.js'
+import { TRACKED_GATE_IDS, gateReport } from '../hg/parse.js'
+import type { GateId } from '../hg/parse.js'
+import { loadModuleSpec, loadProcessSpec, loadTemplate } from '../process/spec.js'
 
 /** gh CLI 注入點（測試以 fake 取代）。 */
 export type GhRunner = (args: string[]) => string
@@ -71,6 +72,8 @@ export interface GraphInputs {
   pullRequests?: readonly PullRequestInput[] | undefined
   modules?: readonly ModuleEntry[] | undefined
   process?: ProcessSpec | undefined
+  /** 由 `--template` 載入的模板（`factory-snapshot` 需要它驗證 process）。 */
+  template?: Template | undefined
   gates?: readonly GateStatus[] | undefined
   generatedAt: string
   github: string
@@ -225,6 +228,23 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
       ? undefined
       : loadOrThrow(loadModuleSpec(deps.readFile(options.modulesPath)), `${options.modulesPath} 無效`).modules?.modules
 
+  let template: Template | undefined
+  if (options.templatePath !== undefined) {
+    const loaded = loadTemplate(deps.readFile(options.templatePath))
+    if (!loaded.ok) {
+      throw new CliError(`${options.templatePath} 無效：${loaded.errors.join('; ')}`)
+    }
+    /* v8 ignore start -- ok 已保證 template 存在（防守型；不讓型別斷言進入正式路徑） */
+    if (loaded.template === undefined) throw new CliError(`${options.templatePath} 無效：template 未解析`)
+    /* v8 ignore stop */
+    template = loaded.template
+  }
+  const declaredGates: readonly GateId[] | undefined = template?.gates
+  const expectedGates: readonly GateId[] =
+    declaredGates === undefined
+      ? TRACKED_GATE_IDS
+      : [...new Set([...TRACKED_GATE_IDS, ...declaredGates])]
+
   const gates =
     options.trackingIssue === undefined
       ? undefined
@@ -239,6 +259,9 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
                   `repos/${options.repo}/issues/${options.trackingIssue}/comments`,
                 ]),
           ),
+          expectedGates,
+          'system',
+          declaredGates,
         ).gates
 
   // 離線 issues 模式（合成系統）預設沒有 PR；要納入 PR 就另外給 --prs-file。
@@ -268,6 +291,7 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
     pullRequests,
     modules,
     process,
+    template,
     gates,
     generatedAt: options.generatedAt ?? deps.now(),
     github: options.repo,
