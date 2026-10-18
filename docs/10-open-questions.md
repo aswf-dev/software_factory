@@ -37,7 +37,7 @@
 | **Q-ORCH-1** | `process.yaml`（`ADR-023`）是否只作描述，或未來讓 `factory-run` 讀它否決派工（＝把 Q29-4 機械化） | `ADR-023`、`research/55` | `ADR-023` 的 v1 邊界（§4）與重評觸發條件 4 |
 | **Q-ORCH-2** | 模組身份是否強制要求 `docs/business-rules/<module>.md`（列入 HG2 必要條件）；連帶影響大型專案的兩人簽核是否須機器可驗 | `ADR-023`、`research/55` §3.3 | `29` §10.2 的規格來源前提、`ADR-023` 的模組錨定順序 |
 | **Q-ORCH-3** | 是否允許「批次建立 N 張工作項」（人按一次、建多張）；若允許，誰承擔 label／格式正確性，部分失敗怎麼回報 | `ADR-024` | `ADR-024` §「待決」與重評觸發條件 2 |
-| **Q-ORCH-4** | 自訂 gate（`ADR-025` 的 `<TENANT>-<NAME>`）需要幾人簽核、何種證據等級、是否可撤回／需要 quorum | `ADR-025`、`29` §8 | `ADR-025` 的 meta-contract 與分階段實作 6 |
+| **Q-ORCH-4** | 自訂 gate（`ADR-025` 的 `<TENANT>-<NAME>`）需要幾人簽核、何種證據等級、是否可撤回／需要 quorum | `ADR-025`、`29` §8 | **已裁決（2026-10-18，c）**：先支援單簽核者＋證據必填＋可撤回（與 HG 同規則）；quorum 另案。模板以 `gate_defs` 宣告 signers／scope／evidence；自訂閘門必填、HG 可省略 |
 | **Q-ORCH-5** | 多租戶資料隔離（Access policy 與 snapshot 可見性）與跨租戶 phase 映射 | `ADR-025`、`ADR-015` | `ADR-025` §6 與重評條件 3 |
 
 > **本節原有的 Q09-2（試點 repo）與 Q01-2（前提就緒）已於 2026-08-16 裁決**，移至 §1.7。

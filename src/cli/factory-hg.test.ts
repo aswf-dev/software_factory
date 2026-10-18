@@ -154,6 +154,8 @@ const templateYaml = [
   'source: test',
   'phases: [P0]',
   'gates: [HG1, HG2, HG4, HG5, HG6, ACME-SECURITY]',
+  'gate_defs:',
+  '  - {id: ACME-SECURITY, signers: [security-lead], scope: phase, evidence: adr}',
   'steps:',
   '  - {id: M0, phase: P0, action: x, kind: human}',
 ].join('\n')
