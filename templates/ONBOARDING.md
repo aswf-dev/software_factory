@@ -100,7 +100,18 @@ extra_steps: []              # 可加，不能改模板
 - 版本不可變：流程調整開新 `version`，系統再以 PR 改 `template_version`。
 - 不要把租戶模板放進別的租戶目錄，也不要共用自己的 gate id 前綴。
 
-## 7. UI（Scoreboard）
+## 7. 可看的完整範例
+
+機制 repo 內有一個明確標示為範例的租戶模板與對應的合成系統：
+
+| 檔案 | 內容 |
+|---|---|
+| `templates/example/review-first.yaml` | 範例模板（自訂閘門 `EXAMPLE-SECURITY`） |
+| `processes/samples/example-portal.yaml`（＋modules／issues／comments） | 採用它的合成系統；`factory-snapshot` 會發佈 `example/portal` |
+| `/scoreboard/process/templates/example/review-first` | Scoreboard 的定義預覽（由 registry 轉換） |
+| `/scoreboard/process/live/example/portal` | live 拓撲（快照發佈後；示範租戶模板路徑） |
+
+## 8. UI（Scoreboard）
 
 - 模板目錄：`/scoreboard/process` 的「模板目錄」區塊（registry）。
 - 定義預覽：`/scoreboard/process/templates/<tenant>/<name>`。

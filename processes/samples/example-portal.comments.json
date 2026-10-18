@@ -1,0 +1,16 @@
+[
+  [
+    {
+      "id": 9101,
+      "body": "<!-- factory:hg id=HG2 state=signed evidence=https://github.com/example/portal/issues/900#issuecomment-9101 -->\nHG2 已簽核：規模 M、accounts 就緒度 R1。",
+      "user": { "login": "example-tech-lead" },
+      "created_at": "2026-10-18T02:00:00Z"
+    },
+    {
+      "id": 9102,
+      "body": "<!-- factory:gate id=EXAMPLE-SECURITY state=signed evidence=https://github.com/example/portal/blob/main/docs/adr/7-security-review.md -->\n範例自訂閘門 EXAMPLE-SECURITY 已簽核。",
+      "user": { "login": "example-security-lead" },
+      "created_at": "2026-10-18T02:10:00Z"
+    }
+  ]
+]

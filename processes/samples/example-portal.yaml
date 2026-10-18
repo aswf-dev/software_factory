@@ -1,0 +1,11 @@
+# SAMPLE — 採用範例租戶模板 `example/review-first@1` 的合成系統。
+#
+# 用途：讓 Scoreboard 的「租戶模板 → live 拓撲」有可看的端到端範例；不是真實納管。
+# 真實系統請依 templates/ONBOARDING.md 建立自己的 process.yaml。
+system: example/portal
+scale: M
+scale_evidence: 'EXAMPLE: templates/example/review-first.yaml'
+template: example/review-first
+template_version: 1
+phases: [P0, P1, P2, P3]
+gates: [HG1, HG2, HG4, HG5, HG6, EXAMPLE-SECURITY]

@@ -1,0 +1,13 @@
+# SAMPLE — 範例租戶系統的模組清單。
+system: example/portal
+modules:
+  - id: accounts
+    paths: ["src/accounts/**"]
+    readiness: R1
+    readiness_evidence: docs/research/fixtures/factory-graph.sample.json
+    owner: example-team
+  - id: notifications
+    paths: ["src/notifications/**"]
+    readiness: R0
+    readiness_evidence: docs/research/fixtures/factory-graph.sample.json
+    owner: example-team
