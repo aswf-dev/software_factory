@@ -93,6 +93,15 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // HG sign-off reading decides whether the topology UI draws a lock and
+        // whether factory-graph reports a gate as signed; a missed branch here
+        // is a gate silently shown as missing (ADR-023 §4, ADR-024 §4).
+        'src/hg/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
         // write-spec decides whether a spec work item may be dispatched at all
         // (high-risk gate, spec source) and, later, which phase it runs
         // (docs/ADR/018); an untested branch is an unverified permission path.
