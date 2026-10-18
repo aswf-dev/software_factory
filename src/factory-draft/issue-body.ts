@@ -24,6 +24,11 @@ export interface FactoryIssueBodyInput {
    * 只宣告、不查狀態——issue-check 不做任何 GitHub API 呼叫。
    */
   prerequisites?: string | undefined
+  /**
+   * 流程步驟 provenance（ADR-023 §5）：寫成 body 第一個 `###` 之前的
+   * `> 流程步驟：S10`。選填；`factory-graph` 讀它輸出 `step_id`。
+   */
+  processStep?: string | undefined
 }
 
 /** Issue 標題：一律帶 `[factory] ` 前綴（與 ISSUE_TEMPLATE 的 title 模式一致）。 */
@@ -34,7 +39,14 @@ export function buildIssueTitle(oneLiner: string): string {
 /** 建構與表單輸出格式一致的 Issue body。 */
 export function buildIssueBody(input: FactoryIssueBodyInput): string {
   const dod = DOD_LABELS.map((label) => `- [x] ${label}`).join('\n')
+  // 流程步驟放在第一個 `###` 之前：extractField 從 `###` 開始讀，因此不污染任何欄位；
+  // factory-graph 也只認 this 區塊（src/graph/build.ts:parseStepId）。
+  const stepLine =
+    input.processStep !== undefined && input.processStep.trim() !== ''
+      ? [`> 流程步驟：${input.processStep.trim()}`, '']
+      : []
   return [
+    ...stepLine,
     '### 任務類型',
     '',
     input.taskType,

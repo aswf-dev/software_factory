@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildGraph, moduleOfIssue, workItemState } from './build.js'
+import { buildGraph, moduleOfIssue, parseStepId, workItemState } from './build.js'
 import type { BuildInput, IssueInput } from './build.js'
 import type { ModuleEntry, ProcessSpec } from '../process/spec.js'
 
@@ -197,5 +197,60 @@ describe('buildGraph', () => {
   it('source 可覆寫 github 與 rev', () => {
     const doc = buildGraph({ ...base, github: 'aswf-dev/other', rev: 'abc123' })
     expect(doc.source).toEqual({ github: 'aswf-dev/other', rev: 'abc123' })
+  })
+})
+
+describe('parseStepId（流程步驟 provenance）', () => {
+  it('讀第一個 ### 之前的 `> 流程步驟：` 行', () => {
+    expect(parseStepId('> 流程步驟：S10\n\n### 任務類型\n\nagent-write-spec')).toBe('S10')
+  })
+
+  it('接受半形冒號與自訂流程的 step id', () => {
+    expect(parseStepId('> 流程步驟: quint-verification')).toBe('quint-verification')
+  })
+
+  it('沒有標示時回 undefined', () => {
+    expect(parseStepId('### 任務類型\n\nagent-analyze')).toBeUndefined()
+  })
+
+  it('只認第一個 ### 之前；PRD 內文提到的字樣不算', () => {
+    expect(parseStepId('### 需求描述（PRD）\n\n> 流程步驟：S10')).toBeUndefined()
+  })
+
+  it('格式不合時回 undefined（不以猜測補救）', () => {
+    expect(parseStepId('> 流程步驟：S 10')).toBeUndefined()
+  })
+})
+
+describe('step_id', () => {
+  const withStep = (n: number, step: string): IssueInput =>
+    issue(n, `> 流程步驟：${step}\n\n${prd('src/a.ts')}`)
+
+  it('有標示時，workitem node 帶 step_id', () => {
+    const doc = buildGraph({ ...base, issues: [withStep(1, 'S8')] })
+    expect(doc.nodes.find((n) => n.id === 'issue:1')).toMatchObject({ step_id: 'S8' })
+  })
+
+  it('未標示時省略 step_id，並只產生一則聚合 warning', () => {
+    const doc = buildGraph({ ...base, issues: [issue(1, prd('src/a.ts')), issue(2, prd('src/b.ts'))] })
+    expect(doc.nodes.find((n) => n.id === 'issue:1')).not.toHaveProperty('step_id')
+    const warnings = doc.warnings.filter((w) => w.includes('流程步驟'))
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('2 張工單')
+  })
+
+  it('全部都有標示時不產生 provenance warning', () => {
+    const doc = buildGraph({ ...base, issues: [withStep(1, 'S8'), withStep(2, 'S9')] })
+    expect(doc.warnings.some((w) => w.includes('流程步驟'))).toBe(false)
+  })
+
+  it('step_id 不影響 state 與 gates（advisory only）', () => {
+    const gates = [{ id: 'HG1' as const, scope: 'system', state: 'missing' as const }]
+    const plain = buildGraph({ ...base, issues: [issue(1, prd('src/a.ts'))], gates })
+    const tagged = buildGraph({ ...base, issues: [withStep(1, 'S8')], gates })
+    expect(tagged.nodes.find((n) => n.id === 'issue:1')?.state).toBe(
+      plain.nodes.find((n) => n.id === 'issue:1')?.state,
+    )
+    expect(tagged.gates).toEqual(plain.gates)
   })
 })
