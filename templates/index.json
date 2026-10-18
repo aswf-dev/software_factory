@@ -7,7 +7,180 @@
       "name": "S",
       "version": 1,
       "path": "templates/factory/S.yaml",
-      "source": "docs/29-brownfield-adoption-playbook.md §9.1"
+      "source": "docs/29-brownfield-adoption-playbook.md §9.1",
+      "template": {
+        "tenant": "factory",
+        "name": "S",
+        "version": 1,
+        "source": "docs/29-brownfield-adoption-playbook.md §9.1",
+        "phases": [
+          "P0",
+          "P1",
+          "P2",
+          "P3",
+          "P4"
+        ],
+        "gates": [
+          "HG1",
+          "HG2",
+          "HG3",
+          "HG4",
+          "HG5",
+          "HG6"
+        ],
+        "steps": [
+          {
+            "id": "S0",
+            "phase": "P0",
+            "action": "開導入追蹤 Issue",
+            "kind": "human"
+          },
+          {
+            "id": "S1",
+            "phase": "P0",
+            "action": "安裝 App、建立 software-factory 分支",
+            "kind": "human"
+          },
+          {
+            "id": "S2",
+            "phase": "P0",
+            "action": "納管提案",
+            "kind": "work-item",
+            "task_type": "agent-onboard",
+            "per": "repo"
+          },
+          {
+            "id": "S3",
+            "phase": "P0",
+            "action": "裁定三軸、搬檔、雙向探測",
+            "kind": "human",
+            "gates": [
+              "HG1"
+            ]
+          },
+          {
+            "id": "S4",
+            "phase": "P1",
+            "action": "規模與就緒度量測（A0）",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "system",
+            "gates": [
+              "HG2"
+            ]
+          },
+          {
+            "id": "S5",
+            "phase": "P1",
+            "action": "架構、測試、相依、風險盤點（A1–A4）",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "system",
+            "gates": [
+              "HG6"
+            ]
+          },
+          {
+            "id": "S6",
+            "phase": "P2",
+            "action": "README＋架構總覽",
+            "kind": "work-item",
+            "task_type": "agent-write-docs",
+            "per": "system",
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "S7",
+            "phase": "P2",
+            "action": "撰寫核心模組業務規則",
+            "kind": "human",
+            "gates": [
+              "HG4",
+              "HG6"
+            ]
+          },
+          {
+            "id": "S8",
+            "phase": "P3",
+            "action": "依 A2 清單補測試（每模組／檔案 1 張）",
+            "kind": "work-item",
+            "task_type": "agent-add-tests",
+            "per": "module",
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "S9",
+            "phase": "P3",
+            "action": "修復揭露的缺陷（每個缺陷 1 張）",
+            "kind": "work-item",
+            "task_type": "agent-fix-bug",
+            "per": "defect",
+            "conditional": true,
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "S10",
+            "phase": "P3",
+            "action": "驗證閘門（每核心模組擇一）",
+            "kind": "work-item",
+            "per": "module",
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "Quint 可執行規格",
+                "task_type": "agent-write-spec"
+              },
+              {
+                "kind": "work-item",
+                "action": "Hegel 性質測試稽核",
+                "task_type": "agent-pbt-audit"
+              },
+              {
+                "kind": "human",
+                "action": "豁免單（HG5 簽核）"
+              }
+            ],
+            "gates": [
+              "HG5",
+              "HG6"
+            ]
+          },
+          {
+            "id": "S11",
+            "phase": "P4",
+            "action": "維護（依需要）",
+            "kind": "work-item",
+            "required": false,
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "升級相依",
+                "task_type": "agent-update-deps"
+              },
+              {
+                "kind": "work-item",
+                "action": "修復缺陷",
+                "task_type": "agent-fix-bug"
+              },
+              {
+                "kind": "work-item",
+                "action": "提出技能草案",
+                "task_type": "agent-propose-skill"
+              }
+            ],
+            "gates": [
+              "HG0",
+              "HG3"
+            ]
+          }
+        ]
+      }
     },
     {
       "id": "factory/M",
@@ -15,7 +188,218 @@
       "name": "M",
       "version": 1,
       "path": "templates/factory/M.yaml",
-      "source": "docs/29-brownfield-adoption-playbook.md §9.2"
+      "source": "docs/29-brownfield-adoption-playbook.md §9.2",
+      "template": {
+        "tenant": "factory",
+        "name": "M",
+        "version": 1,
+        "source": "docs/29-brownfield-adoption-playbook.md §9.2",
+        "phases": [
+          "P0",
+          "P1",
+          "P2",
+          "P3",
+          "P4",
+          "P5"
+        ],
+        "gates": [
+          "HG1",
+          "HG2",
+          "HG3",
+          "HG4",
+          "HG5",
+          "HG6",
+          "HG7"
+        ],
+        "steps": [
+          {
+            "id": "M0",
+            "phase": "P0",
+            "action": "開導入追蹤 Issue",
+            "kind": "human"
+          },
+          {
+            "id": "M1",
+            "phase": "P0",
+            "action": "每個 repo 安裝 App、建立 software-factory 分支",
+            "kind": "human"
+          },
+          {
+            "id": "M2",
+            "phase": "P0",
+            "action": "納管提案",
+            "kind": "work-item",
+            "task_type": "agent-onboard",
+            "per": "repo"
+          },
+          {
+            "id": "M3",
+            "phase": "P0",
+            "action": "裁定三軸、搬檔、雙向探測",
+            "kind": "human",
+            "gates": [
+              "HG1"
+            ]
+          },
+          {
+            "id": "M4",
+            "phase": "P0",
+            "action": "宣告 spec.system；核心 repo 加 factory.io/quint-spec",
+            "kind": "human",
+            "gates": [
+              "HG1"
+            ]
+          },
+          {
+            "id": "M5",
+            "phase": "P1",
+            "action": "規模與就緒度量測（A0，跨 repo）",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "system",
+            "gates": [
+              "HG2"
+            ]
+          },
+          {
+            "id": "M6",
+            "phase": "P1",
+            "action": "架構盤點（A1，跨 repo）",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "system"
+          },
+          {
+            "id": "M7",
+            "phase": "P1",
+            "action": "測試、相依、風險盤點（A2–A4，每模組各 1）",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "module",
+            "gates": [
+              "HG6"
+            ]
+          },
+          {
+            "id": "M8",
+            "phase": "P2",
+            "action": "精簡 arc42 文件集（每模組 1–2 張 ＋ 系統 1 張）",
+            "kind": "work-item",
+            "task_type": "agent-write-docs",
+            "per": "module",
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "M9",
+            "phase": "P2",
+            "action": "撰寫核心模組業務規則",
+            "kind": "human",
+            "gates": [
+              "HG4",
+              "HG6"
+            ]
+          },
+          {
+            "id": "M10",
+            "phase": "P3",
+            "action": "依 A2 清單補測試",
+            "kind": "work-item",
+            "task_type": "agent-add-tests",
+            "per": "module",
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "M11",
+            "phase": "P3",
+            "action": "修復揭露的缺陷",
+            "kind": "work-item",
+            "task_type": "agent-fix-bug",
+            "per": "defect",
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "M12",
+            "phase": "P3",
+            "action": "驗證閘門（每核心模組擇一）",
+            "kind": "work-item",
+            "per": "module",
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "Quint 可執行規格",
+                "task_type": "agent-write-spec"
+              },
+              {
+                "kind": "work-item",
+                "action": "Hegel 性質測試稽核",
+                "task_type": "agent-pbt-audit"
+              },
+              {
+                "kind": "human",
+                "action": "豁免單（HG5 簽核）"
+              }
+            ],
+            "gates": [
+              "HG5",
+              "HG6"
+            ]
+          },
+          {
+            "id": "M13",
+            "phase": "P4",
+            "action": "維護（依需要）",
+            "kind": "work-item",
+            "required": false,
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "升級相依",
+                "task_type": "agent-update-deps"
+              },
+              {
+                "kind": "work-item",
+                "action": "修復缺陷",
+                "task_type": "agent-fix-bug"
+              },
+              {
+                "kind": "work-item",
+                "action": "提出技能草案",
+                "task_type": "agent-propose-skill"
+              }
+            ],
+            "gates": [
+              "HG0",
+              "HG3"
+            ]
+          },
+          {
+            "id": "M14",
+            "phase": "P5",
+            "action": "撰寫 ADR（是否模組化）",
+            "kind": "human",
+            "conditional": true,
+            "gates": [
+              "HG7"
+            ]
+          },
+          {
+            "id": "M15",
+            "phase": "P5",
+            "action": "同一 repo 內劃模組邊界（modular monolith）",
+            "kind": "human",
+            "conditional": true,
+            "gates": [
+              "HG7"
+            ]
+          }
+        ]
+      }
     },
     {
       "id": "factory/L",
@@ -23,7 +407,289 @@
       "name": "L",
       "version": 1,
       "path": "templates/factory/L.yaml",
-      "source": "docs/29-brownfield-adoption-playbook.md §9.3"
+      "source": "docs/29-brownfield-adoption-playbook.md §9.3",
+      "template": {
+        "tenant": "factory",
+        "name": "L",
+        "version": 1,
+        "source": "docs/29-brownfield-adoption-playbook.md §9.3",
+        "phases": [
+          "P0",
+          "P1",
+          "P2",
+          "P3",
+          "P4",
+          "P5"
+        ],
+        "gates": [
+          "HG0",
+          "HG1",
+          "HG2",
+          "HG3",
+          "HG4",
+          "HG5",
+          "HG6",
+          "HG7"
+        ],
+        "steps": [
+          {
+            "id": "L0",
+            "phase": "P0",
+            "action": "開導入追蹤 Issue",
+            "kind": "human"
+          },
+          {
+            "id": "L1",
+            "phase": "P0",
+            "action": "每個 repo 安裝 App、建立 software-factory 分支",
+            "kind": "human"
+          },
+          {
+            "id": "L2",
+            "phase": "P0",
+            "action": "納管提案（每 repo）",
+            "kind": "work-item",
+            "task_type": "agent-onboard",
+            "per": "repo",
+            "gates": [
+              "HG1"
+            ]
+          },
+          {
+            "id": "L3",
+            "phase": "P0",
+            "action": "in-loop repo 的分析（§12）",
+            "kind": "work-item",
+            "conditional": true,
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "分析與調查",
+                "task_type": "agent-analyze"
+              },
+              {
+                "kind": "work-item",
+                "action": "提出技能草案",
+                "task_type": "agent-propose-skill"
+              }
+            ]
+          },
+          {
+            "id": "L4",
+            "phase": "P0",
+            "action": "依 A0／A4 證據重評三軸",
+            "kind": "human",
+            "conditional": true,
+            "gates": [
+              "HG1"
+            ]
+          },
+          {
+            "id": "L5",
+            "phase": "P0",
+            "action": "宣告 spec.system、factory.io/quint-spec",
+            "kind": "human",
+            "gates": [
+              "HG1"
+            ]
+          },
+          {
+            "id": "L6",
+            "phase": "P1",
+            "action": "規模與就緒度量測（A0）",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "system",
+            "gates": [
+              "HG2"
+            ]
+          },
+          {
+            "id": "L7",
+            "phase": "P1",
+            "action": "整體 context map（A1）",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "system"
+          },
+          {
+            "id": "L8",
+            "phase": "P1",
+            "action": "每個 bounded context 的架構、測試、相依、風險（A1–A4，每張只處理 1 個 BC）",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "module"
+          },
+          {
+            "id": "L9",
+            "phase": "P1",
+            "action": "分流會議：決定開哪些後續工單",
+            "kind": "human",
+            "gates": [
+              "HG0",
+              "HG6"
+            ]
+          },
+          {
+            "id": "L10",
+            "phase": "P2",
+            "action": "arc42 文件集＋context map 文件（每 BC 1–2 張 ＋ 系統 1 張）",
+            "kind": "work-item",
+            "task_type": "agent-write-docs",
+            "per": "module",
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "L11",
+            "phase": "P2",
+            "action": "撰寫核心模組業務規則",
+            "kind": "human",
+            "gates": [
+              "HG4"
+            ]
+          },
+          {
+            "id": "L12",
+            "phase": "P3",
+            "action": "依 A4 排序，逐模組補測試→修缺陷→驗證閘門",
+            "kind": "work-item",
+            "per": "module",
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "補測試",
+                "task_type": "agent-add-tests"
+              },
+              {
+                "kind": "work-item",
+                "action": "修復缺陷",
+                "task_type": "agent-fix-bug"
+              },
+              {
+                "kind": "work-item",
+                "action": "Quint 可執行規格",
+                "task_type": "agent-write-spec"
+              },
+              {
+                "kind": "work-item",
+                "action": "Hegel 性質測試稽核",
+                "task_type": "agent-pbt-audit"
+              }
+            ],
+            "gates": [
+              "HG3",
+              "HG5",
+              "HG6"
+            ]
+          },
+          {
+            "id": "L13",
+            "phase": "P4",
+            "action": "維護（依需要；每觀察期做一次 HG 回顧）",
+            "kind": "work-item",
+            "required": false,
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "升級相依",
+                "task_type": "agent-update-deps"
+              },
+              {
+                "kind": "work-item",
+                "action": "修復缺陷",
+                "task_type": "agent-fix-bug"
+              },
+              {
+                "kind": "work-item",
+                "action": "提出技能草案",
+                "task_type": "agent-propose-skill"
+              }
+            ],
+            "gates": [
+              "HG0",
+              "HG3"
+            ]
+          },
+          {
+            "id": "L14",
+            "phase": "P5",
+            "action": "拆分前準備（接縫與資料所有權分析、characterization 測試）",
+            "kind": "work-item",
+            "conditional": true,
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "接縫與資料所有權分析",
+                "task_type": "agent-analyze"
+              },
+              {
+                "kind": "work-item",
+                "action": "characterization 測試",
+                "task_type": "agent-add-tests"
+              }
+            ],
+            "gates": [
+              "HG7"
+            ]
+          },
+          {
+            "id": "L15",
+            "phase": "P5",
+            "action": "同一 repo 內 modular monolith",
+            "kind": "human",
+            "conditional": true,
+            "gates": [
+              "HG7"
+            ]
+          },
+          {
+            "id": "L16",
+            "phase": "P5",
+            "action": "strangler fig／parallel run／拆 DB／建新 repo 與 CI",
+            "kind": "human",
+            "conditional": true,
+            "gates": [
+              "HG7"
+            ]
+          },
+          {
+            "id": "L17",
+            "phase": "P5",
+            "action": "拆分中的驗證支援（新舊行為一致）",
+            "kind": "work-item",
+            "conditional": true,
+            "alternatives": [
+              {
+                "kind": "work-item",
+                "action": "新舊行為一致性測試",
+                "task_type": "agent-add-tests"
+              },
+              {
+                "kind": "work-item",
+                "action": "新舊行為一致性規格",
+                "task_type": "agent-write-spec"
+              }
+            ],
+            "gates": [
+              "HG7"
+            ]
+          },
+          {
+            "id": "L18",
+            "phase": "P5",
+            "action": "新 repo 重新納管（回到 P0 重新定級）",
+            "kind": "work-item",
+            "task_type": "agent-onboard",
+            "per": "repo",
+            "conditional": true,
+            "gates": [
+              "HG1"
+            ]
+          }
+        ]
+      }
     }
   ]
 }

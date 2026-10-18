@@ -9,6 +9,7 @@ const entry = (tenant: string, name: string, version = 1) => ({
   name,
   version,
   path: `templates/${tenant}/${name}.yaml`,
+  template: templateOf(tenant, name, version),
 })
 
 const registry = (templates: unknown[]): unknown => ({ schema_version: 1, templates })
@@ -72,6 +73,15 @@ describe('validateRegistry', () => {
     const missing = new Map(templates)
     missing.delete('factory/M')
     expect(validateRegistry(base, missing).errors).toContain('factory/M: 目錄有但找不到模板檔 templates/factory/M.yaml')
+  })
+
+  it('目錄內嵌的 template 與檔案不一致時被拒', () => {
+    const baseEntry = base.templates[0] as (typeof base.templates)[number]
+    const tampered = {
+      ...base,
+      templates: [{ ...baseEntry, template: { ...baseEntry.template, phases: ['P1'] } }],
+    }
+    expect(validateRegistry(tampered as TemplateRegistry, templates).errors.join(' ')).toContain('內嵌的 template')
   })
 
   it('版本或 tenant/name 不一致', () => {
