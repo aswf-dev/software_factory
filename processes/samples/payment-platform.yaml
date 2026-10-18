@@ -6,6 +6,7 @@
 system: aswf-dev/payment-platform
 scale: M
 scale_evidence: docs/research/fixtures/factory-graph.sample.json
-template: M
+template: factory/M
+template_version: 1
 phases: [P0, P1, P2, P3, P4, P5]
 gates: [HG1, HG2, HG3, HG4, HG5, HG6, HG7]

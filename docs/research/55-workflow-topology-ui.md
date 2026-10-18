@@ -250,7 +250,7 @@ GitHub（真相）──┬─→ factory-graph --json（狀態：nodes / edges 
 
 > **只是草案**，本次不實作。兩個檔案、兩個層級，對應 `docs/29` 的「系統定級、模組就緒度」。
 >
-> **2026-10-18 更新（#60）**：模板已機器可讀化——`processes/templates/{S,M,L}.yaml`，驗證器在 `src/process/spec.ts`。
+> **2026-10-18 更新（#60）**：模板已機器可讀化——preset 位於 `templates/factory/{S,M,L}.yaml`（id `factory/S` 等），驗證器在 `src/process/spec.ts`；租戶模板見 `ADR-025`。
 > 落實方式與本草案有一處簡化：**`process.yaml` 不重述模板步驟**，只宣告 `template`／`phases`／`gates`／`extra_steps`，
 > 因此「刪除必要步驟」與「重排」在結構上不可能（不是靠驗證器擋）。`scale` 與 `readiness` 仍只能由人填並附 evidence。
 

@@ -32,7 +32,8 @@ const spec = {
   system: 'aswf-dev/example',
   scale: 'S',
   scale_evidence: 'docs/research/1.md',
-  template: 'S',
+  template: 'factory/S',
+  template_version: 1,
   phases: ['P0', 'P1'],
   gates: ['HG1'],
 } as unknown as ProcessSpec

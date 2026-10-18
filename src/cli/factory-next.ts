@@ -6,7 +6,7 @@
  *
  * 用法：
  *   factory-next --repo owner/name --process processes/<system>.yaml \
- *     --modules <factory/process.yaml> [--tracking-issue <n>] [--templates-dir processes/templates]
+ *     --modules <factory/process.yaml> [--tracking-issue <n>] [--templates-dir templates]
  *
  * 輸出：`{ system, generated_at, actions[], warnings[] }`（契約見 `src/process/next-actions.ts`）。
  */
@@ -89,7 +89,7 @@ export function parseOptions(argv: readonly string[]): NextOptions {
     repo,
     processPath,
     modulesPath,
-    templatesDir: values.get('templates-dir') ?? 'processes/templates',
+    templatesDir: values.get('templates-dir') ?? 'templates',
     limit: Number(limitRaw),
   }
   if (trackingIssue !== undefined) options.trackingIssue = trackingIssue

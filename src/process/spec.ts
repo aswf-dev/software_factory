@@ -5,12 +5,14 @@
  * 機器讀不到。UI 若要「選 S/M/L 模板 → 架構師調整 → 存檔」，模板必須先是資料。
  *
  * **「可加不可刪、不可重排」怎麼落地**：`process.yaml` **不重述**模板步驟，只宣告
- * `template: S|M|L` 與 `extra_steps`。因此「刪掉一個必要步驟」或「調換順序」在結構上
- * 就不可能發生——不是靠驗證器擋，而是根本沒有那個欄位。驗證器只檢查：
- *   1. `template` 與 `scale` 一致（S 系統不能套 M 模板）；
+ * `template: <tenant>/<name>` ＋ `template_version` 與 `extra_steps`。因此「刪掉一個必要步驟」
+ * 或「調換順序」在結構上就不可能發生——不是靠驗證器擋，而是根本沒有那個欄位。驗證器只檢查：
+ *   1. `template` id 與載入的模板一致、`template_version` 相同（ADR-025 釘版本）；
  *   2. `phases` 是模板 phases 的**連續前綴**（可以停在 P4，不能跳過 P2）；
  *   3. 模板的 gates 一個都不能少（可以加）；
  *   4. `extra_steps` 的 id 不與模板衝突，且 phase 必須在已宣告的 phases 內。
+ *
+ * `scale` 與模板**脫鉤**（ADR-025 §4）：scale 是人類宣告的治理強度，不再等於模板名。
  *
  * 規模與就緒度**不在此模組推導**：`scale` 是人的裁定，必須附 evidence（ADR-023 §2）。
  */
@@ -31,8 +33,32 @@ export type StepKind = (typeof STEP_KINDS)[number]
 export const STEP_UNITS = ['system', 'repo', 'module', 'defect', 'item'] as const
 export type StepUnit = (typeof STEP_UNITS)[number]
 
-const GateIdSchema = z.enum(HG_IDS)
+/** 自訂 gate：`<TENANT-UPPER>-<NAME>`；`HG0`–`HG7` 保留（ADR-025 §3）。 */
+export const GATE_ID_PATTERN = /^(?:HG[0-7]|[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)$/
+const GateIdSchema = z.string().regex(GATE_ID_PATTERN, 'gate id 必須是 HG0–HG7 或 <TENANT>-<NAME>')
 const PhaseSchema = z.enum(PHASES)
+const TenantSchema = z.string().regex(/^[a-z][a-z0-9-]*$/, '租戶只允許小寫英數與連字號')
+/** 模板名稱允許大寫（工廠 preset 是 `factory/S`、`factory/M`、`factory/L`）。 */
+const NameSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9-]*$/, '模板名稱只允許英數與連字號')
+/** `<tenant>/<name>`（ADR-025）。 */
+export const TEMPLATE_ID_PATTERN = /^[a-z][a-z0-9-]*\/[A-Za-z][A-Za-z0-9-]*$/
+const TemplateIdSchema = z.string().regex(TEMPLATE_ID_PATTERN, 'template 必須是 <tenant>/<name>')
+
+/** 工廠既有的 task_type（與 ISSUE_TEMPLATE 下拉一致；agent-onboard 走另一張表單）。 */
+export const FACTORY_TASK_TYPES = [
+  'agent-add-tests',
+  'agent-fix-bug',
+  'agent-update-deps',
+  'agent-write-docs',
+  'agent-write-spec',
+  'agent-analyze',
+  'agent-propose-skill',
+  'agent-pbt-audit',
+  'agent-onboard',
+] as const
+
+/** meta-contract：任何模板都不得移除的工廠閘門（ADR-025 §3）。 */
+export const MANDATORY_GATES = ['HG1', 'HG2', 'HG4', 'HG5', 'HG6'] as const
 
 const AlternativeSchema = z.object({
   kind: z.enum(STEP_KINDS),
@@ -56,7 +82,11 @@ export const StepSchema = z.object({
 })
 
 export const TemplateSchema = z.object({
-  template: z.enum(TEMPLATE_NAMES),
+  /** 租戶 slug（ADR-025）；工廠 preset 為 `factory`。 */
+  tenant: TenantSchema,
+  /** 模板 slug；id 為 `<tenant>/<name>`。 */
+  name: NameSchema,
+  /** 發布後不可變：改流程＝新版。 */
   version: z.number().int().positive(),
   source: z.string().min(1),
   phases: z.array(PhaseSchema).min(1),
@@ -68,7 +98,10 @@ export const ProcessSpecSchema = z.object({
   system: z.string().min(1),
   scale: z.enum(TEMPLATE_NAMES),
   scale_evidence: z.string().min(1),
-  template: z.enum(TEMPLATE_NAMES),
+  /** `<tenant>/<name>`，系統釘選的模板（ADR-025）。 */
+  template: TemplateIdSchema,
+  /** 釘選的模板版本；與載入的模板檔案必須相同。 */
+  template_version: z.number().int().positive(),
   phases: z.array(PhaseSchema).min(1),
   gates: z.array(GateIdSchema),
   extra_steps: z.array(StepSchema).optional(),
@@ -182,6 +215,30 @@ export function validateTemplate(input: unknown): ValidationResult & { template?
   }
   const stepResult = validateSteps(parsed.data.steps)
   errors.push(...stepResult.errors)
+
+  // meta-contract（ADR-025 §3）：task_type 白名單、必含工廠閘門、自訂 gate 的租戶前綴。
+  const knownTaskTypes = new Set<string>(FACTORY_TASK_TYPES)
+  const tenantPrefix = `${parsed.data.tenant.toUpperCase()}-`
+  for (const step of parsed.data.steps) {
+    if (step.task_type !== undefined && !knownTaskTypes.has(step.task_type)) {
+      errors.push(`${step.id}: 未知的 task_type ${step.task_type}`)
+    }
+    for (const alt of step.alternatives ?? []) {
+      if (alt.task_type !== undefined && !knownTaskTypes.has(alt.task_type)) {
+        errors.push(`${step.id}: 未知的 task_type ${alt.task_type}`)
+      }
+    }
+  }
+  for (const gate of MANDATORY_GATES) {
+    if (!parsed.data.gates.includes(gate)) errors.push(`gates: 工廠必含 ${gate} 不得移除`)
+  }
+  for (const gate of parsed.data.gates) {
+    if (/^HG[0-7]$/.test(gate)) continue
+    if (!gate.startsWith(tenantPrefix)) {
+      errors.push(`gates: 自訂 gate ${gate} 必須以 ${tenantPrefix} 開頭`)
+    }
+  }
+
   return { ok: errors.length === 0, errors, template: parsed.data }
 }
 
@@ -197,11 +254,14 @@ export function validateProcess(input: unknown, template: Template): ValidationR
   const process = parsed.data
   const errors: string[] = []
 
-  if (process.template !== template.template) {
-    errors.push(`template: process 宣告 ${process.template}，但比對的模板是 ${template.template}`)
+  const expectedId = `${template.tenant}/${template.name}`
+  if (process.template !== expectedId) {
+    errors.push(`template: process 宣告 ${process.template}，但比對的模板是 ${expectedId}`)
   }
-  if (process.scale !== process.template) {
-    errors.push(`scale: 規模 ${process.scale} 必須對應同名的模板（收到 ${process.template}）`)
+  if (process.template_version !== template.version) {
+    errors.push(
+      `template_version: process 釘 ${process.template_version}，但載入的模板是 ${template.version}`,
+    )
   }
 
   const prefix = template.phases.slice(0, process.phases.length)

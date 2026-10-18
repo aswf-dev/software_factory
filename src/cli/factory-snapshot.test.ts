@@ -9,7 +9,7 @@ const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, impor
 
 const PROCESS = 'processes/samples/payment-platform.yaml'
 const MODULES = 'processes/samples/payment-platform.modules.yaml'
-const TEMPLATE = 'processes/templates/M.yaml'
+const TEMPLATE = 'templates/factory/M.yaml'
 
 const issue = (number: number, task: string, path: string, state: 'OPEN' | 'CLOSED') => ({
   number,
@@ -159,12 +159,12 @@ describe('factory-snapshot', () => {
       '--process',
       PROCESS,
       '--template',
-      'processes/templates/S.yaml',
+      'templates/factory/S.yaml',
       '--issues-file',
       'issues.json',
     ])
     expect(() =>
-      snapshot(options, deps({ ...fullFiles, 'processes/templates/S.yaml': read('processes/templates/S.yaml') })),
+      snapshot(options, deps({ ...fullFiles, 'templates/factory/S.yaml': read('templates/factory/S.yaml') })),
     ).toThrowError(/process 與模板不一致/)
   })
 
