@@ -41,7 +41,7 @@
 
 - **step kind** 只有四種：`work-item`／`human`／`gate`／`decision`。
 - **task_type** 必須是工廠既有清單（`agent-analyze` 等）；`human` 步驟用自由文字描述動作。
-- **phase** 只能使用 `P0`–`P5`。租戶可用 `action` 表達自己的階段語意，但聚合與指標口徑固定。
+- **phase** 只能使用 `P0`–`P5`（`Q-ORCH-5` 裁決 A，2026-10-19：不開放自訂階段名）。租戶用 step 的 `action` 表達自己的階段語意（例 `action: 設計審查`），聚合與指標口徑固定；若未來租戶要求自訂階段名，走「自訂名＋強制 `maps_to: P0–P5`」方案。
 - **必含閘門**：模板的 `gates` 必須包含 `HG1`、`HG2`、`HG4`、`HG5`、`HG6`，且每一步驟放在何處由模板決定（`HG0`／`HG3` 是每個工作項／PR 的閘門，不在模板 steps）。**租戶不得移除工廠閘門**。
 - **自訂 gate**：
   - id 格式 `<TENANT-UPPER>-<NAME>`（例 `ACME-SECURITY`）；`HG[0-7]` 保留，前綴必填以保證全域唯一。

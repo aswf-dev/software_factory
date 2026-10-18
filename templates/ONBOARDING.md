@@ -38,7 +38,7 @@ steps:
 
 ### meta-contract（不可違反）
 
-1. `phases` 只能是 `P0`–`P5`（順序遞增）。
+1. `phases` 只能是 `P0`–`P5`（順序遞增）；**不自訂階段名**（Q-ORCH-5 裁決 A）——用步驟 `action` 表達階段語意。
 2. `task_type` 必須是工廠既有清單（`agent-add-tests`、`agent-analyze` 等）；`human` 不得帶 `task_type`。
 3. 必含 `HG1`、`HG2`、`HG4`、`HG5`、`HG6`；不得移除。
 4. 自訂閘門 id 必須是 `<TENANT-UPPER>-<NAME>`（例 `ACME-SECURITY`），且**必須**在 `gate_defs` 宣告 `signers`（≥1）、`scope`、`evidence`（單簽核者、證據必填、可撤回；quorum 另案）。
