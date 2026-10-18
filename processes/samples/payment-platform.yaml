@@ -1,0 +1,11 @@
+# SAMPLE — 合成系統，用來端到端驗證 snapshot 管線，不是真實納管。
+#
+# scale 與 template 都是**人類宣告**的欄位（ADR-023 §2）；這裡的值直接對應
+# canonical fixture，不要由 UI 或 CI 推導。換成真實系統時，複製本檔到
+# processes/<system>.yaml 並改寫 system 與 evidence。
+system: aswf-dev/payment-platform
+scale: M
+scale_evidence: docs/research/fixtures/factory-graph.sample.json
+template: M
+phases: [P0, P1, P2, P3, P4, P5]
+gates: [HG1, HG2, HG3, HG4, HG5, HG6, HG7]

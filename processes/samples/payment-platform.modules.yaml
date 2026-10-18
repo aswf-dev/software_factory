@@ -1,0 +1,17 @@
+# SAMPLE — 合成系統的模組清單（對應 canonical fixture）。
+#
+# 真實系統的這份檔案位於目標 repo 的 `factory/process.yaml`（ADR-023 附錄 A.2）；
+# 合成系統沒有目標 repo，因此放在機制 repo 的 samples/ 下。
+system: aswf-dev/payment-platform
+modules:
+  - id: billing
+    paths: ["src/billing/**"]
+    readiness: R1
+    readiness_evidence: docs/research/fixtures/factory-graph.sample.json
+    owner: payment-team
+    spec: docs/business-rules/billing.md
+  - id: settlement
+    paths: ["src/settlement/**"]
+    readiness: R2
+    readiness_evidence: docs/research/fixtures/factory-graph.sample.json
+    owner: payment-team

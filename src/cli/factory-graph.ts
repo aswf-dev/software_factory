@@ -20,6 +20,8 @@ import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 import { buildGraph } from '../graph/build.js'
 import type { GraphDocument, IssueInput } from '../graph/build.js'
+import type { ModuleEntry, ProcessSpec } from '../process/spec.js'
+import type { GateStatus } from '../hg/parse.js'
 import { parseComments } from './factory-hg.js'
 import { gateReport } from '../hg/parse.js'
 import { loadModuleSpec, loadProcessSpec } from '../process/spec.js'
@@ -53,11 +55,24 @@ const GhIssueSchema = z.object({
 })
 const GhIssueListSchema = z.array(GhIssueSchema)
 
+/** `buildGraph` 的完整輸入；也是 `factory-snapshot` 餵給 `factory-next` 的同一份資料。 */
+export interface GraphInputs {
+  system: string
+  issues: IssueInput[]
+  modules?: readonly ModuleEntry[] | undefined
+  process?: ProcessSpec | undefined
+  gates?: readonly GateStatus[] | undefined
+  generatedAt: string
+  github: string
+}
+
 export interface GraphOptions {
   repo: string
   system: string
   processPath?: string | undefined
   modulesPath?: string | undefined
+  /** `processes/templates/<S|M|L>.yaml`; used by factory-snapshot. */
+  templatePath?: string | undefined
   trackingIssue?: number | undefined
   limit: number
   generatedAt?: string | undefined
@@ -101,6 +116,8 @@ export function parseOptions(argv: readonly string[]): GraphOptions {
   if (processPath !== undefined) options.processPath = processPath
   const modulesPath = values.get('modules')
   if (modulesPath !== undefined) options.modulesPath = modulesPath
+  const templatePath = values.get('template')
+  if (templatePath !== undefined) options.templatePath = templatePath
   if (trackingIssue !== undefined) options.trackingIssue = trackingIssue
   const generatedAt = values.get('generated-at')
   if (generatedAt !== undefined) options.generatedAt = generatedAt
@@ -131,7 +148,13 @@ function loadOrThrow<T extends { ok: boolean; errors: string[] }>(result: T, wha
   return result
 }
 
-export function graph(options: GraphOptions, deps: GraphDeps): GraphDocument {
+/**
+ * 取數（Issue／process.yaml／模組清單／HG 留言），不組裝圖。
+ *
+ * 抽出來的理由：`factory-snapshot` 需要同一份輸入同時餵給 `factory-graph` 與
+ * `factory-next`；重複一份 gh 呼叫程式碼會讓兩支 CLI 的資料來源分岔。
+ */
+export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInputs {
   const issues = parseIssues(
     deps.gh([
       'issue',
@@ -171,7 +194,7 @@ export function graph(options: GraphOptions, deps: GraphDeps): GraphDocument {
           ),
         ).gates
 
-  return buildGraph({
+  return {
     system: options.system,
     issues,
     modules,
@@ -179,7 +202,11 @@ export function graph(options: GraphOptions, deps: GraphDeps): GraphDocument {
     gates,
     generatedAt: options.generatedAt ?? deps.now(),
     github: options.repo,
-  })
+  }
+}
+
+export function graph(options: GraphOptions, deps: GraphDeps): GraphDocument {
+  return buildGraph(collectInputs(options, deps))
 }
 
 export function main(argv: readonly string[], deps: GraphDeps = realDeps): GraphDocument {
