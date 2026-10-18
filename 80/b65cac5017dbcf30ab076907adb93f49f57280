@@ -1,0 +1,28 @@
+docs/29-brownfield-adoption-playbook.md
+  h_1b119f25eaf333 288-289
+src/cli/factory-graph.ts
+  h_1b119f25eaf333 23,26-28,75-76,231-247,262-264,294
+src/cli/factory-hg.test.ts
+  h_1b119f25eaf333 149-210
+src/cli/factory-hg.ts
+  h_1b119f25eaf333 6,15,19,21,28,48-49,85-88,96-97,129-147,154,158-163
+src/cli/factory-next.ts
+  h_1b119f25eaf333 21,149-151
+src/cli/factory-snapshot.ts
+  h_1b119f25eaf333 19,63-64
+src/hg/parse.test.ts
+  h_1b119f25eaf333 234-295
+src/hg/parse.ts
+  h_1b119f25eaf333 24-29,71,89,100-103,109-110,116-134,157-160,168,226,228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "80b65cac5017dbcf30ab076907adb93f49f57280",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
