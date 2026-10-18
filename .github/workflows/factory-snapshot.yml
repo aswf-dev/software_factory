@@ -57,21 +57,34 @@ jobs:
             --tracking-issue 391 \
             --comments-file processes/samples/payment-platform.comments.json \
             --generated-at "$generated_at" > out/payment-platform.json
+
+          # 租戶模板範例（example/review-first@1）：示範 registry → live 的完整鏈路。
+          node dist/cli/factory-snapshot.js \
+            --repo example/portal \
+            --system example/portal \
+            --process processes/samples/example-portal.yaml \
+            --template templates/example/review-first.yaml \
+            --modules processes/samples/example-portal.modules.yaml \
+            --issues-file processes/samples/example-portal.issues.json \
+            --tracking-issue 900 \
+            --comments-file processes/samples/example-portal.comments.json \
+            --generated-at "$generated_at" > out/example-portal.json
+
+          # index 由 out/*.json 產生（新增樣本系統時不必再改這裡）。
           node -e '
           const fs = require("node:fs");
-          const snapshot = JSON.parse(fs.readFileSync("out/payment-platform.json", "utf8"));
+          const files = fs.readdirSync("out").filter((f) => f.endsWith(".json") && f !== "index.json").sort();
+          const snapshots = files.map((f) => JSON.parse(fs.readFileSync(`out/${f}`, "utf8")));
           const index = {
             schema_version: 1,
-            generated_at: snapshot.generated_at,
-            systems: [
-              {
-                id: snapshot.system,
-                repo: snapshot.source.github,
-                sample: true,
-                file: "payment-platform.json",
-                generated_at: snapshot.generated_at,
-              },
-            ],
+            generated_at: snapshots[0].generated_at,
+            systems: snapshots.map((snapshot, i) => ({
+              id: snapshot.system,
+              repo: snapshot.source.github,
+              sample: true,
+              file: files[i],
+              generated_at: snapshot.generated_at,
+            })),
           };
           fs.writeFileSync("out/index.json", JSON.stringify(index, null, 2) + "\n");
           '
@@ -86,4 +99,4 @@ jobs:
               --title "流程快照（rolling）" \
               --notes "由 factory-snapshot workflow 產生。index.json 的 sample: true 代表合成系統，不是真實納管資料。"
           fi
-          gh release upload snapshot-latest out/index.json out/payment-platform.json --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload snapshot-latest out/*.json --clobber --repo "$GITHUB_REPOSITORY"

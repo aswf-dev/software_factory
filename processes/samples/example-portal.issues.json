@@ -1,0 +1,23 @@
+[
+  {
+    "number": 501,
+    "title": "#501 帳號模組需求分析",
+    "labels": [],
+    "state": "CLOSED",
+    "body": "> 流程步驟：E1\n\n### 任務類型\n\nagent-analyze\n\n### 需求描述（PRD）\n\n目標模組 / 檔案：src/accounts/service.ts\n\n### 驗收標準（DoD）\n\n- [x] 有可驗證的測試/驗證方式\n\n### 前置工作項（可留空）\n\n_No response_\n"
+  },
+  {
+    "number": 502,
+    "title": "#502 通知模組補測試",
+    "labels": [],
+    "state": "OPEN",
+    "body": "> 流程步驟：E3\n\n### 任務類型\n\nagent-add-tests\n\n### 需求描述（PRD）\n\n目標模組 / 檔案：src/notifications/push.ts\n\n### 驗收標準（DoD）\n\n- [x] 有可驗證的測試/驗證方式\n\n### 前置工作項（可留空）\n\n#501\n"
+  },
+  {
+    "number": 503,
+    "title": "#503 帳號模組文件更新",
+    "labels": [],
+    "state": "OPEN",
+    "body": "> 流程步驟：E4\n\n### 任務類型\n\nagent-write-docs\n\n### 需求描述（PRD）\n\n目標模組 / 檔案：src/accounts/README.md\n\n### 驗收標準（DoD）\n\n- [x] 有可驗證的測試/驗證方式\n\n### 前置工作項（可留空）\n\n_No response_\n"
+  }
+]

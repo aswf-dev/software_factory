@@ -8,6 +8,10 @@
 | `payment-platform.modules.yaml` | 模組級清單（billing／settlement，readiness 附 evidence） |
 | `payment-platform.issues.json` | 離線模式用的 `gh issue list` 等價資料（3 張工單，含 `> 流程步驟：M10/M11/M12`） |
 | `payment-platform.comments.json` | 離線模式用的 tracking issue 留言（HG2 signed） |
+| `example-portal.yaml` | 採用範例租戶模板 `example/review-first@1` 的系統（示範租戶流程） |
+| `example-portal.modules.yaml` | 範例系統的模組清單（accounts／notifications） |
+| `example-portal.issues.json` | 離線工單（3 張，`> 流程步驟：E1/E3/E4`） |
+| `example-portal.comments.json` | 離線留言（HG2 signed＋自訂閘門 `EXAMPLE-SECURITY` signed） |
 
 規則：
 
