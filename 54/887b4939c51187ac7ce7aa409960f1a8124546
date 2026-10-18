@@ -1,0 +1,16 @@
+templates/ONBOARDING.md
+  h_1b119f25eaf333 1-108
+templates/README.md
+  h_1b119f25eaf333 3-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "54887b4939c51187ac7ce7aa409960f1a8124546",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
