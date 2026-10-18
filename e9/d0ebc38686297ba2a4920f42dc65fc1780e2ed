@@ -1,0 +1,26 @@
+processes/samples/payment-platform.modules.yaml
+  h_1b119f25eaf333 1-17
+processes/samples/payment-platform.yaml
+  h_1b119f25eaf333 1-11
+src/cli/factory-graph.ts
+  h_1b119f25eaf333 23-24,58-68,74-75,119-120,151-157,197,205-209
+src/cli/factory-snapshot.test.ts
+  h_1b119f25eaf333 1-178
+src/cli/factory-snapshot.ts
+  h_1b119f25eaf333 1-110
+src/process/next-actions.test.ts
+  h_1b119f25eaf333 276-328
+src/process/next-actions.ts
+  h_1b119f25eaf333 17,56-80,88-93,95-97,164,181-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e9d0ebc38686297ba2a4920f42dc65fc1780e2ed",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
