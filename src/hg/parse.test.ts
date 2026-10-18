@@ -231,3 +231,65 @@ describe('gateReport', () => {
     expect([...HG_IDS]).toEqual(['HG0', 'HG1', 'HG2', 'HG3', 'HG4', 'HG5', 'HG6', 'HG7'])
   })
 })
+
+describe('自訂閘門（ADR-025）', () => {
+  const custom = comment(
+    20,
+    '<!-- factory:gate id=ACME-SECURITY state=signed evidence=https://example.test/sec -->',
+  )
+
+  it('模板已宣告時，解析成事件並在期望清單中顯示', () => {
+    const { events, warnings } = parseCommentEvents(custom, ['HG1', 'ACME-SECURITY'])
+    expect(warnings).toEqual([])
+    expect(events[0]).toMatchObject({ id: 'ACME-SECURITY', action: 'signed', scope: 'system' })
+
+    const report = gateReport([custom], ['HG1', 'ACME-SECURITY'], 'system', ['HG1', 'ACME-SECURITY'])
+    expect(report.gates.find((gate) => gate.id === 'ACME-SECURITY')).toMatchObject({ state: 'signed' })
+    expect(report.gates.find((gate) => gate.id === 'HG1')).toMatchObject({ state: 'missing' })
+  })
+
+  it('未提供模板時不靜默接受', () => {
+    const { events, warnings } = parseCommentEvents(custom)
+    expect(events).toEqual([])
+    expect(warnings[0]).toContain('未提供模板')
+  })
+
+  it('模板未宣告的自訂閘門產生 warning', () => {
+    const { events, warnings } = parseCommentEvents(custom, ['HG1'])
+    expect(events).toEqual([])
+    expect(warnings[0]).toContain('模板未宣告')
+  })
+
+  it('factory:hg 不接受自訂 id；factory:gate 不接受 HG id', () => {
+    const hgWithCustom = parseCommentEvents(
+      comment(21, '<!-- factory:hg id=ACME-SECURITY state=signed evidence=https://a.test -->'),
+      ['ACME-SECURITY'],
+    )
+    expect(hgWithCustom.events).toEqual([])
+    expect(hgWithCustom.warnings[0]).toContain('未知的閘門 id')
+
+    const gateWithHg = parseCommentEvents(
+      comment(22, '<!-- factory:gate id=HG2 state=signed evidence=https://a.test -->'),
+    )
+    expect(gateWithHg.events).toEqual([])
+    expect(gateWithHg.warnings[0]).toContain('<TENANT>-<NAME>')
+  })
+
+  it('缺少 id 的自訂閘門標記被拒', () => {
+    const { events, warnings } = parseCommentEvents(
+      comment(24, '<!-- factory:gate state=signed evidence=https://a.test -->'),
+      ['ACME-SECURITY'],
+    )
+    expect(events).toEqual([])
+    expect(warnings[0]).toContain('<TENANT>-<NAME>')
+  })
+
+  it('格式不符（沒有連字號）也被拒', () => {
+    const { events, warnings } = parseCommentEvents(
+      comment(23, '<!-- factory:gate id=ACME state=signed evidence=https://a.test -->'),
+      ['ACME'],
+    )
+    expect(events).toEqual([])
+    expect(warnings[0]).toContain('<TENANT>-<NAME>')
+  })
+})

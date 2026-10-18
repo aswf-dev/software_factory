@@ -21,7 +21,12 @@
 
 /** `docs/29` §8 定義的人類閘門。 */
 export const HG_IDS = ['HG0', 'HG1', 'HG2', 'HG3', 'HG4', 'HG5', 'HG6', 'HG7'] as const
-export type GateId = (typeof HG_IDS)[number]
+export type HgGateId = (typeof HG_IDS)[number]
+/** HG 或租戶自訂閘門（`<TENANT>-<NAME>`，ADR-025 §3）。 */
+export type GateId = string
+
+/** 租戶自訂閘門的命名規則（與 `src/process/spec.ts` 一致）。 */
+export const CUSTOM_GATE_PATTERN = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$/
 
 /**
  * 記錄在「導入追蹤 Issue」上的閘門。
@@ -63,7 +68,7 @@ export interface GateReport {
   warnings: string[]
 }
 
-const MARKER = /<!--\s*factory:hg\s+([^>]*?)\s*-->/g
+const MARKER = /<!--\s*factory:(hg|gate)\s+([^>]*?)\s*-->/g
 const HTTP_URL = /^https?:\/\/\S+$/
 
 /** 機器人帳號（GitHub App 與 GitHub Actions 的留言都以 `[bot]` 結尾）。 */
@@ -81,7 +86,7 @@ function parseAttrs(raw: string): Map<string, string> {
   return attrs
 }
 
-function isGateId(value: string | undefined): value is GateId {
+function isHgGateId(value: string | undefined): value is HgGateId {
   return value !== undefined && (HG_IDS as readonly string[]).includes(value)
 }
 
@@ -92,22 +97,41 @@ function isGateId(value: string | undefined): value is GateId {
  * 任何無法判讀的標記都會產生 warning 而不是靜默丟棄——靜默丟棄會讓「簽了但沒生效」
  * 看起來與「沒簽」一模一樣。
  */
-export function parseCommentEvents(comment: HgComment): { events: HgEvent[]; warnings: string[] } {
+export function parseCommentEvents(
+  comment: HgComment,
+  declaredGates?: readonly GateId[],
+): { events: HgEvent[]; warnings: string[] } {
   const events: HgEvent[] = []
   const warnings: string[] = []
   if (isBotAuthor(comment.author)) return { events, warnings }
 
   for (const match of comment.body.matchAll(MARKER)) {
-    const raw = match[1] as string
-    const attrs = parseAttrs(raw)
+    const kind = match[1] as 'hg' | 'gate'
+    const attrs = parseAttrs(match[2] as string)
     const id = attrs.get('id')
     const state = attrs.get('state')
     const scope = attrs.get('scope') ?? 'system'
     const evidence = attrs.get('evidence') ?? ''
 
-    if (!isGateId(id)) {
-      warnings.push(`comment ${comment.id}: 未知的閘門 id "${id ?? ''}"`)
-      continue
+    if (kind === 'hg') {
+      if (!isHgGateId(id)) {
+        warnings.push(`comment ${comment.id}: 未知的閘門 id "${id ?? ''}"`)
+        continue
+      }
+    } else {
+      // 自訂閘門（ADR-025）：必須是 <TENANT>-<NAME>，且模板已宣告；否則不靜默接受。
+      if (id === undefined || !CUSTOM_GATE_PATTERN.test(id) || isHgGateId(id)) {
+        warnings.push(`comment ${comment.id}: 自訂閘門 id "${id ?? ''}" 不符 <TENANT>-<NAME>`)
+        continue
+      }
+      if (declaredGates === undefined) {
+        warnings.push(`comment ${comment.id}: 未提供模板，無法確認自訂閘門 ${id}`)
+        continue
+      }
+      if (!declaredGates.includes(id)) {
+        warnings.push(`comment ${comment.id}: 模板未宣告自訂閘門 ${id}`)
+        continue
+      }
     }
     if (state !== 'signed' && state !== 'revoked') {
       warnings.push(`comment ${comment.id}: ${id} 的 state 必須是 signed 或 revoked（收到 "${state ?? ''}"）`)
@@ -130,7 +154,10 @@ export function parseCommentEvents(comment: HgComment): { events: HgEvent[]; war
 }
 
 /** 依時間排序後展開所有留言的事件（同時間以留言 id 決勝，避免非決定性）。 */
-export function collectEvents(comments: readonly HgComment[]): { events: HgEvent[]; warnings: string[] } {
+export function collectEvents(
+  comments: readonly HgComment[],
+  declaredGates?: readonly GateId[],
+): { events: HgEvent[]; warnings: string[] } {
   const ordered = [...comments].sort((a, b) => {
     const byTime = a.createdAt.localeCompare(b.createdAt)
     return byTime !== 0 ? byTime : a.id - b.id
@@ -138,7 +165,7 @@ export function collectEvents(comments: readonly HgComment[]): { events: HgEvent
   const events: HgEvent[] = []
   const warnings: string[] = []
   for (const comment of ordered) {
-    const parsed = parseCommentEvents(comment)
+    const parsed = parseCommentEvents(comment, declaredGates)
     events.push(...parsed.events)
     warnings.push(...parsed.warnings)
   }
@@ -196,7 +223,8 @@ export function gateReport(
   comments: readonly HgComment[],
   expectedIds: readonly GateId[] = TRACKED_GATE_IDS,
   defaultScope = 'system',
+  declaredGates?: readonly GateId[],
 ): GateReport {
-  const { events, warnings } = collectEvents(comments)
+  const { events, warnings } = collectEvents(comments, declaredGates)
   return { gates: reduceGates(events, expectedIds, defaultScope), warnings }
 }

@@ -146,3 +146,65 @@ describe('main', () => {
     ])
   })
 })
+
+const templateYaml = [
+  'tenant: acme',
+  'name: review-first',
+  'version: 1',
+  'source: test',
+  'phases: [P0]',
+  'gates: [HG1, HG2, HG4, HG5, HG6, ACME-SECURITY]',
+  'steps:',
+  '  - {id: M0, phase: P0, action: x, kind: human}',
+].join('\n')
+
+const customComment = {
+  id: 2,
+  body: '<!-- factory:gate id=ACME-SECURITY state=signed evidence=https://a.test -->',
+  user: { login: 'bob' },
+  created_at: '2026-10-18T01:00:00Z',
+}
+
+describe('自訂閘門（--template，ADR-025）', () => {
+  it('parseOptions 接受 --template 與自訂 gate id', () => {
+    const options = parseOptions([
+      '--repo',
+      'a/b',
+      '--issue',
+      '3',
+      '--gates',
+      'HG2,ACME-SECURITY',
+      '--template',
+      't.yaml',
+    ])
+    expect(options.gates).toEqual(['HG2', 'ACME-SECURITY'])
+    expect(options.templatePath).toBe('t.yaml')
+  })
+
+  it('模板宣告的自訂閘門可被解析為 signed', () => {
+    const result = show(
+      { repo: 'a/b', issue: 7, gates: ['HG1'], scope: 'system', templatePath: 't.yaml' },
+      () => page([customComment]),
+      () => templateYaml,
+    )
+    expect(result.warnings).toEqual([])
+    expect(result.gates.find((gate) => gate.id === 'ACME-SECURITY')).toMatchObject({ state: 'signed', signed_by: 'bob' })
+    expect(result.gates.find((gate) => gate.id === 'HG2')).toMatchObject({ state: 'missing' })
+  })
+
+  it('模板無效時丟出 CliError', () => {
+    expect(() =>
+      show(
+        { repo: 'a/b', issue: 7, gates: ['HG1'], scope: 'system', templatePath: 'bad.yaml' },
+        () => page([]),
+        () => 'not: [valid',
+      ),
+    ).toThrowError(/bad\.yaml 無效/)
+  })
+
+  it('--gates 的格式不符會被拒', () => {
+    expect(() => parseOptions(['--repo', 'a/b', '--issue', '3', '--gates', 'acme-lower'])).toThrow(
+      /未知的閘門 id/,
+    )
+  })
+})
