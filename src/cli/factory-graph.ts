@@ -81,7 +81,7 @@ export interface GraphOptions {
   system: string
   processPath?: string | undefined
   modulesPath?: string | undefined
-  /** `processes/templates/<S|M|L>.yaml`; used by factory-snapshot. */
+  /** `templates/<tenant>/<name>.yaml`（preset 為 `templates/factory/S|M|L.yaml`）；used by factory-snapshot. */
   templatePath?: string | undefined
   /** Offline mode: read the `gh issue list` JSON from a file instead of calling gh. */
   issuesPath?: string | undefined

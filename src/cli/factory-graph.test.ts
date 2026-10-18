@@ -27,7 +27,8 @@ const processYaml = [
   'system: aswf-dev/example',
   'scale: S',
   'scale_evidence: docs/research/1.md',
-  'template: S',
+  'template: factory/S',
+  'template_version: 1',
   'phases: [P0]',
   'gates: [HG1]',
 ].join('\n')

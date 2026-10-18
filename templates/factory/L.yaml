@@ -3,7 +3,8 @@
 # 與 M 的差異：P0 增加 in-loop repo 的分析與三軸重評（§12）、P1 每張分析單只處理
 # 一個 bounded context、P5 是完整的單體拆分（含 HG7 的多道簽核）。
 # 拆分動作本身由人類執行；工廠只提供 L14／L17／L18 的支援工單。
-template: L
+tenant: factory
+name: L
 version: 1
 source: docs/29-brownfield-adoption-playbook.md §9.3
 phases: [P0, P1, P2, P3, P4, P5]

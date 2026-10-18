@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MANDATORY_GATES,
   PHASES,
   ProcessSpecSchema,
   TemplateSchema,
@@ -33,11 +34,12 @@ const workItem = (id: string, extra: Record<string, unknown> = {}): Step =>
   }) as unknown as Step
 
 const minimalTemplate = {
-  template: 'S',
+  tenant: 'factory',
+  name: 'S',
   version: 1,
   source: 'test',
   phases: ['P0', 'P1'],
-  gates: ['HG1'],
+  gates: ['HG1', 'HG2', 'HG4', 'HG5', 'HG6'],
   steps: [human('S0'), workItem('S1', { gates: ['HG1'] })],
 }
 
@@ -99,7 +101,7 @@ describe('validateTemplate', () => {
   it('接受合法模板', () => {
     const result = validateTemplate(minimalTemplate)
     expect(result.ok).toBe(true)
-    expect(result.template?.template).toBe('S')
+    expect(result.template?.name).toBe('S')
   })
 
   it('拒絕 schema 不符的模板，並標出欄位路徑', () => {
@@ -132,9 +134,10 @@ describe('validateProcess', () => {
     system: 'aswf-dev/x',
     scale: 'S',
     scale_evidence: 'docs/research/1-a0.md',
-    template: 'S',
+    template: 'factory/S',
+    template_version: 1,
     phases: ['P0', 'P1'],
-    gates: ['HG1'],
+    gates: ['HG1', 'HG2', 'HG4', 'HG5', 'HG6'],
   }
 
   it('接受忠於模板的 process', () => {
@@ -148,13 +151,17 @@ describe('validateProcess', () => {
   })
 
   it('拒絕 template 不一致', () => {
-    const result = validateProcess({ ...process, template: 'S' }, templateOf({ template: 'M' }))
-    expect(result.errors[0]).toContain('模板是 M')
+    const result = validateProcess({ ...process, template: 'factory/S' }, templateOf({ name: 'M' }))
+    expect(result.errors[0]).toContain('模板是 factory/M')
   })
 
-  it('拒絕 scale 與 template 不一致', () => {
-    const result = validateProcess({ ...process, scale: 'M' }, template)
-    expect(result.errors[0]).toContain('必須對應同名的模板')
+  it('拒絕 template_version 與載入的模板不一致', () => {
+    const result = validateProcess({ ...process, template_version: 2 }, template)
+    expect(result.errors[0]).toContain('template_version')
+  })
+
+  it('接受 scale 與模板不同（ADR-025 脫鉤）', () => {
+    expect(validateProcess({ ...process, scale: 'M' }, template)).toEqual({ ok: true, errors: [] })
   })
 
   it('拒絕非連續前綴的 phases', () => {
@@ -174,7 +181,7 @@ describe('validateProcess', () => {
   })
 
   it('允許新增閘門', () => {
-    const result = validateProcess({ ...process, gates: ['HG1', 'HG3'] }, template)
+    const result = validateProcess({ ...process, gates: [...process.gates, 'HG7'] }, template)
     expect(result.ok).toBe(true)
   })
 
@@ -205,11 +212,12 @@ describe('validateProcess', () => {
 describe('loadTemplate / loadProcessSpec', () => {
   it('載入合法 YAML', () => {
     const text = [
-      'template: S',
+      'tenant: factory',
+      'name: S',
       'version: 1',
       'source: test',
       'phases: [P0]',
-      'gates: [HG1]',
+      'gates: [HG1, HG2, HG4, HG5, HG6]',
       'steps:',
       '  - {id: S0, phase: P0, action: x, kind: human}',
     ].join('\n')
@@ -231,7 +239,8 @@ describe('loadTemplate / loadProcessSpec', () => {
       'system: a/b',
       'scale: S',
       'scale_evidence: docs/research/x.md',
-      'template: S',
+      'template: factory/S',
+      'template_version: 1',
       'phases: [P0]',
       'gates: [HG1]',
     ].join('\n')
@@ -304,5 +313,72 @@ describe('loadModuleSpec', () => {
   it('拒絕不合法的 module id', () => {
     const text = ['system: a/b', 'modules:', '  - id: Billing', '    paths: ["x/**"]'].join('\n')
     expect(loadModuleSpec(text).ok).toBe(false)
+  })
+})
+
+describe('meta-contract（ADR-025）', () => {
+  const gates = [...MANDATORY_GATES, 'HG3']
+
+  it('拒絕移除工廠必含閘門', () => {
+    const result = validateTemplate({ ...minimalTemplate, gates: gates.filter((g) => g !== 'HG4') })
+    expect(result.ok).toBe(false)
+    expect(result.errors.join(' ')).toContain('HG4')
+  })
+
+  it('自訂 gate 必須帶自己的租戶前綴', () => {
+    const bad = validateTemplate({ ...minimalTemplate, gates: [...gates, 'SEC-REVIEW'] })
+    expect(bad.errors.join(' ')).toContain('FACTORY-')
+
+    const good = validateTemplate({
+      ...minimalTemplate,
+      tenant: 'acme',
+      gates: [...gates, 'ACME-SECURITY'],
+    })
+    expect(good).toEqual({ ok: true, errors: [], template: expect.objectContaining({ tenant: 'acme' }) })
+  })
+
+  it('拒絕未知的 task_type', () => {
+    const result = validateTemplate({
+      ...minimalTemplate,
+      steps: [
+        human('S0'),
+        { id: 'S1', phase: 'P0', action: 'x', kind: 'work-item', task_type: 'agent-nope' },
+      ],
+    })
+    expect(result.errors.join(' ')).toContain('agent-nope')
+  })
+
+  it('拒絕替代方案中未知的 task_type', () => {
+    const result = validateTemplate({
+      ...minimalTemplate,
+      steps: [
+        human('S0'),
+        {
+          id: 'S1',
+          phase: 'P0',
+          action: 'x',
+          kind: 'work-item',
+          alternatives: [{ kind: 'work-item', action: 'y', task_type: 'agent-nope' }],
+        },
+      ],
+    })
+    expect(result.errors.join(' ')).toContain('agent-nope')
+  })
+
+  it('租戶模板以 <tenant>/<name> 識別，系統釘版本', () => {
+    const tenantTemplate = templateOf({ tenant: 'acme', name: 'review-first', version: 3 })
+    const process = {
+      system: 'acme/x',
+      scale: 'M',
+      scale_evidence: 'docs/research/x-a0.md',
+      template: 'acme/review-first',
+      template_version: 3,
+      phases: ['P0'],
+      gates: [...gates],
+    }
+    expect(validateProcess(process, tenantTemplate)).toEqual({ ok: true, errors: [] })
+
+    const stale = validateProcess({ ...process, template_version: 2 }, tenantTemplate)
+    expect(stale.errors.join(' ')).toContain('template_version')
   })
 })

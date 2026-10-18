@@ -1,85 +1,79 @@
-# 中型專案的流程模板（docs/29 §9.2）。
+# 小型專案的流程模板（docs/29 §9.1）。
 #
-# 與 S 的差異：P0 逐 repo 納管、P1 一份 A1 跨 repo ＋ 每模組 A2–A4、
-# P2 文件化依模組、P5 只到 modular monolith（ADR-023）。
-template: M
+# 這是**方法論的機器可讀版**：步驟與順序必須與 docs/29 §9.1 的表格一一對應；
+# 改這裡就等於改流程，一律走 PR。
+#
+# `process.yaml` 不重述這些步驟，只宣告 `template: factory/S` 與 `template_version` 與 `extra_steps`——
+# 因此「刪掉必要步驟」或「調換順序」在結構上不可能（ADR-023）。
+tenant: factory
+name: S
 version: 1
-source: docs/29-brownfield-adoption-playbook.md §9.2
-phases: [P0, P1, P2, P3, P4, P5]
-gates: [HG1, HG2, HG3, HG4, HG5, HG6, HG7]
+source: docs/29-brownfield-adoption-playbook.md §9.1
+phases: [P0, P1, P2, P3, P4]
+gates: [HG1, HG2, HG3, HG4, HG5, HG6]
 
 steps:
-  - id: M0
+  - id: S0
     phase: P0
     action: 開導入追蹤 Issue
     kind: human
-  - id: M1
+  - id: S1
     phase: P0
-    action: 每個 repo 安裝 App、建立 software-factory 分支
+    action: 安裝 App、建立 software-factory 分支
     kind: human
-  - id: M2
+  - id: S2
     phase: P0
     action: 納管提案
     kind: work-item
     task_type: agent-onboard
     per: repo
-  - id: M3
+  - id: S3
     phase: P0
     action: 裁定三軸、搬檔、雙向探測
     kind: human
     gates: [HG1]
-  - id: M4
-    phase: P0
-    action: 宣告 spec.system；核心 repo 加 factory.io/quint-spec
-    kind: human
-    gates: [HG1]
-  - id: M5
+  - id: S4
     phase: P1
-    action: 規模與就緒度量測（A0，跨 repo）
+    action: 規模與就緒度量測（A0）
     kind: work-item
     task_type: agent-analyze
     per: system
     gates: [HG2]
-  - id: M6
+  - id: S5
     phase: P1
-    action: 架構盤點（A1，跨 repo）
+    action: 架構、測試、相依、風險盤點（A1–A4）
     kind: work-item
     task_type: agent-analyze
     per: system
-  - id: M7
-    phase: P1
-    action: 測試、相依、風險盤點（A2–A4，每模組各 1）
-    kind: work-item
-    task_type: agent-analyze
-    per: module
     gates: [HG6]
-  - id: M8
+  - id: S6
     phase: P2
-    action: 精簡 arc42 文件集（每模組 1–2 張 ＋ 系統 1 張）
+    action: README＋架構總覽
     kind: work-item
     task_type: agent-write-docs
-    per: module
+    per: system
     gates: [HG3]
-  - id: M9
+  - id: S7
     phase: P2
     action: 撰寫核心模組業務規則
     kind: human
     gates: [HG4, HG6]
-  - id: M10
+  - id: S8
     phase: P3
-    action: 依 A2 清單補測試
+    action: 依 A2 清單補測試（每模組／檔案 1 張）
     kind: work-item
     task_type: agent-add-tests
     per: module
     gates: [HG3]
-  - id: M11
+  - id: S9
     phase: P3
-    action: 修復揭露的缺陷
+    action: 修復揭露的缺陷（每個缺陷 1 張）
     kind: work-item
     task_type: agent-fix-bug
     per: defect
+    conditional: true
     gates: [HG3]
-  - id: M12
+  - id: S10
     phase: P3
     action: 驗證閘門（每核心模組擇一）
     kind: work-item
@@ -94,7 +88,7 @@ steps:
       - kind: human
         action: 豁免單（HG5 簽核）
     gates: [HG5, HG6]
-  - id: M13
+  - id: S11
     phase: P4
     action: 維護（依需要）
     kind: work-item
@@ -110,15 +104,3 @@ steps:
         action: 提出技能草案
         task_type: agent-propose-skill
     gates: [HG0, HG3]
-  - id: M14
-    phase: P5
-    action: 撰寫 ADR（是否模組化）
-    kind: human
-    conditional: true
-    gates: [HG7]
-  - id: M15
-    phase: P5
-    action: 同一 repo 內劃模組邊界（modular monolith）
-    kind: human
-    conditional: true
-    gates: [HG7]

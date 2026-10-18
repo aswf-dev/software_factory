@@ -27,17 +27,19 @@ const processYaml = [
   'system: aswf-dev/example',
   'scale: S',
   'scale_evidence: docs/research/1.md',
-  'template: S',
+  'template: factory/S',
+  'template_version: 1',
   'phases: [P0, P1]',
   'gates: [HG5]',
 ].join('\n')
 
 const templateYaml = [
-  'template: S',
+  'tenant: factory',
+  'name: S',
   'version: 1',
   'source: test',
   'phases: [P0, P1]',
-  'gates: [HG5]',
+  'gates: [HG1, HG2, HG4, HG5, HG6]',
   'steps:',
   '  - {id: S8, phase: P1, action: 補測試, kind: work-item, task_type: agent-add-tests, per: module}',
 ].join('\n')
@@ -54,7 +56,7 @@ function deps(overrides: Partial<NextDeps> = {}): NextDeps {
     gh: (args) => (args[0] === 'issue' ? issuesJson : commentsJson),
     readFile: (path) => {
       if (path.endsWith('modules.yaml')) return modulesYaml
-      if (path.includes('/templates/')) return templateYaml
+      if (path.includes('templates/')) return templateYaml
       return processYaml
     },
     now: () => '2026-10-18T01:00:00Z',
@@ -66,7 +68,7 @@ const baseOptions = {
   repo: 'aswf-dev/example',
   processPath: 'process.yaml',
   modulesPath: 'modules.yaml',
-  templatesDir: 'processes/templates',
+  templatesDir: 'templates',
   limit: 200,
 }
 
@@ -78,7 +80,7 @@ describe('parseOptions', () => {
       repo: 'a/b',
       processPath: 'p.yaml',
       modulesPath: 'm.yaml',
-      templatesDir: 'processes/templates',
+      templatesDir: 'templates',
       limit: 200,
     })
   })
@@ -165,7 +167,7 @@ describe('next', () => {
     const brokenModules = deps({
       readFile: (path) => {
         if (path.endsWith('modules.yaml')) return 'system: x'
-        if (path.includes('/templates/')) return templateYaml
+        if (path.includes('templates/')) return templateYaml
         return processYaml
       },
     })
@@ -180,12 +182,12 @@ describe('next', () => {
         readFile: (path) => {
           calls.push(path)
           if (path.endsWith('modules.yaml')) return modulesYaml
-          if (path.startsWith('x/templates/S.yaml')) return templateYaml
+          if (path.startsWith('x/templates/factory/S.yaml')) return templateYaml
           return processYaml
         },
       }),
     )
-    expect(calls.some((path) => path === 'x/templates/S.yaml')).toBe(true)
+    expect(calls.some((path) => path === 'x/templates/factory/S.yaml')).toBe(true)
   })
 })
 

@@ -46,7 +46,7 @@
 
 ### 5. 節點層級：步驟（step run），系統與模組是範圍（2026-10-18 第二次修訂）
 
-第一次修訂把圖上節點定為「模組 → 工作項」。同日稍後 `processes/templates/{S,M,L}.yaml` 落地後，
+第一次修訂把圖上節點定為「模組 → 工作項」。同日稍後流程模板（現為 `templates/factory/{S,M,L}.yaml`）落地後，
 這個形狀不成立：模板是 **step-based**，S10 的 `alternatives`（Quint／Hegel／豁免）、gate 的位置、
 `per: module` 的範圍，都需要「步驟」這一層才表達得出來。只畫模組與工作項，等於把方法論的序列藏起來。
 

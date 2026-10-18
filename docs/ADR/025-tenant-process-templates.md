@@ -58,7 +58,7 @@
 
 ### 5. S/M/L 降為 preset
 
-- 現有的 `processes/templates/{S,M,L}.yaml` 移到 `templates/factory/{S,M,L}.yaml`，id 為 `factory/S` 等。
+- 原本的 `processes/templates/{S,M,L}.yaml` 已移到 `templates/factory/{S,M,L}.yaml`，id 為 `factory/S` 等（第 2 階段已實作）。
 - 既有系統以 `template: factory/S` ＋ `template_version: 1` 表達，行為不變。
 - `docs/29` 的角色從「唯一方法論」改為「**工廠 presets 的來源**」；租戶模板是該租戶的方法論，但仍須滿足 meta-contract。
 

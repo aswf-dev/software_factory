@@ -4,7 +4,7 @@ import { TEMPLATE_NAMES, loadTemplate, loadProcessSpec, requiredSteps, validateP
 import type { Template, TemplateName } from './spec.js'
 
 function readTemplateYaml(name: TemplateName): string {
-  const url = new URL(`../../processes/templates/${name}.yaml`, import.meta.url)
+  const url = new URL(`../../templates/factory/${name}.yaml`, import.meta.url)
   return readFileSync(url, 'utf8')
 }
 
@@ -20,7 +20,7 @@ describe.each(TEMPLATE_NAMES)('%s 模板', (name) => {
   })
 
   it('檔案內宣告的模板名稱與檔名一致', () => {
-    expect(templateOf(name).template).toBe(name)
+    expect(templateOf(name).name).toBe(name)
   })
 
   it('步驟 id 以模板名稱為前綴，且依文件順序遞增', () => {
@@ -41,7 +41,8 @@ describe.each(TEMPLATE_NAMES)('%s 模板', (name) => {
       'system: aswf-dev/example',
       'scale: ' + name,
       'scale_evidence: docs/research/example-a0.md',
-      `template: ${name}`,
+      `template: factory/${name}`,
+      'template_version: 1',
       `phases: [${template.phases.join(', ')}]`,
       `gates: [${template.gates.join(', ')}]`,
     ].join('\n')
@@ -58,7 +59,8 @@ describe.each(TEMPLATE_NAMES)('%s 模板', (name) => {
       'system: aswf-dev/example',
       `scale: ${name}`,
       'scale_evidence: docs/research/example-a0.md',
-      `template: ${name}`,
+      `template: factory/${name}`,
+      'template_version: 1',
       `phases: [${template.phases.join(', ')}]`,
       `gates: [${gates.join(', ')}]`,
     ].join('\n')

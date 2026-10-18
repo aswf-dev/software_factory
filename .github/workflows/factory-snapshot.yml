@@ -51,7 +51,7 @@ jobs:
             --repo aswf-dev/payment-platform \
             --system aswf-dev/payment-platform \
             --process processes/samples/payment-platform.yaml \
-            --template processes/templates/M.yaml \
+            --template templates/factory/M.yaml \
             --modules processes/samples/payment-platform.modules.yaml \
             --issues-file processes/samples/payment-platform.issues.json \
             --tracking-issue 391 \

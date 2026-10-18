@@ -14,7 +14,8 @@ import { TemplateSchema } from './spec.js'
 import type { ModuleEntry, ProcessSpec, Step } from './spec.js'
 
 const template = TemplateSchema.parse({
-  template: 'S',
+  tenant: 'factory',
+  name: 'S',
   version: 1,
   source: 'test',
   phases: ['P0', 'P1'],
@@ -43,7 +44,8 @@ const process = {
   system: 'a/b',
   scale: 'S',
   scale_evidence: 'docs/x.md',
-  template: 'S',
+  template: 'factory/S',
+  template_version: 1,
   phases: ['P0', 'P1'],
   gates: ['HG5'],
 } as unknown as ProcessSpec
@@ -276,7 +278,8 @@ describe('nextActions', () => {
 
 describe('人類步驟（模板裡沒有 per 的 kind: human）', () => {
   const humanTemplate = TemplateSchema.parse({
-    template: 'S',
+    tenant: 'factory',
+    name: 'S',
     version: 1,
     source: 'test',
     phases: ['P0', 'P1', 'P2'],
