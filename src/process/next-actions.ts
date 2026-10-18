@@ -110,12 +110,25 @@ export function taskTypesOf(step: Step): string[] {
 }
 
 /** 完成＝有同任務類型、且已關閉或貼了 `stage/done` 的工作項。 */
-export function isStepDone(step: Step, issues: readonly IssueInput[]): boolean {
+export function isStepDone(
+  step: Step,
+  issues: readonly IssueInput[],
+  gates: readonly GateStatus[] = [],
+): boolean {
   const types = taskTypesOf(step)
-  return issues.some(
+  const doneByIssue = issues.some(
     (issue) =>
       types.includes(readTaskType(issue.body) ?? '') &&
       (issue.state === 'CLOSED' || issue.labels.includes(STAGE_DONE_LABEL)),
+  )
+  if (doneByIssue) return true
+  // 人類步驟沒有工作項，完成訊號是「它的閘門已簽」。只要求存在任一 signed 實例
+  // （scope 的精細判定留給 gateSigned 的建議邏輯）。
+  if (step.kind !== 'human') return false
+  const required = step.gates ?? []
+  if (required.length === 0) return false
+  return required.every((gateId) =>
+    gates.some((gate) => gate.id === gateId && gate.state === 'signed'),
   )
 }
 
@@ -161,7 +174,10 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
   const systemSteps = steps.filter(isSystemStep)
 
   const unfinishedSystem = systemSteps.filter(
-    (step) => step.required !== false && step.conditional !== true && !isStepDone(step, input.issues),
+    (step) =>
+      step.required !== false &&
+      step.conditional !== true &&
+      !isStepDone(step, input.issues, input.gates),
   )
   if (unfinishedSystem.length > 0) {
     warnings.push(
@@ -196,7 +212,7 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
         continue
       }
 
-      if (isStepDone(step, moduleIssues)) {
+      if (isStepDone(step, moduleIssues, input.gates)) {
         const gate = gateSigned(step, input.gates, scopes)
         if (!gate.signed) {
           actions.push({
