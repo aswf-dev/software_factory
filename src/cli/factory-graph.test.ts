@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { graph, main, parseIssues, parseOptions } from './factory-graph.js'
+import { graph, main, parseIssues, parseOptions, parsePullRequests } from './factory-graph.js'
 import type { GhRunner, GraphDeps } from './factory-graph.js'
 
 const issuesJson = JSON.stringify([
@@ -42,6 +42,7 @@ const modulesYaml = [
 function deps(overrides: Partial<GraphDeps> = {}): GraphDeps {
   const gh: GhRunner = (args) => {
     if (args[0] === 'issue') return issuesJson
+    if (args[0] === 'pr') return '[]'
     return commentsJson
   }
   return {
@@ -175,7 +176,9 @@ describe('graph', () => {
     const calls: string[][] = []
     const gh: GhRunner = (args) => {
       calls.push(args)
-      return args[0] === 'issue' ? issuesJson : commentsJson
+      if (args[0] === 'issue') return issuesJson
+      if (args[0] === 'pr') return '[]'
+      return commentsJson
     }
     graph({ repo: 'a/b', system: 'a/b', limit: 5, trackingIssue: 9 }, deps({ gh }))
     expect(calls[0]).toEqual([
@@ -191,6 +194,18 @@ describe('graph', () => {
       'number,title,body,labels,state',
     ])
     expect(calls[1]).toEqual(['api', '--paginate', '--slurp', 'repos/a/b/issues/9/comments'])
+    expect(calls[2]).toEqual([
+      'pr',
+      'list',
+      '--repo',
+      'a/b',
+      '--state',
+      'all',
+      '--limit',
+      '5',
+      '--json',
+      'number,state,mergedAt,headRefName,body',
+    ])
   })
 })
 
@@ -243,5 +258,52 @@ describe('offline inputs（--issues-file／--comments-file）', () => {
       fake,
     )
     expect(doc.gates.find((gate) => gate.id === 'HG2')).toMatchObject({ state: 'signed', signed_by: 'alice' })
+  })
+})
+
+describe('--prs-file（離線 PR 狀態）', () => {
+  it('merged PR 讓離線 Issue 視為完成', () => {
+    const prsJson = JSON.stringify([
+      {
+        number: 900,
+        state: 'MERGED',
+        mergedAt: '2026-10-18T00:00:00Z',
+        headRefName: 'factory/1-01-test',
+        body: '',
+      },
+    ])
+    const fake: GraphDeps = {
+      gh: () => {
+        throw new Error('gh should not be called in offline mode')
+      },
+      readFile: (path) => {
+        if (path === 'issues.json') return issuesJson
+        if (path === 'prs.json') return prsJson
+        return processYaml
+      },
+      now: () => '2026-10-18T01:00:00Z',
+    }
+    const doc = graph(
+      parseOptions(['--repo', 'a/b', '--issues-file', 'issues.json', '--prs-file', 'prs.json']),
+      fake,
+    )
+    expect(doc.nodes.find((node) => node.id === 'issue:1')?.state).toBe('closed')
+  })
+})
+
+describe('parsePullRequests', () => {
+  it('JSON 無法解析時丟出 CliError', () => {
+    expect(() => parsePullRequests('not json')).toThrowError(/PR 清單 JSON 無法解析/)
+  })
+
+  it('結構不符時丟出 CliError', () => {
+    expect(() => parsePullRequests(JSON.stringify([{ number: 1 }]))).toThrowError(/PR 清單結構不符/)
+  })
+
+  it('body 為 null 時正規化為空字串', () => {
+    const [pr] = parsePullRequests(
+      JSON.stringify([{ number: 1, state: 'OPEN', mergedAt: null, headRefName: 'x', body: null }]),
+    )
+    expect(pr?.body).toBe('')
   })
 })

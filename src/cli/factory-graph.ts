@@ -19,7 +19,7 @@ import { z } from 'zod'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 import { buildGraph } from '../graph/build.js'
-import type { GraphDocument, IssueInput } from '../graph/build.js'
+import type { GraphDocument, IssueInput, PullRequestInput } from '../graph/build.js'
 import type { ModuleEntry, ProcessSpec } from '../process/spec.js'
 import type { GateStatus } from '../hg/parse.js'
 import { parseComments } from './factory-hg.js'
@@ -55,10 +55,20 @@ const GhIssueSchema = z.object({
 })
 const GhIssueListSchema = z.array(GhIssueSchema)
 
+const GhPrSchema = z.object({
+  number: z.number(),
+  state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
+  mergedAt: z.string().nullable(),
+  headRefName: z.string(),
+  body: z.string().nullable(),
+})
+const GhPrListSchema = z.array(GhPrSchema)
+
 /** `buildGraph` 的完整輸入；也是 `factory-snapshot` 餵給 `factory-next` 的同一份資料。 */
 export interface GraphInputs {
   system: string
   issues: IssueInput[]
+  pullRequests?: readonly PullRequestInput[] | undefined
   modules?: readonly ModuleEntry[] | undefined
   process?: ProcessSpec | undefined
   gates?: readonly GateStatus[] | undefined
@@ -77,6 +87,8 @@ export interface GraphOptions {
   issuesPath?: string | undefined
   /** Offline mode: read the `gh api …/comments` JSON pages from a file instead of calling gh. */
   commentsPath?: string | undefined
+  /** Offline mode: read the `gh pr list` JSON from a file instead of calling gh. */
+  prsPath?: string | undefined
   trackingIssue?: number | undefined
   limit: number
   generatedAt?: string | undefined
@@ -126,6 +138,8 @@ export function parseOptions(argv: readonly string[]): GraphOptions {
   if (issuesPath !== undefined) options.issuesPath = issuesPath
   const commentsPath = values.get('comments-file')
   if (commentsPath !== undefined) options.commentsPath = commentsPath
+  const prsPath = values.get('prs-file')
+  if (prsPath !== undefined) options.prsPath = prsPath
   if (trackingIssue !== undefined) options.trackingIssue = trackingIssue
   const generatedAt = values.get('generated-at')
   if (generatedAt !== undefined) options.generatedAt = generatedAt
@@ -148,6 +162,25 @@ export function parseIssues(raw: string): IssueInput[] {
     body: issue.body ?? '',
     labels: issue.labels.map((label) => label.name),
     state: issue.state === 'CLOSED' ? 'CLOSED' : 'OPEN',
+  }))
+}
+
+/** 把 `gh pr list --json` 的輸出轉成完成判定需要的欄位。 */
+export function parsePullRequests(raw: string): PullRequestInput[] {
+  let json: unknown
+  try {
+    json = JSON.parse(raw)
+  } catch {
+    throw new CliError('PR 清單 JSON 無法解析')
+  }
+  const parsed = GhPrListSchema.safeParse(json)
+  if (!parsed.success) throw new CliError(`PR 清單結構不符：${parsed.error.message}`)
+  return parsed.data.map((pr) => ({
+    number: pr.number,
+    state: pr.state,
+    mergedAt: pr.mergedAt,
+    headRefName: pr.headRefName,
+    body: pr.body ?? '',
   }))
 }
 
@@ -208,9 +241,31 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
           ),
         ).gates
 
+  // 離線 issues 模式（合成系統）預設沒有 PR；要納入 PR 就另外給 --prs-file。
+  const pullRequests =
+    options.prsPath !== undefined
+      ? parsePullRequests(deps.readFile(options.prsPath))
+      : options.issuesPath !== undefined
+        ? []
+        : parsePullRequests(
+            deps.gh([
+              'pr',
+              'list',
+              '--repo',
+              options.repo,
+              '--state',
+              'all',
+              '--limit',
+              String(options.limit),
+              '--json',
+              'number,state,mergedAt,headRefName,body',
+            ]),
+          )
+
   return {
     system: options.system,
     issues,
+    pullRequests,
     modules,
     process,
     gates,

@@ -30,9 +30,20 @@ export interface IssueInput {
   state: 'OPEN' | 'CLOSED'
 }
 
+/** 與完成判定有關的 PR 欄位（`gh pr list --json number,state,mergedAt,headRefName,body`）。 */
+export interface PullRequestInput {
+  number: number
+  state: 'OPEN' | 'CLOSED' | 'MERGED'
+  mergedAt: string | null
+  headRefName: string
+  body: string
+}
+
 export interface BuildInput {
   system: string
   issues: readonly IssueInput[]
+  /** 可選；沒有提供時完成判定只依 Issue 狀態／`stage/done`（並產生 advisory）。 */
+  pullRequests?: readonly PullRequestInput[] | undefined
   modules?: readonly ModuleEntry[] | undefined
   process?: ProcessSpec | undefined
   gates?: readonly GateStatus[] | undefined
@@ -161,18 +172,48 @@ export function moduleOfIssue(issue: IssueInput, modules: readonly ModuleEntry[]
   )
 }
 
+/** `factory/<issue>-…` 分支前綴（ADR-007 的 stacked PR 命名）。 */
+const BRANCH_ISSUE = /^factory\/(\d+)-/
+/** PR body 的 closing keyword（`Closes #12`／`Fixes #12`／`Resolves #12`）。 */
+const CLOSING_KEYWORD = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi
+
+/** 一個 PR 對應的 Issue 編號：分支前綴與 body closing keyword 都算。 */
+export function linkedIssueNumbers(pr: PullRequestInput): number[] {
+  const numbers = new Set<number>()
+  const branch = pr.headRefName.match(BRANCH_ISSUE)
+  if (branch?.[1] !== undefined) numbers.add(Number(branch[1]))
+  for (const match of pr.body.matchAll(CLOSING_KEYWORD)) {
+    // Group 1 always exists for this pattern; Number(undefined) would be NaN, never added.
+    numbers.add(Number(match[1]))
+  }
+  return [...numbers]
+}
+
+/**
+ * 完成＝Issue 已關閉 **或** 貼了 `stage/done` **或** 有已合併的 PR（ADR-022）。
+ *
+ * `issuesByNumber` 只包含目前清單中的 Issue；`mergedIssues` 讓「PR 合併但 Issue
+ * 尚未關閉」也能被視為完成。前置判定與工作項本身用同一個規則。
+ */
 export function workItemState(
   issue: IssueInput,
   issuesByNumber: ReadonlyMap<number, IssueInput>,
+  mergedIssues: ReadonlySet<number> = new Set(),
 ): { state: WorkItemState; unresolved: number[] } {
+  const isDone = (n: number): boolean => {
+    const target = issuesByNumber.get(n)
+    return (
+      target?.state === 'CLOSED' ||
+      target?.labels.includes(STAGE_DONE_LABEL) === true ||
+      mergedIssues.has(n)
+    )
+  }
+
   if (issue.labels.includes(NEEDS_HUMAN_LABEL)) return { state: 'needs-human', unresolved: [] }
 
-  const unresolved = parsePrerequisites(issue.body).filter((n) => {
-    const prereq = issuesByNumber.get(n)
-    return prereq === undefined || !prereq.labels.includes(STAGE_DONE_LABEL)
-  })
+  const unresolved = parsePrerequisites(issue.body).filter((n) => !isDone(n))
   if (unresolved.length > 0) return { state: 'waiting-prereq', unresolved }
-  return { state: issue.state === 'CLOSED' ? 'closed' : 'open', unresolved: [] }
+  return { state: isDone(issue.number) ? 'closed' : 'open', unresolved: [] }
 }
 
 function oversightOf(labels: readonly string[]): string | undefined {
@@ -189,6 +230,11 @@ export function buildGraph(input: BuildInput): GraphDocument {
   const modules = input.modules ?? []
   const issues = [...input.issues].sort((a, b) => a.number - b.number)
   const issuesByNumber = new Map(issues.map((issue) => [issue.number, issue]))
+  const mergedIssues = new Set<number>()
+  for (const pr of input.pullRequests ?? []) {
+    if (pr.state !== 'MERGED' && pr.mergedAt === null) continue
+    for (const n of linkedIssueNumbers(pr)) mergedIssues.add(n)
+  }
 
   if (input.process === undefined) {
     warnings.push('未提供 process.yaml：無法輸出規模與階段')
@@ -196,8 +242,8 @@ export function buildGraph(input: BuildInput): GraphDocument {
   if (modules.length === 0) {
     warnings.push('未提供模組清單：工作項掛在系統節點下')
   }
-  if (issues.some((issue) => parsePrerequisites(issue.body).length > 0)) {
-    warnings.push('前置完成判定僅依 stage/done 標籤，未含 PR 合併狀態（v1 限制）')
+  if (input.pullRequests === undefined) {
+    warnings.push('未提供 PR 清單：完成判定只依 Issue 狀態／stage/done')
   }
 
   const nodes: GraphNode[] = []
@@ -225,7 +271,7 @@ export function buildGraph(input: BuildInput): GraphDocument {
     const taskType = extractField(issue.body, 'task_type')
     if (taskType === undefined) warnings.push(`#${issue.number}: 缺少任務類型欄位`)
 
-    const { state, unresolved } = workItemState(issue, issuesByNumber)
+    const { state, unresolved } = workItemState(issue, issuesByNumber, mergedIssues)
     for (const n of unresolved) {
       if (!issuesByNumber.has(n)) warnings.push(`#${issue.number}: 前置 #${n} 不在清單中`)
     }
