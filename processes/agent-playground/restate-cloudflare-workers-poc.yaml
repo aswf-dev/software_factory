@@ -1,0 +1,11 @@
+# 真實租戶系統（第一個試點）：agent-playground/restate-cloudflare-workers-poc。
+#
+# 系統採用租戶模板 `agent-playground/review-first@1`；scale 是人類宣告（catalog-info
+# 的三軸 tactical/low/low），不由模板推導。模組清單在目標 repo 的 factory/process.yaml。
+system: agent-playground/restate-cloudflare-workers-poc
+scale: M
+scale_evidence: 'target repo catalog-info.yaml（tactical/low/low；on-loop 試點）'
+template: agent-playground/review-first
+template_version: 1
+phases: [P0, P1, P2, P3]
+gates: [HG1, HG2, HG4, HG5, HG6, AGENT-PLAYGROUND-SECURITY]

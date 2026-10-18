@@ -763,6 +763,79 @@
           }
         ]
       }
+    },
+    {
+      "id": "agent-playground/review-first",
+      "tenant": "agent-playground",
+      "name": "review-first",
+      "version": 1,
+      "path": "templates/agent-playground/review-first.yaml",
+      "source": "agent-playground pilot (restate-cloudflare-workers-poc; templates/ONBOARDING.md)",
+      "template": {
+        "tenant": "agent-playground",
+        "name": "review-first",
+        "version": 1,
+        "source": "agent-playground pilot (restate-cloudflare-workers-poc; templates/ONBOARDING.md)",
+        "phases": [
+          "P0",
+          "P1",
+          "P2",
+          "P3"
+        ],
+        "gates": [
+          "HG1",
+          "HG2",
+          "HG4",
+          "HG5",
+          "HG6",
+          "AGENT-PLAYGROUND-SECURITY"
+        ],
+        "gate_defs": [
+          {
+            "id": "AGENT-PLAYGROUND-SECURITY",
+            "signers": [
+              "philipz"
+            ],
+            "scope": "phase",
+            "evidence": "adr"
+          }
+        ],
+        "steps": [
+          {
+            "id": "AP1",
+            "phase": "P0",
+            "action": "需求分析與相依性盤點",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "system"
+          },
+          {
+            "id": "AP2",
+            "phase": "P1",
+            "action": "安全與風險審查",
+            "kind": "human",
+            "gates": [
+              "AGENT-PLAYGROUND-SECURITY"
+            ]
+          },
+          {
+            "id": "AP3",
+            "phase": "P2",
+            "action": "補測試（先失敗再修）",
+            "kind": "work-item",
+            "task_type": "agent-add-tests",
+            "per": "module"
+          },
+          {
+            "id": "AP4",
+            "phase": "P3",
+            "action": "文件更新",
+            "kind": "work-item",
+            "task_type": "agent-write-docs",
+            "per": "module"
+          }
+        ]
+      }
     }
   ]
 }

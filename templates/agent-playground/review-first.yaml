@@ -1,0 +1,20 @@
+# agent-playground 租戶模板 — 第一個真實租戶試點（restate-cloudflare-workers-poc）。
+#
+# 這個模板由 agent-playground 自行制定：P0 盤點、P1 安全審查（自訂閘門）、
+# P2 補測試、P3 文件。步驟順序與閘門組合由租戶決定，工廠只保留 meta-contract。
+tenant: agent-playground
+name: review-first
+version: 1
+source: 'agent-playground pilot (restate-cloudflare-workers-poc; templates/ONBOARDING.md)'
+phases: [P0, P1, P2, P3]
+gates: [HG1, HG2, HG4, HG5, HG6, AGENT-PLAYGROUND-SECURITY]
+gate_defs:
+  - id: AGENT-PLAYGROUND-SECURITY
+    signers: [philipz]
+    scope: phase
+    evidence: adr
+steps:
+  - {id: AP1, phase: P0, action: 需求分析與相依性盤點, kind: work-item, task_type: agent-analyze, per: system}
+  - {id: AP2, phase: P1, action: 安全與風險審查, kind: human, gates: [AGENT-PLAYGROUND-SECURITY]}
+  - {id: AP3, phase: P2, action: 補測試（先失敗再修）, kind: work-item, task_type: agent-add-tests, per: module}
+  - {id: AP4, phase: P3, action: 文件更新, kind: work-item, task_type: agent-write-docs, per: module}
