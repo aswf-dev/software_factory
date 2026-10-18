@@ -78,6 +78,8 @@ describe('factory-snapshot', () => {
     expect(result.schema_version).toBe(1)
     expect(result.system).toBe('aswf-dev/payment-platform')
     expect(result.source).toEqual({ github: 'aswf-dev/payment-platform' })
+    expect(result.template).toBe('factory/M')
+    expect(result.template_version).toBe(1)
     expect(result.generated_at).toBe('2026-10-18T00:00:00Z')
 
     expect(result.graph.nodes.some((node) => node.id === 'issue:1')).toBe(true)
@@ -112,7 +114,18 @@ describe('factory-snapshot', () => {
     const result = snapshot(options, deps(fullFiles))
 
     expect(result.next).toBeNull()
+    expect(result.template).toBe('factory/M')
     expect(result.warnings.some((w) => w.includes('未提供 --process／--template'))).toBe(true)
+  })
+
+  it('without a process, the template refs are null', () => {
+    const result = snapshot(
+      parseOptions(['--repo', 'aswf-dev/payment-platform', '--issues-file', 'issues.json']),
+      deps(fullFiles),
+    )
+    expect(result.template).toBeNull()
+    expect(result.template_version).toBeNull()
+    expect(result.next).toBeNull()
   })
 
   it('warns when the module list is missing instead of inventing actions', () => {
