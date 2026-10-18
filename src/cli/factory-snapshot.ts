@@ -16,7 +16,7 @@ import { collectInputs, parseOptions, type GraphDeps, type GraphOptions } from '
 import { buildGraph, GraphDocumentSchema } from '../graph/build.js'
 import { NextActionsSchema, nextActions } from '../process/next-actions.js'
 import type { NextActionsDocument } from '../process/next-actions.js'
-import { loadTemplate, validateProcess } from '../process/spec.js'
+import { TEMPLATE_ID_PATTERN, loadTemplate, validateProcess } from '../process/spec.js'
 
 /** v1。consumer 必須拒絕不認得的版本，而不是猜測相容。 */
 export const SNAPSHOT_SCHEMA_VERSION = 1
@@ -26,6 +26,10 @@ export const FactorySnapshotSchema = z.object({
   system: z.string().min(1),
   generated_at: z.string().min(1),
   source: z.object({ github: z.string().min(1) }),
+  /** 產生這份快照的模板（`<tenant>/<name>`）；null = 未提供 process。 */
+  template: z.string().regex(TEMPLATE_ID_PATTERN).nullable(),
+  /** 釘選的模板版本；consumer 才能選對定義（ADR-025）。 */
+  template_version: z.number().int().positive().nullable(),
   graph: GraphDocumentSchema,
   /** null = 未提供 process／template（或模組清單）；原因寫在 warnings。 */
   next: NextActionsSchema.nullable(),
@@ -88,6 +92,8 @@ export function snapshot(options: GraphOptions, deps: GraphDeps): FactorySnapsho
     system: inputs.system,
     generated_at: inputs.generatedAt,
     source: { github: options.repo },
+    template: inputs.process?.template ?? null,
+    template_version: inputs.process?.template_version ?? null,
     graph,
     next,
     warnings: [...new Set(warnings)],
