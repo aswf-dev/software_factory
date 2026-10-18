@@ -43,15 +43,27 @@
 - **不可派工、不可簽核**：`HG0`（每張單由人開立）與 `ADR-022`（不自動派工下游）未被推翻。UI 可產生「待開工作項」清單，但仍由人按下送出、走既有入口——語意見 `ADR-024`。
 - 資料由本 repo 的 `factory-graph --json` 產生（本次**只定契約、不實作**），scoreboard 只負責畫，**不重寫第二份判定邏輯**。
 
-### 5. 節點層級（2026-10-18 修訂）
+### 5. 節點層級：步驟（step run），系統與模組是範圍（2026-10-18 第二次修訂）
 
-原決策寫「系統 → 模組 → 工作項」三層節點。實際落地時系統承擔的是**範圍**而非**節點**：
+第一次修訂把圖上節點定為「模組 → 工作項」。同日稍後 `processes/templates/{S,M,L}.yaml` 落地後，
+這個形狀不成立：模板是 **step-based**，S10 的 `alternatives`（Quint／Hegel／豁免）、gate 的位置、
+`per: module` 的範圍，都需要「步驟」這一層才表達得出來。只畫模組與工作項，等於把方法論的序列藏起來。
 
-- **系統 = 頁面／路由的範圍**（例：`/process/[system]`），也是 `process.yaml` 的 `system:` 欄位（對應 `catalog-info.yaml` 的 `spec.system`、`docs/29` §4.3 的多 repo 定級）。
-- **圖上的節點只有兩層：模組 → 工作項**。
-- `process.yaml` 仍必須保留 `system:`；只是它不出現在圖上。
+因此節點回到**流程步驟的一次執行**（step run）：
 
-理由：系統層在圖上沒有互動語意（不能拖、不能選、不能開單），畫出來只是多一層外框；而「一次看一個系統」本來就是導覽需求，屬於路由而非節點。
+- **節點**：`workitem`（一次派工）／`human`（人類步驟）／`gate`（HG 簽核）／`decision`（分支）。
+  同一 `task_type` 可以出現兩次（`agent-write-spec` 草案 → HG5 → 套用），所以節點需要 `step_id`，
+  不能只用 `task_type` 當 key。
+- **系統**＝頁面／路由的範圍（`/process/[system]`）與 `process.yaml` 的 `system:`；不畫成節點。
+- **模組**＝P2–P4 的範圍（UI 以 `?module=` 切換），不是步驟的替代。工作項的模組歸屬由 PRD 宣告路徑
+  比對 `factory/process.yaml` 的 `paths` glob（`moduleOfIssue`）。
+
+**工作項的步驟歸屬（provenance）**：Issue body 的第一個 `###` 之前可帶一行
+`> 流程步驟：S10`（選填、人可讀；`buildIssueBody` 支援 `processStep`）。`factory-graph` 讀它輸出
+`step_id`；沒有標示者省略並產生**一則聚合 warning**，**不以 `task_type` 猜測**——`agent-analyze`
+同時對應 S4／S5 與 M5／M6／M7，猜錯比不畫更糟。
+
+`step_id` 是 advisory：只影響呈現，不影響派工、前置判定或閘門（`ADR-024` §4）。
 
 ### 6. 模組的定義
 

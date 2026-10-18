@@ -54,6 +54,11 @@ export interface GraphNode {
   owner?: string
   spec?: string
   task_type?: string
+  /**
+   * 流程步驟的一次執行（ADR-023 §5）。來源是 Issue body 第一個 `###` 之前的
+   * `> 流程步驟：S10` 行；未標示時省略（advisory，不影響 state／gates）。
+   */
+  step_id?: string
   state?: WorkItemState
   prereqs?: number[]
   oversight?: string
@@ -97,6 +102,7 @@ export const GraphDocumentSchema = z.object({
       owner: z.string().optional(),
       spec: z.string().optional(),
       task_type: z.string().optional(),
+      step_id: z.string().min(1).optional(),
       state: z.enum(['open', 'closed', 'waiting-prereq', 'needs-human']).optional(),
       prereqs: z.array(z.number()).optional(),
       oversight: z.string().optional(),
@@ -124,6 +130,27 @@ export const GraphDocumentSchema = z.object({
 })
 
 const OVERSIGHT_LABELS = ['oversight/on-loop', 'oversight/review', 'oversight/in-loop'] as const
+
+/** 可作為 step id 的字元：英數、連字號、底線（S10、L12a、quint-verification）。 */
+const STEP_ID = /^[A-Za-z][A-Za-z0-9_-]*$/
+
+/**
+ * 讀 Issue body 的流程步驟 provenance（ADR-023 §5）。
+ *
+ * 只認**第一個 `###` 之前**的 blockquote 行，格式 `> 流程步驟：S10`（全形或半形冒號）：
+ *   - 放在前置區是刻意的——`extractField` 從 `###` 開始讀，這行不會污染任何欄位；
+ *   - 也避免 PRD 內文剛好提到「流程步驟」時被誤認。
+ *
+ * 沒有標示或格式不合時回 `undefined`：**不以 task_type 猜測**，因為同一個 task_type
+ * 可能對應多個步驟（agent-analyze → S4／S5、M5／M6／M7）。
+ */
+export function parseStepId(body: string): string | undefined {
+  const firstHeading = body.search(/^###\s/m)
+  const prefix = firstHeading === -1 ? body : body.slice(0, firstHeading)
+  const match = prefix.match(/^\s*>\s*流程步驟\s*[：:]\s*([^\s]+)\s*$/m)
+  const id = match?.[1]
+  return id !== undefined && STEP_ID.test(id) ? id : undefined
+}
 
 /** 工作項歸屬的模組：以 PRD 宣告路徑比對模組的 glob，第一個命中者勝。 */
 export function moduleOfIssue(issue: IssueInput, modules: readonly ModuleEntry[]): ModuleEntry | undefined {
@@ -175,6 +202,7 @@ export function buildGraph(input: BuildInput): GraphDocument {
 
   const nodes: GraphNode[] = []
   const edges: GraphEdge[] = []
+  let unlabeledStepCount = 0
 
   const systemNode: GraphNode = { id: input.system, kind: 'system', label: input.system }
   if (input.process !== undefined) {
@@ -213,6 +241,9 @@ export function buildGraph(input: BuildInput): GraphDocument {
       needs_human: issue.labels.includes(NEEDS_HUMAN_LABEL),
     }
     if (taskType !== undefined) node.task_type = taskType
+    const stepId = parseStepId(issue.body)
+    if (stepId !== undefined) node.step_id = stepId
+    else unlabeledStepCount += 1
     const oversight = oversightOf(issue.labels)
     if (oversight !== undefined) node.oversight = oversight.slice('oversight/'.length)
     nodes.push(node)
@@ -222,6 +253,12 @@ export function buildGraph(input: BuildInput): GraphDocument {
     for (const prereq of prereqs) {
       if (issuesByNumber.has(prereq)) edges.push({ from: `issue:${prereq}`, to: node.id, kind: 'prerequisite' })
     }
+  }
+
+  if (unlabeledStepCount > 0) {
+    warnings.push(
+      `${unlabeledStepCount} 張工單未標示流程步驟（\`> 流程步驟：S10\`），無法掛到步驟`,
+    )
   }
 
   const gates = input.gates ?? []

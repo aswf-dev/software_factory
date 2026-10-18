@@ -36,7 +36,8 @@
       "task_type": "agent-add-tests",
       "state": "closed",
       "prereqs": [],
-      "needs_human": false
+      "needs_human": false,
+      "step_id": "M10"
     },
     {
       "id": "issue:412",
@@ -48,7 +49,8 @@
         408
       ],
       "oversight": "review",
-      "needs_human": false
+      "needs_human": false,
+      "step_id": "M11"
     },
     {
       "id": "issue:415",
@@ -58,7 +60,8 @@
       "state": "needs-human",
       "prereqs": [],
       "oversight": "review",
-      "needs_human": true
+      "needs_human": true,
+      "step_id": "M12"
     }
   ],
   "edges": [

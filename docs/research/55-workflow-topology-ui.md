@@ -326,30 +326,33 @@ modules:
 {
   "system": "aswf-dev/payment-platform",
   "generated_at": "2026-10-18T09:00:00+08:00",
-  "source": { "github": "aswf-dev/payment-platform", "rev": "<sha>", "dirty": false },
+  "source": { "github": "aswf-dev/payment-platform", "rev": null },
   "nodes": [
-    { "id": "payment-platform", "kind": "system", "label": "payment-platform",
+    { "id": "aswf-dev/payment-platform", "kind": "system", "label": "aswf-dev/payment-platform",
       "scale": "M", "phase": "P2" },
-    { "id": "payment-platform/billing", "kind": "module", "label": "billing",
-      "readiness": "R1", "owner": "payment-team",
-      "axes": { "business": 1, "risk": 2, "complexity": 1, "tier": "review" },
-      "core": false },
-    { "id": "issue:412", "kind": "workitem", "label": "#412 add-tests",
-      "task_type": "agent-add-tests", "state": "waiting-prereq",
-      "prereqs": ["issue:408"], "oversight": "review", "needs_human": false }
+    { "id": "aswf-dev/payment-platform/billing", "kind": "module", "label": "billing",
+      "readiness": "R1", "owner": "payment-team", "spec": "docs/business-rules/billing.md" },
+    { "id": "issue:412", "kind": "workitem", "label": "#412 修復結算批次漏單",
+      "task_type": "agent-fix-bug", "step_id": "M11", "state": "waiting-prereq",
+      "prereqs": [408], "oversight": "review", "needs_human": false }
   ],
   "edges": [
-    { "from": "payment-platform", "to": "payment-platform/billing", "kind": "contains" },
+    { "from": "aswf-dev/payment-platform", "to": "aswf-dev/payment-platform/billing", "kind": "contains" },
     { "from": "issue:408", "to": "issue:412", "kind": "prerequisite" }
   ],
   "gates": [
-    { "id": "HG2", "scope": "payment-platform/billing", "state": "signed",
-      "signed_by": "tech-lead", "evidence": "issue:391#comment-2" },
-    { "id": "HG5", "scope": "payment-platform/billing", "state": "missing" }
+    { "id": "HG2", "scope": "system", "state": "signed",
+      "signed_by": "tech-lead", "signed_at": "2026-10-18T01:20:00Z",
+      "evidence": "https://github.com/…/issues/391#issuecomment-1" },
+    { "id": "HG5", "scope": "aswf-dev/payment-platform/settlement", "state": "missing" }
   ],
-  "warnings": ["readiness 缺 evidence", "module settlement 無 spec 文件"]
+  "warnings": ["3 張工單未標示流程步驟（`> 流程步驟：S10`），無法掛到步驟"]
 }
 ```
+
+**步驟歸屬（`step_id`，`ADR-023` §5）**：workitem node 的 `step_id` 來自 Issue body 第一個 `###` 之前的
+`> 流程步驟：M11` 行。沒有標示時**省略欄位**並產生一則聚合 warning；上游**不以 `task_type` 猜測**
+（`agent-analyze` 對應多個步驟）。`step_id` 是 advisory，只影響呈現，不影響派工或閘門。
 
 不變量（實作時必須遵守）：未知欄位一律忽略；`state:"missing"` 的 gate 才畫鎖；`warnings` 不得變成閘門（advisory only，比照 OpenRig 的 `proof` 與 `artifact-pool-ready` 的教訓）。
 

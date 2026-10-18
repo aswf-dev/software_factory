@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkIssue, DOD_LABELS, extractField } from '../cli/factory-issue-check.js'
 import { buildIssueBody, buildIssueTitle } from './issue-body.js'
+import { parseStepId } from '../graph/build.js'
 
 const INPUT = {
   taskType: 'agent-add-tests',
@@ -91,5 +92,24 @@ describe('buildIssueBody：agent-pbt-audit（ADR-019 R3，沒有專屬欄位）'
     const r = checkIssue(body)
     expect(r.ok).toBe(true)
     expect(r.pbtAudit).toMatchObject({ target: 'src/options/TickSizeCalculator.ts', language: 'typescript', errors: [] })
+  })
+})
+
+describe('流程步驟 provenance（ADR-023 §5）', () => {
+  it('processStep 寫在第一個 ### 之前，且 parseStepId 可讀回', () => {
+    const body = buildIssueBody({ ...INPUT, processStep: 'S10' })
+    const firstHeading = body.indexOf('###')
+    expect(body.slice(0, firstHeading)).toContain('> 流程步驟：S10')
+    expect(parseStepId(body)).toBe('S10')
+  })
+
+  it('帶 processStep 仍通過 factory-issue-check（前置行不影響欄位解析）', () => {
+    const body = buildIssueBody({ ...INPUT, processStep: 'M12' })
+    expect(checkIssue(body).ok).toBe(true)
+    expect(extractField(body, 'task_type')).toBe(INPUT.taskType)
+  })
+
+  it('未帶 processStep 時不輸出該行', () => {
+    expect(buildIssueBody(INPUT)).not.toContain('流程步驟')
   })
 })
