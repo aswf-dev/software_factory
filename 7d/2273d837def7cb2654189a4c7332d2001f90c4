@@ -1,0 +1,26 @@
+.github/workflows/factory-snapshot.yml
+  h_1b119f25eaf333 60-73,76-77,80-87,102
+processes/samples/README.md
+  h_1b119f25eaf333 11-14
+processes/samples/example-portal.comments.json
+  h_1b119f25eaf333 1-16
+processes/samples/example-portal.issues.json
+  h_1b119f25eaf333 1-23
+processes/samples/example-portal.modules.yaml
+  h_1b119f25eaf333 1-13
+processes/samples/example-portal.yaml
+  h_1b119f25eaf333 1-11
+templates/ONBOARDING.md
+  h_1b119f25eaf333 103-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7d2273d837def7cb2654189a4c7332d2001f90c4",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
