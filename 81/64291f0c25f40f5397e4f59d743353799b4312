@@ -1,0 +1,22 @@
+src/cli/factory-template.test.ts
+  h_1b119f25eaf333 16-25,32
+src/process/registry.test.ts
+  h_1b119f25eaf333 12,78-86
+src/process/registry.ts
+  h_1b119f25eaf333 10,25-29,81-90,122-124
+templates/README.md
+  h_1b119f25eaf333 7
+templates/index.json
+  h_1b119f25eaf333 10-183,191-402,410-692
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8164291f0c25f40f5397e4f59d743353799b4312",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
