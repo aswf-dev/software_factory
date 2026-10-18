@@ -54,6 +54,7 @@
 | [ADR-022](022-sequential-stages.md) | 依序模式——以「前置工作項」串接工作項：派工時以即時狀態檢查前置、未完成即停派；完成時刪落選分支並通知下游（aswf.dev webhook 轉送） | 已接受 | `ADR-021`、`ADR-018` §12、`docs/24` §2.1、`docs/32` §4 |
 | [ADR-023](023-workflow-process-spec-and-topology-ui.md) | 流程以 `process.yaml` 描述（系統級＋模組級）、拓撲 UI 採 React Flow；OpenRig 僅作參考實作，其 agent 團隊方法論不採用 | 已接受（2026-10-18 兩次修訂：節點＝流程步驟一次執行；工作項以 `step_id` 掛載） | `research/55-workflow-topology-ui`、`29` §6／§8、`31` §2、`ADR-001`、`ADR-010`、`ADR-022`、`10` `Q-ORCH-1/2` |
 | [ADR-024](024-process-execution-semantics.md) | 流程的「執行」語意——UI 產生待開工作項清單，人按下送出；走既有入口，不新增派工路徑 | 已接受 | `ADR-023`、`ADR-022`、`29` §1.1／§8、`31` §1、`docs/24` §2.1、`10` `Q-ORCH-3` |
+| [ADR-025](025-tenant-process-templates.md) | 多租戶公司流程模板——工廠固定 meta-contract，租戶擁有自己的模板（版本化、釘版本）；自訂 gate 以 `<TENANT>-<NAME>` 命名；`scale` 與模板脫鉤；S/M/L 降為 preset | 已接受 | `ADR-023`、`ADR-024`、`29` §6／§8／§9、`10` `Q-ORCH-4/5` |
 
 ## 何時該寫新的 ADR
 
