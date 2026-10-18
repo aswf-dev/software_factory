@@ -1,0 +1,20 @@
+docs/10-open-questions.md
+  h_1b119f25eaf333 40-41
+docs/ADR/023-workflow-process-spec-and-topology-ui.md
+  h_1b119f25eaf333 3,33
+docs/ADR/025-tenant-process-templates.md
+  h_1b119f25eaf333 1-122
+docs/ADR/README.md
+  h_1b119f25eaf333 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "872b1a4c03075609d404b6a43222a1c5a404fce1",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
