@@ -1,0 +1,27 @@
+templates/README.md
+  h_1b119f25eaf333 5-15
+src/process/registry.ts
+  h_1b119f25eaf333 1-114
+src/process/registry.test.ts
+  h_1b119f25eaf333 1-117
+src/cli/factory-template.ts
+  h_1b119f25eaf333 1-157
+templates/index.json
+  h_1b119f25eaf333 1-29
+src/cli/factory-template.test.ts
+  h_1b119f25eaf333 1-64,66-121
+  h_1b119f25eaf333 65
+docs/ADR/025-tenant-process-templates.md
+  h_1b119f25eaf333 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a8f480eb34f19874f66dfc67f85847ed667a59f7",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
