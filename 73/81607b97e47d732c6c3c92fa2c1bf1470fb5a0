@@ -1,0 +1,22 @@
+processes/agent-playground/restate-cloudflare-workers-poc.yaml
+  h_1b119f25eaf333 1-11
+src/process/systems.test.ts
+  h_1b119f25eaf333 1-28
+templates/README.md
+  h_1b119f25eaf333 24
+templates/agent-playground/review-first.yaml
+  h_1b119f25eaf333 1-20
+templates/index.json
+  h_1b119f25eaf333 766-838
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7381607b97e47d732c6c3c92fa2c1bf1470fb5a0",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
