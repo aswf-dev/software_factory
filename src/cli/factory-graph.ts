@@ -73,6 +73,10 @@ export interface GraphOptions {
   modulesPath?: string | undefined
   /** `processes/templates/<S|M|L>.yaml`; used by factory-snapshot. */
   templatePath?: string | undefined
+  /** Offline mode: read the `gh issue list` JSON from a file instead of calling gh. */
+  issuesPath?: string | undefined
+  /** Offline mode: read the `gh api …/comments` JSON pages from a file instead of calling gh. */
+  commentsPath?: string | undefined
   trackingIssue?: number | undefined
   limit: number
   generatedAt?: string | undefined
@@ -118,6 +122,10 @@ export function parseOptions(argv: readonly string[]): GraphOptions {
   if (modulesPath !== undefined) options.modulesPath = modulesPath
   const templatePath = values.get('template')
   if (templatePath !== undefined) options.templatePath = templatePath
+  const issuesPath = values.get('issues-file')
+  if (issuesPath !== undefined) options.issuesPath = issuesPath
+  const commentsPath = values.get('comments-file')
+  if (commentsPath !== undefined) options.commentsPath = commentsPath
   if (trackingIssue !== undefined) options.trackingIssue = trackingIssue
   const generatedAt = values.get('generated-at')
   if (generatedAt !== undefined) options.generatedAt = generatedAt
@@ -155,19 +163,23 @@ function loadOrThrow<T extends { ok: boolean; errors: string[] }>(result: T, wha
  * `factory-next`；重複一份 gh 呼叫程式碼會讓兩支 CLI 的資料來源分岔。
  */
 export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInputs {
+  // `--issues-file`／`--comments-file` 是離線模式：CI 對合成系統（沒有真的 repo）
+  // 也能產生快照，測試也不必mock gh。資料格式與 gh 的輸出相同。
   const issues = parseIssues(
-    deps.gh([
-      'issue',
-      'list',
-      '--repo',
-      options.repo,
-      '--state',
-      'all',
-      '--limit',
-      String(options.limit),
-      '--json',
-      'number,title,body,labels,state',
-    ]),
+    options.issuesPath !== undefined
+      ? deps.readFile(options.issuesPath)
+      : deps.gh([
+          'issue',
+          'list',
+          '--repo',
+          options.repo,
+          '--state',
+          'all',
+          '--limit',
+          String(options.limit),
+          '--json',
+          'number,title,body,labels,state',
+        ]),
   )
 
   const process =
@@ -185,12 +197,14 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
       ? undefined
       : gateReport(
           parseComments(
-            deps.gh([
-              'api',
-              '--paginate',
-              '--slurp',
-              `repos/${options.repo}/issues/${options.trackingIssue}/comments`,
-            ]),
+            options.commentsPath !== undefined
+              ? deps.readFile(options.commentsPath)
+              : deps.gh([
+                  'api',
+                  '--paginate',
+                  '--slurp',
+                  `repos/${options.repo}/issues/${options.trackingIssue}/comments`,
+                ]),
           ),
         ).gates
 
