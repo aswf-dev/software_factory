@@ -1,5 +1,7 @@
 # Process templates
 
+新增租戶模板的完整步驟（含 `gate_defs`、目錄、驗證、系統採用）見 [ONBOARDING.md](ONBOARDING.md)。
+
 `templates/<tenant>/<name>.yaml`，由 `src/process/spec.ts` 驗證；決策見 `docs/ADR/025-tenant-process-templates.md`。
 
 ## 目錄（`templates/index.json`）
