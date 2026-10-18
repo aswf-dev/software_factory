@@ -1,6 +1,6 @@
 # ADR-023：流程以 `process.yaml` 描述，拓撲 UI 採 React Flow（OpenRig 僅作參考實作）
 
-- **狀態**：已接受（2026-10-18 修訂：節點層級；「執行」語意見 `ADR-024`）
+- **狀態**：已接受（2026-10-18 修訂：節點層級；「執行」語意見 `ADR-024`；租戶模板見 `ADR-025`）
 - **日期**：2026-10-18
 - **決定者**：平台架構（使用者經 grilling 逐題裁決，Q1–Q35）
 - **對應**：`docs/research/55-workflow-topology-ui.md`（證據與詳細比較）、`ADR-001`（GitHub 唯一真相）、`ADR-010`（多 agent 團隊工具延後）、`ADR-015`（Scoreboard 平台）、`ADR-022`（前置工作項）、`docs/24` §2.1、`docs/29` §6／§8／§10、`docs/31` §2／§3、`ADR-024`（執行語意）、`docs/10`（`Q-ORCH-1/2`）
@@ -30,6 +30,7 @@
 - 真相仍是 GitHub（`ADR-001`）；判定邏輯仍留在 `src/cli`（三軸計分、H1–H7、`factory-stage prereqs`、`spec/approved`、`stage/done`）。
 - **`scale` 與 `readiness` 只能由人填並附 evidence，UI 與 CI 不得推導**——守住 `docs/29` Q29-4 尚未裁決的邊界。
 - `docs/29` 定義「有哪些可能的階段與閘門」（方法論），`process.yaml` 定義「這個系統採用哪些」（實例）；`process.yaml` 只能是 `docs/29` 集合的子集，且**可加不可刪、不可重排**。
+  - **2026-10-18 修訂**：上述「不可重排」只適用於**工廠 preset（`factory/S|M|L`）**。租戶可有自己的模板（`ADR-025`），在 meta-contract 內自由排序；工廠仍保留 HG0–HG7 與 task_type 白名單。
 
 ### 3. 拓撲 UI 採 React Flow（`@xyflow/react`，MIT），落點在 Scoreboard
 
