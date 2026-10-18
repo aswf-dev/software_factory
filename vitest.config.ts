@@ -102,6 +102,15 @@ export default defineConfig({
           branches: 100,
           statements: 100,
         },
+        // The process validator decides whether a system's process.yaml may drop
+        // a required step or reorder phases; an untested branch here would let a
+        // governance change through without a test (ADR-023 §2).
+        'src/process/**/*.ts': {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
         // write-spec decides whether a spec work item may be dispatched at all
         // (high-risk gate, spec source) and, later, which phase it runs
         // (docs/ADR/018); an untested branch is an unverified permission path.
