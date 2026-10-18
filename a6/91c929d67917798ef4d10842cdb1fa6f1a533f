@@ -1,0 +1,28 @@
+docs/research/55-workflow-topology-ui.md
+  h_1b119f25eaf333 246-249
+processes/templates/L.yaml
+  h_1b119f25eaf333 1-167
+processes/templates/M.yaml
+  h_1b119f25eaf333 1-124
+processes/templates/S.yaml
+  h_1b119f25eaf333 1-105
+src/process/spec.test.ts
+  h_1b119f25eaf333 1-260
+src/process/spec.ts
+  h_1b119f25eaf333 1-208
+src/process/templates.test.ts
+  h_1b119f25eaf333 1-96
+vitest.config.ts
+  h_1b119f25eaf333 105-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a691c929d67917798ef4d10842cdb1fa6f1a533f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
