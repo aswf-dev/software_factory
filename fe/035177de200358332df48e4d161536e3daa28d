@@ -1,0 +1,26 @@
+docs/research/55-workflow-topology-ui.md
+  h_1b119f25eaf333 322
+docs/research/fixtures/factory-graph.sample.json
+  h_1b119f25eaf333 116
+src/cli/factory-graph.test.ts
+  h_1b119f25eaf333 2,45,179-181,197-208,263-309
+src/cli/factory-graph.ts
+  h_1b119f25eaf333 22,58-66,71,90-91,141-142,168-186,244-264,268
+src/cli/factory-snapshot.test.ts
+  h_1b119f25eaf333 52,66-67,109-110,126-127,136-146,163-164,171,174
+src/graph/build.test.ts
+  h_1b119f25eaf333 2,153,159,257-316
+src/graph/build.ts
+  h_1b119f25eaf333 33-41,45-46,175-197,201,203-211,214,216,233-237,245-246,274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fe035177de200358332df48e4d161536e3daa28d",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
