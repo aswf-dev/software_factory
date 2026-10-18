@@ -68,7 +68,7 @@
 - `factory-graph`／`factory-next` 已經以 `Template` 為輸入，**判定邏輯不動**；只換 loader（依 id＋version 載入）。
 - `factory-snapshot` 需帶 `template` 與 `template_version`，consumer 才能選對定義。
 - Scoreboard：定義層改讀模板 registry（S/M/L 只是其中三份）；流程目錄同時列出 preset 與租戶模板。
-- **多租戶資料隔離不在本 ADR**：誰能看到哪個租戶的快照由 Access policy 決定，缺口記為 `Q-ORCH-5`。
+- **多租戶資料隔離**：`Q-ORCH-5` 裁決（2026-10-18，b）＝同一平台、依租戶分 Access policy。實作在 Scoreboard：`TENANT_ACCESS`（email／網域）套用於 live 快照與租戶模板定義頁；租戶由模板 id 前綴或 repo owner 推導；政策為空＝過渡期不啟用。跨租戶 phase 映射仍為獨立待決。
 
 ## 後果
 
