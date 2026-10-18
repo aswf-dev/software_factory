@@ -52,6 +52,7 @@
 | [ADR-020](020-sase-adoption.md) | SASE 方法論的採用範圍與不採用理由（ACE／AEE／LoopScript／CRP 不採用；BriefingScript 增量另開工項） | 已接受（N-version 一列由 ADR-021 取代） | `research/sase-adoption-analysis-2026-10-09`、`10` Q20-SASE-1～3 |
 | [ADR-021](021-nversion-parallel-pattern.md) | N-version 平行執行——追認與修正（可選開關、`compare` 為唯一終態寫入者、G1／G2 認終態標記、draft PR 由人選勝者）；附代理設計模式採用邊界 | 已接受 | `ADR-020`、`ADR-010`、`docs/24`、`docs/18`、`docs/26` §3 |
 | [ADR-022](022-sequential-stages.md) | 依序模式——以「前置工作項」串接工作項：派工時以即時狀態檢查前置、未完成即停派；完成時刪落選分支並通知下游（aswf.dev webhook 轉送） | 已接受 | `ADR-021`、`ADR-018` §12、`docs/24` §2.1、`docs/32` §4 |
+| [ADR-023](023-workflow-process-spec-and-topology-ui.md) | 流程以 `process.yaml` 描述（系統級＋模組級）、拓撲 UI 採 React Flow；OpenRig 僅作參考實作，其 agent 團隊方法論不採用 | 已接受 | `research/55-workflow-topology-ui`、`29` §6／§8、`31` §2、`ADR-001`、`ADR-010`、`ADR-022`、`10` `Q-ORCH-1/2` |
 
 ## 何時該寫新的 ADR
 
