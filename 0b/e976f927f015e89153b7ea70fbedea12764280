@@ -1,0 +1,14 @@
+processes/agent-playground/restate-cloudflare-workers-poc.yaml
+  h_1b119f25eaf333 12-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0be976f927f015e89153b7ea70fbedea12764280",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
