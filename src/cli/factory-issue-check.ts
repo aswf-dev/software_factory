@@ -296,6 +296,18 @@ export function buildRequirementAnchorLines(anchors: RequirementAnchor[]): strin
  * dispatch 決定權；真正的強制判定留給 factory-rescore 的 changedPaths。
  */
 
+/**
+ * 行內多路徑偵測（advisory）：`目標模組 / 檔案：src/a.ts、docs/b.md` 這種寫法會被
+ * `extractDeclaredPaths` 當成**一整個字串**，模組歸屬（`moduleOfIssue`）就匹配不到任何
+ * glob → 工單在圖上 unplaced。回傳含分隔符的宣告字串，讓檢查器在開單當下提示。
+ *
+ * 清單形式（`- src/a.ts` 逐行）不算多路徑：那是合法寫法，extractDeclaredPaths 會展開。
+ */
+export function findMultiPathTargets(body: string): string[] {
+  const SEPARATORS = /[、，,;；]|\s{2,}/
+  return extractDeclaredPaths(body).filter((declared) => SEPARATORS.test(declared))
+}
+
 /** risk-paths.yml 的 hard_rules 結構（rule id → glob 陣列）。 */
 export type HardRulePatterns = Readonly<Record<string, readonly string[]>>
 
@@ -579,6 +591,11 @@ export interface CheckResult {
   pbtOutsideAudit?: string[] | undefined
   /** 規劃健檢（advisory；docs/32）：前置宣告審查與順序建議。不影響 ok。 */
   planning: PlanningReview
+  /**
+   * 「目標模組 / 檔案」行內含多個路徑（advisory）：模組歸屬只會變成 unplaced，
+   * 請改成單一路徑或 bullet 清單。不影響 ok。
+   */
+  targetMultiPath: string[]
 }
 
 /** 留言中的建議模型（由 model-tier resolve 產出，供人確認，非實際路由的承諾）。 */
@@ -656,6 +673,7 @@ export function checkIssue(
   const pbtOutsideAudit =
     taskType === PBT_AUDIT_TASK_TYPE ? undefined : findPbtEditRequests(extractField(body, 'requirement') ?? '')
   return {
+    targetMultiPath: findMultiPathTargets(body),
     ok:
       missing.length === 0 &&
       (spec?.errors.length ?? 0) === 0 &&
@@ -718,6 +736,14 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
           '（以該 property 為驗收條件，docs/30 §7）。',
       )
     }
+  }
+  if (r.targetMultiPath.length > 0) {
+    lines.push(
+      '💡 **目標路徑提示**（advisory）：「目標模組 / 檔案」同一行含多個路徑：' +
+        r.targetMultiPath.map((p) => `\`${p}\``).join('、') +
+        '。模組歸屬以整段字串比對模組 glob，這種寫法會讓工單在流程圖上 unplaced；' +
+        '請改成單一路徑，或改用逐行 `- 路徑` 清單。',
+    )
   }
   if (r.ok && r.pbtAudit !== undefined) {
     const lang = r.pbtAudit.language === undefined ? '語言待 dispatch 時判定' : `語言 \`${r.pbtAudit.language}\``
