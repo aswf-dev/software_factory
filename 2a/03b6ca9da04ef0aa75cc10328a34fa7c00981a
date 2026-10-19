@@ -1,0 +1,20 @@
+docs/10-open-questions.md
+  h_1b119f25eaf333 37
+"docs/research/Zachman Framework for AI HITL.md"
+  h_1b119f25eaf333 1-122
+src/process/next-actions.test.ts
+  h_1b119f25eaf333 496-590
+src/process/next-actions.ts
+  h_1b119f25eaf333 190-252,278-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2a03b6ca9da04ef0aa75cc10328a34fa7c00981a",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
