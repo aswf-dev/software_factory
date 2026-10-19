@@ -493,3 +493,98 @@ describe('provenance 優先的完成判定（step_id）', () => {
     expect(doc.actions.some((action) => action.kind === 'work-item' && action.template_step === 'S8')).toBe(true)
   })
 })
+
+describe('Q-ORCH-1 A+：跳步警示（advisory）', () => {
+  it('開立較後面步驟的工單、且前面步驟未完成 → 警示', () => {
+    // 模板：S4（系統層）→ S8（模組）→ S9（條件式）→ S10（模組）。
+    // 直接對 S10 開一張進行中的工單，S8（S10 的必要前置）還沒完成。
+    const skip = issue(77, 'agent-write-spec', 'src/billing/a.ts', [], 'OPEN', 'S10')
+    const doc = nextActions(input({ issues: [skip] }))
+    const drift = doc.warnings.filter((warning) => warning.includes('跳步'))
+    expect(drift).toHaveLength(1)
+    expect(drift[0]).toContain('工單 #77（S10）')
+    expect(drift[0]).toContain('跳過了目前建議的 S8')
+    expect(drift[0]).toContain('不擋派工')
+  })
+
+  it('沒有跳步（依序完成）→ 不警示', () => {
+    const doc = nextActions(
+      input({
+        issues: [
+          issue(1, 'agent-analyze'),
+          issue(2, 'agent-add-tests', 'src/billing/a.ts', [STAGE_DONE_LABEL]),
+        ],
+      }),
+    )
+    expect(doc.warnings.filter((warning) => warning.includes('跳步'))).toEqual([])
+  })
+
+  it('警示不改變建議內容（advisory）', () => {
+    const skip = issue(77, 'agent-write-spec', 'src/billing/a.ts', [], 'OPEN', 'S10')
+    const withDrift = nextActions(input({ issues: [skip] }))
+    const baseline = nextActions(input())
+    // 建議的「動作」集合不因跳步警示而改變。
+    expect(withDrift.actions.map((action) => action.template_step)).toEqual(
+      baseline.actions.map((action) => action.template_step),
+    )
+  })
+})
+
+describe('Q-ORCH-1 A+：跳步警示的邊界', () => {
+  const auth: ModuleEntry = { id: 'auth', paths: ['src/auth/**'] }
+
+  it('沒有 step_id 的工單不列入跳步判定', () => {
+    const doc = nextActions(input({ issues: [issue(88, 'agent-add-tests')] }))
+    expect(doc.warnings.filter((warning) => warning.includes('跳步'))).toEqual([])
+  })
+
+  it('未知的 step_id 不誤報', () => {
+    const doc = nextActions(input({ issues: [issue(89, 'agent-write-docs', 'src/billing/a.ts', [], 'OPEN', 'X9')] }))
+    expect(doc.warnings.filter((warning) => warning.includes('跳步'))).toEqual([])
+  })
+
+  it('同一跳步步驟的多張工單只警示一次', () => {
+    const doc = nextActions(
+      input({
+        issues: [
+          issue(90, 'agent-write-spec', 'src/billing/a.ts', [], 'OPEN', 'S10'),
+          issue(91, 'agent-write-spec', 'src/billing/a.ts', [], 'OPEN', 'S10'),
+        ],
+      }),
+    )
+    const drift = doc.warnings.filter((warning) => warning.includes('跳步'))
+    expect(drift).toHaveLength(1)
+    expect(drift[0]).toContain('工單 #90')
+  })
+
+  it('只警示該 scope 的工單（模組 B 的跳步不會出現在模組 A）', () => {
+    const doc = nextActions(
+      input({
+        modules: [billing, auth],
+        issues: [
+          issue(92, 'agent-analyze'),
+          issue(93, 'agent-write-spec', 'src/auth/x.ts', [], 'OPEN', 'S10'),
+        ],
+      }),
+    )
+    const drift = doc.warnings.filter((warning) => warning.includes('跳步'))
+    expect(drift).toHaveLength(1)
+    expect(drift[0]).toContain('/auth：')
+  })
+
+  it('系統層步驟的跳步也會警示', () => {
+    const gatedSystem = TemplateSchema.parse({
+      ...template,
+      steps: [
+        { id: 'S4', phase: 'P0', action: '分析', kind: 'work-item', task_type: 'agent-analyze', per: 'system' },
+        { id: 'S5', phase: 'P0', action: '規格', kind: 'work-item', task_type: 'agent-write-spec', per: 'system' },
+        ...template.steps.filter((step) => !isSystemStep(step)),
+      ],
+    })
+    const doc = nextActions(
+      input({ template: gatedSystem, issues: [issue(94, 'agent-write-spec', 'src/billing/a.ts', [], 'OPEN', 'S5')] }),
+    )
+    const drift = doc.warnings.filter((warning) => warning.includes('跳步'))
+    expect(drift[0]).toContain('a/b：工單 #94（S5）跳過了目前建議的 S4')
+  })
+})

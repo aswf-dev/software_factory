@@ -188,6 +188,69 @@ function gateSigned(
 }
 
 /**
+ * Q-ORCH-1 的 A+ 選項：**跳步警示**（advisory，不擋派工）。
+ *
+ * `process.yaml` 維持「描述」而非「可否決派工的依據」（ADR-023 v1 §4）。但模板順序仍
+ * 有價值：若有人開了一張屬於**較後面步驟**的工單，而同一 scope 的前面步驟還沒完成，
+ * 清單會提示「可能跳步」——只提示，不改任何判定，也不阻止 dispatch。
+ */
+export function stepOrderDrift(input: NextActionsInput): string[] {
+  const warnings: string[] = []
+  const steps = [...input.template.steps, ...(input.process.extra_steps ?? [])]
+  const completion: CompletionOptions = { requireStepId: usesStepProvenance(input.issues) }
+  const indexOfStep = new Map(steps.map((step, index) => [step.id, index]))
+  const openWithStep = input.issues.filter(
+    (issue) => !isIssueDone(issue) && parseStepId(issue.body) !== undefined,
+  )
+
+  const report = (scope: string, pendingStep: Step, pool: readonly Step[], scopedIssues: readonly IssueInput[]): void => {
+    // pendingStep 來自 steps，index 必存在（`indexOf` 回 -1 的機率為零，且不必分支）。
+    const limit = steps.indexOf(pendingStep)
+    const seen = new Set<string>()
+    for (const issue of openWithStep) {
+      const stepId = parseStepId(issue.body)
+      if (stepId === undefined || seen.has(stepId)) continue
+      const index = indexOfStep.get(stepId)
+      if (index === undefined || index <= limit) continue
+      const step = pool.find((candidate) => candidate.id === stepId)
+      if (step === undefined) continue
+      // 只回報「屬於這個 scope」的工單：模組層看 moduleOfIssue，系統層看系統步驟。
+      if (!scopedIssues.includes(issue)) continue
+      seen.add(stepId)
+      warnings.push(
+        `${scope}：工單 #${issue.number}（${stepId}）跳過了目前建議的 ${pendingStep.id}` +
+          `——模板順序未完成，可能跳步（advisory，不擋派工）`,
+      )
+    }
+  }
+
+  const systemSteps = steps.filter(isSystemStep)
+  const firstUnfinishedSystem = systemSteps.find(
+    (step) =>
+      step.required !== false &&
+      step.conditional !== true &&
+      !isStepDone(step, input.issues, input.gates, completion),
+  )
+  if (firstUnfinishedSystem !== undefined) {
+    report(input.system, firstUnfinishedSystem, systemSteps, input.issues)
+  }
+
+  const moduleSteps = steps.filter((step) => !isSystemStep(step))
+  for (const module of input.modules) {
+    const scope = `${input.system}/${module.id}`
+    const moduleIssues = input.issues.filter((issue) => moduleOfIssue(issue, [module]) !== undefined)
+    const firstUnfinished = moduleSteps.find(
+      (step) =>
+        step.required !== false &&
+        step.conditional !== true &&
+        !isStepDone(step, moduleIssues, input.gates, completion),
+    )
+    if (firstUnfinished !== undefined) report(scope, firstUnfinished, moduleSteps, moduleIssues)
+  }
+  return warnings
+}
+
+/**
  * 產生待開工作項清單。
  *
  * 排序：先依模組輸入順序，再依模板步驟順序——輸出穩定，diff 可讀。
@@ -211,6 +274,9 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
       `系統層步驟尚未完成：${unfinishedSystem.map((step) => step.id).join('、')}——以下模組建議可能過早`,
     )
   }
+
+  // Q-ORCH-1 A+：跳步警示（advisory）。放在建議之前，讓讀者先看到順序問題。
+  warnings.push(...stepOrderDrift(input))
 
   // 系統層建議：依模板順序，最多一筆（work-item → 開單；human 且有未簽閘門 → 簽核）。
   // 模組建議不受它阻塞——P2–P4 仍各自推進（docs/29 §6）。
