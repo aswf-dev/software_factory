@@ -13,10 +13,14 @@
  *
  * 系統層步驟（`per: system|repo`）不產生建議，只在未完成時給 warning：P2–P4 是逐模組推進，
  * 用一個全域指標序列化它們會與 docs/29 §6 的「模組各自推進」衝突。
+ *
+ * 完成／進行中判定（2026-10-19）：一旦 repo 有任何工單帶 `step_id`（ADR-023 §5 provenance），
+ * 就以 `step_id` 為準，不再用 task_type 跨步驟比對——否則舊的同類型工單會讓新模板的步驟
+ * 「假完成」。完全沒有 provenance 的舊 repo 仍維持 task_type fallback（遷移期相容）。
  */
 import { z } from 'zod'
 import { extractField } from '../cli/factory-issue-check.js'
-import { moduleOfIssue } from '../graph/build.js'
+import { moduleOfIssue, parseStepId } from '../graph/build.js'
 import type { IssueInput } from '../graph/build.js'
 import type { GateStatus } from '../hg/parse.js'
 import type { ModuleEntry, ProcessSpec, Step, Template } from './spec.js'
@@ -109,18 +113,33 @@ export function taskTypesOf(step: Step): string[] {
   return types
 }
 
-/** 完成＝有同任務類型、且已關閉或貼了 `stage/done` 的工作項。 */
+/** 這批工單是否已帶 step provenance（任一工單有 `step_id` 即視為 repo 已遷移）。 */
+export function usesStepProvenance(issues: readonly IssueInput[]): boolean {
+  return issues.some((issue) => parseStepId(issue.body) !== undefined)
+}
+
+export interface CompletionOptions {
+  /** true＝只認 `step_id` 相符的工單（provenance 優先）；預設 false＝舊的 task_type fallback。 */
+  requireStepId?: boolean
+}
+
+const isIssueDone = (issue: IssueInput): boolean =>
+  issue.state === 'CLOSED' || issue.labels.includes(STAGE_DONE_LABEL)
+
+/** 完成＝有同任務類型、且已關閉或貼了 `stage/done` 的工作項（或 provenance 相符）。 */
 export function isStepDone(
   step: Step,
   issues: readonly IssueInput[],
   gates: readonly GateStatus[] = [],
+  options: CompletionOptions = {},
 ): boolean {
-  const types = taskTypesOf(step)
-  const doneByIssue = issues.some(
-    (issue) =>
-      types.includes(readTaskType(issue.body) ?? '') &&
-      (issue.state === 'CLOSED' || issue.labels.includes(STAGE_DONE_LABEL)),
-  )
+  const doneByIssue =
+    options.requireStepId === true
+      ? issues.some((issue) => parseStepId(issue.body) === step.id && isIssueDone(issue))
+      : issues.some(
+          (issue) =>
+            taskTypesOf(step).includes(readTaskType(issue.body) ?? '') && isIssueDone(issue),
+        )
   if (doneByIssue) return true
   // 人類步驟沒有工作項，完成訊號是「它的閘門已簽」。只要求存在任一 signed 實例
   // （scope 的精細判定留給 gateSigned 的建議邏輯）。
@@ -132,14 +151,18 @@ export function isStepDone(
   )
 }
 
-/** 進行中＝有同任務類型、且尚未完成的工作項（避免重複建議）。 */
-export function isStepInFlight(step: Step, issues: readonly IssueInput[]): boolean {
-  const types = taskTypesOf(step)
+/** 進行中＝有同任務類型（或 provenance 相符）、且尚未完成的工作項（避免重複建議）。 */
+export function isStepInFlight(
+  step: Step,
+  issues: readonly IssueInput[],
+  options: CompletionOptions = {},
+): boolean {
+  if (options.requireStepId === true) {
+    return issues.some((issue) => parseStepId(issue.body) === step.id && !isIssueDone(issue))
+  }
   return issues.some(
     (issue) =>
-      types.includes(readTaskType(issue.body) ?? '') &&
-      issue.state !== 'CLOSED' &&
-      !issue.labels.includes(STAGE_DONE_LABEL),
+      taskTypesOf(step).includes(readTaskType(issue.body) ?? '') && !isIssueDone(issue),
   )
 }
 
@@ -170,6 +193,8 @@ function gateSigned(
 export function nextActions(input: NextActionsInput): NextActionsDocument {
   const warnings: string[] = []
   const steps = [...input.template.steps, ...(input.process.extra_steps ?? [])]
+  // provenance 優先：repo 一旦有 step_id，完成／進行中判定就只認 step_id（見檔頭說明）。
+  const completion: CompletionOptions = { requireStepId: usesStepProvenance(input.issues) }
   const moduleSteps = steps.filter((step) => !isSystemStep(step))
   const systemSteps = steps.filter(isSystemStep)
 
@@ -177,7 +202,7 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
     (step) =>
       step.required !== false &&
       step.conditional !== true &&
-      !isStepDone(step, input.issues, input.gates),
+      !isStepDone(step, input.issues, input.gates, completion),
   )
   if (unfinishedSystem.length > 0) {
     warnings.push(
@@ -212,7 +237,7 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
         continue
       }
 
-      if (isStepDone(step, moduleIssues, input.gates)) {
+      if (isStepDone(step, moduleIssues, input.gates, completion)) {
         const gate = gateSigned(step, input.gates, scopes)
         if (!gate.signed) {
           actions.push({
@@ -232,7 +257,7 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
         continue
       }
 
-      if (isStepInFlight(step, moduleIssues)) {
+      if (isStepInFlight(step, moduleIssues, completion)) {
         warnings.push(`${scope}：${step.id} 已有進行中的工單，不重複建議`)
         break
       }

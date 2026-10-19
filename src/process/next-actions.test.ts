@@ -3,6 +3,7 @@ import {
   STAGE_DONE_LABEL,
   isStepDone,
   isStepInFlight,
+  usesStepProvenance,
   isSystemStep,
   nextActions,
   taskTypesOf,
@@ -52,11 +53,19 @@ const process = {
 
 const billing: ModuleEntry = { id: 'billing', paths: ['src/billing/**'] }
 
-function issue(number: number, taskType: string, target = 'src/billing/a.ts', labels: string[] = [], state: 'OPEN' | 'CLOSED' = 'OPEN'): IssueInput {
+function issue(
+  number: number,
+  taskType: string,
+  target = 'src/billing/a.ts',
+  labels: string[] = [],
+  state: 'OPEN' | 'CLOSED' = 'OPEN',
+  stepId?: string,
+): IssueInput {
+  const prefix = stepId === undefined ? '' : `> 流程步驟：${stepId}\n\n`
   return {
     number,
     title: `#${number}`,
-    body: `### 任務類型\n\n${taskType}\n\n### 需求描述（PRD）\n\n目標模組 / 檔案：${target}\n`,
+    body: `${prefix}### 任務類型\n\n${taskType}\n\n### 需求描述（PRD）\n\n目標模組 / 檔案：${target}\n`,
     labels,
     state,
   }
@@ -354,5 +363,51 @@ describe('人類步驟（模板裡沒有 per 的 kind: human）', () => {
     expect(doc.actions).toEqual([
       expect.objectContaining({ kind: 'work-item', task_type: 'agent-add-tests', template_step: 'C' }),
     ])
+  })
+})
+
+describe('provenance 優先的完成判定（step_id）', () => {
+  const stepS8: Step = {
+    id: 'S8',
+    phase: 'P1',
+    action: '補測試',
+    kind: 'work-item',
+    task_type: 'agent-add-tests',
+    per: 'module',
+  }
+
+  it('usesStepProvenance：任一工單帶 step_id 即視為已遷移', () => {
+    expect(usesStepProvenance([issue(1, 'agent-add-tests')])).toBe(false)
+    expect(usesStepProvenance([issue(1, 'agent-add-tests', 'src/billing/a.ts', [], 'OPEN', 'S8')])).toBe(true)
+  })
+
+  it('strict：同 task_type 但 step_id 不符 → 不算完成（避免舊工單假完成）', () => {
+    const other = issue(1, 'agent-add-tests', 'src/billing/a.ts', [], 'CLOSED', 'X9')
+    expect(isStepDone(stepS8, [other], [], { requireStepId: true })).toBe(false)
+  })
+
+  it('strict：step_id 相符且已關閉 → 完成；進行中同理', () => {
+    const done = issue(1, 'agent-add-tests', 'src/billing/a.ts', [], 'CLOSED', 'S8')
+    const running = issue(2, 'agent-add-tests', 'src/billing/a.ts', [], 'OPEN', 'S8')
+    expect(isStepDone(stepS8, [done], [], { requireStepId: true })).toBe(true)
+    expect(isStepInFlight(stepS8, [running], { requireStepId: true })).toBe(true)
+    expect(isStepInFlight(stepS8, [done], { requireStepId: true })).toBe(false)
+  })
+
+  it('legacy fallback：完全沒有 provenance 時仍用 task_type', () => {
+    const legacy = issue(1, 'agent-add-tests', 'src/billing/a.ts', [], 'CLOSED')
+    expect(isStepDone(stepS8, [legacy])).toBe(true)
+  })
+
+  it('nextActions：repo 有 provenance 後，舊的同類型 closed 工單不再讓步驟完成', () => {
+    const doc = nextActions(
+      input({
+        issues: [
+          issue(1, 'agent-add-tests', 'src/billing/a.ts', [], 'CLOSED', 'X9'),
+          issue(2, 'agent-analyze', 'src/billing/a.ts', [], 'CLOSED', 'X1'),
+        ],
+      }),
+    )
+    expect(doc.actions.some((action) => action.kind === 'work-item' && action.template_step === 'S8')).toBe(true)
   })
 })
