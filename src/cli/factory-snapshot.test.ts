@@ -86,10 +86,12 @@ describe('factory-snapshot', () => {
     expect(result.next).not.toBeNull()
     const actions = result.next?.actions ?? []
     expect(actions.map((action) => `${action.kind}:${action.template_step}`)).toEqual([
+      'work-item:M2',
       'work-item:M7',
       'work-item:M7',
     ])
     expect(actions.map((action) => action.scope)).toEqual([
+      'aswf-dev/payment-platform',
       'aswf-dev/payment-platform/billing',
       'aswf-dev/payment-platform/settlement',
     ])
@@ -141,7 +143,10 @@ describe('factory-snapshot', () => {
     ])
     const result = snapshot(options, deps(fullFiles))
 
-    expect(result.next?.actions).toEqual([])
+    // 沒有模組時仍會建議系統層步驟（系統層不依賴模組）；模組建議不產生。
+    expect(result.next?.actions.map((action) => `${action.kind}:${action.template_step}`)).toEqual([
+      'work-item:M2',
+    ])
     expect(result.warnings.some((w) => w.includes('未提供 --modules'))).toBe(true)
   })
 
