@@ -11,6 +11,8 @@ phases: [P0, P1, P2, P3]
 gates: [HG1, HG2, HG4, HG5, HG6, AGENT-PLAYGROUND-SECURITY]
 
 # 租戶模板沒有修復步驟；P4 的缺陷修復以 extra_step 加到這個系統（可加不可重排）。
+# conditional：只有測試／分析揭露缺陷時才開（人判斷），待開清單不自動建議——
+# 否則每個做完 AP4 的模組都會被建議「修缺陷」，即使沒有已知缺陷。
 extra_steps:
   - id: AP5
     phase: P3
@@ -18,3 +20,4 @@ extra_steps:
     kind: work-item
     task_type: agent-fix-bug
     per: module
+    conditional: true
