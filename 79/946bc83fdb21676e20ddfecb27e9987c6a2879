@@ -1,0 +1,14 @@
+docs/07-stacked-pr-workflow.md
+  h_1b119f25eaf333 178,180-206,226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "79946bc83fdb21676e20ddfecb27e9987c6a2879",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
