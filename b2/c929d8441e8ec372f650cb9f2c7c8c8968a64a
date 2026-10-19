@@ -1,0 +1,16 @@
+src/process/next-actions.test.ts
+  h_1b119f25eaf333 6,56-64,68,368-413
+src/process/next-actions.ts
+  h_1b119f25eaf333 16-19,23,116-129,134,136-142,154-162,165,196-197,205,240,260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b2c929d8441e8ec372f650cb9f2c7c8c8968a64a",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
