@@ -11,8 +11,10 @@
  *   - **已存在進行中的同類工單**時不重複建議（冪等鍵附近的行為，ADR-024 §5）；
  *   - **閘門未簽**時建議的是「簽核」，不是下一張工單——因為下一步本來就過不去。
  *
- * 系統層步驟（`per: system|repo`）不產生建議，只在未完成時給 warning：P2–P4 是逐模組推進，
- * 用一個全域指標序列化它們會與 docs/29 §6 的「模組各自推進」衝突。
+ * 系統層步驟（`per: system|repo`）：P2–P4 仍逐模組推進（模組建議互不阻塞），但系統層的
+ * **work-item** 步驟（P0／P1 的分析、規格等）會產生「一次一筆」的建議（2026-10-19）——
+ * 沒有這筆建議，P0／P1 的 agent 工單只能靠 warning 人工開，清單永遠不完整。
+ * 系統層人類步驟（P0／P1／P5）不開工單，閘門未簽時建議簽核；其餘未完成者仍以 warning 呈現。
  *
  * 完成／進行中判定（2026-10-19）：一旦 repo 有任何工單帶 `step_id`（ADR-023 §5 provenance），
  * 就以 `step_id` 為準，不再用 task_type 跨步驟比對——否則舊的同類型工單會讓新模板的步驟
@@ -39,7 +41,7 @@ export interface NextActionsInput {
 
 export interface WorkItemAction {
   kind: 'work-item'
-  /** `<system>/<module-id>`；系統層不產生建議。 */
+  /** 模組層＝`<system>/<module-id>`；系統層＝`<system>`（2026-10-19 起系統層也會建議）。 */
   scope: string
   template_step: string
   task_type: string
@@ -210,7 +212,52 @@ export function nextActions(input: NextActionsInput): NextActionsDocument {
     )
   }
 
-  const actions: NextAction[] = []
+  // 系統層建議：依模板順序，最多一筆（work-item → 開單；human 且有未簽閘門 → 簽核）。
+  // 模組建議不受它阻塞——P2–P4 仍各自推進（docs/29 §6）。
+  const systemActions: NextAction[] = []
+  for (const step of systemSteps) {
+    if (step.conditional === true || step.required === false) continue
+    if (isStepDone(step, input.issues, input.gates, completion)) continue
+    if (step.kind === 'human') {
+      const gate = gateSigned(step, input.gates, ['system'])
+      if ((step.gates ?? []).length > 0 && !gate.signed) {
+        systemActions.push({
+          kind: 'gate',
+          scope: input.system,
+          gate: gate.missing[0] as string,
+          template_step: step.id,
+          reason: `${step.id} 的系統層閘門尚未簽核`,
+        })
+        break
+      }
+      continue
+    }
+    if (isStepInFlight(step, input.issues, completion)) continue
+    const gate = gateSigned(step, input.gates, ['system'])
+    if (!gate.signed) {
+      systemActions.push({
+        kind: 'gate',
+        scope: input.system,
+        gate: gate.missing[0] as string,
+        template_step: step.id,
+        reason: `${step.id} 的系統層閘門尚未簽核`,
+      })
+      break
+    }
+    const types = taskTypesOf(step)
+    if (types.length === 0) continue
+    systemActions.push({
+      kind: 'work-item',
+      scope: input.system,
+      template_step: step.id,
+      task_type: types[0] as string,
+      task_types: types,
+      reason: `${step.id} 尚未有完成紀錄（系統層）`,
+    })
+    break
+  }
+
+  const actions: NextAction[] = [...systemActions]
   for (const module of input.modules) {
     const scope = `${input.system}/${module.id}`
     const moduleIssues = input.issues.filter((issue) => moduleOfIssue(issue, [module]) !== undefined)

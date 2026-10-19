@@ -152,9 +152,17 @@ describe('isStepDone / isStepInFlight', () => {
 })
 
 describe('nextActions', () => {
-  it('全新模組：建議第一個模組步驟，並警告系統層未完成', () => {
+  it('全新專案：先建議系統層步驟，再建議第一個模組步驟，並警告系統層未完成', () => {
     const doc = nextActions(input())
     expect(doc.actions).toEqual([
+      {
+        kind: 'work-item',
+        scope: 'a/b',
+        template_step: 'S4',
+        task_type: 'agent-analyze',
+        task_types: ['agent-analyze'],
+        reason: 'S4 尚未有完成紀錄（系統層）',
+      },
       {
         kind: 'work-item',
         scope: 'a/b/billing',
@@ -167,6 +175,68 @@ describe('nextActions', () => {
     expect(doc.warnings[0]).toContain('系統層步驟尚未完成：S4')
   })
 
+  it('系統層步驟只建議一次（不因模組數而重複）', () => {
+    const doc = nextActions(input({ modules: [billing, { id: 'auth', paths: ['src/auth/**'] }] }))
+    const systemActions = doc.actions.filter((action) => action.template_step === 'S4')
+    expect(systemActions).toHaveLength(1)
+    expect(systemActions[0]).toMatchObject({ scope: 'a/b', kind: 'work-item' })
+  })
+
+  it('系統層閘門未簽時建議簽核，而不是開單', () => {
+    const gated = TemplateSchema.parse({
+      ...template,
+      steps: [
+        { id: 'S4', phase: 'P0', action: '規格', kind: 'work-item', task_type: 'agent-write-spec', per: 'system', gates: ['HG4'] },
+      ],
+    })
+    const doc = nextActions(input({ template: gated, gates: [missingGate('system')] }))
+    expect(doc.actions[0]).toMatchObject({ kind: 'gate', scope: 'a/b', gate: 'HG4', template_step: 'S4' })
+  })
+
+  it('系統層人類步驟閘門未簽時建議簽核', () => {
+    const humanGated = TemplateSchema.parse({
+      ...template,
+      steps: [{ id: 'S4', phase: 'P1', action: '安全審查', kind: 'human', gates: ['HG4'] }],
+    })
+    const doc = nextActions(input({ template: humanGated, gates: [missingGate('system')] }))
+    expect(doc.actions[0]).toMatchObject({ kind: 'gate', scope: 'a/b', gate: 'HG4', template_step: 'S4' })
+  })
+
+  it('系統層人類步驟沒有閘門時不建議', () => {
+    const humanPlain = TemplateSchema.parse({
+      ...template,
+      steps: [{ id: 'S4', phase: 'P1', action: '會議', kind: 'human' }],
+    })
+    expect(nextActions(input({ template: humanPlain })).actions).toEqual([])
+  })
+
+  it('系統層 conditional／required:false 步驟不建議', () => {
+    const conditional = TemplateSchema.parse({
+      ...template,
+      steps: [{ id: 'S4', phase: 'P0', action: 'x', kind: 'work-item', task_type: 'agent-analyze', per: 'system', conditional: true }],
+    })
+    expect(nextActions(input({ template: conditional })).actions).toEqual([])
+
+    const optional = TemplateSchema.parse({
+      ...template,
+      steps: [{ id: 'S4', phase: 'P0', action: 'x', kind: 'work-item', task_type: 'agent-analyze', per: 'system', required: false }],
+    })
+    expect(nextActions(input({ template: optional })).actions).toEqual([])
+  })
+
+  it('系統層步驟沒有可建議任務類型時跳過', () => {
+    const noTypes = TemplateSchema.parse({
+      ...template,
+      steps: [{ id: 'S4', phase: 'P0', action: 'x', kind: 'work-item', per: 'system', alternatives: [{ kind: 'human', action: '人工處理' }] }],
+    })
+    expect(nextActions(input({ template: noTypes })).actions).toEqual([])
+  })
+
+  it('系統層步驟進行中時不重複建議', () => {
+    const doc = nextActions(input({ issues: [issue(1, 'agent-analyze')] }))
+    expect(doc.actions.some((action) => action.template_step === 'S4')).toBe(false)
+  })
+
   it('系統層完成後不再警告', () => {
     const doc = nextActions(input({ issues: [issue(9, 'agent-analyze', 'src/billing/a.ts', [], 'CLOSED')] }))
     expect(doc.warnings.some((w) => w.includes('系統層步驟'))).toBe(false)
@@ -174,7 +244,11 @@ describe('nextActions', () => {
 
   it('S8 完成後推進到下一個非條件式步驟', () => {
     const doc = nextActions(input({ issues: [issue(1, 'agent-add-tests', 'src/billing/a.ts', [STAGE_DONE_LABEL])] }))
-    expect(doc.actions[0]).toMatchObject({ kind: 'work-item', template_step: 'S10', task_type: 'agent-write-spec' })
+    expect(doc.actions.find((action) => action.scope === 'a/b/billing')).toMatchObject({
+      kind: 'work-item',
+      template_step: 'S10',
+      task_type: 'agent-write-spec',
+    })
   })
 
   it('條件式步驟不自動建議', () => {
@@ -191,7 +265,8 @@ describe('nextActions', () => {
         ],
       }),
     )
-    expect(doc.actions).toEqual([
+    const moduleActions = doc.actions.filter((action) => action.scope === 'a/b/billing')
+    expect(moduleActions).toEqual([
       {
         kind: 'gate',
         scope: 'a/b/billing',
@@ -212,20 +287,27 @@ describe('nextActions', () => {
         gates: [signedGate('a/b/billing')],
       }),
     )
-    expect(doc.actions).toEqual([])
-    expect(doc.warnings).toContain('目前沒有可建議的下一步')
+    expect(doc.actions.filter((action) => action.scope === 'a/b/billing')).toEqual([])
   })
 
   it('已有進行中的同類工單時不重複建議', () => {
     const doc = nextActions(input({ issues: [issue(1, 'agent-add-tests')] }))
-    expect(doc.actions).toEqual([])
+    expect(doc.actions.filter((action) => action.scope === 'a/b/billing')).toEqual([])
     expect(doc.warnings).toContain('a/b/billing：S8 已有進行中的工單，不重複建議')
   })
 
-  it('沒有模組時不產生動作並給 warning', () => {
+  it('沒有模組時仍建議系統層步驟（系統層不依賴模組）', () => {
     const doc = nextActions(input({ modules: [] }))
-    expect(doc.actions).toEqual([])
-    expect(doc.warnings).toContain('目前沒有可建議的下一步')
+    expect(doc.actions).toEqual([
+      {
+        kind: 'work-item',
+        scope: 'a/b',
+        template_step: 'S4',
+        task_type: 'agent-analyze',
+        task_types: ['agent-analyze'],
+        reason: 'S4 尚未有完成紀錄（系統層）',
+      },
+    ])
   })
 
   it('步驟沒有任務類型時警告並停止該模組', () => {
@@ -261,7 +343,7 @@ describe('nextActions', () => {
         }),
       }),
     )
-    expect(doc.actions[0]).toMatchObject({ template_step: 'X1', task_type: 'agent-write-docs' })
+    expect(doc.actions.find((action) => action.template_step === 'X1')).toMatchObject({ task_type: 'agent-write-docs' })
   })
 
   it('閘門未簽時在建議理由中註明', () => {
