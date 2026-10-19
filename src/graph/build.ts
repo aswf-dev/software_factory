@@ -209,11 +209,17 @@ export function workItemState(
     )
   }
 
+  // Done wins over the label: `needs-human` means "PR awaiting human review", so
+  // the label is stale once the issue is closed / its PR merged. Real case:
+  // #22 and #66 were CLOSED and merged but still carried `needs-human`, so the
+  // graph (and the scoreboard's step status) showed them as needing a human.
+  if (isDone(issue.number)) return { state: 'closed', unresolved: [] }
+
   if (issue.labels.includes(NEEDS_HUMAN_LABEL)) return { state: 'needs-human', unresolved: [] }
 
   const unresolved = parsePrerequisites(issue.body).filter((n) => !isDone(n))
   if (unresolved.length > 0) return { state: 'waiting-prereq', unresolved }
-  return { state: isDone(issue.number) ? 'closed' : 'open', unresolved: [] }
+  return { state: 'open', unresolved: [] }
 }
 
 function oversightOf(labels: readonly string[]): string | undefined {
