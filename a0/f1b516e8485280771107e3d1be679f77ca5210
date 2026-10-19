@@ -1,0 +1,20 @@
+docs/ADR/024-process-execution-semantics.md
+  h_1b119f25eaf333 26-27,49
+src/cli/factory-snapshot.test.ts
+  h_1b119f25eaf333 89,94,146-149
+src/process/next-actions.test.ts
+  h_1b119f25eaf333 155,158-165,178-239,247-251,268-269,290,295,299,301-310,346
+src/process/next-actions.ts
+  h_1b119f25eaf333 14-17,44,215-260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a0f1b516e8485280771107e3d1be679f77ca5210",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
