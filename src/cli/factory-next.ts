@@ -146,7 +146,8 @@ export function next(options: NextOptions, deps: NextDeps): NextActionsDocument 
               `repos/${options.repo}/issues/${options.trackingIssue}/comments`,
             ]),
           ),
-          [...new Set([...TRACKED_GATE_IDS, ...template.gates])],
+          // validateTemplate 保證模板含必要閘門（非空），所以直接用宣告值。
+          template.gates,
           'system',
           template.gates,
         ).gates

@@ -240,10 +240,9 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
     template = loaded.template
   }
   const declaredGates: readonly GateId[] | undefined = template?.gates
-  const expectedGates: readonly GateId[] =
-    declaredGates === undefined
-      ? TRACKED_GATE_IDS
-      : [...new Set([...TRACKED_GATE_IDS, ...declaredGates])]
+  // 模板已宣告 gates 時以它為準：HG7 只適用 P5，沒有宣告卻硬列會讓每個 P0–P4 系統
+  // 永遠顯示一個 missing 的鎖（真實租戶就是這樣）。validateTemplate 已保證必要閘門存在。
+  const expectedGates: readonly GateId[] = declaredGates ?? TRACKED_GATE_IDS
 
   const gates =
     options.trackingIssue === undefined
