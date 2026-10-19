@@ -70,9 +70,53 @@ jobs:
             --comments-file processes/samples/example-portal.comments.json \
             --generated-at "$generated_at" > out/example-portal.json
 
-          # index 由 out/*.json 產生（新增樣本系統時不必再改這裡）。
+      # 真實租戶（agent-playground/restate-cloudflare-workers-poc）：資料在目標 repo。
+      # GITHUB_TOKEN 只涵蓋機制 repo，因此用 factory App token 讀目標 repo 的
+      # factory/process.yaml 與 Issues。
+      - name: Create factory App token (target repo read)
+        id: app-token
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          owner: agent-playground
+          repositories: restate-cloudflare-workers-poc
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          permission-actions: read
+
+      - name: "Generate snapshot (real system: agent-playground/restate-cloudflare-workers-poc)"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          TARGET=agent-playground/restate-cloudflare-workers-poc
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # 暫存檔放 /tmp：out/ 只用來放要發佈的快照。
+          mkdir -p /tmp/factory-snapshot
+          gh api "repos/$TARGET/contents/factory/process.yaml" --jq .content | base64 -d > /tmp/factory-snapshot/modules.yaml
+          gh issue list --repo "$TARGET" --state all --limit 200 \
+            --json number,title,body,labels,state > /tmp/factory-snapshot/issues.json
+          gh api --paginate --slurp "repos/$TARGET/issues/65/comments" > /tmp/factory-snapshot/comments.json
+          node dist/cli/factory-snapshot.js \
+            --repo "$TARGET" \
+            --system "$TARGET" \
+            --process processes/agent-playground/restate-cloudflare-workers-poc.yaml \
+            --template templates/agent-playground/review-first.yaml \
+            --modules /tmp/factory-snapshot/modules.yaml \
+            --issues-file /tmp/factory-snapshot/issues.json \
+            --tracking-issue 65 \
+            --comments-file /tmp/factory-snapshot/comments.json \
+            --generated-at "$generated_at" > out/restate-cloudflare-workers-poc.json
+
+      - name: Build index
+        run: |
+          set -euo pipefail
           node -e '
           const fs = require("node:fs");
+          // 樣本系統（合成資料）用固定清單標記；其餘視為真實租戶系統。
+          const SAMPLE_FILES = new Set(["payment-platform.json", "example-portal.json"]);
           const files = fs.readdirSync("out").filter((f) => f.endsWith(".json") && f !== "index.json").sort();
           const snapshots = files.map((f) => JSON.parse(fs.readFileSync(`out/${f}`, "utf8")));
           const index = {
@@ -81,7 +125,7 @@ jobs:
             systems: snapshots.map((snapshot, i) => ({
               id: snapshot.system,
               repo: snapshot.source.github,
-              sample: true,
+              sample: SAMPLE_FILES.has(files[i]),
               file: files[i],
               generated_at: snapshot.generated_at,
             })),
@@ -97,6 +141,6 @@ jobs:
           if ! gh release view snapshot-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create snapshot-latest --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "流程快照（rolling）" \
-              --notes "由 factory-snapshot workflow 產生。index.json 的 sample: true 代表合成系統，不是真實納管資料。"
+              --notes "由 factory-snapshot workflow 產生。index.json 的 sample: true 代表合成系統；sample: false 是真實租戶系統。"
           fi
           gh release upload snapshot-latest out/*.json --clobber --repo "$GITHUB_REPOSITORY"
