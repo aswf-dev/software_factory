@@ -159,6 +159,38 @@ describe('graph', () => {
     expect(doc.gates.find((gate) => gate.id === 'HG1')).toMatchObject({ state: 'missing' })
   })
 
+  it('模板已宣告 gates 時不硬列 HG7（P5 專用）', () => {
+    const doc = graph(
+      {
+        repo: 'a/b',
+        system: 'aswf-dev/example',
+        processPath: 'process.yaml',
+        modulesPath: 'modules.yaml',
+        templatePath: 'template.yaml',
+        trackingIssue: 9,
+        limit: 200,
+      },
+      deps({
+        readFile: (path) =>
+          path.endsWith('modules.yaml')
+            ? modulesYaml
+            : path.endsWith('template.yaml')
+              ? [
+                  'tenant: factory',
+                  'name: S',
+                  'version: 1',
+                  'source: test fixture',
+                  'phases: [P0]',
+                  'gates: [HG1, HG2, HG4, HG5, HG6]',
+                  'steps:',
+                  '  - {id: S1, phase: P0, action: 需求, kind: human}',
+                ].join('\n')
+              : processYaml,
+      }),
+    )
+    expect(doc.gates.map((gate) => gate.id)).toEqual(['HG1', 'HG2', 'HG4', 'HG5', 'HG6'])
+  })
+
   it('指定 generated-at 時不呼叫 now', () => {
     const doc = graph(
       { repo: 'a/b', system: 'a/b', limit: 200, generatedAt: '2026-10-18T09:00:00Z' },
