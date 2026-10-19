@@ -1,0 +1,18 @@
+src/cli/factory-graph.test.ts
+  h_1b119f25eaf333 162-193
+src/cli/factory-graph.ts
+  h_1b119f25eaf333 243-245
+src/cli/factory-next.ts
+  h_1b119f25eaf333 149-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a4c16760727f8748dba8f28548a81c34639dec73",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
