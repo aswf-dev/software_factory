@@ -9,3 +9,12 @@ template: agent-playground/review-first
 template_version: 1
 phases: [P0, P1, P2, P3]
 gates: [HG1, HG2, HG4, HG5, HG6, AGENT-PLAYGROUND-SECURITY]
+
+# 租戶模板沒有修復步驟；P4 的缺陷修復以 extra_step 加到這個系統（可加不可重排）。
+extra_steps:
+  - id: AP5
+    phase: P3
+    action: 修復缺陷（先補失敗測試再修）
+    kind: work-item
+    task_type: agent-fix-bug
+    per: module
