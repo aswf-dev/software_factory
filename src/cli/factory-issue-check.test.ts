@@ -17,6 +17,7 @@ import {
   extractField,
   hasCheckedAcceptance,
   loadHardRules,
+  findMultiPathTargets,
   main,
   parseCheckArgs,
   parsePrerequisites,
@@ -1133,5 +1134,30 @@ describe('main：規劃健檢讀得到標題（自我引用判定）', () => {
     const run = main(['9'], (_args) => JSON.stringify({ body: withPrereq('#42') }))
     expect(run.comment).not.toContain('指向本 Issue 自己')
     expect(run.comment).toContain('#42')
+  })
+})
+
+describe('行內多路徑的目標宣告（advisory）', () => {
+  const withTarget = (target: string): string =>
+    COMPLIANT.replace('為 X 補測試', `目標模組 / 檔案：${target}\n\n為 X 補測試`)
+
+  it('偵測同一行的多路徑（、／逗號／分號）', () => {
+    expect(findMultiPathTargets(withTarget('src/a.ts、docs/b.md'))).toEqual(['src/a.ts、docs/b.md'])
+    expect(findMultiPathTargets(withTarget('src/a.ts, docs/b.md'))).toEqual(['src/a.ts, docs/b.md'])
+    expect(findMultiPathTargets(withTarget('src/a.ts; src/b.ts'))).toEqual(['src/a.ts; src/b.ts'])
+  })
+
+  it('單一路徑與 bullet 清單不算多路徑', () => {
+    expect(findMultiPathTargets(withTarget('src/a.ts'))).toEqual([])
+    const bullets = COMPLIANT.replace('為 X 補測試', '目標模組 / 檔案：\n\n- src/a.ts\n- src/b.ts')
+    expect(findMultiPathTargets(bullets)).toEqual([])
+  })
+
+  it('checkIssue 帶出 targetMultiPath，且留言含提示', () => {
+    const body = withTarget('src/a.ts、docs/b.md')
+    const result = checkIssue(body)
+    expect(result.ok).toBe(true)
+    expect(result.targetMultiPath).toEqual(['src/a.ts、docs/b.md'])
+    expect(buildCheckComment(result)).toContain('目標路徑提示')
   })
 })
