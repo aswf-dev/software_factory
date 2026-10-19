@@ -58,9 +58,20 @@ describe('moduleOfIssue', () => {
 describe('workItemState', () => {
   const map = (issues: IssueInput[]) => new Map(issues.map((i) => [i.number, i]))
 
-  it('needs-human 標籤優先', () => {
+  it('needs-human 標籤優先（issue 仍 OPEN）', () => {
     const target = issue(1, prd('src/a.ts'), ['needs-human'])
     expect(workItemState(target, map([target]))).toEqual({ state: 'needs-human', unresolved: [] })
+  })
+
+  it('已 CLOSED 的 issue 不再顯示 needs-human（標籤已過時）', () => {
+    // Real case #22/#66: closed + merged, label left behind → graph said needs-human.
+    const target = issue(1, prd('src/a.ts'), ['needs-human'], 'CLOSED')
+    expect(workItemState(target, map([target]))).toEqual({ state: 'closed', unresolved: [] })
+  })
+
+  it('PR 已合併但 issue 仍 OPEN 且帶 needs-human：仍算完成', () => {
+    const target = issue(1, prd('src/a.ts'), ['needs-human'])
+    expect(workItemState(target, map([target]), new Set([1]))).toEqual({ state: 'closed', unresolved: [] })
   })
 
   it('前置未完成 → waiting-prereq', () => {
