@@ -129,7 +129,6 @@
             "phase": "P3",
             "action": "驗證閘門（每核心模組擇一）",
             "kind": "work-item",
-            "per": "module",
             "alternatives": [
               {
                 "kind": "work-item",
@@ -146,6 +145,7 @@
                 "action": "豁免單（HG5 簽核）"
               }
             ],
+            "per": "module",
             "gates": [
               "HG5",
               "HG6"
@@ -156,7 +156,6 @@
             "phase": "P4",
             "action": "維護（依需要）",
             "kind": "work-item",
-            "required": false,
             "alternatives": [
               {
                 "kind": "work-item",
@@ -174,6 +173,7 @@
                 "task_type": "agent-propose-skill"
               }
             ],
+            "required": false,
             "gates": [
               "HG0",
               "HG3"
@@ -328,7 +328,6 @@
             "phase": "P3",
             "action": "驗證閘門（每核心模組擇一）",
             "kind": "work-item",
-            "per": "module",
             "alternatives": [
               {
                 "kind": "work-item",
@@ -345,6 +344,7 @@
                 "action": "豁免單（HG5 簽核）"
               }
             ],
+            "per": "module",
             "gates": [
               "HG5",
               "HG6"
@@ -355,7 +355,6 @@
             "phase": "P4",
             "action": "維護（依需要）",
             "kind": "work-item",
-            "required": false,
             "alternatives": [
               {
                 "kind": "work-item",
@@ -373,6 +372,7 @@
                 "task_type": "agent-propose-skill"
               }
             ],
+            "required": false,
             "gates": [
               "HG0",
               "HG3"
@@ -460,7 +460,6 @@
             "phase": "P0",
             "action": "in-loop repo 的分析（§12）",
             "kind": "work-item",
-            "conditional": true,
             "alternatives": [
               {
                 "kind": "work-item",
@@ -472,7 +471,8 @@
                 "action": "提出技能草案",
                 "task_type": "agent-propose-skill"
               }
-            ]
+            ],
+            "conditional": true
           },
           {
             "id": "L4",
@@ -555,7 +555,6 @@
             "phase": "P3",
             "action": "依 A4 排序，逐模組補測試→修缺陷→驗證閘門",
             "kind": "work-item",
-            "per": "module",
             "alternatives": [
               {
                 "kind": "work-item",
@@ -578,6 +577,7 @@
                 "task_type": "agent-pbt-audit"
               }
             ],
+            "per": "module",
             "gates": [
               "HG3",
               "HG5",
@@ -589,7 +589,6 @@
             "phase": "P4",
             "action": "維護（依需要；每觀察期做一次 HG 回顧）",
             "kind": "work-item",
-            "required": false,
             "alternatives": [
               {
                 "kind": "work-item",
@@ -607,6 +606,7 @@
                 "task_type": "agent-propose-skill"
               }
             ],
+            "required": false,
             "gates": [
               "HG0",
               "HG3"
@@ -617,7 +617,6 @@
             "phase": "P5",
             "action": "拆分前準備（接縫與資料所有權分析、characterization 測試）",
             "kind": "work-item",
-            "conditional": true,
             "alternatives": [
               {
                 "kind": "work-item",
@@ -630,6 +629,7 @@
                 "task_type": "agent-add-tests"
               }
             ],
+            "conditional": true,
             "gates": [
               "HG7"
             ]
@@ -659,7 +659,6 @@
             "phase": "P5",
             "action": "拆分中的驗證支援（新舊行為一致）",
             "kind": "work-item",
-            "conditional": true,
             "alternatives": [
               {
                 "kind": "work-item",
@@ -672,6 +671,7 @@
                 "task_type": "agent-write-spec"
               }
             ],
+            "conditional": true,
             "gates": [
               "HG7"
             ]
@@ -828,6 +828,79 @@
           },
           {
             "id": "AP4",
+            "phase": "P3",
+            "action": "文件更新",
+            "kind": "work-item",
+            "task_type": "agent-write-docs",
+            "per": "module"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tradingbot-tw/saga-pattern",
+      "tenant": "tradingbot-tw",
+      "name": "saga-pattern",
+      "version": 1,
+      "path": "templates/tradingbot-tw/saga-pattern.yaml",
+      "source": "tradingbot-tw/saga-pattern pilot (Orkes Conductor saga; orchestration defined outside the repo)",
+      "template": {
+        "tenant": "tradingbot-tw",
+        "name": "saga-pattern",
+        "version": 1,
+        "source": "tradingbot-tw/saga-pattern pilot (Orkes Conductor saga; orchestration defined outside the repo)",
+        "phases": [
+          "P0",
+          "P1",
+          "P2",
+          "P3"
+        ],
+        "gates": [
+          "HG1",
+          "HG2",
+          "HG4",
+          "HG5",
+          "HG6",
+          "TRADINGBOT-TW-WORKFLOW"
+        ],
+        "gate_defs": [
+          {
+            "id": "TRADINGBOT-TW-WORKFLOW",
+            "signers": [
+              "tradingbot-tw"
+            ],
+            "scope": "phase",
+            "evidence": "pr-review"
+          }
+        ],
+        "steps": [
+          {
+            "id": "TB1",
+            "phase": "P0",
+            "action": "需求分析與 Saga 編排盤點",
+            "kind": "work-item",
+            "task_type": "agent-analyze",
+            "per": "system"
+          },
+          {
+            "id": "TB2",
+            "phase": "P1",
+            "action": "匯出 Conductor workflow 定義入庫",
+            "kind": "human",
+            "gates": [
+              "TRADINGBOT-TW-WORKFLOW"
+            ]
+          },
+          {
+            "id": "TB3",
+            "phase": "P2",
+            "action": "補測試（worker 與 workflow 契約、補償路徑）",
+            "kind": "work-item",
+            "task_type": "agent-add-tests",
+            "per": "module"
+          },
+          {
+            "id": "TB4",
             "phase": "P3",
             "action": "文件更新",
             "kind": "work-item",
