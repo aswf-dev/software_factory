@@ -23,7 +23,7 @@ import type { GraphDocument, IssueInput, PullRequestInput } from '../graph/build
 import type { ModuleEntry, ProcessSpec, Template } from '../process/spec.js'
 import type { GateStatus } from '../hg/parse.js'
 import { parseComments } from './factory-hg.js'
-import { TRACKED_GATE_IDS, gateReport } from '../hg/parse.js'
+import { TRACKED_GATE_IDS, gateReport, signersOf } from '../hg/parse.js'
 import type { GateId } from '../hg/parse.js'
 import { loadModuleSpec, loadProcessSpec, loadTemplate } from '../process/spec.js'
 
@@ -75,6 +75,8 @@ export interface GraphInputs {
   /** 由 `--template` 載入的模板（`factory-snapshot` 需要它驗證 process）。 */
   template?: Template | undefined
   gates?: readonly GateStatus[] | undefined
+  /** 閘門留言的 advisory（例如無簽核權限而被忽略的簽核）；`factory-snapshot` 會帶進 warnings。 */
+  gateWarnings?: readonly string[] | undefined
   generatedAt: string
   github: string
 }
@@ -244,7 +246,7 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
   // 永遠顯示一個 missing 的鎖（真實租戶就是這樣）。validateTemplate 已保證必要閘門存在。
   const expectedGates: readonly GateId[] = declaredGates ?? TRACKED_GATE_IDS
 
-  const gates =
+  const report =
     options.trackingIssue === undefined
       ? undefined
       : gateReport(
@@ -261,7 +263,9 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
           expectedGates,
           'system',
           declaredGates,
-        ).gates
+          signersOf(template?.gate_defs),
+        )
+  const gates = report?.gates
 
   // 離線 issues 模式（合成系統）預設沒有 PR；要納入 PR 就另外給 --prs-file。
   const pullRequests =
@@ -292,6 +296,7 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
     process,
     template,
     gates,
+    gateWarnings: report?.warnings,
     generatedAt: options.generatedAt ?? deps.now(),
     github: options.repo,
   }

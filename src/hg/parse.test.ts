@@ -7,11 +7,19 @@ import {
   isBotAuthor,
   parseCommentEvents,
   reduceGates,
+  signersOf,
 } from './parse.js'
 import type { HgComment, HgEvent } from './parse.js'
 
-function comment(id: number, body: string, createdAt = '2026-10-18T00:00:00Z', author = 'alice'): HgComment {
-  return { id, body, author, createdAt }
+function comment(
+  id: number,
+  body: string,
+  createdAt = '2026-10-18T00:00:00Z',
+  author = 'alice',
+  /** `null` = 留言沒有 author_association 欄位。 */
+  association: string | null = 'MEMBER',
+): HgComment {
+  return association === null ? { id, body, author, createdAt } : { id, body, author, createdAt, association }
 }
 
 describe('isBotAuthor', () => {
@@ -291,5 +299,60 @@ describe('自訂閘門（ADR-025）', () => {
     )
     expect(events).toEqual([])
     expect(warnings[0]).toContain('TENANT-NAME')
+  })
+})
+
+describe('簽核身份（author_association 與 gate_defs.signers）', () => {
+  const HG2 = '<!-- factory:hg id=HG2 state=signed evidence=https://a.test -->'
+
+  it.each(['OWNER', 'MEMBER', 'COLLABORATOR'])('%s 可以簽核', (association) => {
+    const { events, warnings } = parseCommentEvents(comment(1, HG2, undefined, 'alice', association))
+    expect(events).toHaveLength(1)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(['NONE', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', null])(
+    '%s（含缺席）不能簽核：不採計並寫 warning',
+    (association) => {
+      const { events, warnings } = parseCommentEvents(comment(2, HG2, undefined, 'stranger', association))
+      expect(events).toEqual([])
+      expect(warnings[0]).toContain('stranger 對此 repo 沒有簽核權限')
+    },
+  )
+
+  it('無權限者也不能撤回別人的簽核', () => {
+    const report = gateReport(
+      [
+        comment(1, HG2, '2026-10-18T00:00:00Z', 'owner', 'OWNER'),
+        comment(2, '<!-- factory:hg id=HG2 state=revoked -->', '2026-10-18T01:00:00Z', 'stranger', 'NONE'),
+      ],
+      ['HG2'],
+    )
+    expect(report.gates[0]).toMatchObject({ state: 'signed', signed_by: 'owner' })
+    expect(report.warnings).toHaveLength(1)
+  })
+
+  it('沒有標記的一般留言不檢查身份、不產生 warning', () => {
+    expect(parseCommentEvents(comment(3, '只是討論', undefined, 'stranger', 'NONE'))).toEqual({ events: [], warnings: [] })
+  })
+
+  it('自訂閘門只接受 signers 名單內的帳號；HG 閘門不受 signers 影響', () => {
+    const signers = signersOf([{ id: 'ACME-SECURITY', signers: ['security-lead'] }])
+    const custom = '<!-- factory:gate id=ACME-SECURITY state=signed evidence=https://a.test -->'
+    const declared = ['HG2', 'ACME-SECURITY']
+
+    const byLead = parseCommentEvents(comment(4, custom, undefined, 'security-lead'), declared, signers)
+    expect(byLead.events).toHaveLength(1)
+
+    const byOther = parseCommentEvents(comment(5, custom, undefined, 'alice'), declared, signers)
+    expect(byOther.events).toEqual([])
+    expect(byOther.warnings[0]).toContain('alice 不在 ACME-SECURITY 的 signers（security-lead）')
+
+    const hgByOther = parseCommentEvents(comment(6, HG2, undefined, 'alice'), declared, signers)
+    expect(hgByOther.events).toHaveLength(1)
+  })
+
+  it('signersOf：沒有 gate_defs 時是空表（不限制）', () => {
+    expect(signersOf(undefined).size).toBe(0)
   })
 })

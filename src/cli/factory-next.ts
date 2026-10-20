@@ -16,7 +16,7 @@ import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 import { parseIssues } from './factory-graph.js'
 import { parseComments } from './factory-hg.js'
-import { gateReport } from '../hg/parse.js'
+import { gateReport, signersOf } from '../hg/parse.js'
 import { loadModuleSpec, loadProcessSpec, loadTemplate } from '../process/spec.js'
 import { TRACKED_GATE_IDS } from '../hg/parse.js'
 import type { ModuleSpec, ProcessSpec, Template } from '../process/spec.js'
@@ -150,6 +150,7 @@ export function next(options: NextOptions, deps: NextDeps): NextActionsDocument 
           template.gates,
           'system',
           template.gates,
+          signersOf(template.gate_defs),
         ).gates
 
   return nextActions({
