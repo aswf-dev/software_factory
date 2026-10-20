@@ -110,6 +110,62 @@ jobs:
             --comments-file /tmp/factory-snapshot/comments.json \
             --generated-at "$generated_at" > out/restate-cloudflare-workers-poc.json
 
+      # 第二個真實租戶（tradingbot-tw/saga-pattern）。流程 spec 尚未建立前整段跳過；
+      # App 未安裝或任何一步失敗都不影響其他系統的快照發佈（continue-on-error）。
+      # 與上一段不同，這段是通用寫法：模板路徑由 spec 的 `template` 推導、模組清單與
+      # 追蹤 Issue（標題以 [tracking] 開頭）都是可選的——缺了只會在快照 warnings 說明。
+      - name: Create factory App token (tradingbot-tw/saga-pattern read)
+        id: app-token-saga
+        if: hashFiles('processes/tradingbot-tw/saga-pattern.yaml') != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          owner: tradingbot-tw
+          repositories: saga-pattern
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          permission-actions: read
+
+      - name: "Generate snapshot (real system: tradingbot-tw/saga-pattern)"
+        if: steps.app-token-saga.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token-saga.outputs.token }}
+        run: |
+          set -euo pipefail
+          TARGET=tradingbot-tw/saga-pattern
+          SPEC=processes/tradingbot-tw/saga-pattern.yaml
+          TEMPLATE_ID="$(node -e 'const y=require("js-yaml");console.log(y.load(require("fs").readFileSync(process.argv[1],"utf8")).template)' "$SPEC")"
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          WORK=/tmp/factory-snapshot-saga
+          mkdir -p "$WORK"
+          extra=()
+          # 模組清單（目標 repo 預設分支的 factory/process.yaml）：沒有就不帶 --modules。
+          if gh api "repos/$TARGET/contents/factory/process.yaml" --jq .content 2>/dev/null | base64 -d > "$WORK/modules.yaml" 2>/dev/null && [ -s "$WORK/modules.yaml" ]; then
+            extra+=(--modules "$WORK/modules.yaml")
+          fi
+          gh issue list --repo "$TARGET" --state all --limit 200 \
+            --json number,title,body,labels,state > "$WORK/issues.json"
+          # 追蹤 Issue：標題以 [tracking] 開頭的第一張（編號最小）；沒有就不讀閘門留言。
+          TRACKING="$(node -e 'const a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).filter(i=>i.title.startsWith("[tracking]")).sort((x,y)=>x.number-y.number);console.log(a[0]?a[0].number:"")' "$WORK/issues.json")"
+          if [ -n "$TRACKING" ]; then
+            gh api --paginate --slurp "repos/$TARGET/issues/$TRACKING/comments" > "$WORK/comments.json"
+            extra+=(--tracking-issue "$TRACKING" --comments-file "$WORK/comments.json")
+          fi
+          node dist/cli/factory-snapshot.js \
+            --repo "$TARGET" \
+            --system "$TARGET" \
+            --process "$SPEC" \
+            --template "templates/$TEMPLATE_ID.yaml" \
+            --issues-file "$WORK/issues.json" \
+            ${extra[@]+"${extra[@]}"} \
+            --generated-at "$generated_at" > "$WORK/snapshot.json"
+          # 成功才搬進 out/：半套檔案會讓 Build index 解析失敗、拖垮所有系統的發佈。
+          mv "$WORK/snapshot.json" out/saga-pattern.json
+
       - name: Build index
         run: |
           set -euo pipefail
