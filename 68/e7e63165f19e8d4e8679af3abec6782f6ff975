@@ -1,0 +1,38 @@
+docs/29-brownfield-adoption-playbook.md
+  h_1b119f25eaf333 291-292
+docs/ADR/025-tenant-process-templates.md
+  h_1b119f25eaf333 50
+processes/samples/example-portal.comments.json
+  h_1b119f25eaf333 7-8,13-15
+processes/samples/payment-platform.comments.json
+  h_1b119f25eaf333 7-8
+src/cli/factory-graph.test.ts
+  h_1b119f25eaf333 21
+src/cli/factory-graph.ts
+  h_1b119f25eaf333 26,78-79,249,266-268,299
+src/cli/factory-hg.test.ts
+  h_1b119f25eaf333 13,166-167,193-196,200-217
+src/cli/factory-hg.ts
+  h_1b119f25eaf333 19,38,124,137,144,158
+src/cli/factory-next.test.ts
+  h_1b119f25eaf333 21
+src/cli/factory-next.ts
+  h_1b119f25eaf333 19,153
+src/cli/factory-snapshot.ts
+  h_1b119f25eaf333 60-61
+src/hg/parse.test.ts
+  h_1b119f25eaf333 10,14-22,304-358
+src/hg/parse.ts
+  h_1b119f25eaf333 15-20,52-66,124,129-136,166-170,196,205,258-262,269,271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "68e7e63165f19e8d4e8679af3abec6782f6ff975",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
