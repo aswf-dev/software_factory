@@ -55,6 +55,7 @@
 | [ADR-023](023-workflow-process-spec-and-topology-ui.md) | 流程以 `process.yaml` 描述（系統級＋模組級）、拓撲 UI 採 React Flow；OpenRig 僅作參考實作，其 agent 團隊方法論不採用 | 已接受（2026-10-18 兩次修訂：節點＝流程步驟一次執行；工作項以 `step_id` 掛載） | `research/55-workflow-topology-ui`、`29` §6／§8、`31` §2、`ADR-001`、`ADR-010`、`ADR-022`、`10` `Q-ORCH-1/2` |
 | [ADR-024](024-process-execution-semantics.md) | 流程的「執行」語意——UI 產生待開工作項清單，人按下送出；走既有入口，不新增派工路徑 | 已接受 | `ADR-023`、`ADR-022`、`29` §1.1／§8、`31` §1、`docs/24` §2.1、`10` `Q-ORCH-3` |
 | [ADR-025](025-tenant-process-templates.md) | 多租戶公司流程模板——工廠固定 meta-contract，租戶擁有自己的模板（版本化、釘版本）；自訂 gate 以 `<TENANT>-<NAME>` 命名；`scale` 與模板脫鉤；S/M/L 降為 preset | 已接受 | `ADR-023`、`ADR-024`、`29` §6／§8／§9、`10` `Q-ORCH-4/5` |
+| [ADR-026](026-project-owned-process-spec.md) | 系統流程 spec 歸專案所有（`factory/system.yaml`）；機制 repo 只保留納管名冊與規則，讀取時驗證；揭露 public 機制 repo 使租戶隔離失效（模板與快照可匿名讀取） | 已接受（實作待遷移） | `ADR-023` §1、`ADR-025`、`ADR-001` |
 
 ## 何時該寫新的 ADR
 

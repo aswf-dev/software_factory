@@ -22,6 +22,7 @@
 ### 1. 流程以 `process.yaml` 描述，分兩層
 
 - **系統級**：機制 repo 的 `processes/<system>.yaml`（規模、階段、HG 簽核規則）。
+  - **2026-10-20 修訂（`ADR-026`）**：系統級 spec 改歸**專案 repo** 的 `factory/system.yaml`，機制 repo 只保留納管名冊與規則，並於讀取時驗證；遷移完成前沿用本條。
 - **模組級**：目標 repo 的 `factory/process.yaml`（module id、`paths` glob、建置單元、就緒度、負責人）。
 - 兩個檔案的**最小 schema 與硬規則**見研究文件附錄 A。
 
