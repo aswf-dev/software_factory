@@ -1,0 +1,18 @@
+docs/ADR/023-workflow-process-spec-and-topology-ui.md
+  h_1b119f25eaf333 25
+docs/ADR/026-project-owned-process-spec.md
+  h_1b119f25eaf333 1-66
+docs/ADR/README.md
+  h_1b119f25eaf333 58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5c2acee7a4ea4740e188c3cf31472825e6e50bfe",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
