@@ -47,6 +47,7 @@
   - id 格式 `<TENANT-UPPER>-<NAME>`（例 `ACME-SECURITY`）；`HG[0-7]` 保留，前綴必填以保證全域唯一。
   - 每個自訂 gate 必須在模板的 `gates` 宣告，且帶 `scope`（`system|module|phase|pr`）與 `evidence` 要求（http(s) 連結，沿用 `docs/29` §8）。
   - `Q-ORCH-4` 裁決（2026-10-18，c；2026-10-19 補充）：自訂閘門**單簽核者**＋證據必填＋可撤回（與 HG 同規則），**不做 quorum**——團隊自行取得共識後由一位代表簽核，`evidence` 指向共識文件；模板以 `gate_defs` 宣告 `signers`／`scope`／`evidence`，**自訂閘門必填、HG 可省略**（省略時沿用工廠預設）。
+  - **2026-10-20 補充**：`signers` 定義為 **GitHub 帳號**並由 `src/hg/parse.ts` 執行（不在名單內的簽核不採計）；所有閘門另要求留言者對該 repo 為 `OWNER`／`MEMBER`／`COLLABORATOR`。
   - 簽核沿用結構化留言，但標記改為 `<!-- factory:gate id=ACME-SECURITY state=signed evidence=… -->`；`factory:hg` 仍接受 HG id（向後相容）。
   - 自訂 gate **只能額外**，不得取代 meta-contract 的必含 HG。
 - 租戶模板不得：新增 task_type、發明 phase、移除必含 HG、引用未宣告的 gate。

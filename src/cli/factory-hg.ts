@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
-import { CUSTOM_GATE_PATTERN, HG_IDS, TRACKED_GATE_IDS, gateReport } from '../hg/parse.js'
+import { CUSTOM_GATE_PATTERN, HG_IDS, TRACKED_GATE_IDS, gateReport, signersOf } from '../hg/parse.js'
 import type { GateId, GateReport, HgComment } from '../hg/parse.js'
 import { loadTemplate } from '../process/spec.js'
 
@@ -35,6 +35,7 @@ const GhCommentSchema = z.object({
   body: z.string().nullable(),
   user: z.object({ login: z.string() }).nullable(),
   created_at: z.string(),
+  author_association: z.string().optional(),
 })
 
 /** `gh api --paginate --slurp` 的輸出：每一頁一個陣列。 */
@@ -120,6 +121,7 @@ export function parseComments(raw: string): HgComment[] {
         body: item.body ?? '',
         author: item.user?.login ?? '',
         createdAt: item.created_at,
+        ...(item.author_association !== undefined ? { association: item.author_association } : {}),
       })
     }
   }
@@ -132,12 +134,14 @@ export function show(
   readFile: (path: string) => string = realReadFile,
 ): HgShowResult {
   let declaredGates: readonly GateId[] | undefined
+  let signers: ReturnType<typeof signersOf> | undefined
   if (options.templatePath !== undefined) {
     const loaded = loadTemplate(readFile(options.templatePath))
     if (!loaded.ok || loaded.template === undefined) {
       throw new CliError(`${options.templatePath} 無效：${loaded.errors.join('; ')}`)
     }
     declaredGates = loaded.template.gates
+    signers = signersOf(loaded.template.gate_defs)
   }
 
   const expected =
@@ -151,7 +155,7 @@ export function show(
     '--slurp',
     `repos/${options.repo}/issues/${options.issue}/comments`,
   ])
-  const report = gateReport(parseComments(raw), expected, options.scope, declaredGates)
+  const report = gateReport(parseComments(raw), expected, options.scope, declaredGates, signers)
   return { repo: options.repo, issue: options.issue, scope: options.scope, ...report }
 }
 

@@ -57,7 +57,8 @@ const realDeps: GraphDeps = {
 export function snapshot(options: GraphOptions, deps: GraphDeps): FactorySnapshot {
   const inputs = collectInputs(options, deps)
   const graph = buildGraph(inputs)
-  const warnings: string[] = []
+  // 被忽略的簽核（無權限、不在 signers）要讓人看見——否則「簽了但沒生效」與「沒簽」無法區分。
+  const warnings: string[] = [...(inputs.gateWarnings ?? [])]
   let next: NextActionsDocument | null = null
 
   if (inputs.process !== undefined && inputs.template !== undefined) {

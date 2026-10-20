@@ -12,6 +12,12 @@
  * 幾條刻意的規則：
  *   - **機器人不得簽核**：`[bot]` 結尾的作者一律忽略（工廠自己不能簽自己的閘門，
  *     與「工廠從不發射 `stage/done`」同一防禦）。
+ *   - **只有對 repo 有權限的人能簽**（2026-10-20）：GitHub 留言 API 的 `author_association`
+ *     必須是 OWNER／MEMBER／COLLABORATOR。public repo 上任何人都能留言，若不檢查，
+ *     陌生人一行標記就能簽核或撤回閘門。缺這個欄位視為無權限（不猜）。
+ *   - **自訂閘門只接受 `gate_defs.signers`**：signers 是 GitHub 帳號；作者不在名單內的
+ *     簽核／撤回不採計。HG 閘門沒有 signers，只套用上一條。
+ *   - 被拒絕的簽核一律寫 warning，不靜默丟棄（「簽了但沒生效」必須看得出來）。
  *   - **最新一筆為準**：同一 (id, scope) 依留言時間排序，後者覆蓋前者；
  *     `state=revoked` 表示撤回，使該閘門回到 `missing`（可撤銷才可能誠實）。
  *   - **signed 必須附證據連結**：docs/29 §8 要求簽核記錄證據；沒有連結的簽核是空的。
@@ -43,6 +49,21 @@ export interface HgComment {
   body: string
   author: string
   createdAt: string
+  /**
+   * GitHub `author_association`（OWNER／MEMBER／COLLABORATOR／CONTRIBUTOR／NONE…）。
+   * 缺席時視為無簽核權限。
+   */
+  association?: string
+}
+
+/** 可以簽核閘門的 `author_association`：對 repo 有寫入關係的人。 */
+export const SIGNING_ASSOCIATIONS: readonly string[] = ['OWNER', 'MEMBER', 'COLLABORATOR']
+
+/** 自訂閘門 id → 允許簽核的 GitHub 帳號（來自模板 `gate_defs.signers`）。 */
+export type GateSigners = ReadonlyMap<GateId, readonly string[]>
+
+export function isAuthorizedSigner(comment: Pick<HgComment, 'association'>): boolean {
+  return comment.association !== undefined && SIGNING_ASSOCIATIONS.includes(comment.association)
 }
 
 export interface HgEvent {
@@ -100,10 +121,19 @@ function isHgGateId(value: string | undefined): value is HgGateId {
 export function parseCommentEvents(
   comment: HgComment,
   declaredGates?: readonly GateId[],
+  signers?: GateSigners,
 ): { events: HgEvent[]; warnings: string[] } {
   const events: HgEvent[] = []
   const warnings: string[] = []
   if (isBotAuthor(comment.author)) return { events, warnings }
+  const hasMarker = /<!--\s*factory:(?:hg|gate)\s/.test(comment.body)
+  if (!hasMarker) return { events, warnings }
+  if (!isAuthorizedSigner(comment)) {
+    warnings.push(
+      `comment ${comment.id}: ${comment.author} 對此 repo 沒有簽核權限（author_association=${comment.association ?? '未知'}），已忽略`,
+    )
+    return { events, warnings }
+  }
 
   for (const match of comment.body.matchAll(MARKER)) {
     const kind = match[1] as 'hg' | 'gate'
@@ -133,6 +163,11 @@ export function parseCommentEvents(
         warnings.push(`comment ${comment.id}: 模板未宣告自訂閘門 ${id}`)
         continue
       }
+      const allowed = signers?.get(id)
+      if (allowed !== undefined && !allowed.includes(comment.author)) {
+        warnings.push(`comment ${comment.id}: ${comment.author} 不在 ${id} 的 signers（${allowed.join('、')}），已忽略`)
+        continue
+      }
     }
     if (state !== 'signed' && state !== 'revoked') {
       warnings.push(`comment ${comment.id}: ${id} 的 state 必須是 signed 或 revoked（收到 "${state ?? ''}"）`)
@@ -158,6 +193,7 @@ export function parseCommentEvents(
 export function collectEvents(
   comments: readonly HgComment[],
   declaredGates?: readonly GateId[],
+  signers?: GateSigners,
 ): { events: HgEvent[]; warnings: string[] } {
   const ordered = [...comments].sort((a, b) => {
     const byTime = a.createdAt.localeCompare(b.createdAt)
@@ -166,7 +202,7 @@ export function collectEvents(
   const events: HgEvent[] = []
   const warnings: string[] = []
   for (const comment of ordered) {
-    const parsed = parseCommentEvents(comment, declaredGates)
+    const parsed = parseCommentEvents(comment, declaredGates, signers)
     events.push(...parsed.events)
     warnings.push(...parsed.warnings)
   }
@@ -219,13 +255,19 @@ function toStatus(event: HgEvent): GateStatus {
   }
 }
 
+/** 模板 `gate_defs` → 自訂閘門的 signers 對照表（HG 閘門不列：只檢查 repo 權限）。 */
+export function signersOf(gateDefs: readonly { id: GateId; signers: readonly string[] }[] | undefined): GateSigners {
+  return new Map((gateDefs ?? []).map((def) => [def.id, def.signers] as const))
+}
+
 /** 完整報告：事件 → 閘門狀態 ＋ warnings。 */
 export function gateReport(
   comments: readonly HgComment[],
   expectedIds: readonly GateId[] = TRACKED_GATE_IDS,
   defaultScope = 'system',
   declaredGates?: readonly GateId[],
+  signers?: GateSigners,
 ): GateReport {
-  const { events, warnings } = collectEvents(comments, declaredGates)
+  const { events, warnings } = collectEvents(comments, declaredGates, signers)
   return { gates: reduceGates(events, expectedIds, defaultScope), warnings }
 }

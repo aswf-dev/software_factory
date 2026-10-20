@@ -18,7 +18,7 @@ const commentsJson = JSON.stringify([
       id: 10,
       body: '<!-- factory:hg id=HG5 state=signed evidence=https://a.test -->',
       user: { login: 'alice' },
-      created_at: '2026-10-18T00:00:00Z',
+      created_at: '2026-10-18T00:00:00Z', author_association: 'MEMBER',
     },
   ],
 ])

@@ -10,7 +10,7 @@ const signedComment = {
   id: 1,
   body: '<!-- factory:hg id=HG2 state=signed evidence=https://a.test -->',
   user: { login: 'alice' },
-  created_at: '2026-10-18T00:00:00Z',
+  created_at: '2026-10-18T00:00:00Z', author_association: 'MEMBER',
 }
 
 describe('parseOptions', () => {
@@ -163,8 +163,8 @@ const templateYaml = [
 const customComment = {
   id: 2,
   body: '<!-- factory:gate id=ACME-SECURITY state=signed evidence=https://a.test -->',
-  user: { login: 'bob' },
-  created_at: '2026-10-18T01:00:00Z',
+  user: { login: 'security-lead' },
+  created_at: '2026-10-18T01:00:00Z', author_association: 'MEMBER',
 }
 
 describe('自訂閘門（--template，ADR-025）', () => {
@@ -190,8 +190,29 @@ describe('自訂閘門（--template，ADR-025）', () => {
       () => templateYaml,
     )
     expect(result.warnings).toEqual([])
-    expect(result.gates.find((gate) => gate.id === 'ACME-SECURITY')).toMatchObject({ state: 'signed', signed_by: 'bob' })
+    expect(result.gates.find((gate) => gate.id === 'ACME-SECURITY')).toMatchObject({
+      state: 'signed',
+      signed_by: 'security-lead',
+    })
     expect(result.gates.find((gate) => gate.id === 'HG2')).toMatchObject({ state: 'missing' })
+  })
+
+  it('不在 gate_defs.signers 的帳號簽核自訂閘門 → 不採計並寫 warning', () => {
+    const result = show(
+      { repo: 'a/b', issue: 7, gates: ['HG1'], scope: 'system', templatePath: 't.yaml' },
+      () => page([{ ...customComment, user: { login: 'bob' } }]),
+      () => templateYaml,
+    )
+    expect(result.gates.find((gate) => gate.id === 'ACME-SECURITY')).toMatchObject({ state: 'missing' })
+    expect(result.warnings.join('\n')).toContain('bob 不在 ACME-SECURITY 的 signers')
+  })
+
+  it('parseComments 帶出 author_association；缺席時不填', () => {
+    const [withAssoc, without] = parseComments(
+      page([customComment, { id: 9, body: 'x', user: { login: 'z' }, created_at: '2026-10-18T02:00:00Z' }]),
+    )
+    expect(withAssoc?.association).toBe('MEMBER')
+    expect(without).not.toHaveProperty('association')
   })
 
   it('模板無效時丟出 CliError', () => {
