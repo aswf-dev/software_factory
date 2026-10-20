@@ -1,0 +1,9 @@
+# 由 aswf.dev 流程編輯器產生（存檔＝開 PR，經人類審核後合併）。
+# 送出前請確認 scale evidence 與 HG2 的裁定一致。
+system: 'tradingbot-tw/saga-pattern'
+scale: S
+scale_evidence: 'catalog-info.yaml 三軸 tactical/low/low（tradingbot-tw/saga-pattern#6，2026-10-04 由 tradingbot-tw 裁定）'
+template: 'tradingbot-tw/saga-pattern'
+template_version: 1
+phases: [P0, P1, P2, P3]
+gates: [HG1, HG2, HG4, HG5, HG6, TRADINGBOT-TW-WORKFLOW]
