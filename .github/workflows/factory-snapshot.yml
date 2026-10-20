@@ -1,10 +1,13 @@
 # 流程快照（ADR-024 資料路徑）：把 factory-graph ＋ factory-next 的輸出發佈成
 # rolling release，供 Scoreboard 讀取——Worker 不重算任何判定（ADR-001、ADR-023 §2）。
 #
-# 目前只有合成系統（processes/samples/*），用離線 fixture 產生；index.json 以
-# `sample: true` 標示，consumer 不得當成真實納管資料。
-# 真實系統納管後（processes/<system>.yaml），在同一支 workflow 加對應 step，
-# 改讀目標 repo 的 factory/process.yaml 與 tracking issue 即可。
+# 系統清單**不寫在這支 workflow 裡**：真實租戶系統的登記就是機制 repo 的
+# `processes/<owner>/<repo>.yaml`（aswf.dev 後台以「存檔＝開 PR」建立、人類審核合併）。
+# discover job 列出它們，snapshot job 以 matrix 逐一產生，publish job 合併後發佈。
+# 新增租戶不必再改 `.github/workflows/**`（H5）。
+#
+# 合成系統（processes/samples/*）用離線 fixture 產生；index.json 以 `sample: true` 標示，
+# consumer 不得當成真實納管資料。
 name: Factory Snapshot
 
 on:
@@ -23,7 +26,133 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  discover:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      systems: ${{ steps.list.outputs.systems }}
+      count: ${{ steps.list.outputs.count }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLIs
+        run: pnpm build
+
+      - name: List real systems (processes/<owner>/<repo>.yaml)
+        id: list
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+          import fs from "node:fs";
+          import { discoverSystems } from "./dist/process/systems.js";
+          const reader = {
+            readdir: (p) => fs.readdirSync(p),
+            isDirectory: (p) => fs.statSync(p).isDirectory(),
+          };
+          const { systems, skipped } = discoverSystems(reader);
+          for (const path of skipped) console.error(`::warning::略過名稱不合法的 spec：${path}`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `systems=${JSON.stringify(systems)}\ncount=${systems.length}\n`);
+          console.log(JSON.stringify(systems, null, 2));
+          '
+
   snapshot:
+    needs: discover
+    if: needs.discover.outputs.count != '0'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    strategy:
+      # 一個租戶失敗不取消其他租戶。
+      fail-fast: false
+      matrix:
+        system: ${{ fromJSON(needs.discover.outputs.systems) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.21.1'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLIs
+        run: pnpm build
+
+      # GITHUB_TOKEN 只涵蓋機制 repo，因此用 factory App token 讀目標 repo。
+      - name: Create factory App token (target repo read)
+        id: app-token
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.system.owner }}
+          repositories: ${{ matrix.system.repo }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          permission-actions: read
+
+      # 模板路徑由 spec 的 `template` 推導；模組清單與追蹤 Issue（標題以 [tracking]
+      # 開頭、編號最小者）都可選——缺了只會在快照 warnings 說明。
+      # matrix 值一律經 env 傳入，不直接內插進 shell（避免 script injection）。
+      - name: Generate snapshot
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TARGET: ${{ matrix.system.system }}
+          SPEC: ${{ matrix.system.spec }}
+          OUT_FILE: ${{ matrix.system.owner }}--${{ matrix.system.repo }}.json
+        run: |
+          set -euo pipefail
+          TEMPLATE_ID="$(node -e 'const y=require("js-yaml");console.log(y.load(require("fs").readFileSync(process.argv[1],"utf8")).template)' "$SPEC")"
+          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          WORK="$RUNNER_TEMP/factory-snapshot"
+          mkdir -p "$WORK" out
+          extra=()
+          if gh api "repos/$TARGET/contents/factory/process.yaml" --jq .content 2>/dev/null | base64 -d > "$WORK/modules.yaml" 2>/dev/null && [ -s "$WORK/modules.yaml" ]; then
+            extra+=(--modules "$WORK/modules.yaml")
+          fi
+          gh issue list --repo "$TARGET" --state all --limit 200 \
+            --json number,title,body,labels,state > "$WORK/issues.json"
+          TRACKING="$(node -e 'const a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).filter(i=>i.title.startsWith("[tracking]")).sort((x,y)=>x.number-y.number);console.log(a[0]?a[0].number:"")' "$WORK/issues.json")"
+          if [ -n "$TRACKING" ]; then
+            gh api --paginate --slurp "repos/$TARGET/issues/$TRACKING/comments" > "$WORK/comments.json"
+            extra+=(--tracking-issue "$TRACKING" --comments-file "$WORK/comments.json")
+          fi
+          node dist/cli/factory-snapshot.js \
+            --repo "$TARGET" \
+            --system "$TARGET" \
+            --process "$SPEC" \
+            --template "templates/$TEMPLATE_ID.yaml" \
+            --issues-file "$WORK/issues.json" \
+            ${extra[@]+"${extra[@]}"} \
+            --generated-at "$generated_at" > "$WORK/snapshot.json"
+          # 成功才搬進 out/：半套 JSON 會讓 publish 的 Build index 解析失敗。
+          mv "$WORK/snapshot.json" "out/$OUT_FILE"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: snapshot-${{ matrix.system.owner }}--${{ matrix.system.repo }}
+          path: out/*.json
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: [discover, snapshot]
+    # 個別租戶失敗（snapshot 為 failure）仍要發佈其他系統；只有 discover 失敗或取消才停。
+    if: ${{ !cancelled() && needs.discover.result == 'success' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
@@ -70,45 +199,34 @@ jobs:
             --comments-file processes/samples/example-portal.comments.json \
             --generated-at "$generated_at" > out/example-portal.json
 
-      # 真實租戶（agent-playground/restate-cloudflare-workers-poc）：資料在目標 repo。
-      # GITHUB_TOKEN 只涵蓋機制 repo，因此用 factory App token 讀目標 repo 的
-      # factory/process.yaml 與 Issues。
-      - name: Create factory App token (target repo read)
-        id: app-token
-        uses: actions/create-github-app-token@v3.3.0
+      - name: Collect real-system snapshots
+        uses: actions/download-artifact@v8
+        # 沒有任何真實系統、或全部失敗時沒有 artifact——仍要發佈樣本。
+        continue-on-error: true
         with:
-          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
-          owner: agent-playground
-          repositories: restate-cloudflare-workers-poc
-          permission-contents: read
-          permission-issues: read
-          permission-pull-requests: read
-          permission-actions: read
+          pattern: snapshot-*
+          path: out
+          merge-multiple: true
 
-      - name: "Generate snapshot (real system: agent-playground/restate-cloudflare-workers-poc)"
+      # 今天失敗的系統沿用上一份已發佈的快照（generated_at 會如實顯示它過期），
+      # 而不是從 index 消失、讓 live 頁直接導回索引。
+      - name: Fall back to the last published snapshot for failed systems
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SYSTEMS: ${{ needs.discover.outputs.systems }}
         run: |
           set -euo pipefail
-          TARGET=agent-playground/restate-cloudflare-workers-poc
-          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          # 暫存檔放 /tmp：out/ 只用來放要發佈的快照。
-          mkdir -p /tmp/factory-snapshot
-          gh api "repos/$TARGET/contents/factory/process.yaml" --jq .content | base64 -d > /tmp/factory-snapshot/modules.yaml
-          gh issue list --repo "$TARGET" --state all --limit 200 \
-            --json number,title,body,labels,state > /tmp/factory-snapshot/issues.json
-          gh api --paginate --slurp "repos/$TARGET/issues/65/comments" > /tmp/factory-snapshot/comments.json
-          node dist/cli/factory-snapshot.js \
-            --repo "$TARGET" \
-            --system "$TARGET" \
-            --process processes/agent-playground/restate-cloudflare-workers-poc.yaml \
-            --template templates/agent-playground/review-first.yaml \
-            --modules /tmp/factory-snapshot/modules.yaml \
-            --issues-file /tmp/factory-snapshot/issues.json \
-            --tracking-issue 65 \
-            --comments-file /tmp/factory-snapshot/comments.json \
-            --generated-at "$generated_at" > out/restate-cloudflare-workers-poc.json
+          node -e 'for (const s of JSON.parse(process.env.SYSTEMS || "[]")) console.log(`${s.owner}--${s.repo}.json`)' > "$RUNNER_TEMP/expected.txt"
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            if [ ! -f "out/$file" ]; then
+              if gh release download snapshot-latest --repo "$GITHUB_REPOSITORY" -p "$file" -D out >/dev/null 2>&1; then
+                echo "::warning::$file 今天產生失敗，沿用上一份已發佈的快照"
+              else
+                echo "::warning::$file 今天產生失敗，且沒有可沿用的舊快照"
+              fi
+            fi
+          done < "$RUNNER_TEMP/expected.txt"
 
       - name: Build index
         run: |
@@ -121,7 +239,7 @@ jobs:
           const snapshots = files.map((f) => JSON.parse(fs.readFileSync(`out/${f}`, "utf8")));
           const index = {
             schema_version: 1,
-            generated_at: snapshots[0].generated_at,
+            generated_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
             systems: snapshots.map((snapshot, i) => ({
               id: snapshot.system,
               repo: snapshot.source.github,
@@ -144,3 +262,18 @@ jobs:
               --notes "由 factory-snapshot workflow 產生。index.json 的 sample: true 代表合成系統；sample: false 是真實租戶系統。"
           fi
           gh release upload snapshot-latest out/*.json --clobber --repo "$GITHUB_REPOSITORY"
+
+      # 舊檔名（改名前的 <repo>.json）或已移除的系統會留在 release 裡；index 不再引用它們，
+      # 這裡把 release 上「不在 out/」的 JSON 資產刪掉，避免誤用過期資料。
+      - name: Remove orphaned snapshot assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release view snapshot-latest --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | while IFS= read -r asset; do
+            case "$asset" in *.json) ;; *) continue ;; esac
+            if [ ! -f "out/$asset" ]; then
+              echo "刪除孤兒資產：$asset"
+              gh release delete-asset snapshot-latest "$asset" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          done
