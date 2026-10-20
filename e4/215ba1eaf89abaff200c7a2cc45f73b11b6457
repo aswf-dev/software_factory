@@ -1,0 +1,16 @@
+templates/index.json
+  h_1b119f25eaf333 889-892
+templates/tradingbot-tw/saga-pattern.yaml
+  h_1b119f25eaf333 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e4215ba1eaf89abaff200c7a2cc45f73b11b6457",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
