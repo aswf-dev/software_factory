@@ -21,6 +21,7 @@ steps:
     phase: P1
     action: '匯出 Conductor workflow 定義入庫'
     kind: human
+    gates: [TRADINGBOT-TW-WORKFLOW]
   - id: TB3
     phase: P2
     action: '補測試（worker 與 workflow 契約、補償路徑）'
