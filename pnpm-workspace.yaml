@@ -23,6 +23,11 @@ overrides:
   sharp: '>=0.35.5 <0.36'
   '@modelcontextprotocol/client': '>=2.2.0 <3'
   '@modelcontextprotocol/sdk': '>=1.31.0 <2'
+  # pnpm audit（2026-10-21）：vite high GHSA-587h-7wmj-h5pm（launch-editor 在 Windows 上可繞過
+  # fs.existsSync 檢查）與 moderate GHSA-698v-4r3x-3vcv／GHSA-r825-w8mm-5pxw（vitest>vite，僅開發用）；
+  # fflate moderate GHSA-px8p-9vwx-vf98。vitest 上游升版後可移除。
+  vite: '>=8.2.4 <9'
+  fflate: '>=0.8.3 <1'
 auditConfig:
   ignoreGhsas:
     # http-cache-semantics max-stale（high，2026-10-03 起擋 CI）：上游尚無修補版，
