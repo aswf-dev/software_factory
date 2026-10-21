@@ -1,0 +1,32 @@
+.github/workflows/factory-snapshot.yml
+  h_1b119f25eaf333 15-19,145,148-149,163-164
+docs/29-brownfield-adoption-playbook.md
+  h_1b119f25eaf333 291
+docs/ADR/025-tenant-process-templates.md
+  h_1b119f25eaf333 50
+src/cli/factory-graph.test.ts
+  h_1b119f25eaf333 2,47,215,232-234,347-412
+src/cli/factory-graph.ts
+  h_1b119f25eaf333 24-25,100-105,152-158,262-274
+src/cli/factory-hg.test.ts
+  h_1b119f25eaf333 2,5-11,117,121-125,146,200,214,245-327
+src/cli/factory-hg.ts
+  h_1b119f25eaf333 19,131-177,205-213
+src/cli/factory-next.ts
+  h_1b119f25eaf333 18,141-152
+src/hg/parse.test.ts
+  h_1b119f25eaf333 11,360-396
+src/hg/parse.ts
+  h_1b119f25eaf333 15-20,60-64,67,70-72,76-77,81-92,153,155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2316562eb237dbe6b082412064047f74f372afbd",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
