@@ -12,6 +12,11 @@ name: Factory Snapshot
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 發佈到 snapshot-latest（false＝只產生並上傳 artifact，用來驗證變更）
+        type: boolean
+        default: true
   schedule:
     # 每日 00:00 UTC（台北 08:00）。快照是唯讀產物，延遲一天不影響判定。
     - cron: '0 0 * * *'
@@ -137,8 +142,11 @@ jobs:
             --process "$SPEC" \
             --template "templates/$TEMPLATE_ID.yaml" \
             --issues-file "$WORK/issues.json" \
+            --signer-permissions resolve \
             ${extra[@]+"${extra[@]}"} \
             --generated-at "$generated_at" > "$WORK/snapshot.json"
+          # 閘門摘要寫進 job log：簽核者權限查詢（#126）是否生效，不必下載快照也看得到。
+          node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log("gates:",s.graph.gates.map(g=>g.id+"="+g.state+(g.signed_by?"("+g.signed_by+")":"")).join(", "));for(const w of s.warnings.filter(w=>/簽核權限|查不到/.test(w)))console.log("::warning::"+w)' "$WORK/snapshot.json"
           # 成功才搬進 out/：半套 JSON 會讓 publish 的 Build index 解析失敗。
           mv "$WORK/snapshot.json" "out/$OUT_FILE"
 
@@ -152,7 +160,8 @@ jobs:
   publish:
     needs: [discover, snapshot]
     # 個別租戶失敗（snapshot 為 failure）仍要發佈其他系統；只有 discover 失敗或取消才停。
-    if: ${{ !cancelled() && needs.discover.result == 'success' }}
+    # 手動執行且 publish=false 時不發佈（排程執行沒有 inputs，inputs.publish 為 null → 照常發佈）。
+    if: ${{ !cancelled() && needs.discover.result == 'success' && inputs.publish != false }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:

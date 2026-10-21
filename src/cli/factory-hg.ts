@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
-import { CUSTOM_GATE_PATTERN, HG_IDS, TRACKED_GATE_IDS, gateReport, signersOf } from '../hg/parse.js'
+import { CUSTOM_GATE_PATTERN, HG_IDS, TRACKED_GATE_IDS, gateReport, hasGateMarker, isBotAuthor, signersOf } from '../hg/parse.js'
 import type { GateId, GateReport, HgComment } from '../hg/parse.js'
 import { loadTemplate } from '../process/spec.js'
 
@@ -128,6 +128,53 @@ export function parseComments(raw: string): HgComment[] {
   return comments
 }
 
+/**
+ * 為帶簽核標記的留言補上作者的 repo 權限（#126）。
+ *
+ * `author_association` 對不公開的組織成員會依讀取者回 `NONE`（App token 讀到的就是 NONE），
+ * 不能單獨用來判斷簽核資格。改查 `GET /repos/{repo}/collaborators/{login}/permission`：
+ * GitHub App 安裝 token 只需 Metadata read（docs: permissions-required-for-github-apps）。
+ *
+ * - 每位作者只查一次；bot 與沒有標記的留言不查。
+ * - 404（帳號不存在或對 repo 無任何權限）→ `none`，是明確的「沒有權限」。
+ * - 其他失敗（例如 403）→ 不填，`isAuthorizedSigner` 退回 `author_association`；
+ *   失敗原因寫進回傳的 warnings，讓快照看得出是查不到而不是被拒。
+ */
+export function resolveSignerPermissions(
+  comments: readonly HgComment[],
+  repo: string,
+  gh: GhRunner,
+): { comments: HgComment[]; warnings: string[] } {
+  const warnings: string[] = []
+  const permissionOf = new Map<string, string | undefined>()
+  for (const comment of comments) {
+    if (!hasGateMarker(comment.body) || isBotAuthor(comment.author) || comment.author === '') continue
+    if (permissionOf.has(comment.author)) continue
+    try {
+      const raw = gh(['api', `repos/${repo}/collaborators/${comment.author}/permission`, '--jq', '.permission']).trim()
+      permissionOf.set(comment.author, raw === '' ? undefined : raw)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (/HTTP 404/.test(message)) {
+        permissionOf.set(comment.author, 'none')
+      } else {
+        permissionOf.set(comment.author, undefined)
+        // execFileSync 的第一行是「Command failed: …」，原因（含 HTTP 狀態）在 stderr 那幾行。
+        const lines = message.split('\n').map((line) => line.trim()).filter((line) => line !== '')
+        const reason = lines.find((line) => /HTTP \d{3}/.test(line)) ?? lines[0] ?? message
+        warnings.push(`查不到 ${comment.author} 對 ${repo} 的權限（${reason}），改以 author_association 判斷`)
+      }
+    }
+  }
+  return {
+    comments: comments.map((comment) => {
+      const permission = permissionOf.get(comment.author)
+      return permission === undefined ? comment : { ...comment, permission }
+    }),
+    warnings,
+  }
+}
+
 export function show(
   options: HgShowOptions,
   gh: GhRunner,
@@ -155,8 +202,15 @@ export function show(
     '--slurp',
     `repos/${options.repo}/issues/${options.issue}/comments`,
   ])
-  const report = gateReport(parseComments(raw), expected, options.scope, declaredGates, signers)
-  return { repo: options.repo, issue: options.issue, scope: options.scope, ...report }
+  const resolved = resolveSignerPermissions(parseComments(raw), options.repo, gh)
+  const report = gateReport(resolved.comments, expected, options.scope, declaredGates, signers)
+  return {
+    repo: options.repo,
+    issue: options.issue,
+    scope: options.scope,
+    gates: report.gates,
+    warnings: [...resolved.warnings, ...report.warnings],
+  }
 }
 
 export function main(

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { main, parseComments, parseOptions, show } from './factory-hg.js'
+import { main, parseComments, parseOptions, resolveSignerPermissions, show } from './factory-hg.js'
 import type { GhRunner } from './factory-hg.js'
+
+/** 權限查詢（collaborator permission API）的假回應；其他呼叫回傳留言頁。 */
+const isPermissionCall = (args: readonly string[]): boolean => args.some((arg) => arg.endsWith('/permission'))
+const withPermission =
+  (comments: string, permission = 'write'): GhRunner =>
+  (args) =>
+    isPermissionCall(args) ? permission : comments
 
 function page(items: unknown[]): string {
   return JSON.stringify([items])
@@ -107,11 +114,15 @@ describe('show', () => {
     const calls: string[][] = []
     const gh: GhRunner = (args) => {
       calls.push(args)
-      return page([signedComment])
+      return withPermission(page([signedComment]))(args)
     }
     const result = show({ repo: 'a/b', issue: 7, gates: ['HG1', 'HG2'], scope: 'system' }, gh)
 
-    expect(calls).toEqual([['api', '--paginate', '--slurp', 'repos/a/b/issues/7/comments']])
+    expect(calls).toEqual([
+      ['api', '--paginate', '--slurp', 'repos/a/b/issues/7/comments'],
+      // 每位有標記留言的作者查一次 repo 權限（#126）
+      ['api', `repos/a/b/collaborators/${signedComment.user.login}/permission`, '--jq', '.permission'],
+    ])
     expect(result.repo).toBe('a/b')
     expect(result.issue).toBe(7)
     expect(result.scope).toBe('system')
@@ -132,7 +143,7 @@ describe('show', () => {
 
 describe('main', () => {
   it('由 argv 組出結果', () => {
-    const gh: GhRunner = () => page([signedComment])
+    const gh: GhRunner = withPermission(page([signedComment]))
     const result = main(['--repo', 'a/b', '--issue', '7', '--gates', 'HG2'], gh)
     expect(result.gates).toEqual([
       {
@@ -186,7 +197,7 @@ describe('自訂閘門（--template，ADR-025）', () => {
   it('模板宣告的自訂閘門可被解析為 signed', () => {
     const result = show(
       { repo: 'a/b', issue: 7, gates: ['HG1'], scope: 'system', templatePath: 't.yaml' },
-      () => page([customComment]),
+      withPermission(page([customComment])),
       () => templateYaml,
     )
     expect(result.warnings).toEqual([])
@@ -200,7 +211,7 @@ describe('自訂閘門（--template，ADR-025）', () => {
   it('不在 gate_defs.signers 的帳號簽核自訂閘門 → 不採計並寫 warning', () => {
     const result = show(
       { repo: 'a/b', issue: 7, gates: ['HG1'], scope: 'system', templatePath: 't.yaml' },
-      () => page([{ ...customComment, user: { login: 'bob' } }]),
+      withPermission(page([{ ...customComment, user: { login: 'bob' } }])),
       () => templateYaml,
     )
     expect(result.gates.find((gate) => gate.id === 'ACME-SECURITY')).toMatchObject({ state: 'missing' })
@@ -229,5 +240,88 @@ describe('自訂閘門（--template，ADR-025）', () => {
     expect(() => parseOptions(['--repo', 'a/b', '--issue', '3', '--gates', 'acme-lower'])).toThrow(
       /未知的閘門 id/,
     )
+  })
+})
+
+describe('resolveSignerPermissions（#126）', () => {
+  const marker = (id: number, author: string, association = 'NONE') => ({
+    id,
+    body: '<!-- factory:hg id=HG1 state=signed evidence=https://a.test -->',
+    author,
+    createdAt: `2026-10-21T0${id}:00:00Z`,
+    association,
+  })
+
+  it('每位作者只查一次；bot、沒有標記、空作者不查', () => {
+    const calls: string[][] = []
+    const gh: GhRunner = (args) => {
+      calls.push(args)
+      return 'admin\n'
+    }
+    const { comments, warnings } = resolveSignerPermissions(
+      [
+        marker(1, 'philipz'),
+        marker(2, 'philipz'),
+        marker(3, 'softwarefactory-bot[bot]'),
+        { id: 4, body: '只是討論', author: 'carol', createdAt: '2026-10-21T04:00:00Z' },
+        marker(5, ''),
+      ],
+      'agent-playground/restate',
+      gh,
+    )
+    expect(calls).toEqual([['api', 'repos/agent-playground/restate/collaborators/philipz/permission', '--jq', '.permission']])
+    expect(comments.map((c) => c.permission)).toEqual(['admin', 'admin', undefined, undefined, undefined])
+    expect(warnings).toEqual([])
+  })
+
+  it('404 → none（明確沒有權限）', () => {
+    const gh: GhRunner = () => {
+      throw new Error('gh: Not Found (HTTP 404)')
+    }
+    const { comments, warnings } = resolveSignerPermissions([marker(1, 'stranger')], 'a/b', gh)
+    expect(comments[0]?.permission).toBe('none')
+    expect(warnings).toEqual([])
+  })
+
+  it('其他錯誤 → 不填權限、寫 warning，交給 association 備援', () => {
+    const gh: GhRunner = () => {
+      throw new Error('gh: Must have push access to view collaborator permission. (HTTP 403)\nmore')
+    }
+    const { comments, warnings } = resolveSignerPermissions([marker(1, 'alice', 'OWNER')], 'a/b', gh)
+    expect(comments[0]?.permission).toBeUndefined()
+    expect(warnings[0]).toContain('查不到 alice 對 a/b 的權限（gh: Must have push access')
+    expect(warnings[0]).not.toContain('more')
+  })
+
+  it('execFileSync 形式的錯誤：warning 顯示含 HTTP 狀態的那一行，而不是 Command failed', () => {
+    const gh: GhRunner = () => {
+      throw new Error('Command failed: gh api repos/a/b/collaborators/x/permission\n{"message":"Must have push access"}\ngh: Must have push access to view collaborator permission. (HTTP 403)')
+    }
+    const { warnings } = resolveSignerPermissions([marker(1, 'x')], 'a/b', gh)
+    expect(warnings[0]).toContain('(HTTP 403)')
+    expect(warnings[0]).not.toContain('Command failed')
+  })
+
+  it('錯誤訊息只有空行時退回整段訊息', () => {
+    const gh: GhRunner = () => {
+      throw new Error('\n')
+    }
+    expect(resolveSignerPermissions([marker(1, 'x')], 'a/b', gh).warnings[0]).toContain('查不到 x')
+  })
+
+  it('非 Error 的例外也能處理；空字串回應視為查不到', () => {
+    const thrower: GhRunner = () => {
+      throw 'boom'
+    }
+    expect(resolveSignerPermissions([marker(1, 'x')], 'a/b', thrower).warnings[0]).toContain('boom')
+    expect(resolveSignerPermissions([marker(1, 'x')], 'a/b', () => '  ').comments[0]?.permission).toBeUndefined()
+  })
+
+  it('show：不公開組織成員（association=NONE、repo 權限 admin）的簽核被採計', () => {
+    const result = show(
+      { repo: 'a/b', issue: 7, gates: ['HG2'], scope: 'system' },
+      withPermission(page([{ ...signedComment, author_association: 'NONE' }]), 'admin'),
+    )
+    expect(result.gates.find((g) => g.id === 'HG2')).toMatchObject({ state: 'signed', signed_by: 'alice' })
   })
 })

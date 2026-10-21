@@ -21,8 +21,8 @@ import { isMainModule } from './is-main-module.js'
 import { buildGraph } from '../graph/build.js'
 import type { GraphDocument, IssueInput, PullRequestInput } from '../graph/build.js'
 import type { ModuleEntry, ProcessSpec, Template } from '../process/spec.js'
-import type { GateStatus } from '../hg/parse.js'
-import { parseComments } from './factory-hg.js'
+import type { GateReport, GateStatus } from '../hg/parse.js'
+import { parseComments, resolveSignerPermissions } from './factory-hg.js'
 import { TRACKED_GATE_IDS, gateReport, signersOf } from '../hg/parse.js'
 import type { GateId } from '../hg/parse.js'
 import { loadModuleSpec, loadProcessSpec, loadTemplate } from '../process/spec.js'
@@ -97,6 +97,12 @@ export interface GraphOptions {
   trackingIssue?: number | undefined
   limit: number
   generatedAt?: string | undefined
+  /**
+   * 簽核者權限（#126）：`resolve`＝以 collaborator permission API 查每位簽核者的 repo 權限；
+   * `association`＝只看留言的 author_association。線上讀取預設 `resolve`；`--comments-file`
+   * 離線模式預設 `association`（合成樣本沒有真的 repo 可查），真實系統的快照需明確指定 `resolve`。
+   */
+  signerPermissions?: 'resolve' | 'association' | undefined
 }
 
 export function parseOptions(argv: readonly string[]): GraphOptions {
@@ -143,6 +149,13 @@ export function parseOptions(argv: readonly string[]): GraphOptions {
   if (issuesPath !== undefined) options.issuesPath = issuesPath
   const commentsPath = values.get('comments-file')
   if (commentsPath !== undefined) options.commentsPath = commentsPath
+  const signerPermissions = values.get('signer-permissions')
+  if (signerPermissions !== undefined) {
+    if (signerPermissions !== 'resolve' && signerPermissions !== 'association') {
+      throw new CliError(`--signer-permissions 只接受 resolve 或 association：${signerPermissions}`)
+    }
+    options.signerPermissions = signerPermissions
+  }
   const prsPath = values.get('prs-file')
   if (prsPath !== undefined) options.prsPath = prsPath
   if (trackingIssue !== undefined) options.trackingIssue = trackingIssue
@@ -246,25 +259,19 @@ export function collectInputs(options: GraphOptions, deps: GraphDeps): GraphInpu
   // 永遠顯示一個 missing 的鎖（真實租戶就是這樣）。validateTemplate 已保證必要閘門存在。
   const expectedGates: readonly GateId[] = declaredGates ?? TRACKED_GATE_IDS
 
-  const report =
-    options.trackingIssue === undefined
-      ? undefined
-      : gateReport(
-          parseComments(
-            options.commentsPath !== undefined
-              ? deps.readFile(options.commentsPath)
-              : deps.gh([
-                  'api',
-                  '--paginate',
-                  '--slurp',
-                  `repos/${options.repo}/issues/${options.trackingIssue}/comments`,
-                ]),
-          ),
-          expectedGates,
-          'system',
-          declaredGates,
-          signersOf(template?.gate_defs),
-        )
+  let report: GateReport | undefined
+  if (options.trackingIssue !== undefined) {
+    const comments = parseComments(
+      options.commentsPath !== undefined
+        ? deps.readFile(options.commentsPath)
+        : deps.gh(['api', '--paginate', '--slurp', `repos/${options.repo}/issues/${options.trackingIssue}/comments`]),
+    )
+    const mode = options.signerPermissions ?? (options.commentsPath !== undefined ? 'association' : 'resolve')
+    const resolved =
+      mode === 'resolve' ? resolveSignerPermissions(comments, options.repo, deps.gh) : { comments, warnings: [] }
+    const gateResult = gateReport(resolved.comments, expectedGates, 'system', declaredGates, signersOf(template?.gate_defs))
+    report = { gates: gateResult.gates, warnings: [...resolved.warnings, ...gateResult.warnings] }
+  }
   const gates = report?.gates
 
   // 離線 issues 模式（合成系統）預設沒有 PR；要納入 PR 就另外給 --prs-file。

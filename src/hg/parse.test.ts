@@ -8,6 +8,7 @@ import {
   parseCommentEvents,
   reduceGates,
   signersOf,
+  hasGateMarker,
 } from './parse.js'
 import type { HgComment, HgEvent } from './parse.js'
 
@@ -354,5 +355,42 @@ describe('簽核身份（author_association 與 gate_defs.signers）', () => {
 
   it('signersOf：沒有 gate_defs 時是空表（不限制）', () => {
     expect(signersOf(undefined).size).toBe(0)
+  })
+})
+
+describe('repo 權限優先於 author_association（#126）', () => {
+  const HG2 = '<!-- factory:hg id=HG2 state=signed evidence=https://a.test -->'
+  const withPerm = (permission: string | undefined, association: string | null): HgComment => {
+    const base = comment(1, HG2, undefined, 'philipz', association)
+    return permission === undefined ? base : { ...base, permission }
+  }
+
+  it('不公開的組織成員：association=NONE 但 repo 權限 admin → 採計（restate 的實際情況）', () => {
+    const { events, warnings } = parseCommentEvents(withPerm('admin', 'NONE'))
+    expect(events).toHaveLength(1)
+    expect(warnings).toEqual([])
+  })
+
+  it.each(['admin', 'write'])('repo 權限 %s → 採計', (permission) => {
+    expect(parseCommentEvents(withPerm(permission, null)).events).toHaveLength(1)
+  })
+
+  it.each(['read', 'none', 'triage'])('repo 權限 %s → 不採計，即使 association 是 MEMBER', (permission) => {
+    const { events, warnings } = parseCommentEvents(withPerm(permission, 'MEMBER'))
+    expect(events).toEqual([])
+    expect(warnings[0]).toContain(`repo 權限=${permission}`)
+  })
+
+  it('查不到權限時退回 association（備援）', () => {
+    expect(parseCommentEvents(withPerm(undefined, 'OWNER')).events).toHaveLength(1)
+    const rejected = parseCommentEvents(withPerm(undefined, 'NONE'))
+    expect(rejected.events).toEqual([])
+    expect(rejected.warnings[0]).toContain('author_association=NONE')
+  })
+
+  it('hasGateMarker 只認簽核標記', () => {
+    expect(hasGateMarker(HG2)).toBe(true)
+    expect(hasGateMarker('<!-- factory:gate id=X-Y state=signed -->')).toBe(true)
+    expect(hasGateMarker('一般討論 factory:hg')).toBe(false)
   })
 })

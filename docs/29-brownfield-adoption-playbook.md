@@ -288,7 +288,7 @@ HG2 已簽核：規模 M、billing 就緒度 R1。
 | 欄位 | `id`（HG0–HG7，或模板已宣告的自訂閘門 `<TENANT>-<NAME>`）、`state`（`signed`／`revoked`）、選填 `scope`（預設 `system`；模組層級填 module-id）、`evidence`（`signed` 時必填，須為 http(s) 連結） |
 | 自訂閘門 | 租戶模板宣告的額外閘門用 `<!-- factory:gate id=ACME-SECURITY … -->`；只認模板已宣告者，未宣告或未提供模板時產生 warning（`ADR-025` §3） |
 | 誰能簽 | 只有**人類**。`[bot]` 結尾的作者一律忽略——工廠不得簽自己的閘門 |
-| 簽核權限（2026-10-20） | 留言者對該 repo 的 `author_association` 必須是 `OWNER`／`MEMBER`／`COLLABORATOR`；其他人（含 public repo 上的任何路人、對該 repo 無權限的平台人員）的簽核與撤回一律不採計，並寫入快照 warnings。缺此欄位視為無權限 |
+| 簽核權限（2026-10-20；2026-10-21 修正 #126） | 留言者必須對該 repo 有**寫入權**：以 `GET /repos/{o}/{r}/collaborators/{u}/permission` 的 `admin`／`write` 判斷（已含組織、團隊授權；`maintain` 歸為 `write`）。查不到權限時才退回 `author_association`（`OWNER`／`MEMBER`／`COLLABORATOR`）——它對**不公開的組織成員**會依讀取者回 `NONE`，不能單獨使用。不採計的簽核與撤回寫入快照 warnings |
 | 自訂閘門的簽核者 | 模板 `gate_defs.signers` 是 **GitHub 帳號**清單；不在名單內的帳號簽核或撤回該閘門一律不採計（HG 閘門不受 signers 限制，只套用上一列） |
 | 以誰為準 | 同一 `(id, scope)` 以**最後一筆**為準；`revoked` 表示撤回，該閘門回到未簽 |
 | 記錄在哪 | 導入追蹤 Issue（每系統一張）。HG0 在 Issue 本身、HG3 在 PR，不在此清單 |
