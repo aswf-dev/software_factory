@@ -12,9 +12,12 @@
  * 幾條刻意的規則：
  *   - **機器人不得簽核**：`[bot]` 結尾的作者一律忽略（工廠自己不能簽自己的閘門，
  *     與「工廠從不發射 `stage/done`」同一防禦）。
- *   - **只有對 repo 有權限的人能簽**（2026-10-20）：GitHub 留言 API 的 `author_association`
- *     必須是 OWNER／MEMBER／COLLABORATOR。public repo 上任何人都能留言，若不檢查，
- *     陌生人一行標記就能簽核或撤回閘門。缺這個欄位視為無權限（不猜）。
+ *   - **只有對 repo 有寫入權的人能簽**（2026-10-20，2026-10-21 修正 #126）：public repo 上任何人
+ *     都能留言，若不檢查，陌生人一行標記就能簽核或撤回閘門。
+ *     判準以 **repo 權限**為準（`GET /repos/{o}/{r}/collaborators/{u}/permission` 的 `admin`／`write`；
+ *     `maintain` 由 GitHub 歸為 `write`），它已算進組織、團隊的授權。
+ *     `author_association` 只在查不到權限時當備援——它對「不公開的組織成員」會依讀取者回 `NONE`
+ *     （App token 讀到的就是 NONE），不能當唯一依據。兩者都缺時視為無權限（不猜）。
  *   - **自訂閘門只接受 `gate_defs.signers`**：signers 是 GitHub 帳號；作者不在名單內的
  *     簽核／撤回不採計。HG 閘門沒有 signers，只套用上一條。
  *   - 被拒絕的簽核一律寫 warning，不靜默丟棄（「簽了但沒生效」必須看得出來）。
@@ -54,16 +57,37 @@ export interface HgComment {
    * 缺席時視為無簽核權限。
    */
   association?: string
+  /**
+   * 作者對 repo 的權限（collaborator permission API 的 `permission`：admin／write／read／none）。
+   * 有值時以它為準；缺席時才看 `association`。
+   */
+  permission?: string
 }
 
-/** 可以簽核閘門的 `author_association`：對 repo 有寫入關係的人。 */
+/** 備援判準：可以簽核閘門的 `author_association`。 */
 export const SIGNING_ASSOCIATIONS: readonly string[] = ['OWNER', 'MEMBER', 'COLLABORATOR']
+
+/** 主要判準：可以簽核閘門的 repo 權限（API 已把 maintain 歸為 write）。 */
+export const SIGNING_PERMISSIONS: readonly string[] = ['admin', 'write']
 
 /** 自訂閘門 id → 允許簽核的 GitHub 帳號（來自模板 `gate_defs.signers`）。 */
 export type GateSigners = ReadonlyMap<GateId, readonly string[]>
 
-export function isAuthorizedSigner(comment: Pick<HgComment, 'association'>): boolean {
+export function isAuthorizedSigner(comment: Pick<HgComment, 'association' | 'permission'>): boolean {
+  if (comment.permission !== undefined) return SIGNING_PERMISSIONS.includes(comment.permission)
   return comment.association !== undefined && SIGNING_ASSOCIATIONS.includes(comment.association)
+}
+
+/** 判定依據的可讀說明（寫進 warning，讓「為什麼被擋」看得出來）。 */
+function authorityOf(comment: Pick<HgComment, 'association' | 'permission'>): string {
+  return comment.permission !== undefined
+    ? `repo 權限=${comment.permission}`
+    : `author_association=${comment.association ?? '未知'}`
+}
+
+/** 帶有簽核標記的留言（只有這些需要查作者權限）。 */
+export function hasGateMarker(body: string): boolean {
+  return /<!--\s*factory:(?:hg|gate)\s/.test(body)
 }
 
 export interface HgEvent {
@@ -126,12 +150,9 @@ export function parseCommentEvents(
   const events: HgEvent[] = []
   const warnings: string[] = []
   if (isBotAuthor(comment.author)) return { events, warnings }
-  const hasMarker = /<!--\s*factory:(?:hg|gate)\s/.test(comment.body)
-  if (!hasMarker) return { events, warnings }
+  if (!hasGateMarker(comment.body)) return { events, warnings }
   if (!isAuthorizedSigner(comment)) {
-    warnings.push(
-      `comment ${comment.id}: ${comment.author} 對此 repo 沒有簽核權限（author_association=${comment.association ?? '未知'}），已忽略`,
-    )
+    warnings.push(`comment ${comment.id}: ${comment.author} 對此 repo 沒有簽核權限（${authorityOf(comment)}），已忽略`)
     return { events, warnings }
   }
 

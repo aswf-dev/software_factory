@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { graph, main, parseIssues, parseOptions, parsePullRequests } from './factory-graph.js'
+import { collectInputs, graph, main, parseIssues, parseOptions, parsePullRequests } from './factory-graph.js'
 import type { GhRunner, GraphDeps } from './factory-graph.js'
 
 const issuesJson = JSON.stringify([
@@ -44,6 +44,7 @@ function deps(overrides: Partial<GraphDeps> = {}): GraphDeps {
   const gh: GhRunner = (args) => {
     if (args[0] === 'issue') return issuesJson
     if (args[0] === 'pr') return '[]'
+    if (args.some((arg) => arg.endsWith('/permission'))) return 'write'
     return commentsJson
   }
   return {
@@ -211,6 +212,7 @@ describe('graph', () => {
       calls.push(args)
       if (args[0] === 'issue') return issuesJson
       if (args[0] === 'pr') return '[]'
+      if (args.some((arg) => arg.endsWith('/permission'))) return 'write'
       return commentsJson
     }
     graph({ repo: 'a/b', system: 'a/b', limit: 5, trackingIssue: 9 }, deps({ gh }))
@@ -227,7 +229,9 @@ describe('graph', () => {
       'number,title,body,labels,state',
     ])
     expect(calls[1]).toEqual(['api', '--paginate', '--slurp', 'repos/a/b/issues/9/comments'])
-    expect(calls[2]).toEqual([
+    // 線上讀取時，每位簽核者查一次 repo 權限（#126）
+    expect(calls[2]?.[1]).toMatch(/^repos\/a\/b\/collaborators\/.+\/permission$/)
+    expect(calls[3]).toEqual([
       'pr',
       'list',
       '--repo',
@@ -338,5 +342,71 @@ describe('parsePullRequests', () => {
       JSON.stringify([{ number: 1, state: 'OPEN', mergedAt: null, headRefName: 'x', body: null }]),
     )
     expect(pr?.body).toBe('')
+  })
+})
+
+describe('--signer-permissions（#126）', () => {
+  const offline = (gh: GhRunner): GraphDeps => ({
+    gh,
+    readFile: (path) => {
+      if (path === 'issues.json') return issuesJson
+      if (path === 'comments.json') return commentsJson.replace(/"MEMBER"/g, '"NONE"')
+      return processYaml
+    },
+    now: () => '2026-10-21T00:00:00Z',
+  })
+  const argv = (...extra: string[]) => [
+    '--repo', 'a/b', '--issues-file', 'issues.json', '--tracking-issue', '391', '--comments-file', 'comments.json', ...extra,
+  ]
+
+  it('parseOptions 接受 resolve／association，拒絕其他值', () => {
+    expect(parseOptions(argv('--signer-permissions', 'resolve')).signerPermissions).toBe('resolve')
+    expect(parseOptions(argv('--signer-permissions', 'association')).signerPermissions).toBe('association')
+    expect(() => parseOptions(argv('--signer-permissions', 'yes'))).toThrow(/只接受 resolve 或 association/)
+  })
+
+  it('離線預設 association：不呼叫 gh；association=NONE 的簽核被拒並列 warning', () => {
+    const inputs = collectInputs(parseOptions(argv()), offline(() => {
+      throw new Error('gh should not be called')
+    }))
+    expect(inputs.gates?.find((gate) => gate.id === 'HG2')?.state).toBe('missing')
+    expect(inputs.gateWarnings?.join('\n')).toContain('author_association=NONE')
+  })
+
+  it('離線 + resolve：以 repo 權限判斷（不公開成員 admin → signed），查詢失敗的 warning 也帶進來', () => {
+    const calls: string[][] = []
+    const inputs = collectInputs(
+      parseOptions(argv('--signer-permissions', 'resolve')),
+      offline((args) => {
+        calls.push(args)
+        return 'admin'
+      }),
+    )
+    expect(calls.every((args) => args[1]?.endsWith('/permission'))).toBe(true)
+    expect(inputs.gates?.find((gate) => gate.id === 'HG2')).toMatchObject({ state: 'signed', signed_by: 'alice' })
+
+    const failing = collectInputs(
+      parseOptions(argv('--signer-permissions', 'resolve')),
+      offline(() => {
+        throw new Error('gh: Forbidden (HTTP 403)')
+      }),
+    )
+    expect(failing.gateWarnings?.join('\n')).toContain('查不到 alice 對 a/b 的權限')
+  })
+
+  it('線上 + association：明確指定時不查權限', () => {
+    const calls: string[][] = []
+    collectInputs(
+      { repo: 'a/b', system: 'a/b', limit: 5, trackingIssue: 9, signerPermissions: 'association' },
+      deps({
+        gh: (args) => {
+          calls.push(args)
+          if (args[0] === 'issue') return issuesJson
+          if (args[0] === 'pr') return '[]'
+          return commentsJson
+        },
+      }),
+    )
+    expect(calls.some((args) => args[1]?.endsWith('/permission'))).toBe(false)
   })
 })

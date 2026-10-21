@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { CliError, formatCliError } from './run-cli.js'
 import { isMainModule } from './is-main-module.js'
 import { parseIssues } from './factory-graph.js'
-import { parseComments } from './factory-hg.js'
+import { parseComments, resolveSignerPermissions } from './factory-hg.js'
 import { gateReport, signersOf } from '../hg/parse.js'
 import { loadModuleSpec, loadProcessSpec, loadTemplate } from '../process/spec.js'
 import { TRACKED_GATE_IDS } from '../hg/parse.js'
@@ -138,14 +138,18 @@ export function next(options: NextOptions, deps: NextDeps): NextActionsDocument 
     options.trackingIssue === undefined
       ? []
       : gateReport(
-          parseComments(
-            deps.gh([
-              'api',
-              '--paginate',
-              '--slurp',
-              `repos/${options.repo}/issues/${options.trackingIssue}/comments`,
-            ]),
-          ),
+          resolveSignerPermissions(
+            parseComments(
+              deps.gh([
+                'api',
+                '--paginate',
+                '--slurp',
+                `repos/${options.repo}/issues/${options.trackingIssue}/comments`,
+              ]),
+            ),
+            options.repo,
+            deps.gh,
+          ).comments,
           // validateTemplate 保證模板含必要閘門（非空），所以直接用宣告值。
           template.gates,
           'system',
