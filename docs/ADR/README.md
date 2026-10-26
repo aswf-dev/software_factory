@@ -57,7 +57,7 @@
 | [ADR-025](025-tenant-process-templates.md) | 多租戶公司流程模板——工廠固定 meta-contract，租戶擁有自己的模板（版本化、釘版本）；自訂 gate 以 `<TENANT>-<NAME>` 命名；`scale` 與模板脫鉤；S/M/L 降為 preset | 已接受；模板格式將被 `ADR-027` §9 取代（提議中） | `ADR-023`、`ADR-024`、`29` §6／§8／§9、`10` `Q-ORCH-4/5` |
 | [ADR-026](026-project-owned-process-spec.md) | 系統流程 spec 歸專案所有（`factory/system.yaml`）；機制 repo 只保留納管名冊與規則，讀取時驗證；揭露 public 機制 repo 使租戶隔離失效（模板與快照可匿名讀取） | 已接受（實作待遷移）；檔案格式將被 `ADR-027` §9 取代（提議中） | `ADR-023` §1、`ADR-025`、`ADR-001` |
 | [ADR-027](027-bpmn-process-orchestration.md) | 以 BPMN 編排系統價值流——GitHub 管事實、Durable Object 管流程位置；人按送出才派工；工作項＝工廠擁有的子流程；HG 為 message catch、以本人身分在 GitHub 簽核；模板／系統／模組全部以 BPMN XML 為正本；process.yaml 只往前刪除 | 提議中 | `ADR-028`、`research/56-bpmn-orchestration`、`ADR-001`、`ADR-022`～`ADR-026` |
-| [ADR-028](028-bpmn-runtime-stack.md) | BPMN 執行技術選型——bpmnkit 全環境使用（編輯器／檢視器／linter／模擬／執行）、DO 以事件日誌為準並重播恢復、FEEL-only、與 Scoreboard 同 Worker、WebSocket Hibernation、PITR 備援、引擎升級重播閘門；附 PoC 驗收標準 | 提議中 | `ADR-027`、`research/56-bpmn-orchestration`、`ADR-015` |
+| [ADR-028](028-bpmn-runtime-stack.md) | BPMN 執行技術選型——bpmnkit 全環境使用（編輯器／檢視器／linter／模擬／執行）、DO 以事件日誌為準、記憶體快取＋冷喚醒重播、Workers Paid、FEEL-only、與 Scoreboard 同 Worker、WebSocket Hibernation、PITR 備援、引擎升級重播閘門；附 PoC 驗收標準 | 提議中 | `ADR-027`、`research/56-bpmn-orchestration`、`ADR-015` |
 
 ## 何時該寫新的 ADR
 

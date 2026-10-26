@@ -16,7 +16,8 @@
 - **計時器**：預設 `setTimeout` 在 DO 被驅逐時遺失、會阻止 hibernation；延遲 ≥ 約 24.8 天根本不會排程。
 - **定義改動會讓等待中的實例靜默卡住**，且沒有遷移 API。
 - **bpmnkit**：MIT、無浮水印；編輯器 147.6 KiB gz、`exportPreserving` 只產生最小 diff、帶 `factory:*` 往返 0 差異；引擎**自稱模擬器**、沒有 snapshot，但在 DO 以「重播輸入日誌」恢復已實測可行（強制驅逐 3 次，路徑正確、副作用不重複）。語意缺口：receiveTask 不等待、沒有 worker 的 task 直接完成、inclusive join 不等待。約一位維護者、專案 8 個月。
-- **WanderSaga**（`CamundaSagaPatternExample`，已部署於 Cloudflare Workers）以 `@bpmnkit/engine` 在 production 跑平行分支、user task、補償事件與 `onChange` → WebSocket；但只存在 isolate 記憶體，無持久化、無多人。
+- **WanderSaga**（`CamundaSagaPatternExample`，已部署於 Cloudflare Workers）以 `@bpmnkit/engine` 在 production 跑平行分支、user task、補償事件與 `onChange` → WebSocket；但只存在 isolate 記憶體，無持久化、無多人。**實測**（`research/56` §4.1）：熱狀態下解析＋建立引擎＋啟動約 3 ms，之後每推進一個 BPMN 節點約 1 ms，一次完整 Saga 25–38 ms CPU；HTTP 備援路徑跨 isolate 時 404／400，證實純記憶體狀態無法跨請求；SSE 每 500 ms 輪詢的閒置連線佔當日 CPU 約 78%。
+- **帳號方案**：Workers Paid（2026-11-01 續約），每次請求 CPU 上限預設 30 s。
 - **Astro `main: src/worker.ts` 可在同一 Worker 匯出 DO**（實測 build 與執行成功）；Worker bundle 588 → 726 KiB（含 bpmn-engine）。1 MiB 是專案自訂門檻，Cloudflare 上限為 64 MiB 未壓縮。
 
 ## 決策
@@ -25,6 +26,7 @@
 
 - **權威實例、瀏覽器模擬、編輯器、檢視器、linter 全部使用 bpmnkit**（`@bpmnkit/engine`、`@bpmnkit/core`、`@bpmnkit/editor`、`@bpmnkit/canvas`）。整套只有一種 BPMN 方言，避免「編輯器說合法、引擎讀不懂」。
 - **事件日誌是真相，引擎是重播日誌的函式**：每一個輸入（啟動變數、使用者送出、GitHub 事實 message、service task 結果）以遞增序號 append 到 DO SQLite。DO 被驅逐後喚醒時，由日誌重播重建引擎狀態；重播期間 service task 一律從日誌取既有結果，**不重新執行副作用**。
+- **記憶體快取＋冷喚醒重播**：DO 醒著時把引擎實例留在記憶體，新事件直接送進執行中的引擎並 append 日誌（熱路徑，每事件約 1 ms 量級）；**只有 DO 冷啟動（被驅逐後喚醒、部署更新）才從日誌重播**。重播成本約與日誌長度成正比（每節點約 1 ms 推估，200 筆事件約 200 ms），因此不得在每個請求都重播。日誌是真相，記憶體中的引擎只是快取：快取與日誌不一致時一律丟棄快取、重播日誌。若實測冷喚醒重播成本過高，可在日誌之外加「引擎可序列化狀態」的快照作為加速（仍以日誌為準）。
 - **引擎包在與引擎無關的 adapter 介面後面**（§6.1 的 `createRuntime`）。退場方案：bpmn-elements（有原生 snapshot）。更換引擎＝實作同一介面＋以既有日誌重播驗證，`ADR-027` 不受影響。
 - **版本釘死**：每個實例同時釘住「模板版本」與「引擎版本」；`package.json` 使用確切版本（不得用 `^`／`~`）。
 - **確定性要求**：重播必須得到相同路徑，因此 id 與時鐘由外部注入；linter 禁止 FEEL 的 `now()`、`today()` 與隨機函式（§3）。
@@ -77,6 +79,7 @@
 
 - outbox 執行順序：寫意圖 → 呼叫 GitHub → 寫結果到 journal；重試前先以 `ADR-027` §6 的標記查 GitHub。
 - 不在記憶體掛 `setTimeout`／`setInterval`（會阻止 hibernation）；需要延後處理一律使用 DO alarm（每個 DO 一個，需自行多工）。
+- 執行中的引擎實例以 DO 的記憶體欄位保存（§1 記憶體快取）；DO 的 constructor 只做「標記需要重播」，實際重播延到第一個需要引擎的請求，以 `blockConcurrencyWhile` 包住，避免並行請求看到半重建的狀態。
 
 #### 4.3 實例索引（Q41）
 
@@ -102,7 +105,11 @@ D1 新增一張**只存中繼資料**的表 `process_instances`：實例 id、te
 
 #### 4.7 Cloudflare 方案（Q20）
 
-PoC 先在 Workers Free 執行，並在 workerd 實測每次請求的 CPU 時間（Free 上限 10 ms）。目前唯一的數據是 bpmn-engine 在 Node 上 recover＋resume＋signal 約 5–12 ms；**bpmnkit 引擎的重播成本尚未量測**，且重播成本會隨日誌長度成長，PoC 須量測長日誌（例如 200 筆以上事件）的情況。出現任一情況即升級 Workers Paid：p95 CPU > 7 ms、DO 每日請求接近 10 萬、每日寫入列數接近 10 萬。
+**正式環境與 PoC 都使用 Workers Paid**（帳號已是 Paid，2026-11-01 續約）。原先「先用 Free、達門檻再升級」的方案已由實測否決：WanderSaga 一次完整 Saga 就要 25–38 ms CPU，P99 55 ms，都超過 Free 每次請求 10 ms 的上限；日誌重播的冷喚醒成本還會隨日誌長度成長（`research/56` §4.1）。
+
+- Paid 每次請求 CPU 上限預設 30 s，可用 `limits.cpu_ms` 調整（最高 5 分鐘）。PoC 先使用預設值，依實測的冷喚醒重播成本決定是否調整。
+- **成本監控**：以 GraphQL Analytics（`workersInvocationsAdaptive`、DO 的對應資料集）追蹤 CPU 分位數、請求數與 DO duration；PoC 期間每週檢視一次。
+- **防止閒置連線燒 CPU**：不得使用輪詢迴圈（WanderSaga 的 SSE 每 500 ms 醒來一次，閒置連線佔當日 CPU 約 78%）；WebSocket 一律走 Hibernation API；流程結束時由伺服器主動關閉連線。
 
 ### 5. GitHub 與身分整合
 
@@ -192,7 +199,7 @@ PoC 在 Scoreboard repo 實作，全部通過後本 ADR 與 `ADR-027` 改為「�
 | 4 | 閘門 | 以 user-to-server token 貼 HG 留言，經 `parse.ts` 驗證後 token 前進（含驗證 App 徽章留言被認定為本人） |
 | 5 | 即時監控 | 兩個瀏覽器同時連線，都即時看到 token 移動與認領狀態 |
 | 6 | 編輯與發布 | 編輯器改一個 task 名稱，發布產生 1 行 diff 的 PR；bpmn-js 可開啟同一檔案 |
-| 7 | 成本與預算 | workerd 實測每次請求 CPU p95；Worker 壓縮後 bundle < 900 KiB |
+| 7 | 成本與預算 | 實測並記錄：熱路徑每事件 CPU、冷喚醒重播 CPU 與日誌長度的關係（至少 50／200／500 筆）、DO 冷喚醒頻率；冷喚醒重播 500 筆事件的 CPU 須遠低於 30 s 上限；Worker 壓縮後 bundle < 900 KiB |
 | 8 | 結構驗證 | bpmnkit 保留 process 層 `extensionElements`（`factory:system`、`factory:modules`、`factory:gateDef`）；跨檔案 callActivity 以版本化 id 解析成功 |
 | 9 | 檢視器 | `@bpmnkit/canvas` 支援 overlay／marker；不支援則改用 bpmn-js NavigatedViewer 並記錄 |
 | 10 | 還原 | 以 PITR 還原一個 DO 後執行 reconcile，token 正確前進到 GitHub 現況 |
@@ -218,7 +225,7 @@ PoC 在 Scoreboard repo 實作，全部通過後本 ADR 與 `ADR-027` 改為「�
 ### 中性
 
 - `zeebe:*` 子集讓模板可被 Camunda Modeler 與 bpmnkit 工具鏈讀懂，但不代表會部署到 Camunda 8。
-- 是否需要 Workers Paid 由 PoC 實測決定。
+- 需要 Workers Paid（帳號已是 Paid）；成本主要來自 DO duration 與 CPU，PoC 期間以 Analytics 追蹤。
 
 ## 替代方案
 
@@ -241,5 +248,5 @@ PoC 在 Scoreboard repo 實作，全部通過後本 ADR 與 `ADR-027` 改為「�
 2. 任一退場條件成立（§2）→ 改用 bpmn-elements／bpmn-js。
 3. PoC §7 任一項目失敗。
 4. Worker bundle 超過 900 KiB，或 DO 需要獨立部署節奏 → 拆分 Worker。
-5. 實測 CPU 或配額達 §4.7 門檻 → 升級 Workers Paid。
+5. 冷喚醒重播的 CPU 接近每次請求上限，或 DO duration 成本明顯偏高 → 加入引擎狀態快照作為重播加速，或調整 `limits.cpu_ms`。
 6. 需要計時器事件的流程需求出現 → 啟動 timers → DO alarm 轉接（第二階段）。

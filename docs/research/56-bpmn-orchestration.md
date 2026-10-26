@@ -197,8 +197,51 @@ PITR 的界線（由文件推得）：還原只倒回 DO 自身資料，**GitHub
   - 載入轉接層 `src/bpmn.js`：`camunda:topic` → `zeebe:taskDefinition`（第 12–23 行）、JUEL `${…}` → FEEL `= …`（第 25–35 行）。
 - **沒有證明的事**：
   - 實例存在模組層級 `const bookings = new Map()`（`src/index.js:10`），**無持久化**、無驅逐恢復、無跨週存活、無多人協作。
-  - HTTP 備援路徑（`POST /api/bookings` 後再 `GET /api/bookings/:id/events` 或 `POST /decision`）依賴同一 isolate 的記憶體；後續 request 落到不同 isolate 時會得到 404 `Booking not found`（**讀碼推論，未實測**）。
+  - HTTP 備援路徑（`POST /api/bookings` 後再 `GET /api/bookings/:id/events` 或 `POST /decision`）依賴同一 isolate 的記憶體；後續 request 落到不同 isolate 時會得到 404 `Booking not found`（**已實測證實，見 §4.1**）。
 - 測試：README 記載 32 個測試全數通過，含由 `specs/quint/REPORT.md`、`specs/lean/REPORT.md` 形式化反例轉成的 CE-1～CE-6（本次**未重跑**）。
+
+### 4.1 Production 資源用量實測（2026-10-26）
+
+帳號方案：**Workers Paid**（使用者於 Cloudflare 後台確認，2026-11-01 續約）。部署版本 `6ac26aa7`（另見早期版本 `35d314df`、`667de229`、`3cb98be3`）。
+
+**資料來源**
+
+1. Cloudflare GraphQL Analytics `workersInvocationsAdaptive`（`scriptName: "wandersaga"`，查詢過去 30 天；僅 2026-10-26 有資料，與 09:50 首次部署吻合）。cpuTime 單位為微秒，下表換算為毫秒。
+2. 對正式站送少量受控流量，同時以 `wrangler tail --format json` 記錄逐請求的 `cpuTime`／`wallTime`（毫秒）：5 次 WebSocket Saga（3 次確認、2 次取消）、1 次 HTTP 備援流程、4 次 SSE 閒置測試。腳本：`/tmp/wandersaga-load.mjs`；原始 tail：`/tmp/wandersaga-tail.jsonl`（暫存，未入庫）。
+3. 未取得：wrangler OAuth token 無計費與 Workers Observability 查詢權限（API 回 10000 Authentication error），故無逐請求 Observability 日誌；方案由使用者確認。
+
+**當日彙總（Analytics，06:20 UTC 為止）**
+
+| outcome | 請求數 | CPU P50 | CPU P99 | wall P50 | CPU 合計 |
+|---|---|---|---|---|---|
+| success | 61 | 7.2 ms | 55.0 ms | 8.5 ms（WS 小時桶約 2.9 s） | 約 1.0 s |
+| clientDisconnected | 5 | 730.7 ms | 1,414.0 ms | 約 6,010 s（約 100 分鐘） | 約 3.64 s（**約 78%**） |
+| loadShed | 1 | 3.1 ms | 3.1 ms | 32 s | — |
+
+當日合計約 67 次請求、約 4.6 s CPU。`loadShed` 1 筆出現在早期版本 `667de229`（原因未查）。
+
+**逐請求實測（tail）**
+
+| 路徑 | CPU（ms） | wall | 備註 |
+|---|---|---|---|
+| `GET /api/ws`，完整 Saga（確認路徑） | 26、31、35 | 約 1.95 s | 每次 22 個事件 |
+| `GET /api/ws`，完整 Saga（取消＋3 個補償） | 25、38 | 約 3.7 s | 每次 32 個事件 |
+| `POST /api/bookings`（`Bpmn.parse`＋建立引擎＋啟動） | 冷 10–14，熱 3 | 3–15 ms | 前幾次落在新 isolate |
+| `GET /events`、`POST /decision`（實例不在此 isolate） | 0–3 | — | 404／400 |
+| 非受控流量的 SSE 連線（閒置等待決策） | 4 | 12.5 s | 約 0.3 ms CPU／秒 |
+
+**判讀**
+
+- **bpmnkit 引擎在 workerd 的成本（第一手數據）**：熱狀態下解析 BPMN＋建立引擎＋啟動約 **3 ms**；之後每推進一個 BPMN 節點（含 FEEL 判斷、job 完成、序列化並送出 WS 事件）約 **1 ms**。一次完整 Saga 25–38 ms，大致與事件數成正比。樣本數小（5 次 WS），僅供量級參考。
+- **單次 Saga 已超過 Free 方案每次請求 10 ms 的上限**；在 Paid 帳號上全部成功（Paid 預設 30 s／請求）。
+- **clientDisconnected 的 5 筆是 SSE 輪詢迴圈**：`src/index.js:256-266` 每 500 ms 醒來一次，直到使用者決策或斷線；換算約 0.3 ms CPU／秒，掛 100 分鐘即 0.7–1.4 s，與 Analytics 一致。閒置連線佔了當日 CPU 約 78%。
+- **HTTP 備援路徑跨 isolate 失效已證實**：同一 bookingId 在 POST 之後的 3 次 `/events` 有 2 次 404，3 次 `/decision` 全部 400（`No pending user decision for this booking`）；另 4 次「POST 後立即開 SSE」全部 404。純記憶體狀態不能跨請求，需要 DO 這類「一個實例一個固定的家」的機制。
+
+**對 BPMN 設計的含意（已反映於 `ADR-028` §1、§4.2、§4.7）**
+
+1. 日誌重播成本約與事件數成正比：重播 200 筆事件的日誌每次冷喚醒約需 200 ms CPU（以每節點約 1 ms 推估，**未實測**），遠超 Free 上限；正式環境需 Workers Paid（帳號已是 Paid）。
+2. DO 醒著時應把引擎實例留在記憶體，只有冷啟動喚醒才重播，避免每個事件都付一次完整重播成本。
+3. 任何「醒來檢查」的輪詢迴圈都會持續消耗 CPU 並阻止 DO hibernation，佐證 Q19（WebSocket Hibernation）與 Q17（v1 不用計時器）。
 
 ---
 
@@ -323,7 +366,7 @@ PITR 的界線（由文件推得）：還原只倒回 DO 自身資料，**GitHub
 1. bpmnkit canvas 是否支援 token／狀態 overlay 與 marker（否則改用 bpmn-js NavigatedViewer）。
 2. `<bpmn:process>` 層級 `extensionElements` 內的 `factory:*` 擴充資料經 bpmnkit parse→editor→`exportPreserving` 後完整保留。
 3. bpmnkit 引擎多檔部署＋版本化 `calledElement`（`factory.M.v3.P1`）解析；multi-instance callActivity。
-4. 事件日誌重播在真實模板規模（S/M/L、模組 ×N）下的確定性與 CPU：workerd 內 request CPU p95（Free 10 ms 上限）。
+4. 事件日誌重播在真實模板規模（S/M/L、模組 ×N）下的確定性與 CPU：冷喚醒重播的 CPU 與日誌長度的關係（§4.1 推估每節點約 1 ms）、熱路徑（記憶體快取命中）每事件的 CPU、DO 冷喚醒頻率。帳號為 Workers Paid，上限 30 s／請求。
 5. 啟動時檢查「每個 taskDefinition type 都有 handler」可防止語意缺口 (a)。
 6. Astro/React island 實際掛載 bpmnkit editor（瀏覽器）；bundle 合計維持 <900 KiB（Worker 端）。
 7. GitHub App user-to-server token 留言（帶 App 徽章）能被 `src/hg/parse.ts` 判為本人簽核；token 刷新流程。
@@ -331,5 +374,5 @@ PITR 的界線（由文件推得）：還原只倒回 DO 自身資料，**GitHub
 9. DO PITR 還原後接 reconcile 的實際流程；`deleted_classes` 風險。
 10. DO WebSocket hibernation：無待決計時器時確實 hibernate；兩個瀏覽器同時連線的快照＋增量（序號去重）。
 11. bpmn-js 能開啟 bpmnkit 匯出的同一份檔案（含 `targetNamespace`、`zeebe:*`、`factory:*`）。
-12. WanderSaga 測試重跑（README 宣稱 32 pass）與 HTTP 備援跨 isolate 行為。
+12. WanderSaga 測試重跑（README 宣稱 32 pass）。HTTP 備援跨 isolate 行為已於 §4.1 實測證實，不需再驗。
 13. 引擎升級時以新版本重播進行中實例日誌的相容性閘門（Q40）可行性。
