@@ -30,7 +30,7 @@
 
 | ADR | 決策 | 狀態 | 對應 |
 |---|---|---|---|
-| [ADR-001](001-github-as-source-of-truth.md) | GitHub 為唯一事實來源，Backstage 為入口 | 已接受（`ADR-027` 提議修訂：新增流程位置分層） | D1 |
+| [ADR-001](001-github-as-source-of-truth.md) | GitHub 為唯一事實來源，Backstage 為入口 | 已接受（`ADR-027` 修訂：新增流程位置分層） | D1 |
 | [ADR-002](002-dsh-headless-execution.md) | agent 執行走 DSH headless 一次性呼叫 | 已接受 | D2 |
 | [ADR-003](003-stacked-pr.md) | 一個工作項 = 一疊 stacked PR | 已接受 | D3 |
 | [ADR-004](004-dual-layer-guardrails.md) | 雙層 guardrail（DSH 層 + GitHub 層） | 已接受 | D4 |
@@ -52,12 +52,12 @@
 | [ADR-020](020-sase-adoption.md) | SASE 方法論的採用範圍與不採用理由（ACE／AEE／LoopScript／CRP 不採用；BriefingScript 增量另開工項） | 已接受（N-version 一列由 ADR-021 取代） | `research/sase-adoption-analysis-2026-10-09`、`10` Q20-SASE-1～3 |
 | [ADR-021](021-nversion-parallel-pattern.md) | N-version 平行執行——追認與修正（可選開關、`compare` 為唯一終態寫入者、G1／G2 認終態標記、draft PR 由人選勝者）；附代理設計模式採用邊界 | 已接受 | `ADR-020`、`ADR-010`、`docs/24`、`docs/18`、`docs/26` §3 |
 | [ADR-022](022-sequential-stages.md) | 依序模式——以「前置工作項」串接工作項：派工時以即時狀態檢查前置、未完成即停派；完成時刪落選分支並通知下游（aswf.dev webhook 轉送） | 已接受 | `ADR-021`、`ADR-018` §12、`docs/24` §2.1、`docs/32` §4 |
-| [ADR-023](023-workflow-process-spec-and-topology-ui.md) | 流程以 `process.yaml` 描述（系統級＋模組級）、拓撲 UI 採 React Flow；OpenRig 僅作參考實作，其 agent 團隊方法論不採用 | 已接受（2026-10-18 兩次修訂）；**將被 `ADR-027` 取代**（提議中），實作凍結 | `research/55-workflow-topology-ui`、`29` §6／§8、`31` §2、`ADR-001`、`ADR-010`、`ADR-022`、`10` `Q-ORCH-1/2` |
-| [ADR-024](024-process-execution-semantics.md) | 流程的「執行」語意——UI 產生待開工作項清單，人按下送出；走既有入口，不新增派工路徑 | 已接受；**將被 `ADR-027` 取代**（提議中） | `ADR-023`、`ADR-022`、`29` §1.1／§8、`31` §1、`docs/24` §2.1、`10` `Q-ORCH-3` |
-| [ADR-025](025-tenant-process-templates.md) | 多租戶公司流程模板——工廠固定 meta-contract，租戶擁有自己的模板（版本化、釘版本）；自訂 gate 以 `<TENANT>-<NAME>` 命名；`scale` 與模板脫鉤；S/M/L 降為 preset | 已接受；模板格式將被 `ADR-027` §9 取代（提議中） | `ADR-023`、`ADR-024`、`29` §6／§8／§9、`10` `Q-ORCH-4/5` |
-| [ADR-026](026-project-owned-process-spec.md) | 系統流程 spec 歸專案所有（`factory/system.yaml`）；機制 repo 只保留納管名冊與規則，讀取時驗證；揭露 public 機制 repo 使租戶隔離失效（模板與快照可匿名讀取） | 已接受（實作待遷移）；檔案格式將被 `ADR-027` §9 取代（提議中） | `ADR-023` §1、`ADR-025`、`ADR-001` |
-| [ADR-027](027-bpmn-process-orchestration.md) | 以 BPMN 編排系統價值流——GitHub 管事實、Durable Object 管流程位置；人按送出才派工；工作項＝工廠擁有的子流程；HG 為 message catch、以本人身分在 GitHub 簽核；模板／系統／模組全部以 BPMN XML 為正本；process.yaml 只往前刪除 | 提議中 | `ADR-028`、`research/56-bpmn-orchestration`、`ADR-001`、`ADR-022`～`ADR-026` |
-| [ADR-028](028-bpmn-runtime-stack.md) | BPMN 執行技術選型——bpmnkit 全環境使用（編輯器／檢視器／linter／模擬／執行）、DO 以事件日誌為準、記憶體快取＋冷喚醒重播、Workers Paid、FEEL-only、與 Scoreboard 同 Worker、WebSocket Hibernation、PITR 備援、引擎升級重播閘門；附 PoC 驗收標準 | 提議中 | `ADR-027`、`research/56-bpmn-orchestration`、`ADR-015` |
+| [ADR-023](023-workflow-process-spec-and-topology-ui.md) | 流程以 `process.yaml` 描述（系統級＋模組級）、拓撲 UI 採 React Flow；OpenRig 僅作參考實作，其 agent 團隊方法論不採用 | 已取代（被 `ADR-027` 取代；實作凍結，待 PoC 驗收後刪除） | `research/55-workflow-topology-ui`、`29` §6／§8、`31` §2、`ADR-001`、`ADR-010`、`ADR-022`、`10` `Q-ORCH-1/2` |
+| [ADR-024](024-process-execution-semantics.md) | 流程的「執行」語意——UI 產生待開工作項清單，人按下送出；走既有入口，不新增派工路徑 | 已取代（被 `ADR-027` 取代） | `ADR-023`、`ADR-022`、`29` §1.1／§8、`31` §1、`docs/24` §2.1、`10` `Q-ORCH-3` |
+| [ADR-025](025-tenant-process-templates.md) | 多租戶公司流程模板——工廠固定 meta-contract，租戶擁有自己的模板（版本化、釘版本）；自訂 gate 以 `<TENANT>-<NAME>` 命名；`scale` 與模板脫鉤；S/M/L 降為 preset | 已接受；模板格式已被 `ADR-027` §9 取代 | `ADR-023`、`ADR-024`、`29` §6／§8／§9、`10` `Q-ORCH-4/5` |
+| [ADR-026](026-project-owned-process-spec.md) | 系統流程 spec 歸專案所有（`factory/system.yaml`）；機制 repo 只保留納管名冊與規則，讀取時驗證；揭露 public 機制 repo 使租戶隔離失效（模板與快照可匿名讀取） | 已接受；檔案格式已被 `ADR-027` §9 取代 | `ADR-023` §1、`ADR-025`、`ADR-001` |
+| [ADR-027](027-bpmn-process-orchestration.md) | 以 BPMN 編排系統價值流——GitHub 管事實、Durable Object 管流程位置；人按送出才派工；工作項＝工廠擁有的子流程；HG 為 message catch、以本人身分在 GitHub 簽核；模板／系統／模組全部以 BPMN XML 為正本；process.yaml 只往前刪除 | 已接受 | `ADR-028`、`research/56-bpmn-orchestration`、`ADR-001`、`ADR-022`～`ADR-026` |
+| [ADR-028](028-bpmn-runtime-stack.md) | BPMN 執行技術選型——bpmnkit 全環境使用（編輯器／檢視器／linter／模擬／執行）、DO 以事件日誌為準、記憶體快取＋冷喚醒重播、Workers Paid、FEEL-only、與 Scoreboard 同 Worker、WebSocket Hibernation、PITR 備援、引擎升級重播閘門；附 PoC 驗收標準 | 已接受（PoC 驗收中） | `ADR-027`、`research/56-bpmn-orchestration`、`ADR-015` |
 
 ## 何時該寫新的 ADR
 

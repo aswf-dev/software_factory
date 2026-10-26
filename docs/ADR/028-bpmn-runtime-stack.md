@@ -1,6 +1,6 @@
 # ADR-028：BPMN 執行技術選型——bpmnkit、Durable Object 事件日誌與 PoC 驗收
 
-- **狀態**：提議中（2026-10-26；PoC 依 §7 驗收後改為「已接受」）
+- **狀態**：已接受（2026-10-26，使用者核可；PoC 依 §7 驗收中，驗收結果可能修訂本 ADR）
 - **日期**：2026-10-26
 - **決定者**：使用者（經 grilling 逐題裁決；Q15–Q20、Q32–Q36、Q38、Q40、Q41）
 - **對應**：`ADR-027`（語意與治理；本 ADR 只決定「怎麼做」）、`research/56-bpmn-orchestration`（實測證據）、`ADR-015`（Scoreboard 平台：Astro＋Workers＋D1）、`ADR-006`（GitHub App 身分）
@@ -194,7 +194,7 @@ createRuntime({ definitions, handlers, facts, humans, journal, ids, clock })
 
 ### 7. PoC 驗收標準
 
-PoC 在 Scoreboard repo 實作，全部通過後本 ADR 與 `ADR-027` 改為「已接受」，並啟動 `ADR-027` §11 的刪除 PR。
+PoC 在 Scoreboard repo 實作。全部通過後啟動 `ADR-027` §11 的刪除 PR；任一項目失敗時，依結果修訂本 ADR（或依重評觸發條件重新檢視）。
 
 | # | 項目 | 通過條件 |
 |---|---|---|
