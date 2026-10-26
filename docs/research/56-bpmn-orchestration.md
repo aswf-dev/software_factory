@@ -237,9 +237,47 @@ PITR 的界線（由文件推得）：還原只倒回 DO 自身資料，**GitHub
 - **clientDisconnected 的 5 筆是 SSE 輪詢迴圈**：`src/index.js:256-266` 每 500 ms 醒來一次，直到使用者決策或斷線；換算約 0.3 ms CPU／秒，掛 100 分鐘即 0.7–1.4 s，與 Analytics 一致。閒置連線佔了當日 CPU 約 78%。
 - **HTTP 備援路徑跨 isolate 失效已證實**：同一 bookingId 在 POST 之後的 3 次 `/events` 有 2 次 404，3 次 `/decision` 全部 400（`No pending user decision for this booking`）；另 4 次「POST 後立即開 SSE」全部 404。純記憶體狀態不能跨請求，需要 DO 這類「一個實例一個固定的家」的機制。
 
+### 4.2 優化後再測（2026-10-26 19:53，版本 `be1d916f`）
+
+WanderSaga 於 commit `f83056b`（perf：BPMN AST 快取＋事件驅動 SSE）與 `1ffc6e6`（Smart Placement）後重新部署。以相同腳本、相同方法再測（8 次 WS Saga：5 次確認、3 次取消；1 次 HTTP 備援；SSE 閒置 30 s）。
+
+**改了什麼（`git diff 60abde2 1ffc6e6`）**
+
+| 項目 | 做法 | 出處 |
+|---|---|---|
+| BPMN AST 快取 | `getOrPrepareDefinitions(xml)` 以 XML 字串為鍵、模組層級 `Map` 快取「解析＋`camunda:topic`→`zeebe` 轉接＋JUEL→FEEL」後的 definitions；每個 booking 只做 `new Engine()`＋`engine.deploy({ bpmn: defs })` | `src/bpmn.js` |
+| 模組初始化預熱 | 模組頂層呼叫 `getOrPrepareDefinitions(V3_BPMN_XML)`，解析成本移到 isolate 啟動時 | `src/index.js:6-7` |
+| 事件驅動 SSE | `Promise.race([新事件, stream.sleep(30000)])`：只在有新事件、client 中斷或 30 s keepalive 時醒來（原為每 500 ms） | `src/index.js` SSE handler |
+| 中斷即釋放 | 監聽 `c.req.raw.signal` 的 `abort`，立刻喚醒迴圈並移除 listener | 同上 |
+| 完成後清理 | 流程完成 5 分鐘後以 `setTimeout` 從 `bookings` Map 移除 | `src/index.js` `process:completed` |
+| Smart Placement | `wrangler.jsonc` `placement.mode: "smart"` | `wrangler.jsonc` |
+
+**前後對照（tail 逐請求 CPU，毫秒）**
+
+| 路徑 | 優化前（`6ac26aa7`） | 優化後（`be1d916f`） |
+|---|---|---|
+| WS Saga，確認（22 事件） | 26、31、35 | 20（第一次）、10、10、11、16 |
+| WS Saga，取消＋補償（32 事件） | 25、38 | 13、14、13 |
+| `POST /api/bookings` | 冷 10–14，熱 3 | 6、13 |
+| SSE 閒置 | 4 ms／12.5 s（約 0.3 ms／秒，非受控流量） | **3 ms／30.2 s**（約 0.1 ms／秒，含建立連線） |
+
+Analytics（06:40 UTC 之後的 7 筆 success）：CPU P50 13.9 ms、P99 32.5 ms。
+
+**判讀**
+
+- 完整 Saga 的 CPU 中位數約從 **31 ms 降到 13 ms（約 -58%）**；換算每個 BPMN 事件約 **0.4–0.5 ms**（熱狀態），先前約 1 ms。
+- 降幅大於「省下一次 XML 解析」（約 3 ms）所能解釋的，部分可能來自 isolate 暖機與 JIT 狀態差異；樣本小（8 次），**確切歸因未驗證**。
+- 閒置 SSE 不再定時醒來，閒置成本降為原本約三分之一以下；100 分鐘的閒置連線估計從 0.7–1.4 s 降到數十毫秒量級（推估）。
+- **仍超過 Free 的 10 ms**（10–20 ms），結論「需要 Workers Paid」不變。
+- **未改變的問題**：HTTP 備援跨 isolate 依然失效（3 次 `/events` 為 404、200、404，3 次 `/decision` 全部 400），因為狀態仍只在 isolate 記憶體；WS 流程結束後仍由 client 關閉連線。
+- **Smart Placement 對此 Worker 預期無效**：Smart Placement 依據 subrequest 的後端位置調整執行位置，而 WanderSaga 的 subrequests 為 0（Analytics `sum.subrequests = 0`）。
+- **`setTimeout` 清理在 Worker 上不保證執行**：timer 依附在請求生命週期上，連線結束後 isolate 可能被回收；在 DO 中長 timer 則會阻止 hibernation 並持續計費 duration。
+
 **對 BPMN 設計的含意（已反映於 `ADR-028` §1、§4.2、§4.7）**
 
-1. 日誌重播成本約與事件數成正比：重播 200 筆事件的日誌每次冷喚醒約需 200 ms CPU（以每節點約 1 ms 推估，**未實測**），遠超 Free 上限；正式環境需 Workers Paid（帳號已是 Paid）。
+1. 日誌重播成本約與事件數成正比：以優化後每事件約 0.4–0.5 ms 推估，重播 200 筆事件的日誌每次冷喚醒約需 100 ms CPU（**未實測**；重播不含 WS 序列化，可能更低），仍遠超 Free 上限；正式環境需 Workers Paid（帳號已是 Paid）。
+4. 解析過的 definitions 應以「模板 id＋版本＋內容雜湊」為鍵在模組層級快取，跨 booking（在 DO 中為同一 isolate 內的多個 DO）共用，且必須視為唯讀。
+5. 延後的清理工作在 DO 中一律用 alarm，不用 `setTimeout`。
 2. DO 醒著時應把引擎實例留在記憶體，只有冷啟動喚醒才重播，避免每個事件都付一次完整重播成本。
 3. 任何「醒來檢查」的輪詢迴圈都會持續消耗 CPU 並阻止 DO hibernation，佐證 Q19（WebSocket Hibernation）與 Q17（v1 不用計時器）。
 
@@ -366,7 +404,7 @@ PITR 的界線（由文件推得）：還原只倒回 DO 自身資料，**GitHub
 1. bpmnkit canvas 是否支援 token／狀態 overlay 與 marker（否則改用 bpmn-js NavigatedViewer）。
 2. `<bpmn:process>` 層級 `extensionElements` 內的 `factory:*` 擴充資料經 bpmnkit parse→editor→`exportPreserving` 後完整保留。
 3. bpmnkit 引擎多檔部署＋版本化 `calledElement`（`factory.M.v3.P1`）解析；multi-instance callActivity。
-4. 事件日誌重播在真實模板規模（S/M/L、模組 ×N）下的確定性與 CPU：冷喚醒重播的 CPU 與日誌長度的關係（§4.1 推估每節點約 1 ms）、熱路徑（記憶體快取命中）每事件的 CPU、DO 冷喚醒頻率。帳號為 Workers Paid，上限 30 s／請求。
+4. 事件日誌重播在真實模板規模（S/M/L、模組 ×N）下的確定性與 CPU：冷喚醒重播的 CPU 與日誌長度的關係（§4.2 推估優化後每事件約 0.4–0.5 ms）、熱路徑（記憶體快取命中）每事件的 CPU、DO 冷喚醒頻率。帳號為 Workers Paid，上限 30 s／請求。
 5. 啟動時檢查「每個 taskDefinition type 都有 handler」可防止語意缺口 (a)。
 6. Astro/React island 實際掛載 bpmnkit editor（瀏覽器）；bundle 合計維持 <900 KiB（Worker 端）。
 7. GitHub App user-to-server token 留言（帶 App 徽章）能被 `src/hg/parse.ts` 判為本人簽核；token 刷新流程。

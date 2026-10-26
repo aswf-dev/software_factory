@@ -16,7 +16,7 @@
 - **計時器**：預設 `setTimeout` 在 DO 被驅逐時遺失、會阻止 hibernation；延遲 ≥ 約 24.8 天根本不會排程。
 - **定義改動會讓等待中的實例靜默卡住**，且沒有遷移 API。
 - **bpmnkit**：MIT、無浮水印；編輯器 147.6 KiB gz、`exportPreserving` 只產生最小 diff、帶 `factory:*` 往返 0 差異；引擎**自稱模擬器**、沒有 snapshot，但在 DO 以「重播輸入日誌」恢復已實測可行（強制驅逐 3 次，路徑正確、副作用不重複）。語意缺口：receiveTask 不等待、沒有 worker 的 task 直接完成、inclusive join 不等待。約一位維護者、專案 8 個月。
-- **WanderSaga**（`CamundaSagaPatternExample`，已部署於 Cloudflare Workers）以 `@bpmnkit/engine` 在 production 跑平行分支、user task、補償事件與 `onChange` → WebSocket；但只存在 isolate 記憶體，無持久化、無多人。**實測**（`research/56` §4.1）：熱狀態下解析＋建立引擎＋啟動約 3 ms，之後每推進一個 BPMN 節點約 1 ms，一次完整 Saga 25–38 ms CPU；HTTP 備援路徑跨 isolate 時 404／400，證實純記憶體狀態無法跨請求；SSE 每 500 ms 輪詢的閒置連線佔當日 CPU 約 78%。
+- **WanderSaga**（`CamundaSagaPatternExample`，已部署於 Cloudflare Workers）以 `@bpmnkit/engine` 在 production 跑平行分支、user task、補償事件與 `onChange` → WebSocket；但只存在 isolate 記憶體，無持久化、無多人。**實測**（`research/56` §4.1、§4.2）：初版一次完整 Saga 25–38 ms CPU、每節點約 1 ms，SSE 每 500 ms 輪詢的閒置連線佔當日 CPU 約 78%；加入「BPMN AST 模組層級快取＋啟動預熱」與「事件驅動 SSE」後，完整 Saga 降到 10–20 ms（中位數約 -58%）、每事件約 0.4–0.5 ms，閒置連線成本降到約 0.1 ms／秒。HTTP 備援路徑跨 isolate 時 404／400，證實純記憶體狀態無法跨請求。
 - **帳號方案**：Workers Paid（2026-11-01 續約），每次請求 CPU 上限預設 30 s。
 - **Astro `main: src/worker.ts` 可在同一 Worker 匯出 DO**（實測 build 與執行成功）；Worker bundle 588 → 726 KiB（含 bpmn-engine）。1 MiB 是專案自訂門檻，Cloudflare 上限為 64 MiB 未壓縮。
 
@@ -26,7 +26,8 @@
 
 - **權威實例、瀏覽器模擬、編輯器、檢視器、linter 全部使用 bpmnkit**（`@bpmnkit/engine`、`@bpmnkit/core`、`@bpmnkit/editor`、`@bpmnkit/canvas`）。整套只有一種 BPMN 方言，避免「編輯器說合法、引擎讀不懂」。
 - **事件日誌是真相，引擎是重播日誌的函式**：每一個輸入（啟動變數、使用者送出、GitHub 事實 message、service task 結果）以遞增序號 append 到 DO SQLite。DO 被驅逐後喚醒時，由日誌重播重建引擎狀態；重播期間 service task 一律從日誌取既有結果，**不重新執行副作用**。
-- **記憶體快取＋冷喚醒重播**：DO 醒著時把引擎實例留在記憶體，新事件直接送進執行中的引擎並 append 日誌（熱路徑，每事件約 1 ms 量級）；**只有 DO 冷啟動（被驅逐後喚醒、部署更新）才從日誌重播**。重播成本約與日誌長度成正比（每節點約 1 ms 推估，200 筆事件約 200 ms），因此不得在每個請求都重播。日誌是真相，記憶體中的引擎只是快取：快取與日誌不一致時一律丟棄快取、重播日誌。若實測冷喚醒重播成本過高，可在日誌之外加「引擎可序列化狀態」的快照作為加速（仍以日誌為準）。
+- **記憶體快取＋冷喚醒重播**：DO 醒著時把引擎實例留在記憶體，新事件直接送進執行中的引擎並 append 日誌（熱路徑，每事件約 0.5 ms 量級）；**只有 DO 冷啟動（被驅逐後喚醒、部署更新）才從日誌重播**。重播成本約與日誌長度成正比（每事件約 0.4–0.5 ms 推估，200 筆事件約 100 ms），因此不得在每個請求都重播。
+- **definitions 快取（沿用 WanderSaga `getOrPrepareDefinitions` 的做法）**：解析 BPMN、套用轉接層後的 definitions 以「模板 id＋版本＋內容雜湊」為鍵存在**模組層級**快取；同一 isolate 內的多個 DO 共用，每個實例只做 `new Engine()`＋`deploy`。快取物件**視為唯讀**（測試須以 deep-freeze 驗證引擎不會修改它）。模組初始化時只預熱固定的小集合（`factory.work-item` 子流程、S/M/L preset），租戶模板第一次用到時才解析，避免拉長 isolate 啟動時間。日誌是真相，記憶體中的引擎只是快取：快取與日誌不一致時一律丟棄快取、重播日誌。若實測冷喚醒重播成本過高，可在日誌之外加「引擎可序列化狀態」的快照作為加速（仍以日誌為準）。
 - **引擎包在與引擎無關的 adapter 介面後面**（§6.1 的 `createRuntime`）。退場方案：bpmn-elements（有原生 snapshot）。更換引擎＝實作同一介面＋以既有日誌重播驗證，`ADR-027` 不受影響。
 - **版本釘死**：每個實例同時釘住「模板版本」與「引擎版本」；`package.json` 使用確切版本（不得用 `^`／`~`）。
 - **確定性要求**：重播必須得到相同路徑，因此 id 與時鐘由外部注入；linter 禁止 FEEL 的 `now()`、`today()` 與隨機函式（§3）。
@@ -102,14 +103,18 @@ D1 新增一張**只存中繼資料**的表 `process_instances`：實例 id、te
 - 連線時先送完整快照，之後送增量；前端以 journal `seq` 去重與補洞。
 - WebSocket 升級請求在進入 DO 前，必須通過 `page-access`（Access JWT）與 `tenant-access` 檢查。
 - `serializeAttachment` 上限 16 KiB，只存連線身分，不存狀態。
+- **事件驅動，零定時喚醒**：DO 只在「有新事件」時廣播；心跳用 `ctx.setWebSocketAutoResponse` 讓平台直接回應 ping/pong，不喚醒 DO（比 WanderSaga 的 30 s SSE keepalive 更省）。連線中斷時在 `webSocketClose`／`webSocketError` 立即移除訂閱。
+- 流程結束（或實例進入終態）時由 DO 主動以 close code 關閉所有連線，不依賴 client 關閉。
+- 延後的清理（例如結束後保留快照一段時間再釋放記憶體）一律用 DO alarm，不用 `setTimeout`（WanderSaga 的 5 分鐘 `setTimeout` 清理在 DO 中會阻止 hibernation 並持續計費）。
 
 #### 4.7 Cloudflare 方案（Q20）
 
-**正式環境與 PoC 都使用 Workers Paid**（帳號已是 Paid，2026-11-01 續約）。原先「先用 Free、達門檻再升級」的方案已由實測否決：WanderSaga 一次完整 Saga 就要 25–38 ms CPU，P99 55 ms，都超過 Free 每次請求 10 ms 的上限；日誌重播的冷喚醒成本還會隨日誌長度成長（`research/56` §4.1）。
+**正式環境與 PoC 都使用 Workers Paid**（帳號已是 Paid，2026-11-01 續約）。原先「先用 Free、達門檻再升級」的方案已由實測否決：WanderSaga 初版一次完整 Saga 要 25–38 ms CPU（P99 55 ms），優化後仍需 10–20 ms，都超過 Free 每次請求 10 ms 的上限；日誌重播的冷喚醒成本還會隨日誌長度成長（`research/56` §4.1、§4.2）。
+- **Smart Placement 不適用於 DO**：Smart Placement 只影響無狀態 Worker 的執行位置，且依據 subrequest 的後端位置判斷（WanderSaga 沒有 subrequest，預期無效）。DO 的位置在第一次建立時決定、之後固定；是否以 `locationHint` 讓 DO 靠近 GitHub API 或靠近使用者，列入 PoC 量測（WebSocket 延遲 vs GitHub 呼叫延遲）。
 
 - Paid 每次請求 CPU 上限預設 30 s，可用 `limits.cpu_ms` 調整（最高 5 分鐘）。PoC 先使用預設值，依實測的冷喚醒重播成本決定是否調整。
 - **成本監控**：以 GraphQL Analytics（`workersInvocationsAdaptive`、DO 的對應資料集）追蹤 CPU 分位數、請求數與 DO duration；PoC 期間每週檢視一次。
-- **防止閒置連線燒 CPU**：不得使用輪詢迴圈（WanderSaga 的 SSE 每 500 ms 醒來一次，閒置連線佔當日 CPU 約 78%）；WebSocket 一律走 Hibernation API；流程結束時由伺服器主動關閉連線。
+- **防止閒置連線燒 CPU**：不得使用輪詢迴圈（WanderSaga 初版的 SSE 每 500 ms 醒來一次，閒置連線佔當日 CPU 約 78%；改為事件驅動後降到約 0.1 ms／秒）；WebSocket 一律走 Hibernation API 與 auto-response（§4.6）；流程結束時由伺服器主動關閉連線。
 
 ### 5. GitHub 與身分整合
 
@@ -203,6 +208,7 @@ PoC 在 Scoreboard repo 實作，全部通過後本 ADR 與 `ADR-027` 改為「�
 | 8 | 結構驗證 | bpmnkit 保留 process 層 `extensionElements`（`factory:system`、`factory:modules`、`factory:gateDef`）；跨檔案 callActivity 以版本化 id 解析成功 |
 | 9 | 檢視器 | `@bpmnkit/canvas` 支援 overlay／marker；不支援則改用 bpmn-js NavigatedViewer 並記錄 |
 | 10 | 還原 | 以 PITR 還原一個 DO 後執行 reconcile，token 正確前進到 GitHub 現況 |
+| 11 | 快取與閒置成本 | 同一 isolate 內多個 DO 共用 definitions 快取，deep-freeze 測試證明引擎不修改它；閒置 WebSocket 在 auto-response 下不喚醒 DO（以 DO duration／Analytics 驗證）；量測有無 `locationHint` 時的 WebSocket 與 GitHub 呼叫延遲 |
 
 ## 後果
 
