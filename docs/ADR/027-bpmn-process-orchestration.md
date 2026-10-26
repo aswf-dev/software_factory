@@ -130,7 +130,7 @@ multi-instance 的模組集合在 HG2 簽核時取快照並寫入日誌。之後
 
 - 網頁編輯器的**草稿存 D1**（多人協作、預覽、模擬）。
 - **「發布」才開 PR**（沿用 `/api/v1/process/pr` 的路徑白名單與伺服器端驗證模式，目標改為 `.bpmn`）；合併後產生**不可變**的版本號。改流程＝發新版。
-- **已發布模板一律從機制 repo 的 `main` 讀取**，不從目標 repo 的 factory trunk 讀取，避免受 trunk 漂移影響（見「待決」`Q43`）。
+- **已發布模板一律從機制 repo 的 `main` 讀取**，不從目標 repo 的 factory trunk 讀取，避免受 trunk 漂移影響（`Q43`，見「待決」）。
 
 #### 9.3 S/M/L 的遷移
 
@@ -196,7 +196,7 @@ multi-instance 的模組集合在 HG2 簽核時取快照並寫入日誌。之後
 
 | 編號 | 事項 |
 |---|---|
-| `Q43` | factory trunk 漂移：機制 repo `software-factory` 落後 main 140 個 commit；Scoreboard 遠端 `software-factory` 分支已不存在（接入條件 #2 不成立）。建議 fast-forward／重建並設為 protected branch；**涉及遠端分支，待使用者決定或授權後執行**。§9.2「模板一律從機制 repo main 讀取」不受此影響。 |
+| ~~`Q43`~~ | **已解決（2026-10-26，裁決 a）**：機制 repo `software-factory` 已 fast-forward 至 main；Scoreboard 已由 main 重建 `software-factory`；兩邊新增 ruleset `software-factory-trunk`（禁止刪除與 force push）。細節見 `research/56` §7。§9.2「模板一律從機制 repo main 讀取」維持，作為 trunk 再次漂移時的保險。 |
 | `Q-ORCH-3` | 批次建立 N 張工作項（人按一次建多張）仍不採用；multi-instance 每份各自送出。 |
 | Q7 選項 C | 低風險類型免按送出的條件與審核方式，另立 ADR。 |
 | 入口收斂 | 何時把既有入口收斂為「只能由流程開單」（Q25 的後續）。 |

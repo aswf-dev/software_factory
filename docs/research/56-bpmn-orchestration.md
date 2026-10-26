@@ -362,7 +362,18 @@ Analytics（06:40 UTC 之後的 7 筆 success）：CPU P50 13.9 ms、P99 32.5 ms
 - 依 `factory-run.yml:188`，以機制 repo 為目標的工作項會從落後 140 commits 的 trunk 讀取 skills／templates／risk-paths。
 - Scoreboard 缺 `software-factory` 分支 → **不符合 README 接入條件 #2**，對它派工會在 `Verify trunk branch exists` 失敗。最可能原因：PR #90（`software-factory` → `main`）合併後被「自動刪除 head branch」刪除（**推論，未查 repo 設定**）。
 
-處置：**待使用者裁決（Q43），尚未執行任何遠端分支變更**。候選做法：機制 repo trunk fast-forward 至 main（無獨有 commit）、Scoreboard 由 main 重建 trunk、兩邊 trunk 設為 protected branch。
+處置：**使用者裁決 Q43＝(a)，已於 2026-10-26 執行**（以 GitHub REST API，無 force push）：
+
+| 動作 | 結果 |
+|---|---|
+| 機制 repo：`PATCH git/refs/heads/software-factory`（`force=false`）至 main `028ad9b` | compare `software-factory...main` 由 ahead 140／behind 0 變為 `identical` |
+| Scoreboard：`POST git/refs` 以 main `fb159e1` 重建 `refs/heads/software-factory` | 建立成功 |
+| 兩個 repo 新增 ruleset `software-factory-trunk`（id 25876339、25876340），只含 `deletion` 與 `non_fast_forward` 兩條規則，`enforcement: active`、無 bypass | `GET rules/branches/software-factory` 兩邊皆回 `deletion`、`non_fast_forward` |
+
+- ruleset 刻意**不含** PR／審查／status check 規則：只防止刪除與 force push，不改變既有的推送與合併流程。既有的 `main-protection` ruleset 只套用在預設分支，未修改。
+- 兩個 repo 都開著 `delete_branch_on_merge: true`；trunk 受 `deletion` 規則保護後，「trunk 合回 main」的 PR 合併時不會再被自動刪除（推論：此即 Scoreboard trunk 消失的原因）。
+- 重建後檢查 Scoreboard 接入條件：`software-factory` 分支上有 `catalog-info.yaml` 與 `.github/factory/risk-paths.yml`、`has_issues: true`。GitHub App 是否已安裝於 Scoreboard 無法以目前的 token 查詢（**未驗證**），但 Scoreboard 曾有工廠產出的 PR（#27 `factory/26-01-analyze`），推論已安裝。
+- 之後 trunk 需要與 main 同步時，以 fast-forward（`force=false`）更新即可；`non_fast_forward` 規則會擋下任何改寫歷史的推送。
 
 ---
 
