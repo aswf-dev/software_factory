@@ -1,6 +1,7 @@
 # ADR-023：流程以 `process.yaml` 描述，拓撲 UI 採 React Flow（OpenRig 僅作參考實作）
 
 - **狀態**：已接受（2026-10-18 修訂：節點層級；「執行」語意見 `ADR-024`；租戶模板見 `ADR-025`）
+- **將被取代**：`ADR-027`（提議中，2026-10-26；PoC 依 `ADR-028` §7 驗收後生效）——流程定義改為 BPMN XML、拓撲 UI 改為 bpmnkit 編輯器／檢視器、流程可派工。自 `ADR-027` 接受起本 ADR 的實作凍結。
 - **日期**：2026-10-18
 - **決定者**：平台架構（使用者經 grilling 逐題裁決，Q1–Q35）
 - **對應**：`docs/research/55-workflow-topology-ui.md`（證據與詳細比較）、`ADR-001`（GitHub 唯一真相）、`ADR-010`（多 agent 團隊工具延後）、`ADR-015`（Scoreboard 平台）、`ADR-022`（前置工作項）、`docs/24` §2.1、`docs/29` §6／§8／§10、`docs/31` §2／§3、`ADR-024`（執行語意）、`docs/10`（`Q-ORCH-1/2`）
