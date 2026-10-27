@@ -148,3 +148,28 @@ Task 1 審查指出五個跨 Task 的缺口，併入後續 Task：
 - workflow 新增 input `verify_input_bundle`（base64，可空）與步驟：驗證模式下先解包，再跑 agent。
 - 測試：加密→解密往返、白名單外的路徑（`src/**`、`.github/**`）必須拒絕。
 - 註：token 效期與 bundle 傳遞的實際串接由 V3 的 Worker 負責；V2 只保證 CLI 與 workflow 能接收並驗證。
+
+---
+
+### Task 6: 階段輸入 bundle（解密、依 kind 分流）與 task type 注入修補
+
+**Files:** Create `src/cli/factory-verify-input.ts`；Modify `src/cli/factory-verify-encrypt.ts`（JSON line 加 `kind`）、`.github/workflows/factory-run.yml`（新 input、解包步驟、R12 注入修補）；Test `test/verify-input.test.ts`、相關 adversarial 測試
+
+**Interfaces:**
+- 加密 bundle 每一行改為 `{"kind":"target"|"mechanism","path":"…","b64":"…"}`（R7）。`target` 的 path 相對於 `target/`；`mechanism` 的 path 為機制檔名（`VERIFY_MECHANISM_FILES` 之一），**不帶任何前綴**。
+- 階段輸入 bundle 是同一格式、同一把公鑰加密的密文，由 aswf.dev（V3）產生，只會含 `kind: "target"`：G1 確認後的 `specs/quint/RULES.md`、G2 的 `specs/quint/TRIAGE.md`、上一階段的 `specs/**` 產出。
+```ts
+export function restoreVerifyInput(opts: { bundle: Uint8Array; identity: string; targetDir: string }): Promise<{ restored: string[] }>
+```
+- 規則：只接受 `kind === 'target'` 且 path 通過 `isVerifyAllowedPath` 或位於 `specs/**`（dot 檔可）；任何 `mechanism` 行、絕對路徑、含 `..`、symlink 目標、超出 targetDir 的路徑 → 整份拒絕（fail closed，不寫任何檔）；已存在的檔案以 bundle 內容覆寫。
+- workflow：新增 `workflow_dispatch` input `verify_input_url`（可空，HTTPS、host 必須是 `aswf.dev`）。驗證模式且有值時，在 agent 之前以 `curl` 取得 bundle → `factory-verify-input` 解密還原到 `target/`。**私鑰不在 GitHub**：取得 bundle 時一併帶 `VERIFY_INPUT_TOKEN`（一次性、短效，由 V3 簽發，見下）——V2 只實作「拿到 bundle 與 token 後的行為」，解密用的 identity 由 V3 的 Worker 以**另一組 runner 專用 keypair**處理（見註）。
+
+> **註（解密金鑰位置）**：runner 不能持有 `VERIFY_AGE_PRIVATE_KEY`（那是 Worker 解密使用者產出的私鑰）。階段輸入改由 Worker 以 **runner 公鑰**加密，runner 用 repo secret `VERIFY_RUNNER_AGE_IDENTITY` 解密；Worker 只持有 runner 公鑰。兩組 keypair 分離：外洩 runner 私鑰只影響「進 runner 的輸入」，不影響已加密上傳的產出。
+
+- R12：`judge`（~WF:1593）與 push-event（~WF:1729）把 `${{ steps.tasktype.outputs.value }}` 改由 env 傳入；並在 tasktype 步驟後立即以 allowlist 驗證解析出的 task type（未知值 → 失敗），使 task type 在所有後續步驟都是列舉值。
+
+- [ ] **Step 1: 失敗測試**：kind 欄位往返；restore 拒絕 mechanism 行、`../x`、絕對路徑、`src/app.ts`（非白名單）、symlink 逃逸，且拒絕時不寫任何檔；合法 bundle 還原 RULES.md／TRIAGE.md／specs 檔案、位元組相同；workflow：`verify_input_url` 只在驗證模式使用、host 驗證為 aswf.dev、在 agent 之前；task type allowlist 驗證步驟存在；judge／push-event 不再內嵌 `${{ steps.tasktype.outputs.value }}`。
+- [ ] **Step 2–4:** 確認失敗 → 實作 → 通過；`pnpm test`、`pnpm build`、`pnpm typecheck`。
+- [ ] **Step 5: Commit** `feat(verify): stage input bundle restore, bundle kind tag, task-type injection fix`
+
+**需要使用者設定（Task 6 完成後、V3 前）**：產生 runner keypair，`VERIFY_RUNNER_AGE_IDENTITY`（私鑰）設為機制 repo secret，公鑰交給 Worker（`VERIFY_RUNNER_AGE_RECIPIENT` var）。
