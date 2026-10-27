@@ -1,6 +1,7 @@
 # ADR-018：`agent-write-spec` 改為規格書驅動——不變量出自意圖、模型出自程式碼
 
 - **狀態**：已接受；實作完成於 stacked PR #315（開單入口）→ #316（crosscheck）→ #317（階段判定）→ #318（集中驗證）→ #319（未決事項）→ #320（作業規則），試點補修 #321（情境 witness，Q34）。驗收試點 2026-09-26 通過（tradingbot-tw/node-redlock，見 `docs/28` §15）
+- **修訂**：`ADR-029` §7（2026-10-27）——§1「不引入演繹驗證」對 `agent-verify-lean` 例外，允許 Lean 4（core、無 Mathlib）；`agent-write-spec` 不變。
 - **日期**：2026-09-26
 - **決定者**：平台架構（使用者經 grilling 逐項裁決 Q1–Q30；實作期間補裁 Q31–Q33；試點補裁 Q34）
 - **操作手冊**：`docs/28-write-spec-runbook.md`（逐步操作、`spec/approved` 流程、標籤與判定表、試點紀錄）
