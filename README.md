@@ -195,4 +195,4 @@ npm run coverage          # 門檻：scoring/stop-rules/pipeline/cli 需 100% �
 
 ## 授權
 
-本專案採用 [Apache License 2.0](LICENSE)。`.dsh/skills/quint-lang`、`.dsh/skills/quint-modeling` 原樣引入自 [Quint](https://github.com/quint-co/quint)（Apache-2.0）；`.dsh/skills/hegel`、`.dsh/skills/hegel-review` 原樣引入自 [hegel-skill](https://github.com/hegeldev/hegel-skill)（MIT，只派送給 `agent-pbt-audit` 工作項，見 ADR-019）。出處見 [`NOTICE`](NOTICE)。
+本專案採用 [Apache License 2.0](LICENSE)。`.dsh/skills/quint-lang`、`.dsh/skills/quint-modeling` 原樣引入自 [Quint](https://github.com/quint-co/quint)（Apache-2.0）；`.dsh/skills/hegel`、`.dsh/skills/hegel-review` 原樣引入自 [hegel-skill](https://github.com/hegeldev/hegel-skill)（MIT，只派送給 `agent-pbt-audit` 工作項，見 ADR-019）；`.dsh/skills/lean-formal-verification` 原樣引入自 [philipz/skills](https://github.com/philipz/skills)（MIT，只派送給 `agent-verify-lean` 工作項）。出處見 [`NOTICE`](NOTICE)。

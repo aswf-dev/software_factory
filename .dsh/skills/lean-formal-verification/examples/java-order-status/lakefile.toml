@@ -1,0 +1,7 @@
+name = "order_status_example"
+version = "0.1.0"
+defaultTargets = ["Specs"]
+
+[[lean_lib]]
+name = "Specs"
+globs = ["Specs.*"]

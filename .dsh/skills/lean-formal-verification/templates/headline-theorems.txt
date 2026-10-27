@@ -1,0 +1,3 @@
+# One fully-qualified headline theorem name per line (namespace-qualified when needed).
+# verify-lean.sh --theorems <this file> fails if any name has no #print axioms output.
+initial_can_finish

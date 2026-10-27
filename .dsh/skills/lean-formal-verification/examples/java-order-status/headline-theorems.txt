@@ -1,0 +1,7 @@
+OrderStatus.same_state_rejected
+OrderStatus.cancelled_is_terminal
+OrderStatus.refunded_is_terminal
+OrderStatus.cancel_sources
+OrderStatus.no_backwards
+OrderStatus.new_is_never_a_target
+OrderStatus.closures

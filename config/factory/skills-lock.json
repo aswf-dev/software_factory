@@ -32,6 +32,13 @@
       ]
     },
     {
+      "name": "lean-formal-verification",
+      "sha256": "3316dd890650ba47576fea7baf5e1fab868c0a8141c3c340f02858eb8f5bb96f",
+      "onlyFor": [
+        "agent-verify-lean"
+      ]
+    },
+    {
       "name": "quint-lang",
       "sha256": "bb62b7f9a3f3c355060b65dbd047df5016b6add4ff6d2ed27bcda69d6025a250"
     },
