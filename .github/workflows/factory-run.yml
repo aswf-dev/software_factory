@@ -1307,7 +1307,15 @@ jobs:
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e
-          cat .factory/crosscheck.json
+          VERIFY_MODE="${{ steps.verifymode.outputs.verify }}"
+          if [ "$VERIFY_MODE" = "true" ]; then
+            # ADR-029 §5：Actions log 是公開的；crosscheck.json 帶 agent 改動的檔案清單，
+            # 只進加密 bundle（mechanism/crosscheck.json）。log 只印計數。
+            jq -er '"crosscheck: ok=\(.ok) mismatches=\((.mismatches // []) | length) advisories=\((.advisories // []) | length)"' \
+              .factory/crosscheck.json 2>/dev/null || echo "crosscheck: 未產出 JSON"
+          else
+            cat .factory/crosscheck.json
+          fi
           # crosscheck 本身失敗（例如 report.json 不符 schema）時只寫 stderr、不寫 JSON。
           # 原因必須同時進 log 與留言（philipz/fubon-tradingbot#670：原因只在沒人看得到的
           # crosscheck.err，人只能下載 artifact 在本機重跑才查到）。
@@ -1316,8 +1324,13 @@ jobs:
           HAS_JSON=false
           jq -e 'type == "object"' .factory/crosscheck.json >/dev/null 2>&1 && HAS_JSON=true
           if [ "$HAS_JSON" != true ] && [ -s .factory/crosscheck.err ]; then
-            echo "::error::factory-crosscheck 未產出 JSON：$(head -n 1 .factory/crosscheck.err | head -c 500 | iconv -f UTF-8 -t UTF-8 -c)"
-            cat .factory/crosscheck.err
+            if [ "$VERIFY_MODE" = "true" ]; then
+              # stderr 可能帶出 report 內容：驗證模式只進加密 bundle（mechanism/crosscheck.err）
+              echo "::error::factory-crosscheck 未產出 JSON（驗證模式：stderr 只收進加密 bundle）"
+            else
+              echo "::error::factory-crosscheck 未產出 JSON：$(head -n 1 .factory/crosscheck.err | head -c 500 | iconv -f UTF-8 -t UTF-8 -c)"
+              cat .factory/crosscheck.err
+            fi
           fi
           # advisory 單獨提示（不影響 code，不擋 run）
           ADVISORY_COUNT=0
@@ -1536,8 +1549,13 @@ jobs:
       # --variant：N-version 的兩個變體共用 github.run_id。冪等鍵不含變體時，兩筆事件
       # 撞同一個 event_id，被看板 ON CONFLICT DO UPDATE 合併成拼湊紀錄（成本少算一半、
       # 一個模型從看板消失）。變體接進冪等鍵並寫入 extra.variant（docs/26 §3）。
+      #
+      # ADR-029 §5：驗證模式整步跳過。事件帶 agent 自報的 report.skillGap（自由文字，
+      # 可能描述目標程式碼）與 crosscheck 的檔案清單，會離開 runner 進看板；驗證類只能
+      # 以密文離開 runner。選擇跳過而非剝除欄位：驗證類沒有 judge 終態、也不計入工廠
+      # 的成功率統計，看板沒有可用的資料；剝除則要在 CLI 加旗標並維護欄位白名單。
       - name: Push event to scoreboard
-        if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
+        if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true && steps.verifymode.outputs.verify != 'true'
         continue-on-error: true
         env:
           SCOREBOARD_URL: ${{ vars.SCOREBOARD_URL }}
@@ -1573,9 +1591,10 @@ jobs:
           jq -r '.sessions[] | "session: models=\(.models|join(",")) steps=\(.steps) calls=\(.toolCalls) results=\(.toolResults) noResult=\(.callsWithoutResult) resultAfterNextStep=\(.resultAfterNextStep) orphan=\(.orphanResults) errors=\(.errorResults) phantomArgs=\(.phantomInArgs)@\(.firstPhantomInArgsStep // "-") phantomResults=\(.phantomInResults)@\(.firstPhantomInResultsStep // "-")"' \
             "$GITHUB_WORKSPACE/.factory/session-diag.json"
 
-      # ADR-029 §5、§7：驗證類的產出（run／specs／agent 改動的測試檔）在公開
-      # runner 上以 age 公鑰加密，**只上傳密文**。公鑰來自 repo secret
-      # VERIFY_AGE_PUBLIC_KEY，私鑰只存在 aswf.dev Worker。
+      # ADR-029 §5：驗證類的產出（run／specs／agent 改動的測試檔）與含目標內容的
+      # 機制 JSON（issue／crosscheck／model…，--mechanism-dir）在公開 runner 上以
+      # age 公鑰加密，**只上傳密文**。公鑰來自 repo secret VERIFY_AGE_PUBLIC_KEY，
+      # 私鑰只存在 aswf.dev Worker。
       #
       # Fail closed：secret 缺失時本步驟直接失敗，後續兩個上傳步驟都不會執行
       # ——絕不 fallback 明文上傳（Review Focus 2）。加密失敗亦然：只有
@@ -1583,11 +1602,11 @@ jobs:
       #
       # 位置：agent 步驟與所有 target 寫入都完成之後、上傳之前；`always()` 讓
       # agent 失敗時仍能取回部分產出（診斷用），但同樣只以密文形式。
-      # guard 必須成功（agent 步驟本身是 success()）：被 guard 擋下的驗證類
-      # run 沒有 agent 產出，不該把 checkout 到的 specs 打包上傳。
+      # agent 必須真的跑過（success 或 failure）：guard 擋下、或 agent 之前的步驟
+      # 失敗時 agent 是 skipped，target 只有 checkout 的舊內容，不該打包上傳。
       - name: Encrypt verify artifacts (age)
         id: verify-encrypt
-        if: always() && steps.verifymode.outcome == 'success' && steps.verifymode.outputs.verify == 'true'
+        if: always() && steps.verifymode.outcome == 'success' && steps.verifymode.outputs.verify == 'true' && (steps.agent.outcome == 'success' || steps.agent.outcome == 'failure')
         env:
           VERIFY_AGE_PUBLIC_KEY: ${{ secrets.VERIFY_AGE_PUBLIC_KEY }}
         run: |
@@ -1600,12 +1619,17 @@ jobs:
           node "$GITHUB_WORKSPACE/dist/cli/factory-verify-encrypt.js" \
             --target "$GITHUB_WORKSPACE/target" \
             --out "$GITHUB_WORKSPACE/.factory/verify-bundle.age" \
-            --recipient "$VERIFY_AGE_PUBLIC_KEY" > /dev/null
+            --recipient "$VERIFY_AGE_PUBLIC_KEY" \
+            --mechanism-dir "$GITHUB_WORKSPACE/.factory" > /dev/null
           echo "::notice::驗證模式產出已加密為 .factory/verify-bundle.age（只上傳密文）"
 
       # 診斷：agent 的 stdout/stderr/report 上傳成 artifact（失敗也要，否則無從查）
       # ADR-029 §5：驗證類改由下方「Upload encrypted verify artifacts」上傳密文，
       # 這一步（含 target/.factory/run/ 明文）在驗證模式必須跳過。
+      # 刻意用 `!= 'true'` 而非 `== 'false'`：guard 在寫出 output 前失敗（查不到預設
+      # 分支）時 output 為空，正向閘門會讓非驗證 run 連 steps.json 都不上傳，compare 的
+      # G1 會把「沒有 artifact」當成「可能已啟動」而補貼 needs-human。此時產生目標內容
+      # 的步驟都還沒跑（只在 success() 時執行），沒有明文可外洩。
       - name: Upload run artifacts
         if: always() && steps.verifymode.outputs.verify != 'true'
         continue-on-error: true
@@ -1632,9 +1656,10 @@ jobs:
             .factory/draft-state.txt
           if-no-files-found: ignore
 
-      # 驗證模式的唯一 artifact。只含 age 密文與非敏感機制 JSON（verify-mode／
-      # model／issue／crosscheck／session 診斷等，既有明文清單中不含目標 repo
-      # 內容者）；**不含** target/.factory/run/、target/specs/ 或任何測試檔。
+      # 驗證模式的唯一 artifact：age 密文＋兩份無內容診斷——steps.json（各步驟
+      # outcome 字串）與 session-diag.json（factory-session-diag 只輸出計數／長度／
+      # 工具名）。issue／crosscheck／model／verify-mode 等機制 JSON 含目標內容（Issue
+      # body、檔案清單），只在 bundle 內（mechanism/<name>）；**不含** target/**。
       # 條件要求加密步驟成功：缺 secret 或加密失敗時不上傳任何東西。
       - name: Upload encrypted verify artifacts
         if: always() && steps.verifymode.outputs.verify == 'true' && steps.verify-encrypt.outcome == 'success'
@@ -1644,14 +1669,8 @@ jobs:
           name: factory-run-${{ inputs.issue_number }}-${{ matrix.variant }}
           path: |
             .factory/verify-bundle.age
-            .factory/verify-mode.json
-            .factory/model.json
-            .factory/issue.json
-            .factory/scoreboard-event.json
-            .factory/crosscheck.json
-            .factory/judge.json
-            .factory/session-diag.json
             .factory/steps.json
+            .factory/session-diag.json
           if-no-files-found: ignore
 
   compare:

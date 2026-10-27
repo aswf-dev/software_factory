@@ -239,6 +239,48 @@ describe('crosscheck step：N-version 變體隔離', () => {
 })
 
 /**
+ * ADR-029 §5：本 repo 的 Actions log 是公開的。驗證模式的 crosscheck.json 帶有
+ * agent 改動的檔案清單（mismatch detail、實際變更路徑），crosscheck.err 可能帶出
+ * report 內容——兩者都只進加密 bundle，log 只印計數。非驗證模式維持原樣。
+ */
+describe('crosscheck step：驗證模式不把檔案清單印進公開 log', () => {
+  const VERIFY = { 'steps.verifymode.outputs.verify': 'true' }
+  const SECRET_PATH = 'src/payments/ledger-secret.ts'
+  const withPaths = JSON.stringify({
+    issueNumber: 670,
+    ok: false,
+    mismatches: [{ kind: 'verify-out-of-scope', detail: `越界：${SECRET_PATH}` }],
+    advisories: [{ kind: 'requirements-uncovered', detail: SECRET_PATH }],
+    headline: '變更超出任務類型允許的範圍',
+    actualFiles: [SECRET_PATH, 'specs/lean/Rules.lean'],
+  })
+
+  it('驗證模式：log 只有 ok／mismatch／advisory 計數，不含任何檔案路徑', () => {
+    const r = runStep({ stdout: withPaths, stderr: '', code: 1 }, '', VERIFY)
+    expect(r.status).not.toBe(0)
+    expect(r.log).toContain('crosscheck: ok=false mismatches=1 advisories=1')
+    expect(r.log).not.toContain(SECRET_PATH)
+    expect(r.log).not.toContain('specs/lean/Rules.lean')
+    // 標題與 advisory 種類是固定列舉值（不含內容），照常提示
+    expect(r.log).toContain('::error::變更超出任務類型允許的範圍')
+  })
+
+  it('驗證模式：crosscheck 沒產出 JSON 時不把 stderr 印進 log', () => {
+    const r = runStep({ stdout: '', stderr: `error: report invalid near ${SECRET_PATH}`, code: 1 }, '', VERIFY)
+    expect(r.status).not.toBe(0)
+    expect(r.log).not.toContain(SECRET_PATH)
+    expect(r.log).toContain('crosscheck: 未產出 JSON')
+  })
+
+  it('非驗證模式：仍 cat 完整 JSON 與 stderr（行為不變）', () => {
+    const r = runStep({ stdout: withPaths, stderr: '', code: 1 })
+    expect(r.log).toContain(withPaths)
+    const e = runStep({ stdout: '', stderr: REPORT_INVALID, code: 1 })
+    expect(e.log).toContain(REPORT_INVALID)
+  })
+})
+
+/**
  * factory-workflow 技能要求 agent 寫完 report 後以 jq 自檢。這條命令是 ReportSchema
  * 的手抄子集：schema 收緊而技能沒跟上，agent 會自檢通過、CI 卻判格式不合規（#670
  * 的形狀）；技能比 schema 嚴，agent 會被逼著改一份合法的 report。兩個方向都在此鎖住。

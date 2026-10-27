@@ -1,5 +1,5 @@
 /**
- * factory-verify-encrypt — 把驗證類 run 的產出打包成單一 age 密文（ADR-029 §5、§7）。
+ * factory-verify-encrypt — 把驗證類 run 的產出打包成單一 age 密文（ADR-029 §5）。
  *
  * 背景：`factory-run` 在公開的機制 repo 執行，`target/.factory/run/` 的 artifact
  * 任何登入 GitHub 的人都下載得到；驗證類的產出（agent stdout、specs、測試檔）
@@ -14,6 +14,17 @@
  *
  * 後兩者保留「相對 target 的路徑」——下一個階段（Task 6）解密後要直接還原到
  * `target/` 下，路徑若被壓平或加上前綴，階段串接就會缺檔。
+ *
+ * 另外，`--mechanism-dir`（workflow 傳 `$GITHUB_WORKSPACE/.factory`）下的機制檔
+ * （`VERIFY_MECHANISM_FILES`：issue body、crosscheck 檔案清單、model 等）以
+ * `mechanism/<name>` 進 bundle。它們含目標內容，驗證模式**不再明文上傳**；明文
+ * artifact 只剩 bundle 與無內容診斷（steps.json／session-diag.json）。解包端以
+ * 「路徑 ∈ `mechanism/` ＋ 清單名」分辨來源：這些路徑不可能是 target 的 bundle
+ * 路徑（不在 specs／run 下、也不符合測試白名單；測試釘住），不會與還原檔衝突。
+ *
+ * 根目錄（`specs`、`.factory/run`）本身是 symlink、或解析後落在 target 外時一律
+ * 拋錯（fail closed）——`readdir` 會跟隨根的 symlink，把 runner 上任意目錄打包。
+ * 根不存在（agent 失敗前）則略過；其他 I/O 錯誤照樣往外拋。
  *
  * 格式：age（X25519 recipient）密文，明文是 JSON lines，每行
  * `{"path":"<相對 target 的路徑>","b64":"<原始位元組的 base64>"}`。base64 而非
@@ -30,10 +41,11 @@
  * CLI（workflow 呼叫）：
  *   node dist/cli/factory-verify-encrypt.js \
  *     --target target --out .factory/verify-bundle.age \
- *     --recipient "$VERIFY_AGE_PUBLIC_KEY"
+ *     --recipient "$VERIFY_AGE_PUBLIC_KEY" --mechanism-dir .factory
  */
 import { execFileSync } from 'node:child_process'
-import { lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import type { Stats } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { Encrypter } from 'age-encryption'
 import { isVerifyAllowedPath } from '../pipeline/verify-scope.js'
@@ -46,6 +58,21 @@ const RUN_DIR = '.factory/run'
 const SPECS_DIR = 'specs'
 /** App installation token；1 小時內有效，絕不進 90 天保存的 artifact。 */
 const GH_TOKEN_PATH = `${RUN_DIR}/gh-token`
+/**
+ * 進 bundle 的機制檔（相對 mechanism dir）：Worker 需要的 run metadata，含目標內容故只走密文。
+ * 不在清單內的（scoreboard-event／pr-bodies／舊的 verify-bundle.age…）一律不帶；
+ * steps.json／session-diag.json 無內容、走明文 artifact，也不重複放進來。
+ */
+export const VERIFY_MECHANISM_FILES = [
+  'crosscheck.err',
+  'crosscheck.json',
+  'issue.json',
+  'judge.json',
+  'model.json',
+  'verify-mode.json',
+] as const
+/** bundle 內機制檔的路徑前綴（`mechanism/issue.json`…），與相對 target 的路徑分開。 */
+export const MECHANISM_PREFIX = 'mechanism/'
 /** 掃描測試檔時不進的目錄：版本庫、依賴、factory 內部檔與已另行處理的 specs。 */
 const SKIP_DIR_NAMES: ReadonlySet<string> = new Set(['.git', 'node_modules', '.factory', 'specs'])
 
@@ -56,20 +83,24 @@ export interface EncryptVerifyBundleOptions {
   outFile: string
   /** age X25519 公鑰（`age1…`）。 */
   recipient: string
+  /** 機制檔所在目錄（workflow 中是 `$GITHUB_WORKSPACE/.factory`）；省略時不帶機制檔。 */
+  mechanismDir?: string
 }
 
 export interface EncryptVerifyBundleResult {
   /** 實際打包的檔案（相對 target，排序後）。 */
   files: string[]
+  /** 實際打包的機制檔在 bundle 內的路徑（`mechanism/<name>`，排序後）。 */
+  mechanism: string[]
 }
 
 /**
  * 判斷單一路徑是否進 bundle。
  *
- * 這是 bundle 範圍的**唯一**決策點：run 目錄全收（gh-token 除外）、specs 全收
- * （`.lake/build/` 除外）、其餘只收驗證白名單的測試檔。`.factory/` 下非 run 的
- * 檔案（verify-mode.json／model.json 等）是機制 metadata，不是驗證產出，不進
- * bundle；它們走原本的明文 artifact 清單。
+ * 這是 target 路徑進 bundle 的**唯一**決策點：run 目錄全收（gh-token 除外）、specs
+ * 全收（`.lake/build/` 除外）、其餘只收驗證白名單的測試檔。target `.factory/` 下非
+ * run 的檔案不進 bundle；workflow 的機制 metadata（在 `$GITHUB_WORKSPACE/.factory`，
+ * 不在 target 下）另由 `collectMechanismEntries` 以 `mechanism/<name>` 收進來。
  */
 function isBundlePath(rel: string): boolean {
   if (rel === GH_TOKEN_PATH) return false
@@ -85,20 +116,14 @@ function isLakeBuildArtifact(rel: string): boolean {
 }
 
 /**
- * 遞迴列出 root/relDir 下的檔案（相對 root）。目錄不存在時回空陣列：
- * `.factory/run` 在 agent 失敗前可能還沒建立，不該讓整個 bundle 失敗。
- * 其他 I/O 錯誤（例如 `specs` 不是目錄、權限不足）往外拋——打包不完整比
- * abort 更危險，下一階段會拿到缺檔的規格卻無從得知。
- * symlink 不跟隨（避免把 target 外的路徑打包進來），目錄／其他特殊檔一律略過。
+ * 遞迴列出 root/relDir 下的檔案（相對 root）。呼叫端先以 `isScannableRoot` 確認根
+ * 存在且不是 symlink（不存在的根在那裡略過）；這裡的任何 I/O 錯誤（例如 `specs`
+ * 不是目錄、權限不足）一律往外拋——打包不完整比 abort 更危險，下一階段會拿到
+ * 缺檔的規格卻無從得知。
+ * 子項的 symlink 不跟隨（避免把 target 外的路徑打包進來），其他特殊檔一律略過。
  */
 function walkFiles(root: string, relDir: string, skipDir: (rel: string) => boolean): string[] {
-  let entries
-  try {
-    entries = readdirSync(join(root, relDir), { withFileTypes: true })
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
-    throw error
-  }
+  const entries = readdirSync(join(root, relDir), { withFileTypes: true })
   const files: string[] = []
   for (const entry of entries) {
     const rel = relDir === '' ? entry.name : `${relDir}/${entry.name}`
@@ -185,31 +210,85 @@ function changedPaths(targetDir: string): Set<string> | null {
 
 const neverSkip = (): boolean => false
 
+/** `lstat`，只有 ENOENT 回 null（路徑不存在）；其他錯誤（ENOTDIR、EACCES…）往外拋。 */
+function lstatIfExists(abs: string): Stats | null {
+  try {
+    return lstatSync(abs)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+}
+
+/**
+ * 根目錄（相對 target）是否可掃描。不存在 → false（略過）；本身是 symlink、或任一
+ * 上層 segment 經 symlink 使它解析到別處（`target/.factory` → target 外）→ 拋錯。
+ * 以 realpath 與「target 的 realpath ＋ rel」逐字比對，任何一段 symlink 都會不等。
+ */
+function isScannableRoot(targetDir: string, rel: string): boolean {
+  const abs = join(targetDir, rel)
+  const stats = lstatIfExists(abs)
+  if (stats === null) return false
+  if (stats.isSymbolicLink()) {
+    throw new CliError(`${rel} 是 symlink：驗證 bundle 不跟隨根目錄的 symlink（ADR-029 §5，fail closed）`)
+  }
+  if (realpathSync(abs) !== join(realpathSync(targetDir), rel)) {
+    throw new CliError(`${rel} 經 symlink 解析到 target 外：驗證 bundle 拒絕打包（ADR-029 §5，fail closed）`)
+  }
+  return true
+}
+
 /**
  * 收集 bundle 內的路徑（相對 target，排序）。只回傳實際存在的 regular file；
- * symlink 不跟隨（`lstat`），避免把 target 外的內容打包。不存在的路徑直接
- * 跳過（git 事實與檔案系統之間可能有 race），但其他 I/O 錯誤會往外拋——
+ * symlink 不跟隨（`lstat`），避免把 target 外的內容打包。不存在的路徑（ENOENT）
+ * 直接跳過（git 事實與檔案系統之間可能有 race），但其他 I/O 錯誤會往外拋——
  * 打包不完整比 abort 更危險（下一階段會拿到缺檔的規格）。
  */
 function collectBundlePaths(targetDir: string): string[] {
   const files = new Set<string>()
   const add = (rel: string): void => {
     if (!isBundlePath(rel)) return
-    if (!lstatSync(join(targetDir, rel)).isFile()) return
+    if (lstatIfExists(join(targetDir, rel))?.isFile() !== true) return
     files.add(rel)
   }
-  for (const rel of walkFiles(targetDir, RUN_DIR, neverSkip)) add(rel)
-  for (const rel of walkFiles(targetDir, SPECS_DIR, neverSkip)) add(rel)
+  for (const root of [RUN_DIR, SPECS_DIR]) {
+    if (!isScannableRoot(targetDir, root)) continue
+    for (const rel of walkFiles(targetDir, root, neverSkip)) add(rel)
+  }
   for (const rel of changedPaths(targetDir) ?? collectAllBundlePaths(targetDir)) add(rel)
   return [...files].sort()
 }
 
+/** bundle 的一筆：bundle 內路徑與來源檔的絕對路徑。 */
+interface BundleEntry {
+  path: string
+  abs: string
+}
+
+/**
+ * 收集機制檔（依 `VERIFY_MECHANISM_FILES` 的字母序，即 bundle 路徑排序）。不存在（例如驗證模式沒有
+ * judge.json）→ 略過；存在但不是 regular file（symlink 等）→ 拋錯：機制目錄由
+ * workflow 寫入，出現 symlink 代表被動過，不得把它指向的任意檔案帶進 bundle。
+ */
+function collectMechanismEntries(mechanismDir: string | undefined): BundleEntry[] {
+  if (mechanismDir === undefined) return []
+  const dir = resolve(mechanismDir)
+  const entries: BundleEntry[] = []
+  for (const name of VERIFY_MECHANISM_FILES) {
+    const abs = join(dir, name)
+    const stats = lstatIfExists(abs)
+    if (stats === null) continue
+    if (!stats.isFile()) {
+      throw new CliError(`機制檔 ${name} 不是一般檔案（symlink？）：拒絕打包（ADR-029 §5，fail closed）`)
+    }
+    entries.push({ path: `${MECHANISM_PREFIX}${name}`, abs })
+  }
+  return entries
+}
+
 /** 把檔案讀成 JSON lines 明文（記憶體組完才加密，不落任何明文側檔）。 */
-function serializeBundle(targetDir: string, files: readonly string[]): Buffer {
-  const lines = files.map((rel) => {
-    const bytes = readFileSync(join(targetDir, rel))
-    return JSON.stringify({ path: rel, b64: bytes.toString('base64') })
-  })
+function serializeBundle(entries: readonly BundleEntry[]): Buffer {
+  const lines = entries.map(({ path, abs }) => JSON.stringify({ path, b64: readFileSync(abs).toString('base64') }))
   return Buffer.from(lines.map((line) => `${line}\n`).join(''), 'utf8')
 }
 
@@ -218,7 +297,7 @@ function validateRecipient(recipient: string): string {
   if (key === '' || !key.startsWith('age1')) {
     throw new CliError(
       'recipient 必須是非空的 age X25519 公鑰（age1…）。缺 VERIFY_AGE_PUBLIC_KEY 或值不合法時' +
-        '不得產生 bundle——驗證模式拒絕任何明文 fallback（ADR-029 §7，fail closed）',
+        '不得產生 bundle——驗證模式拒絕任何明文 fallback（ADR-029 §5，fail closed）',
     )
   }
   return key
@@ -248,20 +327,22 @@ export async function encryptVerifyBundle(
   const key = validateRecipient(opts.recipient)
   const targetDir = resolveTargetDir(opts.targetDir)
   const files = collectBundlePaths(targetDir)
-  const payload = serializeBundle(targetDir, files)
+  const mechanism = collectMechanismEntries(opts.mechanismDir)
+  const payload = serializeBundle([...files.map((rel) => ({ path: rel, abs: join(targetDir, rel) })), ...mechanism])
   const encrypter = new Encrypter()
   encrypter.addRecipient(key)
   const ciphertext = await encrypter.encrypt(payload)
   const outFile = resolve(opts.outFile)
   mkdirSync(dirname(outFile), { recursive: true })
   writeFileSync(outFile, ciphertext)
-  return { files }
+  return { files, mechanism: mechanism.map((entry) => entry.path) }
 }
 
 const FLAGS = {
   '--target': 'targetDir',
   '--out': 'outFile',
   '--recipient': 'recipient',
+  '--mechanism-dir': 'mechanismDir',
 } as const satisfies Record<string, keyof EncryptVerifyBundleOptions>
 
 /**
@@ -281,11 +362,11 @@ export function parseArgs(argv: string[]): EncryptVerifyBundleOptions {
     if (key !== 'recipient' && value.trim() === '') throw new CliError(`${arg} must not be empty`)
     values[key] = value
   }
-  const { targetDir, outFile, recipient } = values
+  const { targetDir, outFile, recipient, mechanismDir } = values
   if (targetDir === undefined) throw new CliError('--target is required')
   if (outFile === undefined) throw new CliError('--out is required')
   if (recipient === undefined) throw new CliError('--recipient is required')
-  return { targetDir, outFile, recipient }
+  return mechanismDir === undefined ? { targetDir, outFile, recipient } : { targetDir, outFile, recipient, mechanismDir }
 }
 
 export async function main(argv: string[]): Promise<EncryptVerifyBundleResult> {
