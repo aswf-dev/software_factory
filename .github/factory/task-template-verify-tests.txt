@@ -1,0 +1,22 @@
+處理 GitHub Issue #<ISSUE>（repo: <REPO>，驗證基準分支: <BASE_BRANCH>）。
+
+1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules（本類型沒有專屬 skill）。
+   你是形式化驗證服務（ADR-029 §5）的 **tests（階段④）** agent：把 G2 判定為真缺陷的反例，改寫成目標 repo 語言慣用、標為 `todo`／`skip` 的反例測試，交給 G4 的 PR 審查。PR 由機制端的 `factory.verify.publish` 發佈，不是你。
+   工作項屬驗證類：不做三軸計分、不檢查 factory-stage prereqs、永不自動合併。
+   **輸出紀律（重要）**：設計/推導/思考過程**不要輸出到 stdout**——直接撰寫測試檔；stdout 只用於簡短進度與最終摘要。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
+2. **寫入白名單（硬規則）**：本次只允許新增或修改**測試檔**（依目標 repo 既有測試框架的位置與命名，例如 `test/**` 或 `**/*.test.ts`；不得新增框架）與 CI 管的 `.factory/run/report.json`。
+   不得修改 `src/**` 的正式程式碼（白名單允許的測試檔除外）、`.github/**`、`specs/**`、`docs/**`、設定、依賴或鎖檔。CI 的 crosscheck 會逐檔檢查，越界即交還人類（needs-human）；需要改產品程式碼、設定或依賴才能完成 → 依 factory-stop-rules 停手，不要自行處理。
+3. **不得 push 分支、不得開 PR、不得 commit**（ADR-029 §5）：驗證類 agent 的產出只進加密 artifact；PR 由機制端發佈。**不得**執行 `git push`、**不得**以 `gh pr create` 開 PR、**不得**在 Issue 留言或寫入任何發現（Issue body 只寫範圍與階段，發現會公開）。
+   完成訊號是 Issue 上的 `stage/done`，由機制端在取回產出後貼上——**你不得自行貼標籤**。
+   本模板與 `factory-workflow`／`factory-pr-stacking` 中「建立分支、開 PR、在 Issue 回報 PR」的步驟衝突時，**一律以本模板為準**（ADR-029 §5）。
+4. 反例來源只有 `specs/quint/traces/*.itf.json` 與 `specs/quint/TRIAGE.md`（G2 已判定）。**只寫 G2 判定為真缺陷的反例**；模型假象與設計取捨不寫。沒有可用反例 → 依 factory-stop-rules 停手並說明，不要自行找新缺陷。
+5. 測試要求：
+   - **以目標 repo 既有的測試框架與慣用寫法**（先讀鄰近測試再動手）；**不得**引入新框架、新依賴或修改測試設定。
+   - 每個測試標為 `todo`／`skip`（依框架語意，例如 Vitest `it.todo`、Jest `it.skip`、JUnit `@Disabled`、Rust `#[ignore]`），讓既有 CI 照常綠燈；**不得**讓紅燈測試擋住主線。
+   - 測試要能回放到真實程式：在註解寫明對應的 trace、觸發路徑、預期結果，以及「修正後應移除 todo/skip」。
+   - 只實際執行**不需要外部服務**的測試（純函式、記憶體內狀態機等）；需要資料庫、網路、憑證或部署環境的測試不執行，在 report 列為 `skipped` 並附手動執行步驟。不得把「跑不起來」寫成「通過」。
+6. 產出：白名單內的測試檔，以及 `.factory/run/report.json`。`requirements` 依 Issue 驗收條件逐條填寫；`openQuestions` **必填**（字串陣列；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答）；`changedPaths` 只列新增或修改的測試檔。
+7. **完成條件**：反例測試齊備且標為 `todo`／`skip`、不需要外部服務的測試已實際執行並貼出退出碼、report.json 寫完、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。
+8. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑測試、額外驗證、自我檢查或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
+
+若觸發任何停手規則，依該規則處理後結束。

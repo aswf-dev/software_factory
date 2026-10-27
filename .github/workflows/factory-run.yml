@@ -25,8 +25,14 @@ on:
         description: 任務類型（決定 task-template 與 skill 分支）；auto = 以 Issue 宣告為準
         required: false
         type: choice
-        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-write-spec, agent-analyze, agent-propose-skill, agent-pbt-audit]
+        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-write-spec, agent-analyze, agent-propose-skill, agent-pbt-audit, agent-verify-grill, agent-verify-quint, agent-verify-lean, agent-verify-tests]
         default: auto
+      verify_phase:
+        description: 驗證 Lean 階段（僅 agent-verify-lean）：statements＝先寫定理敘述（可留 sorry）待 G3 簽核；proofs＝G3 後證明（零 sorry，不得切換）
+        required: false
+        type: choice
+        options: [statements, proofs]
+        default: statements
       repo:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
         required: false
@@ -374,7 +380,10 @@ jobs:
           printf '%s' "${{ matrix.variant }}" > target/.factory/run/variant
           # ADR-021：skill 依此決定 PR 開成 draft（N-version）或正式 PR（單一變體）
           printf '%s' "${{ inputs.nversion }}" > target/.factory/run/nversion
-          echo "run env written: token=$(wc -c < target/.factory/run/gh-token)B base=$(cat target/.factory/run/base-branch) repo=$(cat target/.factory/run/repo) variant=$(cat target/.factory/run/variant) nversion=$(cat target/.factory/run/nversion)"
+          # ADR-029 §2：Lean 拆兩次執行（statements → G3 → proofs），模板以 <VERIFY_PHASE>
+          # 帶入 prompt；另寫檔案讓目標 repo 的覆寫模板也能讀到同一值。
+          printf '%s' "${{ inputs.verify_phase }}" > target/.factory/run/verify-phase
+          echo "run env written: token=$(wc -c < target/.factory/run/gh-token)B base=$(cat target/.factory/run/base-branch) repo=$(cat target/.factory/run/repo) variant=$(cat target/.factory/run/variant) nversion=$(cat target/.factory/run/nversion) verify_phase=$(cat target/.factory/run/verify-phase)"
 
       # token 安全：目標 repo 未必有 .factory/ 的 gitignore 條目——若 agent 的
       # git add -A 把 .factory/run/gh-token 提交上去會外洩憑證。以 repo 本地的
@@ -923,7 +932,8 @@ jobs:
                         -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" \
                         -e "s|<VARIANT>|${VARIANT_ID}|g" \
                         -e "s|<SPEC_PHASE>|${{ steps.specphase.outputs.phase }}|g" \
-                        -e "s|<SPEC_NAME>|${{ steps.specphase.outputs.spec_name }}|g" "$TEMPLATE")" \
+                        -e "s|<SPEC_NAME>|${{ steps.specphase.outputs.spec_name }}|g" \
+                        -e "s|<VERIFY_PHASE>|${{ inputs.verify_phase }}|g" "$TEMPLATE")" \
                 > .factory/run/stdout.txt 2> .factory/run/stderr.txt
               code=$?
               ELAPSED=$(( $(date +%s) - STARTED_AT ))

@@ -478,7 +478,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       expect(c).toContain('export BASE_BRANCH=$(cat .factory/run/base-branch')
     }
   })
-  it('8 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
+  it('12 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
     const w = read('.github/workflows/factory-run.yml')
     const m = w.match(/^ {8}options: \[(.+)\]$/m)
     expect(m).not.toBeNull()
@@ -495,6 +495,10 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'agent-analyze',
       'agent-propose-skill',
       'agent-pbt-audit',
+      'agent-verify-grill',
+      'agent-verify-quint',
+      'agent-verify-lean',
+      'agent-verify-tests',
     ])
     // 檔名慣例：task-template-<type>.txt（type 無 agent- 前綴）——
     // 路由必須剝除前綴，否則專屬模板永遠拼不出檔名（2026-08-21 實測抓到的
@@ -504,6 +508,53 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       const file = `task-template-${t.replace(/^agent-/, '')}.txt`
       expect(read(`.github/factory/${file}`)).toContain('<ISSUE>')
     }
+  })
+  /**
+   * 驗證類 template 是 agent 唯一的作業規則來源（ADR-029 §5）。缺一項就等於少一道
+   * 護欄：白名單少寫 → crosscheck 才擋（更晚、更貴）；沒寫禁止 push/PR → agent
+   * 會照一般型別的習慣開 PR，把未經 G2 的發現公開在目標 repo。
+   */
+  it('驗證類 task-template 帶階段目標、寫入白名單、禁止 push/PR、產出與 stage/done 完成條件', () => {
+    const perStage: Record<string, string[]> = {
+      grill: ['CODE-SUMMARY.md', '候選規則', 'openQuestions', '不得猜測規則', '未確認'],
+      quint: [
+        'specs/quint/RULES.md',
+        'specs/quint/model.qnt',
+        'specs/quint/instances.qnt',
+        'specs/quint/test.qnt',
+        'specs/quint/REPORT.md',
+        'specs/quint/traces/',
+        'quint run',
+        'quint verify',
+      ],
+      lean: ['verify_phase', 'statements', 'proofs', 'specs/lean/', 'sorry', 'Mathlib', 'v4.35.0'],
+      tests: ['todo', 'skip', '外部服務'],
+    }
+    for (const [stage, needles] of Object.entries(perStage)) {
+      const c = read(`.github/factory/task-template-verify-${stage}.txt`)
+      const label = `task-template-verify-${stage}`
+      expect(c, label).toContain('<ISSUE>')
+      expect(c, label).toContain('<REPO>')
+      expect(c, label).toContain('<BASE_BRANCH>')
+      expect(c, label).toContain('寫入白名單')
+      expect(c, label).toContain('不得 push 分支')
+      expect(c, label).toContain('不得開 PR')
+      expect(c, label).toContain('stage/done')
+      // 正式程式碼與機制設定不在白名單內（ADR-029 §6）：白名單必須明文排除。
+      expect(c, label).toContain('不得修改 `src/**`')
+      expect(c, label).toContain('`.github/**`')
+      for (const n of needles) expect(c, `${label} 缺少：${n}`).toContain(n)
+    }
+    // 各階段的禁止事項要寫成「不得」句，而不只是提到關鍵字。
+    expect(read('.github/factory/task-template-verify-quint.txt')).toMatch(/不得[^\n]*`quint verify`/)
+    expect(read('.github/factory/task-template-verify-lean.txt')).toMatch(/proofs[^]*?不得[^]*?sorry/)
+  })
+  it('lean 階段以 workflow input verify_phase（statements／proofs）分流', () => {
+    const w = read('.github/workflows/factory-run.yml')
+    expect(w).toContain('verify_phase:')
+    expect(w).toContain('options: [statements, proofs]')
+    expect(w).toContain('default: statements')
+    expect(read('.github/factory/task-template-verify-lean.txt')).toContain('<VERIFY_PHASE>')
   })
   it('通用模板 fallback 有 ::warning:: log（漂移不靜默，fail-loud 精神）', () => {
     const w = read('.github/workflows/factory-run.yml')
@@ -935,7 +986,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     const labels = [...yml.matchAll(/^ {8}- label: (.+)$/gm)].map((m) => m[1])
     expect(labels).toEqual([...DOD_LABELS])
   })
-  it('ISSUE_TEMPLATE 的 task_type 8 種選項齊全', () => {
+  it('ISSUE_TEMPLATE 的 task_type 12 種選項齊全', () => {
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     for (const t of [
       'agent-add-tests',
@@ -946,6 +997,10 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-analyze',
       'agent-propose-skill',
       'agent-pbt-audit',
+      'agent-verify-grill',
+      'agent-verify-quint',
+      'agent-verify-lean',
+      'agent-verify-tests',
     ]) {
       expect(yml).toContain(t)
     }
@@ -1018,7 +1073,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'factory-run 不得再有固定類型的 input 預設',
     ).not.toContain('default: agent-add-tests')
   })
-  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（8 型，2026-09-01 C1 漂移修復）', () => {
+  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（12 型，2026-09-01 C1 漂移修復）', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     const expected = [
@@ -1030,6 +1085,10 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-analyze',
       'agent-propose-skill',
       'agent-pbt-audit',
+      'agent-verify-grill',
+      'agent-verify-quint',
+      'agent-verify-lean',
+      'agent-verify-tests',
     ]
     for (const ty of expected) {
       expect(t).toContain(ty)
@@ -2194,9 +2253,12 @@ describe('write-spec 階段判定接線（ADR-018 §12）', () => {
     const run = steps()[phaseIdx()]!.run!
     expect(run).toMatch(/if \[ "\$DECISION" = "refuse" \]; then[\s\S]*?gh issue comment[\s\S]*?exit 1/)
   })
-  it('沒有「指定階段」的 dispatch input（不留跳過第一階段的後門）', () => {
+  it('沒有「指定 write-spec 階段」的 dispatch input（不留跳過第一階段的後門）', () => {
+    // 階段只能由 Issue 狀態推導（ADR-018 §12）。`verify_phase` 是 ADR-029 §2 的
+    // Lean 兩次執行參數（statements → G3 簽核 → proofs），由機制端在簽核後才以
+    // proofs 派工；它不是 write-spec 的階段後門，故不在此禁令內。
     const inputs = Object.keys(wf().on.workflow_dispatch.inputs)
-    expect(inputs.filter((k) => /spec|phase/i.test(k))).toEqual([])
+    expect(inputs.filter((k) => /spec[-_]?phase/i.test(k))).toEqual([])
   })
   it('階段往下傳：選模型、任務模板、crosscheck、judge', () => {
     const byId = (id: string) => steps().find((s) => s.id === id)!.run!
@@ -2274,7 +2336,7 @@ describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標�
       )
       .join('\n')
 
-  it('解析得到 workflow 的六個佔位字替換式', () => {
+  it('解析得到 workflow 的七個佔位字替換式', () => {
     expect(rules.map((r) => r.token).sort()).toEqual([
       '<BASE_BRANCH>',
       '<ISSUE>',
@@ -2282,12 +2344,13 @@ describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標�
       '<SPEC_NAME>',
       '<SPEC_PHASE>',
       '<VARIANT>',
+      '<VERIFY_PHASE>',
     ])
   })
   it('每個任務模板替換後都沒有殘留佔位字', () => {
     const dir = join(ROOT, '.github/factory')
     for (const f of readdirSync(dir).filter((n) => n.startsWith('task-template') && n.endsWith('.txt'))) {
-      const leftover = render(read(`.github/factory/${f}`)).match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME|VARIANT)>/g)
+      const leftover = render(read(`.github/factory/${f}`)).match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME|VARIANT|VERIFY_PHASE)>/g)
       expect(leftover, `${f} 替換後仍殘留 ${leftover?.join(', ')}`).toBeNull()
     }
   })
