@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { checkIssue, DOD_LABELS } from '../../src/cli/factory-issue-check.js'
 import { VERIFY_ALLOWED_GLOBS } from '../../src/pipeline/verify-scope.js'
 import { VERIFY_TASK_TYPES } from '../../src/pipeline/verify-task-types.js'
 
@@ -27,6 +28,22 @@ describe('docs/34-verify-runbook.md', () => {
     expect(doc).toContain('-f verify_phase=statements')
     expect(doc).toContain('-f verify_phase=proofs')
     expect(doc).toMatch(/gh workflow run factory-run\.yml[\s\S]*-f repo=[\s\S]*-f issue_number=[\s\S]*-f base_branch=/)
+  })
+
+  it('Issue 範例逐字通過 factory-issue-check（驗證類沒有格式豁免）', () => {
+    const example = doc.match(/```markdown\n([\s\S]*?)```/)?.[1]
+    expect(example).toBeDefined()
+    const result = checkIssue(example as string)
+    expect(result.ok).toBe(true)
+    expect(VERIFY_TASK_TYPES as readonly string[]).toContain(result.taskType)
+    for (const label of DOD_LABELS) expect(example).toContain(`- [x] ${label}`)
+    expect(doc).toMatch(/gh issue create[\s\S]*--body-file/)
+  })
+
+  it('Lean 快取 key 與 workflow 一致（只有 ~/.elan）', () => {
+    const key = 'lean-elan-${{ runner.os }}-leanprover/lean4:v4.35.0'
+    expect(doc).toContain(key)
+    expect(readFileSync(join(ROOT, '.github/workflows/factory-run.yml'), 'utf8')).toContain(`key: ${key}`)
   })
 
   it('toolchain 版本、secret 名稱與解密指令與 workflow 一致', () => {

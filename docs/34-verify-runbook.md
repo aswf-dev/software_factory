@@ -27,11 +27,79 @@
    私鑰（`AGE-SECRET-KEY-1…`）只存在 aswf.dev Worker（`VERIFY_AGE_PRIVATE_KEY`）；
    本機解密需要同一把私鑰或另一組測試用 keypair（`age-keygen -o key.txt`，
    把印出的 public key 設成 secret）。
-3. **目標 repo 有一張 Issue**，body 只寫範圍與階段，**不寫任何發現**（ADR-029 §5）。
-   集中式格式檢查（`Check issue format`）仍會執行；不合規時停派。
+3. **目標 repo 有一張標準工廠表單格式的 Issue**（§3.1）。驗證類**沒有**格式檢查豁免：
+   `Check issue format (central enforcement)` 對每次 dispatch 執行 `factory-issue-check`，
+   缺 `### 任務類型`、`### 需求描述（PRD）` 或 DoD 三個勾選項任一即紅燈停派。PRD **只寫**
+   repository、範圍 glob 與階段——**不寫**缺陷線索、規格內容或任何發現（ADR-029 §5）。
 4. 機制 repo 的 LLM 金鑰 secrets（與一般工作項相同）。
 
-## 3. 手動 dispatch
+## 3. 開 Issue 與手動 dispatch
+
+### 3.1 Issue 格式
+
+形狀與 `.github/ISSUE_TEMPLATE/factory-work-item.yml` 表單輸出、`buildIssueBody`
+（`src/factory-draft/issue-body.ts`，aswf.dev 開單用同一形狀）相同：
+
+- `### 任務類型`：本階段的 `agent-verify-*`。
+- `### 需求描述（PRD）`：只有 repository、範圍 glob、階段。檢查器對驗證類只要求非空
+  （另有一條：PRD 不得要求變更 PBT 測試檔）；下面的鍵名只是慣例，不被解析。
+- `### 驗收標準（DoD）`：三項以 `- [x] <label>` 逐字勾選（label 與 `DOD_LABELS` 同源，
+  少一項或改一個字都判 `acceptance` 缺失）。
+- 其餘欄位：`目標 repo` 填 `<owner>/<name>`；`規格名稱`／`規格來源`／`前置工作項` 填
+  `_No response_`（檢查器視為未填）。
+
+範例（存成 `verify-issue.md`；`agent-verify-lean` 的 statements／proofs 由 dispatch 的
+`verify_phase` 決定，不寫進 Issue）：
+
+```markdown
+### 任務類型
+
+agent-verify-quint
+
+### 需求描述（PRD）
+
+repository：<owner>/<name>
+範圍：
+- `src/billing/**`
+- `src/ledger/**`
+階段：agent-verify-quint
+
+### 驗收標準（DoD）
+
+- [x] 有可驗證的測試/驗證方式（測試紅→綠或明確驗證命令）
+- [x] 不觸碰高風險路徑（H1–H3 等硬規則，見 risk-paths.yml）
+- [x] 跑測試確認綠燈（不跑需外部服務的 E2E）
+
+### 目標 repo（預設本 repo）
+
+<owner>/<name>
+
+### 規格名稱
+
+_No response_
+
+### 規格來源
+
+_No response_
+
+### 前置工作項（可留空）
+
+_No response_
+```
+
+```bash
+gh issue create -R <owner>/<name> \
+  --title "[factory] 形式化驗證 agent-verify-quint" \
+  --body-file verify-issue.md
+```
+
+標題同樣公開，只寫階段。驗證模式不貼格式卡：合規時不留言，不合規時只貼一行無內容
+needs-human 狀態（§6）並停派，原因只在 run log 的 `cat .factory/issue-check.txt`。
+驗證模式不讀計分，模型 tier 與 agent 逾時預算由 Issue 文字的複雜度分析決定
+（`Select model tier`）：PRD 含 `quint` 之類工具字樣即判 heavy-verify（critical tier、
+逾時放寬，`src/issue-analysis/complexity.ts`）；要固定時 dispatch 加 `-f model_tier=…`。
+
+### 3.2 dispatch
 
 `base_branch` 必須是**目標 repo 的預設分支**（過渡期也接受 `software-factory`）；
 其他值會被 guard（`factory-verify-mode`）擋下。
@@ -51,8 +119,9 @@ gh workflow run factory-run.yml -R aswf-dev/software_factory \
   -f task_type=agent-verify-lean -f base_branch=<預設分支> -f verify_phase=proofs
 ```
 
-- `task_type` 請顯式指定：`auto` 依 Issue 宣告解析，但驗證類的 Issue 未必有工廠表單的
-  任務類型欄位。
+- `task_type`：`auto` 會從 Issue 的 `### 任務類型` 解析（`Resolve task_type`）。顯式指定
+  時請與 Issue 相同——不同時以 dispatch 為準、只留一則 `::notice::`，Issue 宣告的階段就與
+  實際執行不符。
 - N-version 預設開啟（兩個變體 `a`／`b`，各自一份密文 bundle）；只要一份時加
   `-f nversion=false`。
 - `agent-verify-lean` 的 run 會另外安裝 Lean（見 §6）；其他三種不裝。
@@ -111,6 +180,7 @@ done
 |---|---|---|
 | `base_branch` | 不得為 `main`（ADR-013），一律 `software-factory` | 目標 repo 預設分支（或過渡期 `software-factory`） |
 | `catalog-info.yaml`／`risk-paths.yml` | 必需 | 不讀 |
+| `Check issue format` | 執行，貼格式卡 | 執行（同一檢查器、無豁免）；不貼格式卡，不合規時貼一行狀態並停派 |
 | 三軸計分（`Initial score`）、`Apply score labels` | 執行 | 跳過 |
 | `factory-stage prereqs`（ADR-022） | 執行 | 跳過（階段順序由 aswf.dev 的 G1–G4 決定） |
 | VARIANT_HEADER | 建 `factory/<N>-<v>-` 分支並開 PR | 整段替換：不建／不推分支、不開 PR、可本地 commit |
@@ -119,7 +189,7 @@ done
 | compare job：終態、比對卡片、互指 PR、G1 守衛 | 執行 | 跳過 |
 | `Push event to scoreboard` | 執行 | 跳過（事件帶 skillGap 自由文字與檔案清單） |
 | artifact | 明文 `target/.factory/run/` 等 | 只有 §4 的三個檔案 |
-| Issue 留言 | 格式卡、crosscheck 明細＋usage、逾時 handover＋usage、終態、比對卡片 | 只有一行無內容狀態（見下） |
+| Issue 留言 | 格式卡、crosscheck 明細＋usage、逾時 handover＋usage、終態、比對卡片 | 一行無內容狀態（見下）；進入 agent 後失敗時另有 G2 cleanup 的通用 needs-human（§7 第 5 點） |
 | Lean 工具鏈 | 不裝 | 只在 `agent-verify-lean` 安裝 |
 
 **Issue 留言（ruling R6）**：驗證模式下會貼到 Issue 的只有 `factory-verify-status` 產生的
@@ -131,7 +201,8 @@ done
 
 只有階段（lean 帶 phase）、結果字（`ok`／`needs-human`／`timeout`）與 run URL。會貼的
 時機：格式檢查不合規（needs-human）、crosscheck 中止（needs-human）、agent 失敗（內層逾時
-為 timeout，其餘 needs-human）。CLI 只收列舉值與固定形狀的 URL，任何自由文字都會被拒絕；
+為 timeout，其餘 needs-human）。這一行不貼標籤；`needs-human` 標籤來自 G2 cleanup
+（§7 第 5 點）。CLI 只收列舉值與固定形狀的 URL，任何自由文字都會被拒絕；
 每一處 `gh issue comment` 的歸類由 `test/adversarial/verify-issue-comments.test.ts` 釘住。
 
 **crosscheck 白名單**（`src/pipeline/verify-scope.ts`，crosscheck 與加密 bundle 共用）：
@@ -149,20 +220,52 @@ specs/**
 `__tests__/` 下不含 `.test.` 的輔助檔、`*_spec.rb`）會被判 `verify-scope` 越界——目標 repo
 的測試命名須落在上面五個 glob 內。
 
-**Lean 工具鏈**（ADR-029 §7）：`leanprover/lean4:v4.35.0`，只用 core。elan 以固定版本
-（`ELAN_VERSION`）的 release asset 下載、先驗 `ELAN_SHA256` 才執行，`~/.elan/bin` 經
-`$GITHUB_PATH` 交給 agent。快取 `~/.elan` 與 `target/specs/lean/.lake/packages`，key 為
-`lean-<os>-<toolchain>-<hashFiles(target/specs/lean/lake-manifest.json)>`，fallback 只到
-toolchain。**不快取 `.lake/build`**：那是使用者 specs 的編譯產物，而 key 對所有目標 repo
-相同，快取它會把 A repo 的產物還原到 B repo 的 runner；公開 repo 的 Actions cache 對同 repo
-的其他 workflow 可讀。core-only 時重建只要數秒。
+**Lean 工具鏈**（ADR-029 §7）：`leanprover/lean4:v4.35.0`，只用 core。以下步驟只在
+`agent-verify-lean` 執行，依序：
+
+1. `Check target lean-toolchain pin`（安裝與 agent 之前）：目標 repo 已有
+   `target/specs/lean/lean-toolchain` 時，內容（去頭尾空白）必須等於
+   `leanprover/lean4:v4.35.0`，否則紅燈停派；檔案不存在則通過（agent 依範本建立）。
+2. `Restore Lean toolchain cache (elan)`：只還原 `~/.elan`，key 固定為
+   `lean-elan-${{ runner.os }}-leanprover/lean4:v4.35.0`，**沒有 restore-keys**。
+3. `Install Lean toolchain (elan)`：miss 時下載固定版本（`ELAN_VERSION`）的 release asset，
+   先驗 `ELAN_SHA256` 才執行 `elan-init`。hit 時快取內容沒有經過 SHA-256，改驗
+   `~/.elan/bin/elan` 存在且 `elan --version` 自報為 `ELAN_VERSION`，不符即 fail closed
+   （不默默改走下載）。之後 `~/.elan/bin` 經 `$GITHUB_PATH` 交給 agent，並檢查
+   `lean --version` 含 `version 4.35.0`。
+4. `Save Lean toolchain cache (elan)`：只在 miss 時、緊接安裝之後、**agent 之前**存
+   `~/.elan`。agent 有 shell，跑完後的 `~/.elan` 不寫回（下一個 run 會執行它）；也因此
+   不用合併版 `actions/cache`（它的 post-job save 在 agent 之後）。
+
+`target/` 底下**一律不快取**（`.lake/build`、`.lake/packages` 都不）：key 對所有目標 repo
+相同，快取 target 產物等於把 A repo 的產物（olean 帶定理名與敘述）還原到 B repo 的
+runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的其他 workflow 可讀，fork 發起
+的 PR workflow 也讀得到 base 分支的快取。core-only 的 Lean 沒有 Lake 套件可快取，
+`.lake/build` 重建只要數秒。
+
+**Quint 快取**：`Restore Quint toolchain` 在所有模式無條件還原 `~/.quint`；
+`Save Quint toolchain` 只在 `verify == 'false'` 時執行——驗證模式**永不存檔**（guard 沒有
+輸出時也不存）。
+
+**已知殘留**：`actions/setup-node` 的 `cache: pnpm`（pnpm store，key 依機制 repo 的
+`pnpm-lock.yaml`）仍是合併版快取，post-job save 在 agent 之後執行，所有模式（含驗證模式）
+都一樣；只有 key 未精確命中時才會真的寫入。
 
 ## 7. 已知限制
 
-1. **不 push 只靠 prompt＋crosscheck**：agent 仍拿到有 `contents: write` 的 App token
-   （`target/.factory/run/gh-token` 與 origin URL），`Verify app token write access` 探針也
-   照常推送再刪除一個 `_factory-auth-probe-*` 分支。agent 若違規 push，crosscheck 不會知道
-   遠端狀態——機械阻止需在驗證模式移除寫入憑證，留待後續。
+1. **agent 手上有寫入憑證——這是 ADR-029 §5 的主要殘留風險**：`Mint app token` 換發的
+   installation token 帶 `contents: write`、`issues: write`、`pull-requests: write`
+   （另有 `actions: read`），驗證模式不縮減。它被寫進 `target/.factory/run/gh-token`、嵌進
+   origin URL（`Configure agent git auth`），`Verify app token write access` 探針也照常推送
+   再刪除一個 `_factory-auth-probe-*` 分支。因此 agent 技術上可以 push 分支、把發現留言到
+   公開 Issue、或開 PR。攔它的只有：
+   - 驗證模式的 VARIANT_HEADER 與 task template prompt（明文禁止 push、`gh pr create`、
+     把發現寫進 Issue）；
+   - crosscheck `--verify-only`：只比對**本地**工作區相對 base 的 diff 與白名單，事實來源
+     不含遠端——已 push 的分支、已開的 PR、已貼的留言它都看不到；
+   - 事後的人工審查（目標 repo 的分支／PR／Issue 活動）。
+
+   機械阻止需在驗證模式不把寫入憑證交給 agent，留待後續。
 2. **G3 未被機械強制**：`verify_phase=proofs` 只是 dispatch input，工廠不檢查 statements
    是否已經 G3 簽核；順序由 aswf.dev 的 BPMN 保證。
 3. **階段之間沒有交接（Task 6）**：V2 的每個階段都從目標 repo 預設分支的 checkout 開始，
@@ -172,7 +275,19 @@ toolchain。**不快取 `.lake/build`**：那是使用者 specs 的編譯產物�
    `Select model tier` 會 `cat .factory/model.json`（含 Issue 文字的複雜度判據）。這些只來自
    Issue body（本就公開且只寫範圍），不含 agent 產出；crosscheck 在驗證模式只印計數與
    列舉標題。
-5. **G2（`factory-run-cleanup.yml`）**：失敗／取消的驗證 run 若沒有終態標記，G2 仍可能貼
-   一則通用 needs-human（不含發現）。
+5. **G2（`factory-run-cleanup.yml`）一定會補一則通用 needs-human**：Factory Run 結論為
+   failure／cancelled／timed_out，且 jobs API 中 `Run factory agent` 不是 skipped（已進入
+   agent）時，cleanup 查 Issue 有沒有 `<!-- factory:terminal run=<id> -->`；沒有就先貼
+   `needs-human` 標籤、再留言（帶該標記）。驗證模式**從不**寫這個標記（compare job 的
+   `Write terminal state` 與 G1 守衛都跳過），所以任何進入 agent 後才失敗的驗證 run 都會
+   得到這則留言與標籤。內容是固定文字（run id＋「逾時或取消——agent 已啟動但未留下終態
+   判定」），不含發現；措辭一律寫「逾時或取消」，即使實際原因是 crosscheck。結果：
+   - crosscheck 中止或 agent 失敗：每個失敗變體一行 `factory-verify-status` 狀態＋整個 run
+     一則 cleanup 留言——同一次失敗至少兩則無內容留言；
+   - agent 之後的其他失敗（例如缺 `VERIFY_AGE_PUBLIC_KEY`，`Encrypt verify artifacts (age)`
+     失敗）：只有 cleanup 那一則；
+   - agent 之前就停下（guard、格式檢查、lean-toolchain pin）：cleanup 不處理。
+
+   cleanup 由 `workflow_run` 觸發，只有它位於機制 repo 的預設分支（main）時才生效。
 6. **compare job 的驗證判定**：取 run job 的 matrix output；若 run job 在 guard 之前就失敗，
    output 為空，compare 走一般路徑——此時沒有變體啟動 agent，不會寫終態。
