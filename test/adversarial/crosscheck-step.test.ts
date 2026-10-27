@@ -44,6 +44,10 @@ function crosscheckScript(overrides: Record<string, string> = {}): string {
     // 非 write-spec 類型：這兩個值只出現在 write-spec 分支內，不會被讀到
     'steps.specphase.outputs.phase': '',
     'steps.specphase.outputs.spec_name': '',
+    // 驗證模式的無內容狀態留言（factory-verify-status）用到的值
+    'inputs.verify_phase': 'statements',
+    'github.server_url': 'https://github.com',
+    'github.repository': 'aswf-dev/software_factory',
     ...overrides,
   }
   return run.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
@@ -90,9 +94,13 @@ function runStep(
     writeFileSync(join(bin, name), `#!/usr/bin/env bash\n${body}\n`)
     chmodSync(join(bin, name), 0o755)
   }
+  // 驗證模式的狀態留言 CLI 另行處理（內容契約由 verify-issue-comments.test.ts 釘住）
   stub(
     'node',
-    `echo "$*" > "$STUB_DIR/node-args.txt"; cat "$STUB_DIR/cc.stdout"; cat "$STUB_DIR/cc.stderr" >&2; exit ${crosscheck.code}`,
+    [
+      'case "$1" in *factory-verify-status.js) echo \'{"comment":"verify-status"}\'; exit 0 ;; esac',
+      `echo "$*" > "$STUB_DIR/node-args.txt"; cat "$STUB_DIR/cc.stdout"; cat "$STUB_DIR/cc.stderr" >&2; exit ${crosscheck.code}`,
+    ].join('\n'),
   )
   if (lsRemote !== null) writeFileSync(join(dir, 'ls-remote.txt'), lsRemote)
   stub(

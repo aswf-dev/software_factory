@@ -369,8 +369,23 @@ jobs:
           # N-version 時兩個變體都會執行本步，但同一張單的格式卡貼一次就夠
           #（2026-10-13 沙箱實測：同一則逐字相同的卡片連續貼了兩次）。
           # 兩個變體都仍會因不合規而紅燈——留言與否不影響停派判定。
+          #
+          # ADR-029 §5（ruling R6）：驗證類的 Issue 可能公開，格式卡會引用 Issue 條目、
+          # 風險路徑與複雜度判據——驗證模式不貼它，只在不合規時貼一行無內容狀態
+          # （factory-verify-status：階段＋結果字＋run URL）。合規時不留言。
           if [ "$VARIANT" = "a" ]; then
-            gh issue comment "${{ inputs.issue_number }}" --body-file .factory/issue-check.txt
+            if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
+              if grep -q '格式不合規' .factory/issue-check.txt; then
+                STATUS_JSON=$(node dist/cli/factory-verify-status.js \
+                  --stage "${{ steps.tasktype.outputs.value }}" --phase "${{ inputs.verify_phase }}" \
+                  --outcome needs-human \
+                  --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+                printf '%s' "$STATUS_JSON" | jq -r .comment > .factory/verify-status.md
+                gh issue comment "${{ inputs.issue_number }}" --body-file .factory/verify-status.md
+              fi
+            else
+              gh issue comment "${{ inputs.issue_number }}" --body-file .factory/issue-check.txt
+            fi
           fi
           # 不合規 → exit 1（紅燈停派；與機制 repo 自身 factory-issue-check 同語意）
           if grep -q '格式不合規' .factory/issue-check.txt; then
@@ -773,6 +788,59 @@ jobs:
             echo "::warning::heavy-verify 前置缺口:${MISSING}。可行性風險請於 Issue 留言確認——考慮先開 spike 單量測單次 verify 牆鐘，或於 dispatch 時以 agent_timeout_minutes 覆寫預算。"
             echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
           fi
+
+      # Lean 工具鏈（ADR-029 §7）：只給 agent-verify-lean，版本固定 v4.35.0，只用 Lean
+      # core（不裝任何 Lake 外部套件）。其他驗證階段與一般 task 都不執行這兩步——
+      # 不付安裝時間，agent 也不會在不需要時拿到 lean／lake。
+      #
+      # 快取刻意只有 ~/.elan（公開的 toolchain）與 .lake/packages（依賴；core-only 時為空），
+      # **不快取 .lake/build**：那是使用者 specs 的編譯產物（olean 帶定理名與敘述）。
+      # key 對所有目標 repo 相同（toolchain＋manifest hash），快取 build 等於把 A repo
+      # 的產物還原到 B repo 的 runner；而公開 repo 的 Actions cache 對同 repo 的其他
+      # workflow 可讀。core-only 的 build 只有幾個檔，重建只要數秒，快取沒有收益。
+      - name: Cache Lean toolchain (elan)
+        if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.elan
+            target/specs/lean/.lake/packages
+          key: lean-${{ runner.os }}-leanprover/lean4:v4.35.0-${{ hashFiles('target/specs/lean/lake-manifest.json') }}
+          restore-keys: |
+            lean-${{ runner.os }}-leanprover/lean4:v4.35.0-
+
+      # elan 本體以固定版本的 release asset 下載並先驗 SHA-256 才執行。不用官方的
+      # 安裝腳本（下載後直接交給 shell）：那支腳本即使釘在某個 tag，仍會下載「latest」release 的
+      # 二進位，版本與內容都不受控。本步驟做的事與它相同（下載 → 解壓 → elan-init），
+      # 只是平台固定為 runner 的 x86_64 Linux。升級 elan 時同時改 ELAN_VERSION 與
+      # ELAN_SHA256（GitHub release 頁的 asset digest）。
+      - name: Install Lean toolchain (elan)
+        if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean'
+        env:
+          LEAN_TOOLCHAIN: leanprover/lean4:v4.35.0
+          ELAN_VERSION: v4.2.4
+          ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
+        run: |
+          set -euo pipefail
+          if [ ! -x "$HOME/.elan/bin/elan" ]; then
+            if [ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]; then
+              echo "::error::Lean 安裝只支援 Linux x86_64 runner，實得 $(uname -s)-$(uname -m)"
+              exit 1
+            fi
+            ELAN_TMP=$(mktemp -d)
+            curl -sSfL "https://github.com/leanprover/elan/releases/download/${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz" \
+              -o "$ELAN_TMP/elan.tar.gz"
+            echo "${ELAN_SHA256}  $ELAN_TMP/elan.tar.gz" | sha256sum -c -
+            tar -xzf "$ELAN_TMP/elan.tar.gz" -C "$ELAN_TMP"
+            "$ELAN_TMP/elan-init" -y --no-modify-path --default-toolchain "$LEAN_TOOLCHAIN"
+            rm -rf "$ELAN_TMP"
+          else
+            echo "elan restored from cache: $("$HOME/.elan/bin/elan" --version)"
+          fi
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          "$HOME/.elan/bin/elan" toolchain install "$LEAN_TOOLCHAIN"
+          "$HOME/.elan/bin/elan" default "$LEAN_TOOLCHAIN"
+          "$HOME/.elan/bin/lean" --version | tee /dev/stderr | grep -F "version 4.35.0"
 
       # Step 3 — 執行 agent（DSH headless，受限沙箱；或 dry-run stub）。
       # agent 的工作目錄 = target/（目標 repo）；機制（node_modules/dist/config）
@@ -1350,6 +1418,18 @@ jobs:
               HEADLINE="crosscheck 執行失敗"
             fi
             echo "::error::${HEADLINE}（詳見 .factory/crosscheck.json）"
+            # ADR-029 §5（ruling R6）：下方的明細留言帶 mismatch detail（目標 repo 的路徑）、
+            # crosscheck stderr 與 usage.md——驗證模式只貼一行無內容狀態，明細只在加密
+            # bundle（mechanism/crosscheck.json）。本步 exit 非零照樣記入 steps.json。
+            if [ "$VERIFY_MODE" = "true" ]; then
+              STATUS_JSON=$(node "$GITHUB_WORKSPACE/dist/cli/factory-verify-status.js" \
+                --stage "${{ steps.tasktype.outputs.value }}" --phase "${{ inputs.verify_phase }}" \
+                --outcome needs-human \
+                --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+              printf '%s' "$STATUS_JSON" | jq -r .comment > .factory/verify-status.md
+              gh issue comment "${{ inputs.issue_number }}" --body-file .factory/verify-status.md
+              exit $code
+            fi
             {
               echo "## 工廠執行中止：${HEADLINE}"
               echo ""
@@ -1463,6 +1543,20 @@ jobs:
           node "$GITHUB_WORKSPACE/dist/cli/write-report.js" \
             "${{ inputs.issue_number }}" 1 \
             .factory/run/stdout.txt .factory/run/stderr.txt --timed-out || true
+          # ADR-029 §5（ruling R6）：一般模式的留言附 usage.md（handover）；驗證模式只貼
+          # 一行無內容狀態。內層逾時（A4 具名）→ timeout，其餘失敗 → needs-human
+          # （step 級逾時被砍時沒有 output，歸 needs-human——同樣交還人類）。
+          if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
+            OUTCOME=needs-human
+            if [ "${{ steps.agent.outputs.inner_timeout }}" = "true" ]; then OUTCOME=timeout; fi
+            STATUS_JSON=$(node "$GITHUB_WORKSPACE/dist/cli/factory-verify-status.js" \
+              --stage "${{ steps.tasktype.outputs.value }}" --phase "${{ inputs.verify_phase }}" \
+              --outcome "$OUTCOME" \
+              --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+            printf '%s' "$STATUS_JSON" | jq -r .comment > "$GITHUB_WORKSPACE/.factory/verify-status.md"
+            gh issue comment "${{ inputs.issue_number }}" --body-file "$GITHUB_WORKSPACE/.factory/verify-status.md"
+            exit 0
+          fi
           NOTE="⏱️ 變體 ${{ matrix.variant }} 的 factory agent 未在時限內完成（逾時或失敗）。請查看 run ${{ github.run_id }} 的 logs；Issue 終態由 compare job 彙整後另行留言。"
           USAGE_MD=".factory/run/usage.md"
           if [ -f "$USAGE_MD" ]; then

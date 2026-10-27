@@ -41,6 +41,7 @@ Gartner G00843405,《How to Maximize the Impact of Agentic AI in the SDLC》(202
 | [`docs/31-methodology-entry.md`](docs/31-methodology-entry.md) | **方法論入口**：第一次開單、非工程背景者從這裡開始（不必先讀其他文件） |
 | [`docs/32-writing-work-items.md`](docs/32-writing-work-items.md) | 工作項規劃指南：PRD／DoD 怎麼寫、規劃與排序的差別、前置工作項與規劃健檢 |
 | [`docs/33-worked-examples.md`](docs/33-worked-examples.md) | 工作項範例：可直接複製的真實 Issue（含尚未試跑類型的誠實標註） |
+| [`docs/34-verify-runbook.md`](docs/34-verify-runbook.md) | 形式化驗證 task（agent-verify-*）操作手冊：手動 dispatch、密文產出與本機解密、與一般工作項的差異、已知限制 |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 詞彙表：統一用語與常見錯誤用法 |
 | [`docs/ADR/`](docs/ADR/) | 架構決策記錄（ADR-001～019） |
 

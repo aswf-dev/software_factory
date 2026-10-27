@@ -106,8 +106,9 @@ describe('派工時的前置檢查（factory-run.yml）', () => {
     const commentAt = format.run!.indexOf('gh issue comment')
     const guardAt = format.run!.indexOf('if [ "$VARIANT" = "a" ]; then')
     expect(guardAt).toBeLessThan(commentAt)
-    // 停派判定不得被包進變體判斷
-    expect(format.run!.indexOf('格式不合規')).toBeGreaterThan(commentAt)
+    // 停派判定不得被包進變體判斷（驗證模式的無內容狀態分支也在變體判斷內，
+    // 故以停派的 ::error:: 行對最後一處留言比較）
+    expect(format.run!.indexOf('::error::Issue 格式不合規')).toBeGreaterThan(format.run!.lastIndexOf('gh issue comment'))
   })
 
   it('沒有提供略過檢查的 dispatch input（ADR-018 §12 先例）', () => {
