@@ -4,7 +4,8 @@
  * 涵蓋：git 輸出解析（for-each-ref / diff --name-only / --shortstat / --porcelain）、
  * report 與實際 diff 的雙向比較、參數解析、以及 main 的編排（fake git runner）。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -1525,6 +1526,8 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       shortStat?: string
       unifiedDiff?: string
       status?: string
+      /** `git ls-files --others --exclude-standard -- <dir>`：目錄項的後備展開。 */
+      otherFiles?: string
     },
     calls: string[][] = [],
   ): GitRunner {
@@ -1534,6 +1537,7 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       if (args[0] === 'diff' && args[1] === '--shortstat') return script.shortStat ?? ''
       if (args[0] === 'diff' && args[1] === '--unified=0') return script.unifiedDiff ?? ''
       if (args[0] === 'status') return script.status ?? ''
+      if (args[0] === 'ls-files') return script.otherFiles ?? ''
       throw new Error(`驗證模式不該呼叫：git ${args.join(' ')}`)
     }
   }
@@ -1550,6 +1554,23 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
         'pkg/test/unit.js',
       ]
       for (const p of allowed) expect(checkVerifyScope([p]), p).toEqual([])
+    })
+
+    it('dot segments 在 specs/** 內合法：lean skill 的 .gitignore 與 .lake/ 不得被判越界', () => {
+      const allowed = [
+        'specs/lean/.gitignore',
+        'specs/lean/.lake/build/x.olean',
+        'specs/.hidden/model.qnt',
+      ]
+      for (const p of allowed) expect(checkVerifyScope([p]), p).toEqual([])
+    })
+
+    it('隱藏路徑仍受白名單限制：specs 外的 dot 路徑一律拒絕', () => {
+      const outside = ['.github/foo', '.github/workflows/x.yml', '.gitignore']
+      const findings = checkVerifyScope(outside)
+      expect(findings).toHaveLength(1)
+      expect(findings[0]?.kind).toBe('verify-scope')
+      for (const p of outside) expect(findings[0]?.detail).toContain(p)
     })
 
     it('越界：產品程式碼、設定、依賴、文件、CI 設定一律拒絕並列出路徑', () => {
@@ -1590,6 +1611,17 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       // 正規化後為空的路徑（`?? ./`）不進清單，避免下游拿空字串去比對
       expect(parseUntrackedPaths('?? ./\n')).toEqual([])
     })
+    it('解開 git C-style 引號：空白、引號、控制字元與非 ASCII 路徑不得被截斷或連引號回報', () => {
+      expect(
+        parseUntrackedPaths(
+          '?? "specs/a b.qnt"\n?? "specs/quote\\"x.qnt"\n?? "specs/tab\\there.qnt"\n?? "specs/caf\\303\\251.qnt"\n',
+        ),
+      ).toEqual(['specs/a b.qnt', 'specs/quote"x.qnt', 'specs/tab\there.qnt', 'specs/café.qnt'])
+      // 不完整的引號（沒有收尾）維持原樣，不誤吞路徑
+      expect(parseUntrackedPaths('?? "specs/unterminated.qnt\n')).toEqual(['"specs/unterminated.qnt'])
+      // 未知跳脫（git 目前不會產生）保留反斜線，不靜默吞掉字元
+      expect(parseUntrackedPaths('?? "specs/odd\\;name.qnt"\n')).toEqual(['specs/odd\\;name.qnt'])
+    })
   })
 
   describe('collectVerifyDiff', () => {
@@ -1623,6 +1655,50 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       expect(actual.deleted).toBe(3)
       expect(actual.uncommitted).toEqual(['specs/lean/Specs/Proofs.lean', 'test/x.test.ts'])
       expect(actual.assertionDelta).toBe(1)
+    })
+
+    it('收集時帶 --untracked-files=all：整個新目錄逐檔列出，不收成 ?? specs/', () => {
+      const calls: string[][] = []
+      const actual = collectVerifyDiff(
+        verifyGit(
+          {
+            status:
+              '?? specs/quint/model.qnt\n?? specs/quint/aux.qnt\n?? specs/lean/.gitignore\n',
+          },
+          calls,
+        ),
+        { base: 'main', target: 'target' },
+      )
+      expect(calls).toContainEqual(['status', '--porcelain', '--untracked-files=all'])
+      expect(actual.paths).toEqual([
+        'specs/quint/model.qnt',
+        'specs/quint/aux.qnt',
+        'specs/lean/.gitignore',
+      ])
+    })
+
+    it('git 仍回目錄項（如巢狀 repo）→ 以 ls-files 逐目錄展開', () => {
+      const calls: string[][] = []
+      const actual = collectVerifyDiff(
+        verifyGit(
+          {
+            status: '?? specs/newdir/\n',
+            otherFiles: 'specs/newdir/a.qnt\nspecs/newdir/b.qnt\n',
+          },
+          calls,
+        ),
+        { base: 'main', target: 'target' },
+      )
+      expect(calls).toContainEqual(['ls-files', '--others', '--exclude-standard', '--', 'specs/newdir'])
+      expect(actual.paths).toEqual(['specs/newdir/a.qnt', 'specs/newdir/b.qnt'])
+    })
+
+    it('目錄展開為空 → 保留目錄項，不靜默丟掉變更', () => {
+      const actual = collectVerifyDiff(
+        verifyGit({ status: '?? specs/empty/\n', otherFiles: '' }),
+        { base: 'main', target: 'target' },
+      )
+      expect(actual.paths).toEqual(['specs/empty/'])
     })
 
     it('沒有變更 → 全空', () => {
@@ -1683,6 +1759,35 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       )
       expect(out.ok).toBe(true)
       expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+    })
+
+    it('整棵未追蹤的新目錄：兩個檔案逐檔列出並與 report 的 changedPaths 對上（--untracked-files=all）', () => {
+      const repo = mkdtempSync(join(tmpdir(), 'crosscheck-verify-repo-'))
+      try {
+        execFileSync('git', ['init', '-q'], { cwd: repo })
+        execFileSync(
+          'git',
+          ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '--allow-empty', '-qm', 'base'],
+          { cwd: repo },
+        )
+        mkdirSync(join(repo, 'specs', 'quint'), { recursive: true })
+        writeFileSync(join(repo, 'specs', 'quint', 'model.qnt'), 'module Model {}\n')
+        writeFileSync(join(repo, 'specs', 'quint', 'aux.qnt'), 'module Aux {}\n')
+        writeFileSync(
+          reportPath,
+          makeReport({
+            changedPaths: ['specs/quint/model.qnt', 'specs/quint/aux.qnt'],
+            changedLines: 2,
+            requirements: undefined,
+          }),
+        )
+        const out = main(['12', reportPath, '--target', repo, '--base', 'HEAD', '--verify-only'])
+        expect(out.actual.paths).toEqual(['specs/quint/aux.qnt', 'specs/quint/model.qnt'])
+        expect(out.mismatches).toEqual([])
+        expect(out.ok).toBe(true)
+      } finally {
+        rmSync(repo, { recursive: true, force: true })
+      }
     })
 
     it('越界變更 → verify-scope（scope、fail-loud），不是 consistency', () => {

@@ -118,9 +118,18 @@ export const VERIFY_ALLOWED_GLOBS = [
   '**/test/**',
 ] as const
 
-/** 驗證類的變更範圍檢查；由 main 在 `--verify-only` 時呼叫（路徑已排除 .factory/**）。 */
+/**
+ * 驗證類的變更範圍檢查；由 main 在 `--verify-only` 時呼叫（路徑已排除 .factory/**）。
+ *
+ * `dot: true`：`*` 預設不匹配以 `.` 開頭的 segment，會把 lean skill 的
+ * `specs/lean/.gitignore`、`specs/lean/.lake/**` 判成越界——那兩者正是合規產出
+ * （skill 會複製 `.gitignore`，`.lake/` 是建置快取且不進版控）。白名單只放寬
+ * 「`.` 開頭仍屬 specs 樹」，specs 外的隱藏路徑（`.github/**` 等）照樣拒絕。
+ */
 export function checkVerifyScope(changedPaths: readonly string[]): CrosscheckMismatch[] {
-  const outside = changedPaths.filter((p) => !VERIFY_ALLOWED_GLOBS.some((glob) => minimatch(p, glob)))
+  const outside = changedPaths.filter(
+    (p) => !VERIFY_ALLOWED_GLOBS.some((glob) => minimatch(p, glob, { dot: true })),
+  )
   if (outside.length === 0) return []
   return [
     {
@@ -735,14 +744,86 @@ export function collectActualDiff(
  * 驗證模式沒有「先 commit 再比對」的前提：agent 可能直接寫了新檔而沒有
  * `git add`。`git diff <base>` 看不到未追蹤檔，若只靠它，合法的交付會被判
  * `no-trace`／`unreported-changes` 假紅——故以 status 補上。
+ *
+ * git 會以 C-style 引號包裹含空白／引號／控制字元／非 ASCII 的路徑
+ * （`core.quotePath` 預設開啟），例如 `?? "specs/a b.qnt"`；不先解開就會把
+ * 引號與跳脫序列當成路徑的一部分，讓合法的含空白檔名被判越界。
  */
 export function parseUntrackedPaths(output: string): string[] {
   const out: string[] = []
   for (const line of output.split('\n')) {
     const trimmed = line.trimEnd()
     if (!trimmed.startsWith('?? ')) continue
-    const n = normalizePath(trimmed.slice(3))
+    const n = normalizePath(unquoteGitPath(trimmed.slice(3)))
     if (n.length > 0) out.push(n)
+  }
+  return out
+}
+
+/** git C-style 引號的單字元跳脫（`git quote.c` 定義的同名集合）。 */
+const GIT_QUOTE_ESCAPES: Readonly<Record<string, number>> = {
+  a: 0x07,
+  b: 0x08,
+  f: 0x0c,
+  n: 0x0a,
+  r: 0x0d,
+  t: 0x09,
+  v: 0x0b,
+  '\\': 0x5c,
+  '"': 0x22,
+}
+
+/**
+ * 解開 git 的 C-style 引號（含 `\NNN` octal byte 跳脫，可跨多位元組 UTF-8）。
+ * 沒有被引號完整包住時原樣回傳（不完整的引號不吞路徑）。
+ */
+function unquoteGitPath(raw: string): string {
+  const quoted = /^"([\s\S]*)"$/.exec(raw)
+  if (quoted === null) return raw
+  const inner = raw.slice(1, -1)
+  const bytes: number[] = []
+  let last = 0
+  for (const match of inner.matchAll(/\\([0-7]{1,3})|\\(.)/gs)) {
+    bytes.push(...Buffer.from(inner.slice(last, match.index), 'utf8'))
+    const octal = match[1]
+    if (octal !== undefined) {
+      bytes.push(parseInt(octal, 8) & 0xff)
+    } else {
+      const escaped = match[2] as string
+      const code = GIT_QUOTE_ESCAPES[escaped]
+      // 未知跳脫不在 git 的輸出裡；保留反斜線比靜默吞掉更安全
+      if (code === undefined) bytes.push(...Buffer.from(`\\${escaped}`, 'utf8'))
+      else bytes.push(code)
+    }
+    last = match.index + match[0]!.length
+  }
+  bytes.push(...Buffer.from(inner.slice(last), 'utf8'))
+  return Buffer.from(bytes).toString('utf8')
+}
+
+/**
+ * 未追蹤檔清單，目錄項逐目錄展開。
+ *
+ * `--untracked-files=all` 讓 git 把新目錄逐檔列出（預設收成單一 `?? specs/`）；
+ * 但巢狀 git repo 等情況仍可能只給目錄項。此時以
+ * `git ls-files --others --exclude-standard -- <dir>` 展開；展開仍為空就保留
+ * 目錄項，不靜默丟掉一棵真實存在的未追蹤樹。
+ */
+function collectUntrackedPaths(git: GitRunner, statusOutput: string, target: string): string[] {
+  const out: string[] = []
+  for (const p of parseUntrackedPaths(statusOutput)) {
+    if (!p.endsWith('/')) {
+      out.push(p)
+      continue
+    }
+    const dir = p.replace(/\/+$/, '')
+    const listed = parseDiffNameOnly(
+      git(['ls-files', '--others', '--exclude-standard', '--', dir], target),
+    )
+      .map(unquoteGitPath)
+      .map(normalizePath)
+    if (listed.length === 0) out.push(p)
+    else out.push(...listed)
   }
   return out
 }
@@ -765,11 +846,13 @@ export function collectVerifyDiff(
   const { base, target } = opts
   const diffPaths = parseDiffNameOnly(git(['diff', '--name-only', base], target)).map(normalizePath)
   const stat = parseShortStat(git(['diff', '--shortstat', base], target))
-  // 未追蹤檔不在 diff 內，補進來才算得出「有沒有交付」。順序：diff 在前、
-  // untracked 在後，維持輸出的可預期性（測試與留言都依此順序）。
-  const statusOutput = git(['status', '--porcelain'], target)
+  // 未追蹤檔不在 diff 內，補進來才算得出「有沒有交付」。`--untracked-files=all`
+  // 是關鍵：預設會把整棵新目錄收成 `?? specs/`，回報 `specs/quint/model.qnt`
+  // 的合規 run 會被判 reported-not-in-diff ＋ diff-not-reported 假紅。
+  // 順序：diff 在前、untracked 在後，維持輸出的可預期性（測試與留言都依此順序）。
+  const statusOutput = git(['status', '--porcelain', '--untracked-files=all'], target)
   const paths = [...diffPaths]
-  for (const p of parseUntrackedPaths(statusOutput)) {
+  for (const p of collectUntrackedPaths(git, statusOutput, target)) {
     // 已提交／已暫存的檔案也會出現在 status（`A `），但只有 `??` 會被
     // parseUntrackedPaths 取用；diff 與 untracked 理論上不重疊，仍去重避免
     // 同一路徑在 report 比對與白名單檢查中出現兩次。
