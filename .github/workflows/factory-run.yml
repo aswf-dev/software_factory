@@ -1573,9 +1573,41 @@ jobs:
           jq -r '.sessions[] | "session: models=\(.models|join(",")) steps=\(.steps) calls=\(.toolCalls) results=\(.toolResults) noResult=\(.callsWithoutResult) resultAfterNextStep=\(.resultAfterNextStep) orphan=\(.orphanResults) errors=\(.errorResults) phantomArgs=\(.phantomInArgs)@\(.firstPhantomInArgsStep // "-") phantomResults=\(.phantomInResults)@\(.firstPhantomInResultsStep // "-")"' \
             "$GITHUB_WORKSPACE/.factory/session-diag.json"
 
+      # ADR-029 §5、§7：驗證類的產出（run／specs／agent 改動的測試檔）在公開
+      # runner 上以 age 公鑰加密，**只上傳密文**。公鑰來自 repo secret
+      # VERIFY_AGE_PUBLIC_KEY，私鑰只存在 aswf.dev Worker。
+      #
+      # Fail closed：secret 缺失時本步驟直接失敗，後續兩個上傳步驟都不會執行
+      # ——絕不 fallback 明文上傳（Review Focus 2）。加密失敗亦然：只有
+      # factory-verify-encrypt 成功（exit 0）才可能走到密文上傳。
+      #
+      # 位置：agent 步驟與所有 target 寫入都完成之後、上傳之前；`always()` 讓
+      # agent 失敗時仍能取回部分產出（診斷用），但同樣只以密文形式。
+      # guard 必須成功（agent 步驟本身是 success()）：被 guard 擋下的驗證類
+      # run 沒有 agent 產出，不該把 checkout 到的 specs 打包上傳。
+      - name: Encrypt verify artifacts (age)
+        id: verify-encrypt
+        if: always() && steps.verifymode.outcome == 'success' && steps.verifymode.outputs.verify == 'true'
+        env:
+          VERIFY_AGE_PUBLIC_KEY: ${{ secrets.VERIFY_AGE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERIFY_AGE_PUBLIC_KEY:-}" ]; then
+            echo "::error::VERIFY_AGE_PUBLIC_KEY 未設定——驗證模式只允許 age 密文 artifact，缺公鑰時停止（fail closed，不回退明文上傳）"
+            exit 1
+          fi
+          # 檔案清單屬 metadata，仍可能透露測試命名／分析方向；stdout 不進 log。
+          node "$GITHUB_WORKSPACE/dist/cli/factory-verify-encrypt.js" \
+            --target "$GITHUB_WORKSPACE/target" \
+            --out "$GITHUB_WORKSPACE/.factory/verify-bundle.age" \
+            --recipient "$VERIFY_AGE_PUBLIC_KEY" > /dev/null
+          echo "::notice::驗證模式產出已加密為 .factory/verify-bundle.age（只上傳密文）"
+
       # 診斷：agent 的 stdout/stderr/report 上傳成 artifact（失敗也要，否則無從查）
+      # ADR-029 §5：驗證類改由下方「Upload encrypted verify artifacts」上傳密文，
+      # 這一步（含 target/.factory/run/ 明文）在驗證模式必須跳過。
       - name: Upload run artifacts
-        if: always()
+        if: always() && steps.verifymode.outputs.verify != 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -1598,6 +1630,28 @@ jobs:
             .factory/session-diag.json
             .factory/steps.json
             .factory/draft-state.txt
+          if-no-files-found: ignore
+
+      # 驗證模式的唯一 artifact。只含 age 密文與非敏感機制 JSON（verify-mode／
+      # model／issue／crosscheck／session 診斷等，既有明文清單中不含目標 repo
+      # 內容者）；**不含** target/.factory/run/、target/specs/ 或任何測試檔。
+      # 條件要求加密步驟成功：缺 secret 或加密失敗時不上傳任何東西。
+      - name: Upload encrypted verify artifacts
+        if: always() && steps.verifymode.outputs.verify == 'true' && steps.verify-encrypt.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: factory-run-${{ inputs.issue_number }}-${{ matrix.variant }}
+          path: |
+            .factory/verify-bundle.age
+            .factory/verify-mode.json
+            .factory/model.json
+            .factory/issue.json
+            .factory/scoreboard-event.json
+            .factory/crosscheck.json
+            .factory/judge.json
+            .factory/session-diag.json
+            .factory/steps.json
           if-no-files-found: ignore
 
   compare:

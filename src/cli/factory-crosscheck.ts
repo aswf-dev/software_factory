@@ -28,8 +28,8 @@
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { minimatch } from 'minimatch'
 import { countAssertionDelta } from '../assertion-count/count.js'
+import { isVerifyAllowedPath, VERIFY_ALLOWED_GLOBS } from '../pipeline/verify-scope.js'
 import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/unreported.js'
 import { isValidSpecName } from '../write-spec/intake.js'
 import {
@@ -97,39 +97,19 @@ export const SCOPE_MISMATCH_KINDS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * 驗證類 task 允許的變更範圍（ADR-029 §5、§6 修訂版）。
- *
- * 驗證 agent 只能寫規格樹（specs 底下）與測試檔；五個 glob 涵蓋各語言的
- * 測試命名慣例：JS/TS 的 `.test.` 中綴、Go 的 `_test.go` 後綴、以及
- * Python／Java 常見的 `test` 或 `tests` 目錄。白名單是**允許清單**：未明列者
- * 一律拒絕（同 propose-skill／onboard 的立場）。
- *
- * 其中 `.test.` glob 會匹配 `src/` 下與產品碼共置的測試檔——那是刻意的：
- * 合法測試檔可能就在 src/ 下。產品碼本身（不含 `.test.` 的 src 檔）仍被拒絕。
- *
- * 註：`agent-pbt-audit` 的 `pbt-outside-audit` 仍獨立生效——驗證類也不得產出
- * `.pbt.test.*`（PBT 只能由稽核工單產生，ADR-019 §2）。
+ * 驗證類白名單的實作在 `src/pipeline/verify-scope.ts`：`factory-verify-encrypt`
+ * 也用它決定 bundle 要帶哪些 agent 改動的測試檔。此處 re-export 維持既有
+ * 呼叫端（與測試）的 import 路徑不變。
  */
-export const VERIFY_ALLOWED_GLOBS = [
-  'specs/**',
-  '**/*.test.*',
-  '**/*_test.go',
-  '**/tests/**',
-  '**/test/**',
-] as const
+export { VERIFY_ALLOWED_GLOBS }
 
 /**
  * 驗證類的變更範圍檢查；由 main 在 `--verify-only` 時呼叫（路徑已排除 .factory/**）。
  *
- * `dot: true`：`*` 預設不匹配以 `.` 開頭的 segment，會把 lean skill 的
- * `specs/lean/.gitignore`、`specs/lean/.lake/**` 判成越界——那兩者正是合規產出
- * （skill 會複製 `.gitignore`，`.lake/` 是建置快取且不進版控）。白名單只放寬
- * 「`.` 開頭仍屬 specs 樹」，specs 外的隱藏路徑（`.github/**` 等）照樣拒絕。
+ * `dot: true` 的細節見 `isVerifyAllowedPath`。
  */
 export function checkVerifyScope(changedPaths: readonly string[]): CrosscheckMismatch[] {
-  const outside = changedPaths.filter(
-    (p) => !VERIFY_ALLOWED_GLOBS.some((glob) => minimatch(p, glob, { dot: true })),
-  )
+  const outside = changedPaths.filter((p) => !isVerifyAllowedPath(p))
   if (outside.length === 0) return []
   return [
     {
