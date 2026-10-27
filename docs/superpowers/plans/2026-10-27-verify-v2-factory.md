@@ -162,7 +162,7 @@ Task 1 審查指出五個跨 Task 的缺口，併入後續 Task：
 export function restoreVerifyInput(opts: { bundle: Uint8Array; identity: string; targetDir: string }): Promise<{ restored: string[] }>
 ```
 - 規則：只接受 `kind === 'target'` 且 path 通過 `isVerifyAllowedPath` 或位於 `specs/**`（dot 檔可）；任何 `mechanism` 行、絕對路徑、含 `..`、symlink 目標、超出 targetDir 的路徑 → 整份拒絕（fail closed，不寫任何檔）；已存在的檔案以 bundle 內容覆寫。
-- workflow：新增 `workflow_dispatch` input `verify_input_url`（可空，HTTPS、host 必須是 `aswf.dev`）。驗證模式且有值時，在 agent 之前以 `curl` 取得 bundle → `factory-verify-input` 解密還原到 `target/`。**私鑰不在 GitHub**：取得 bundle 時一併帶 `VERIFY_INPUT_TOKEN`（一次性、短效，由 V3 簽發，見下）——V2 只實作「拿到 bundle 與 token 後的行為」，解密用的 identity 由 V3 的 Worker 以**另一組 runner 專用 keypair**處理（見註）。
+- workflow：新增 `workflow_dispatch` input `verify_input_url`（可空，HTTPS、host 必須是 `aswf.dev`）。驗證模式且有值時，在 agent 之前以 `curl` 取得 bundle → `factory-verify-input` 解密還原到 `target/`。dispatch input 是公開的，所以 URL 不帶任何秘密：bundle 本身就是以 **runner 公鑰**加密的密文，任何人下載也只拿到密文（Worker 可另設過期）。
 
 > **註（解密金鑰位置）**：runner 不能持有 `VERIFY_AGE_PRIVATE_KEY`（那是 Worker 解密使用者產出的私鑰）。階段輸入改由 Worker 以 **runner 公鑰**加密，runner 用 repo secret `VERIFY_RUNNER_AGE_IDENTITY` 解密；Worker 只持有 runner 公鑰。兩組 keypair 分離：外洩 runner 私鑰只影響「進 runner 的輸入」，不影響已加密上傳的產出。
 
