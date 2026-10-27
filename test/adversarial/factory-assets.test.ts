@@ -390,10 +390,15 @@ describe('factory-run.yml 多 repo 支援（Q-P2-1 統一，Phase 2 T4）', () =
     expect(content).toContain('base_branch:')
     expect(content).toContain('default: software-factory')
   })
-  it('Guard step：所有 repo 的 base_branch 一律不得為 main（含機制 repo，ADR-013 統一）', () => {
+  it('Guard step 改由 factory-verify-mode 判定：非驗證類仍不得用 main（ADR-013），規則只有一份實作', () => {
     expect(content).toMatch(/Guard base_branch safety/)
-    expect(content).toContain('inputs.base_branch')
-    expect(content).toContain('== "main"')
+    expect(content).toContain('dist/cli/factory-verify-mode.js')
+    expect(content).toContain('--base-branch "$BASE_BRANCH"')
+    expect(content).toContain('--default-branch "$DEFAULT_BRANCH"')
+    expect(content).toContain('.factory/verify-mode.json')
+    // 規則移到 CLI（src/cli/factory-verify-mode.ts）：workflow 不再自己比對 main，
+    // 否則兩份規則會漂移。非驗證類擋 main 由 test/verify-mode.test.ts 釘住。
+    expect(content).not.toMatch(/\$\{\{ inputs\.base_branch \}\}" == "main"/)
     // 統一後無「機制 repo 特例」——不再有 != "philipz/software_factory" 的放行條件
     expect(content).not.toContain('!= "philipz/software_factory"')
   })
@@ -2253,12 +2258,28 @@ describe('write-spec 階段判定接線（ADR-018 §12）', () => {
     const run = steps()[phaseIdx()]!.run!
     expect(run).toMatch(/if \[ "\$DECISION" = "refuse" \]; then[\s\S]*?gh issue comment[\s\S]*?exit 1/)
   })
-  it('沒有「指定 write-spec 階段」的 dispatch input（不留跳過第一階段的後門）', () => {
-    // 階段只能由 Issue 狀態推導（ADR-018 §12）。`verify_phase` 是 ADR-029 §2 的
-    // Lean 兩次執行參數（statements → G3 簽核 → proofs），由機制端在簽核後才以
-    // proofs 派工；它不是 write-spec 的階段後門，故不在此禁令內。
+  it('dispatch input 是精確 allowlist：沒有「指定 write-spec 階段」的後門', () => {
+    // 階段只能由 Issue 狀態推導（ADR-018 §12）。以**精確 allowlist** 取代正則
+    // （Task 1 審查 Minor）：正則只猜「像階段的名字」，`stage`／`write_spec_stage`
+    // 這類新增 input 不會被抓到；精確清單讓任何新 input 都必須在此顯性列出，
+    // 順便擋下「多一個可覆寫階段的欄位」這種後門。
+    // `verify_phase` 是 ADR-029 §2 的 Lean 兩次執行參數（statements → G3 簽核 →
+    // proofs），由機制端在簽核後才以 proofs 派工；它不是 write-spec 的階段後門。
     const inputs = Object.keys(wf().on.workflow_dispatch.inputs)
-    expect(inputs.filter((k) => /spec[-_]?phase/i.test(k))).toEqual([])
+    expect(inputs).toEqual([
+      'issue_number',
+      'task_type',
+      'verify_phase',
+      'repo',
+      'base_branch',
+      'dry_run',
+      'dry_run_scenario',
+      'model_tier',
+      'model_provider',
+      'token_budget',
+      'agent_timeout_minutes',
+      'nversion',
+    ])
   })
   it('階段往下傳：選模型、任務模板、crosscheck、judge', () => {
     const byId = (id: string) => steps().find((s) => s.id === id)!.run!
@@ -2550,5 +2571,131 @@ describe('整合測試建置紀律（平行 fork 不得共寫 dist/）', () => {
       // 不允許再出現裸 expect(status).toBe(0)（原因被丟棄的無聲紅燈）
       expect(c, f).not.toMatch(/expect\(status\)\.toBe\(0\)/)
     }
+  })
+})
+
+/**
+ * 驗證模式的 workflow 閘控（ADR-029 §5、§6；Task 1 審查後擴大）。
+ *
+ * 驗證類走同一支 factory-run，但四件事必須同時成立，否則不是洩漏就是每次誤紅：
+ *   1. guard 依 task type 放行目標 repo 的預設分支，並跳過 catalog／risk-paths／
+ *      factory-stage prereqs（ADR-013 對非驗證類不變）；
+ *   2. agent prompt 不得再命令它建分支／開 PR——VARIANT_HEADER 必須**整段替換**；
+ *   3. 計分／judge／終態與比對留言跳過（factory-score 缺 catalog-info 會拋錯；
+ *      終態留言會把階段結果寫進公開 Issue）；
+ *   4. crosscheck 改用 --verify-only（工作區 diff ＋ specs／測試檔白名單）。
+ * 這些性質壞掉時 run 仍可能是綠的（或每次紅），所以用解析後的 workflow 結構釘住。
+ */
+describe('驗證模式的 workflow 閘控（ADR-029 §5、§6）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  type Step = { name?: string; id?: string; if?: string; run?: string }
+  const workflow = () =>
+    load(read('.github/workflows/factory-run.yml')) as {
+      jobs: {
+        run: { outputs?: Record<string, string>; steps: Step[] }
+        compare: { steps: Step[] }
+      }
+    }
+  const runSteps = () => workflow().jobs.run.steps
+  const compareSteps = () => workflow().jobs.compare.steps
+  const byName = (steps: Step[], name: string): Step => {
+    const s = steps.find((x) => x.name === name)
+    expect(s, `找不到 step：${name}`).toBeDefined()
+    return s!
+  }
+  const idx = (name: string): number => runSteps().findIndex((s) => s.name === name)
+  const GUARD = 'Guard base_branch safety (ADR-013 / ADR-029 §6)'
+
+  it('guard 以 factory-verify-mode 判定，輸出 verify／requires_* 供後續 if: 使用', () => {
+    const guard = byName(runSteps(), GUARD)
+    expect(guard.id).toBe('verifymode')
+    expect(guard.run).toContain('node dist/cli/factory-verify-mode.js')
+    expect(guard.run).toContain('--default-branch "$DEFAULT_BRANCH"')
+    expect(guard.run).toContain('gh api "repos/$GH_REPO" --jq .default_branch')
+    expect(guard.run).toContain('baseBranchAllowed')
+    expect(guard.run).toMatch(/exit 1/)
+    for (const out of ['verify', 'requires_catalog', 'requires_risk_paths', 'requires_stage_prereqs']) {
+      expect(guard.run, out).toContain(out)
+    }
+    // 豁免取決於 resolved task_type，故 guard 必在解析之後；也必在計分／agent
+    // 之前（合法的 base_branch 判定不該花到 LLM 成本）。
+    expect(idx('Resolve task_type (Issue 為準)')).toBeLessThan(idx(GUARD))
+    expect(idx(GUARD)).toBeLessThan(idx('Initial score'))
+    expect(idx(GUARD)).toBeLessThan(idx('Run factory agent'))
+  })
+
+  it('catalog／risk-paths／stage prereqs 以 guard 輸出閘控；非驗證類仍全跑', () => {
+    expect(byName(runSteps(), 'Initial score').if).toBe(
+      "steps.verifymode.outputs.requires_catalog == 'true' && steps.verifymode.outputs.requires_risk_paths == 'true'",
+    )
+    expect(byName(runSteps(), 'Apply score labels').if).toBe("steps.verifymode.outputs.requires_catalog == 'true'")
+    expect(byName(runSteps(), 'Check prerequisites (ADR-022)').if).toBe(
+      "steps.verifymode.outputs.requires_stage_prereqs == 'true'",
+    )
+  })
+
+  it('模型選擇在沒有 score.json 時不傳 --score（factory-model 對缺檔 fail-loud）', () => {
+    const run = byName(runSteps(), 'Select model tier').run!
+    expect(run).toContain('SCORE_FLAG=""')
+    expect(run).toContain('node dist/cli/factory-model.js $SPEC_PHASE_FLAG $SCORE_FLAG')
+    expect(run).toContain('requires_catalog')
+  })
+
+  it('judge 與 PR 正規化在驗證模式跳過（沒有分支／PR，也不該做三軸終態）', () => {
+    expect(byName(runSteps(), 'Judge terminal state').if).toContain("steps.verifymode.outputs.verify != 'true'")
+    for (const name of ['Normalize N-version PR titles', 'Normalize PR draft state']) {
+      expect(byName(runSteps(), name).if, name).toContain("steps.verifymode.outputs.verify != 'true'")
+    }
+  })
+
+  it('VARIANT_HEADER 對驗證類整段替換：不建／不推分支、不開 PR、不寫 Issue、可本地 commit', () => {
+    const run = byName(runSteps(), 'Run factory agent').run!
+    const marker = 'if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then'
+    const start = run.indexOf(marker)
+    expect(start, '找不到驗證模式的 header 覆寫').toBeGreaterThanOrEqual(0)
+    const end = run.indexOf('ATTEMPT_TIMEOUT="$REMAINING_SEC"', start)
+    expect(end).toBeGreaterThan(start)
+    const header = run.slice(start, end)
+    expect(header).toContain('VARIANT_HEADER=')
+    // 四條禁令與「可本地 commit」：少了任一項，agent 會照一般模板去建分支／開 PR
+    expect(header).toContain('建立或推送任何分支')
+    expect(header).toContain('git push')
+    expect(header).toContain('gh pr create')
+    expect(header).toContain('發現寫進 Issue')
+    expect(header).toContain('git commit')
+    expect(header).toContain('本地')
+    // variant 語意保留：header 仍說明自己是哪個變體
+    expect(header).toContain('變體 ${VARIANT_ID}')
+    // 覆寫必須排在兩段一般 header 之後（否則會被蓋掉）
+    expect(run.indexOf('VARIANT_HEADER="【N-version')).toBeLessThan(start)
+    expect(run.indexOf('VARIANT_HEADER="【單一變體執行】')).toBeLessThan(start)
+  })
+
+  it('crosscheck 驗證模式帶 --verify-only，且不再查遠端分支／傳 --variant', () => {
+    const run = byName(runSteps(), 'Cross-check report vs git diff').run!
+    expect(run).toContain('VERIFY_FLAG="--verify-only"')
+    expect(run).toContain('$ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG')
+    const from = run.indexOf('VERIFY_FLAG=""')
+    expect(from).toBeGreaterThanOrEqual(0)
+    const block = run.slice(from)
+    // 驗證分支先設 --verify-only；ls-remote／--variant 只在 else（非驗證）分支
+    expect(block.indexOf('VERIFY_FLAG="--verify-only"')).toBeLessThan(block.indexOf('ls-remote'))
+    expect(block.indexOf('ls-remote')).toBeLessThan(block.indexOf('$VARIANT_FLAG $VERIFY_FLAG'))
+  })
+
+  it('compare job 以 run job 的 verify 輸出跳過終態、比對卡片與 G1 守衛', () => {
+    expect(workflow().jobs.run.outputs?.verify).toBe('${{ steps.verifymode.outputs.verify }}')
+    for (const name of [
+      'Write terminal state',
+      'Generate comparison report and post comment',
+      'Link N-version sibling PRs',
+      'Ensure terminal state (guard)',
+    ]) {
+      expect(byName(compareSteps(), name).if, name).toContain("needs.run.outputs.verify != 'true'")
+    }
+    // 一般模式的終態／卡片語意不得被改掉
+    expect(byName(compareSteps(), 'Generate comparison report and post comment').if).toContain(
+      "inputs.nversion && steps.terminal.outputs.write == 'true'",
+    )
   })
 })

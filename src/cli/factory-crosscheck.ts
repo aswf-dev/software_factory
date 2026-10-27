@@ -16,11 +16,19 @@
  *   - 各分支相對 base 的三點 diff（--name-only / --shortstat）
  *   - 工作樹狀態（--porcelain）——成功執行後不應殘留未提交變更
  *
+ * 驗證模式（`--verify-only`，ADR-029 §5、§6）例外：驗證類 agent **不建分支、
+ * 不 push、不開 PR**，因此事實來源改為「工作區（含本地 commit）相對 base 的
+ * diff」——`git diff <base>` 已涵蓋 commit 與未提交變更，未追蹤的新檔另由
+ * `git status --porcelain` 的 `??` 補上。未提交變更在此模式**不是** mismatch
+ * （R2 裁決：可以 commit 到本地，不 commit 也以同一份 diff 比對），而變更範圍
+ * 改由 `VERIFY_ALLOWED_GLOBS`（specs/** 與各語言測試檔）白名單檢查。
+ *
  * 有意不做的檢查：changedLines 的數值精確比對（agent 的計數口徑可能不同，
  * 會誤傷）；PR 是否真的推送（需網路，且 factory-rescore 已在 PR 層獨立重計分）。
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { minimatch } from 'minimatch'
 import { countAssertionDelta } from '../assertion-count/count.js'
 import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/unreported.js'
 import { isValidSpecName } from '../write-spec/intake.js'
@@ -85,7 +93,44 @@ export const SCOPE_MISMATCH_KINDS: ReadonlySet<string> = new Set([
   'propose-skill-scope',
   'onboard-scope',
   'write-spec-scope',
+  'verify-scope',
 ])
+
+/**
+ * 驗證類 task 允許的變更範圍（ADR-029 §5、§6 修訂版）。
+ *
+ * 驗證 agent 只能寫規格樹（specs 底下）與測試檔；五個 glob 涵蓋各語言的
+ * 測試命名慣例：JS/TS 的 `.test.` 中綴、Go 的 `_test.go` 後綴、以及
+ * Python／Java 常見的 `test` 或 `tests` 目錄。白名單是**允許清單**：未明列者
+ * 一律拒絕（同 propose-skill／onboard 的立場）。
+ *
+ * 其中 `.test.` glob 會匹配 `src/` 下與產品碼共置的測試檔——那是刻意的：
+ * 合法測試檔可能就在 src/ 下。產品碼本身（不含 `.test.` 的 src 檔）仍被拒絕。
+ *
+ * 註：`agent-pbt-audit` 的 `pbt-outside-audit` 仍獨立生效——驗證類也不得產出
+ * `.pbt.test.*`（PBT 只能由稽核工單產生，ADR-019 §2）。
+ */
+export const VERIFY_ALLOWED_GLOBS = [
+  'specs/**',
+  '**/*.test.*',
+  '**/*_test.go',
+  '**/tests/**',
+  '**/test/**',
+] as const
+
+/** 驗證類的變更範圍檢查；由 main 在 `--verify-only` 時呼叫（路徑已排除 .factory/**）。 */
+export function checkVerifyScope(changedPaths: readonly string[]): CrosscheckMismatch[] {
+  const outside = changedPaths.filter((p) => !VERIFY_ALLOWED_GLOBS.some((glob) => minimatch(p, glob)))
+  if (outside.length === 0) return []
+  return [
+    {
+      kind: 'verify-scope',
+      detail:
+        `驗證類 task 只允許 ${VERIFY_ALLOWED_GLOBS.join('、')} 的變更，實際 diff 含越界變更：${outside.join('、')}` +
+        '。驗證 agent 只能寫規格樹與測試檔，不得修改正式程式碼、設定、依賴或 .github/**（ADR-029 §5、§6）',
+    },
+  ]
+}
 
 /**
  * N-version 變體隔離類的 mismatch kind（見 checkVariantIsolation）。report 可能完全誠實、
@@ -378,6 +423,7 @@ export function compareReportToActual(
   analyzeOnly = false,
   proposeSkillOnly = false,
   onboardOnly = false,
+  verifyOnly = false,
 ): CrosscheckMismatch[] {
   const mismatches: CrosscheckMismatch[] = []
   const reported = collectReportedPaths(report.changedPaths)
@@ -504,7 +550,10 @@ export function compareReportToActual(
       detail: `report 宣稱變更 ${report.changedLines} 行但 diff 為空`,
     })
   }
-  if (actual.uncommitted.length > 0) {
+  // 驗證模式：R2 裁決「可以 commit 到本地（不 push）」，且未提交也以同一份
+  // 工作區 diff 比對——所以未提交變更不再是 mismatch（否則不 commit 的 agent
+  // 會被自己的合規產出判紅）。變更範圍另由 checkVerifyScope 白名單把關。
+  if (!verifyOnly && actual.uncommitted.length > 0) {
     mismatches.push({
       kind: 'uncommitted-changes',
       detail: `工作樹仍有未提交變更：${actual.uncommitted.join('、')}`,
@@ -515,7 +564,11 @@ export function compareReportToActual(
   // 都是靜默缺漏——crosscheck 必須 fail-loud，不讓「每條驗收條件一個明確狀態」
   // 的契約被空值矇混。注意：shape（型別/enum）已由 ReportSchema 的 zod 收緊，
   // 此處只管內容完備性（有 diff 卻未回報、blank id/status）。
-  if (hasDiff) {
+  //
+  // 驗證模式不套用：驗證階段沒有「驗收條件→實作」的對應（完成與否由 G1–G4
+  // 閘門決定，ADR-029 §2），task template 也不要求 requirements；硬套會讓
+  // grill／quint／lean 三個階段的所有合規產出被判 needs-human。
+  if (hasDiff && !verifyOnly) {
     const reqs = report.requirements ?? []
     if (reqs.length === 0) {
       mismatches.push({
@@ -676,6 +729,62 @@ export function collectActualDiff(
   }
 }
 
+/**
+ * `git status --porcelain` 的未追蹤檔（`??` 行）。
+ *
+ * 驗證模式沒有「先 commit 再比對」的前提：agent 可能直接寫了新檔而沒有
+ * `git add`。`git diff <base>` 看不到未追蹤檔，若只靠它，合法的交付會被判
+ * `no-trace`／`unreported-changes` 假紅——故以 status 補上。
+ */
+export function parseUntrackedPaths(output: string): string[] {
+  const out: string[] = []
+  for (const line of output.split('\n')) {
+    const trimmed = line.trimEnd()
+    if (!trimmed.startsWith('?? ')) continue
+    const n = normalizePath(trimmed.slice(3))
+    if (n.length > 0) out.push(n)
+  }
+  return out
+}
+
+/**
+ * 驗證模式的 git 事實（ADR-029 §5、§6；R2 裁決）。
+ *
+ * 驗證類 agent 不建分支，所以沒有 `factory/<issue>-*` 可比對；事實來源是
+ * **工作區（含本地 commit）相對 base 的 diff**：
+ *   - `git diff <base>`：已 commit 與未 commit 的變更（不含未追蹤檔）
+ *   - `git status --porcelain` 的 `??`：未追蹤的新檔（通常就是新產出）
+ *
+ * `branches` 恆為空陣列：驗證模式沒有變體分支，變體隔離檢查不適用。
+ * `uncommitted` 仍照實回報供診斷，但驗證模式不把它當 mismatch（main 判定）。
+ */
+export function collectVerifyDiff(
+  git: GitRunner,
+  opts: { base: string; target: string },
+): CrosscheckActual {
+  const { base, target } = opts
+  const diffPaths = parseDiffNameOnly(git(['diff', '--name-only', base], target)).map(normalizePath)
+  const stat = parseShortStat(git(['diff', '--shortstat', base], target))
+  // 未追蹤檔不在 diff 內，補進來才算得出「有沒有交付」。順序：diff 在前、
+  // untracked 在後，維持輸出的可預期性（測試與留言都依此順序）。
+  const statusOutput = git(['status', '--porcelain'], target)
+  const paths = [...diffPaths]
+  for (const p of parseUntrackedPaths(statusOutput)) {
+    // 已提交／已暫存的檔案也會出現在 status（`A `），但只有 `??` 會被
+    // parseUntrackedPaths 取用；diff 與 untracked 理論上不重疊，仍去重避免
+    // 同一路徑在 report 比對與白名單檢查中出現兩次。
+    if (!paths.includes(p)) paths.push(p)
+  }
+  return {
+    branches: [],
+    paths,
+    added: stat.added,
+    deleted: stat.deleted,
+    uncommitted: parseStatusPorcelain(statusOutput),
+    assertionDelta: countAssertionDelta(git(['diff', '--unified=0', base], target)).delta,
+  }
+}
+
 /** 讀取並驗證 report.json（契約同 factory-judge，共用 ReportSchema）。 */
 function loadReport(reportPath: string) {
   const text = readFileSync(reportPath, 'utf8')
@@ -717,7 +826,7 @@ export interface VariantArgs {
 /**
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
- *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only]
+ *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only] [--verify-only]
  *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
  *   [--source-snapshot <file>]] [--variant <a|b> --remote-branches <file>]`。
  */
@@ -729,6 +838,7 @@ export function parseArgs(argv: string[]): {
   proposeSkillOnly: boolean
   onboardOnly: boolean
   pbtAuditOnly: boolean
+  verifyOnly: boolean
   requirementAnchors: string[]
   writeSpec?: WriteSpecArgs | undefined
   variant?: VariantArgs | undefined
@@ -742,6 +852,7 @@ export function parseArgs(argv: string[]): {
   let proposeSkillOnly = false
   let onboardOnly = false
   let pbtAuditOnly = false
+  let verifyOnly = false
   let requirementAnchors: string[] = []
   let specPhase: string | undefined
   let specName: string | undefined
@@ -770,6 +881,8 @@ export function parseArgs(argv: string[]): {
       onboardOnly = true
     } else if (arg === '--pbt-audit-only') {
       pbtAuditOnly = true
+    } else if (arg === '--verify-only') {
+      verifyOnly = true
     } else if (arg === '--requirement-anchors') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) {
@@ -796,13 +909,14 @@ export function parseArgs(argv: string[]): {
   }
   // 各「僅產出」模式的允許清單互不相同，同時指定會讓實際生效的規則變得含糊
   // ——寧可紅燈，也不要讓寬鬆的那一套悄悄成為實際規則（同 factory-judge 的立場）。
-  // 以清單列舉而非兩兩比對：新增第四個模式時不會漏掉任何組合。
+  // 以清單列舉而非兩兩比對：新增第五個模式時不會漏掉任何組合。
   const exclusive = (
     [
       ['--analyze-only', analyzeOnly],
       ['--propose-skill-only', proposeSkillOnly],
       ['--onboard-only', onboardOnly],
       ['--pbt-audit-only', pbtAuditOnly],
+      ['--verify-only', verifyOnly],
       ['--write-spec-phase', specPhase !== undefined],
     ] as const
   )
@@ -810,6 +924,11 @@ export function parseArgs(argv: string[]): {
     .map(([flag]) => flag)
   if (exclusive.length > 1) {
     throw new CliError(`${exclusive.join(' 與 ')} 不可同時指定`)
+  }
+  // 驗證模式沒有分支，`--variant` 的隔離檢查（分支前綴、遠端分支清單）不適用；
+  // 同時指定等於兩套互相矛盾的事實來源，fail-loud 而不是讓其中一套靜默失效。
+  if (verifyOnly && (variantId !== undefined || remoteBranchesPath !== undefined)) {
+    throw new CliError('--verify-only 不可與 --variant／--remote-branches 同時指定（驗證類不建分支）')
   }
   const issueNumber = Number(positional[0])
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
@@ -849,6 +968,7 @@ export function parseArgs(argv: string[]): {
     proposeSkillOnly,
     onboardOnly,
     pbtAuditOnly,
+    verifyOnly,
     requirementAnchors,
     writeSpec,
     variant,
@@ -910,18 +1030,24 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     proposeSkillOnly,
     onboardOnly,
     pbtAuditOnly,
+    verifyOnly,
     requirementAnchors,
     writeSpec,
     variant,
   } = parseArgs(argv)
   const report = loadReport(reportPath)
-  const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
+  // 驗證類沒有分支（R2：本地 commit 可以、push 不行），事實來源改成工作區
+  // 相對 base 的 diff；其餘模式維持 factory/<issue>-* 分支的三點 diff。
+  const actual = verifyOnly
+    ? collectVerifyDiff(git, { base: paths.base, target: paths.target })
+    : collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
   const mismatches = compareReportToActual(
     report,
     actual,
     analyzeOnly,
     proposeSkillOnly,
     onboardOnly,
+    verifyOnly,
   )
   // PBT 範圍（ADR-019 §2、§5、R6）：audit 只能新增或修改 PBT 檔、不得刪除；其他類型
   // 不得產出 PBT 檔。前者是 in-loop 豁免的前提之一（apply-score-labels.ts）。
@@ -936,6 +1062,9 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   } else {
     mismatches.push(...checkPbtOutsideAudit(changed))
   }
+  // 驗證類的白名單（ADR-029 §5、§6）：只允許 specs/** 與測試檔。放在 report
+  // 一致性檢查之後：先確認 report 誠實，再確認變更範圍合法——兩者是不同處置。
+  if (verifyOnly) mismatches.push(...checkVerifyScope(changed))
   let remoteBranches: string[] | undefined
   if (variant !== undefined) {
     remoteBranches = parseRemoteBranches(readFileSync(variant.remoteBranchesPath, 'utf8'))

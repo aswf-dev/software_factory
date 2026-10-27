@@ -12,9 +12,11 @@ import { CliError } from './run-cli.js'
 import {
   adviseAssertionDelta,
   categorizeMismatch,
+  checkVerifyScope,
   crosscheckHeadline,
   collectActualDiff,
   collectReportedPaths,
+  collectVerifyDiff,
   compareReportToActual,
   compareRequirementIds,
   detectUnreportedTrigger,
@@ -26,12 +28,14 @@ import {
   parseForEachRefOutput,
   parseShortStat,
   parseStatusPorcelain,
+  parseUntrackedPaths,
   collectDeletedPaths,
   checkVariantIsolation,
   parseRemoteBranches,
   REUSE_DOWNGRADED_KINDS,
   validateReuseClaim,
   variantPrefix,
+  VERIFY_ALLOWED_GLOBS,
   type CrosscheckActual,
   type GitRunner,
 } from './factory-crosscheck.js'
@@ -696,7 +700,7 @@ describe('compareRequirementIds（REQ id 錨定，advisory）', () => {
 })
 
 describe('parseArgs', () => {
-  it('預設值：base=software-factory、target=target、三個僅產出模式皆 false', () => {
+  it('預設值：base=software-factory、target=target、四個僅產出模式皆 false', () => {
     expect(parseArgs(['12', 'report.json'])).toEqual({
       issueNumber: 12,
       reportPath: 'report.json',
@@ -705,6 +709,7 @@ describe('parseArgs', () => {
       proposeSkillOnly: false,
       onboardOnly: false,
       pbtAuditOnly: false,
+      verifyOnly: false,
       requirementAnchors: [],
     })
   })
@@ -718,6 +723,7 @@ describe('parseArgs', () => {
       proposeSkillOnly: false,
       onboardOnly: false,
       pbtAuditOnly: false,
+      verifyOnly: false,
       requirementAnchors: [],
     })
   })
@@ -1501,6 +1507,219 @@ describe('沿用既有交付的合法路徑（reusedExistingPr；fubon-tradingbo
     it('reusedExistingPr 非正整數 → schema 拒收（CliError）', () => {
       writeFileSync(reportPath, makeReport({ changedPaths: [], reusedExistingPr: 0 }))
       expect(() => main(['12', reportPath, '--target', 'target'], fakeGit({}))).toThrow(CliError)
+    })
+  })
+})
+
+/**
+ * 驗證模式（ADR-029 §5、§6）：agent 不建分支、不 push、不開 PR，所以 crosscheck
+ * 不能再找 `factory/<issue>-*` 分支——事實來源改成「工作區（含本地 commit）相對
+ * base 的 diff」，並套用 specs／測試檔白名單。R2 裁決：本地 commit 允許，未提交
+ * 變更也不再是 mismatch（兩者都以同一份 diff 呈現）。
+ */
+describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', () => {
+  /** 只認得驗證模式四種 git 呼叫的 fake；呼叫到分支相關命令即 throw。 */
+  function verifyGit(
+    script: {
+      diffNameOnly?: string
+      shortStat?: string
+      unifiedDiff?: string
+      status?: string
+    },
+    calls: string[][] = [],
+  ): GitRunner {
+    return (args) => {
+      calls.push(args)
+      if (args[0] === 'diff' && args[1] === '--name-only') return script.diffNameOnly ?? ''
+      if (args[0] === 'diff' && args[1] === '--shortstat') return script.shortStat ?? ''
+      if (args[0] === 'diff' && args[1] === '--unified=0') return script.unifiedDiff ?? ''
+      if (args[0] === 'status') return script.status ?? ''
+      throw new Error(`驗證模式不該呼叫：git ${args.join(' ')}`)
+    }
+  }
+
+  describe('checkVerifyScope', () => {
+    it('白名單：specs/** 與五種測試檔命名皆允許', () => {
+      const allowed = [
+        'specs/quint/model.qnt',
+        'specs/lean/Specs/Proofs.lean',
+        'specs/lean/lean-toolchain',
+        'src/util/format.test.ts',
+        'service/foo_test.go',
+        'pkg/tests/integration.py',
+        'pkg/test/unit.js',
+      ]
+      for (const p of allowed) expect(checkVerifyScope([p]), p).toEqual([])
+    })
+
+    it('越界：產品程式碼、設定、依賴、文件、CI 設定一律拒絕並列出路徑', () => {
+      const outside = ['src/util/format.ts', 'package.json', 'package-lock.json', '.github/workflows/test.yml', 'docs/x.md', 'catalog-info.yaml']
+      const findings = checkVerifyScope(outside)
+      expect(findings).toHaveLength(1)
+      expect(findings[0]?.kind).toBe('verify-scope')
+      for (const p of outside) expect(findings[0]?.detail).toContain(p)
+      expect(findings[0]?.detail).toContain('specs/**')
+    })
+
+    it('空清單 → 無 finding（沒有變更就沒有越界）', () => {
+      expect(checkVerifyScope([])).toEqual([])
+    })
+
+    it('白名單常數即 ADR-029 修訂版列出的五個 glob（改動要經 ADR）', () => {
+      expect([...VERIFY_ALLOWED_GLOBS]).toEqual([
+        'specs/**',
+        '**/*.test.*',
+        '**/*_test.go',
+        '**/tests/**',
+        '**/test/**',
+      ])
+    })
+
+    it('歸類為 scope：越界要改規則／改工單，不是查 agent 的回報', () => {
+      expect(categorizeMismatch('verify-scope')).toBe('scope')
+    })
+  })
+
+  describe('parseUntrackedPaths', () => {
+    it('只取 `??` 的未追蹤檔，正規化 ./，忽略已修改／已暫存', () => {
+      expect(parseUntrackedPaths(' M src/a.ts\n?? specs/quint/model.qnt\nA  specs/lean/A.lean\n?? ./test/x.test.ts\n\n')).toEqual([
+        'specs/quint/model.qnt',
+        'test/x.test.ts',
+      ])
+      expect(parseUntrackedPaths('')).toEqual([])
+      // 正規化後為空的路徑（`?? ./`）不進清單，避免下游拿空字串去比對
+      expect(parseUntrackedPaths('?? ./\n')).toEqual([])
+    })
+  })
+
+  describe('collectVerifyDiff', () => {
+    it('以 `git diff <base>`（不是 base...branch）取事實；untracked 一併算交付', () => {
+      const calls: string[][] = []
+      const actual = collectVerifyDiff(
+        verifyGit(
+          {
+            diffNameOnly: 'specs/quint/model.qnt\ntest/x.test.ts\n',
+            shortStat: ' 2 files changed, 12 insertions(+), 3 deletions(-)',
+            unifiedDiff: [
+              'diff --git a/test/x.test.ts b/test/x.test.ts',
+              '--- a/test/x.test.ts',
+              '+++ b/test/x.test.ts',
+              '@@ -1,0 +1,1 @@',
+              '+expect(a).toBe(1)',
+              '',
+            ].join('\n'),
+            status: '?? specs/lean/Specs/Proofs.lean\n M test/x.test.ts\n',
+          },
+          calls,
+        ),
+        { base: 'main', target: 'target' },
+      )
+      expect(calls).toContainEqual(['diff', '--name-only', 'main'])
+      expect(calls).toContainEqual(['diff', '--shortstat', 'main'])
+      expect(calls).toContainEqual(['diff', '--unified=0', 'main'])
+      expect(actual.branches).toEqual([])
+      expect(actual.paths).toEqual(['specs/quint/model.qnt', 'test/x.test.ts', 'specs/lean/Specs/Proofs.lean'])
+      expect(actual.added).toBe(12)
+      expect(actual.deleted).toBe(3)
+      expect(actual.uncommitted).toEqual(['specs/lean/Specs/Proofs.lean', 'test/x.test.ts'])
+      expect(actual.assertionDelta).toBe(1)
+    })
+
+    it('沒有變更 → 全空', () => {
+      expect(collectVerifyDiff(verifyGit({}), { base: 'main', target: 'target' })).toEqual({
+        branches: [],
+        paths: [],
+        added: 0,
+        deleted: 0,
+        uncommitted: [],
+        assertionDelta: 0,
+      })
+    })
+
+    it('untracked 與 diff 的重複路徑只算一次（不讓白名單／報告比對看到兩份）', () => {
+      const actual = collectVerifyDiff(
+        verifyGit({ diffNameOnly: 'specs/x.qnt\n', status: '?? specs/x.qnt\n' }),
+        { base: 'main', target: 'target' },
+      )
+      expect(actual.paths).toEqual(['specs/x.qnt'])
+    })
+  })
+
+  describe('--verify-only 的 main 編排', () => {
+    let dir: string
+    let reportPath: string
+
+    beforeAll(() => {
+      dir = mkdtempSync(join(tmpdir(), 'crosscheck-verify-'))
+      reportPath = join(dir, 'report.json')
+    })
+    afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+    it('白名單內變更 → ok=true；未提交變更不再是 mismatch（R2）', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only'],
+        verifyGit({
+          diffNameOnly: 'specs/quint/model.qnt\n',
+          shortStat: ' 1 file changed, 5 insertions(+)',
+          status: ' M specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.ok).toBe(true)
+      expect(out.mismatches).toEqual([])
+    })
+
+    it('agent 未 commit 的新檔（untracked）也算交付，不誤判 no-trace', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 10, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only'],
+        verifyGit({ status: '?? specs/quint/model.qnt\n' }),
+      )
+      expect(out.ok).toBe(true)
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+    })
+
+    it('越界變更 → verify-scope（scope、fail-loud），不是 consistency', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: ['src/a.ts'], changedLines: 30 }))
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only'],
+        verifyGit({ diffNameOnly: 'src/a.ts\n', shortStat: ' 1 file changed, 30 insertions(+)' }),
+      )
+      expect(out.ok).toBe(false)
+      expect(out.mismatches.map((m) => m.kind)).toEqual(['verify-scope'])
+      expect(out.mismatches[0]?.category).toBe('scope')
+      expect(out.headline).toContain('變更超出任務類型允許的範圍')
+    })
+
+    it('requirements 不是驗證階段的必要欄位（G8 只適用開發型工單）', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only'],
+        verifyGit({ diffNameOnly: 'specs/quint/model.qnt\n', shortStat: ' 1 file changed, 5 insertions(+)\n' }),
+      )
+      expect(out.ok).toBe(true)
+      expect(out.mismatches.some((m) => m.kind.startsWith('requirements-'))).toBe(false)
+    })
+
+    it('--verify-only 與其他僅產出模式／--variant 併用 → CliError（兩套規則不可同時生效）', () => {
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--analyze-only'])).toThrow(/不可同時指定/)
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--write-spec-phase', 'invariants'])).toThrow(
+        /不可同時指定/,
+      )
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--variant', 'a', '--remote-branches', 'rb.txt'])).toThrow(
+        /--variant/,
+      )
+      // 只給 --remote-branches（沒有 --variant）也一樣：驗證模式沒有分支事實來源
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--remote-branches', 'rb.txt'])).toThrow(/--variant/)
     })
   })
 })

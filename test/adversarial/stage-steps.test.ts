@@ -70,7 +70,8 @@ describe('派工時的前置檢查（factory-run.yml）', () => {
     expect(i).toBeGreaterThan(names.indexOf('Check issue format (central enforcement)'))
     expect(i).toBeLessThan(names.indexOf('Initial score'))
     expect(i).toBeLessThan(names.indexOf('Run factory agent'))
-    expect(step().if).toBeUndefined()
+    // ADR-029 §6：驗證類不檢查 prereqs；非驗證類（requires_stage_prereqs=true）照跑。
+    expect(step().if).toBe("steps.verifymode.outputs.requires_stage_prereqs == 'true'")
   })
 
   const env = { GH_REPO: 'o/r', ISSUE: '5', GH_TOKEN: 'x' }

@@ -9,7 +9,7 @@
    **輸出紀律（重要）**：推導與思考過程**不要輸出到 stdout**——直接撰寫目標檔案；stdout 只用於簡短進度與最終摘要。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
 2. **寫入白名單（硬規則）**：本次只允許新增或修改 `specs/lean/**`（`RULES.md`、`MODEL-MAP.md`、`lakefile.toml`、`lean-toolchain`、`Specs/**`、`Audit.lean`、`headline-theorems.txt`、`metrics-baseline.txt` 等 skill 產物；`.lake/` 不進版控）與 CI 管的 `.factory/run/report.json`。
    不得修改 `src/**`、`.github/**`、`specs/quint/**`、`docs/**`、其他既有檔案、設定或依賴。CI 的 crosscheck 會逐檔檢查，越界即交還人類（needs-human）；需要白名單外的檔案才能完成 → 依 factory-stop-rules 停手。
-3. **不得 push 分支、不得開 PR、不得 commit**（ADR-029 §5）：驗證類 agent 的產出只進加密 artifact；PR 由機制端的 `factory.verify.publish` 在 G2 之後發佈。**不得**執行 `git push`、**不得**以 `gh pr create` 開 PR、**不得**在 Issue 留言或寫入任何發現（Issue body 只寫範圍與階段，發現會公開）。
+3. **不得 push 分支、不得開 PR**（ADR-029 §5）；可以 **`git commit` 到本地**（**不得** `git push`）——crosscheck 以工作區相對 base 的 diff 比對白名單（R2 裁決）。驗證類 agent 的產出只進加密 artifact；PR 由機制端的 `factory.verify.publish` 在 G2 之後發佈。**不得**執行 `git push`、**不得**以 `gh pr create` 開 PR、**不得**在 Issue 留言或寫入任何發現（Issue body 只寫範圍與階段，發現會公開）。
    完成訊號是 Issue 上的 `stage/done`，由機制端在取回產出後貼上——**你不得自行貼標籤**。
    本模板與 `factory-workflow`／`factory-pr-stacking` 中「建立分支、開 PR、在 Issue 回報 PR」的步驟衝突時，**一律以本模板為準**（ADR-029 §5）。
 4. **`statements` 階段**（必須先完成，才能進入 proofs）：

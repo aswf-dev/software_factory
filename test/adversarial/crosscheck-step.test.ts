@@ -31,11 +31,12 @@ function steps(): Step[] {
 }
 
 /** crosscheck step 的 run script，`${{ }}` 以固定值代入（同 Actions 的文字替換語意）。 */
-function crosscheckScript(): string {
+function crosscheckScript(overrides: Record<string, string> = {}): string {
   const run = steps().find((s) => s.id === 'crosscheck')?.run
   if (run === undefined) throw new Error('找不到 id: crosscheck 的 step')
   const values: Record<string, string> = {
     'steps.tasktype.outputs.value': 'agent-fix-bug',
+    'steps.verifymode.outputs.verify': 'false',
     'inputs.issue_number': '670',
     'inputs.base_branch': 'software-factory',
     'github.run_id': '424242',
@@ -43,6 +44,7 @@ function crosscheckScript(): string {
     // 非 write-spec 類型：這兩個值只出現在 write-spec 分支內，不會被讀到
     'steps.specphase.outputs.phase': '',
     'steps.specphase.outputs.spec_name': '',
+    ...overrides,
   }
   return run.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     const v = values[expr]
@@ -73,6 +75,8 @@ function runStep(
   crosscheck: { stdout: string; stderr: string; code: number },
   /** `git ls-remote --heads origin` 的 stub 輸出；null = ls-remote 失敗。 */
   lsRemote: string | null = '',
+  /** 覆寫 `${{ }}` 的值（例如驗證模式）。 */
+  overrides: Record<string, string> = {},
 ): StepResult {
   const dir = mkdtempSync(join(tmpdir(), 'crosscheck-step-'))
   dirs.push(dir)
@@ -113,7 +117,7 @@ function runStep(
     ].join('\n'),
   )
   // GitHub Actions 的 run step 以 `bash -e {0}` 執行（見 run log 的 shell: 行）
-  const r = spawnSync('bash', ['-e', '-c', crosscheckScript()], {
+  const r = spawnSync('bash', ['-e', '-c', crosscheckScript(overrides)], {
     cwd: dir,
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, STUB_DIR: dir, GITHUB_WORKSPACE: dir },
@@ -222,6 +226,15 @@ describe('crosscheck step：N-version 變體隔離', () => {
     expect(r.log).toContain('::warning::git ls-remote 失敗')
     expect(r.remoteBranches).toBe('')
     expect(r.nodeArgs).toContain('--variant a')
+  })
+
+  it('驗證模式：帶 --verify-only、不呼叫 ls-remote、不傳 --variant（ADR-029 §5）', () => {
+    const r = runStep({ stdout: ok, stderr: '', code: 0 }, '', { 'steps.verifymode.outputs.verify': 'true' })
+    expect(r.status, r.log).toBe(0)
+    expect(r.nodeArgs).toContain('--verify-only')
+    expect(r.nodeArgs).not.toContain('--variant')
+    // 驗證分支不呼叫 git ls-remote（stub 對非預期呼叫 exit 99，status 0 即證明）
+    expect(r.remoteBranches).toBeUndefined()
   })
 })
 

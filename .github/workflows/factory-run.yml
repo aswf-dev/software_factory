@@ -111,23 +111,24 @@ jobs:
         # ADR-021：nversion=false 時只跑變體 a。`inputs.nversion` 在 workflow_dispatch
         # 是布林值；未傳時取預設 true。
         variant: ${{ fromJSON(inputs.nversion && '["a","b"]' || '["a"]') }}
+    # compare job 需要知道這次是不是驗證類：驗證類沒有 judge／PR，終態與比對留言
+    # 必須跳過（ADR-029 §5：不把發現寫進公開 Issue）。兩個變體的值相同，matrix
+    # 的 job output 取最後完成的變體即可。
+    outputs:
+      verify: ${{ steps.verifymode.outputs.verify }}
     steps:
       # 機制 repo（本 repo：workflow/CLI/skill 所在）在根目錄；
       # 目標 repo（inputs.repo）另行 checkout 至 target/，agent 在 target/ 內工作。
       - uses: actions/checkout@v7
 
-      # 安全約束（Q-P2-1 統一，ADR-013）：所有 repo（含機制 repo 自身）的 factory trunk
-      # 一律為 software-factory 分支，main 絕不觸碰。Guard 在花費任何成本（token/LLM）
-      # 之前就擋下（純 shell 檢查、零成本）；trunk 分支存在性檢查移到 App token mint 之後
-      # （2026-09-01 T3 試點實測抓到：此處用 github.token 查跨 repo 必然 404——
+      # 安全約束（Q-P2-1 統一，ADR-013＋ADR-029 §6）：base_branch guard 的**唯一實作**
+      # 是 dist/cli/factory-verify-mode.js。非驗證類的 trunk 一律 software-factory
+      # （main 絕不觸碰）；驗證類（agent-verify-*）改以目標 repo 的預設分支為準。
+      # 判定需要「已解析的 task_type」與編譯後的 CLI，所以 guard 位於
+      # 「Install and build」與「Resolve task_type」之後（見下方 Guard step）——
+      # 仍在任何 LLM 成本與 Issue 留言之前。trunk 分支存在性檢查一樣留在 App token
+      # mint 之後（2026-09-01 T3 試點實測抓到：用 github.token 查跨 repo 必然 404，
       # GITHUB_TOKEN 只授權機制 repo，跨 repo 路徑先前從未被實測）。
-      - name: Guard base_branch safety (Q-P2-1 統一)
-        run: |
-          if [ "${{ inputs.base_branch }}" == "main" ]; then
-            echo "::error::base_branch 不得為 main（Q-P2-1 統一安全約束：所有 repo 的 main 絕不觸碰，trunk 一律 software-factory）"
-            exit 1
-          fi
-          echo "guard ok: repo=${{ inputs.repo }} base_branch=${{ inputs.base_branch }}"
 
       - uses: pnpm/action-setup@v6
 
@@ -178,6 +179,8 @@ jobs:
       # 分支存在性檢查（#171 教訓 fast-fail）：不存在的 trunk 會在 checkout 才炸，
       # 此處以 App token 提前擋下。**必須用 App token**——GITHUB_TOKEN 只授權機制 repo，
       # 查目標 repo 必然 404（2026-09-01 T3 試點實測抓到，跨 repo 路徑首度被實測）。
+      # 驗證類的 base_branch 是目標 repo 的預設分支（ADR-029 §6），必定存在；
+      # 非驗證類則仍是 software-factory。guard 已於 build 後先行判定，這裡只驗存在性。
       - name: Verify trunk branch exists (cross-repo)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -185,13 +188,14 @@ jobs:
         run: |
           if ! gh api "repos/${{ inputs.repo }}/git/ref/heads/${{ inputs.base_branch }}" >/dev/null 2>&1; then
             echo "::error::目標 repo ${{ inputs.repo }} 不存在分支 base_branch=${{ inputs.base_branch }}"
-            echo "::error::統一規則：所有 repo 的 factory trunk 皆為 software-factory 分支（main 絕不觸碰）"
+            echo "::error::非驗證類的 factory trunk 一律 software-factory（main 絕不觸碰）；驗證類則為目標 repo 的預設分支（ADR-013／ADR-029 §6）"
             exit 1
           fi
           echo "trunk exists: ${{ inputs.repo }}@${{ inputs.base_branch }}"
 
-      # 目標 repo checkout（工廠 trunk = base_branch）：agent 在此工作，
-      # catalog/risk-paths/templates/skills 均從此讀取（Q-P2-1：main 絕不觸碰）。
+      # 目標 repo checkout（trunk = base_branch）：agent 在此工作，
+      # catalog/risk-paths/templates/skills 均從此讀取（Q-P2-1：非驗證類 main 絕不觸碰；
+      # 驗證類的 base 是預設分支，ADR-029 §6）。
       # 用 App token 認證——GITHUB_TOKEN 只限本 repo，無法讀取目標 repo。
       - name: Checkout target repo
         uses: actions/checkout@v7
@@ -215,6 +219,91 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
+
+      # 任務類型以 **Issue 為準**（docs/02 §3.2：Issue 是工作項契約）。
+      #
+      # 實測（Issue #287，2026-09-13）：Issue body 宣告 agent-fix-bug，但 dispatch
+      # 漏帶 -f task_type，input 的預設值 agent-add-tests 靜默生效——agent 收到
+      # task-template-add-tests.txt，完全照 add-tests 規矩走（test-only、缺陷以
+      # it.skip 交付），實作與文件兩層從未產生。整個 run 是綠的，沒有任何訊息
+      # 說明「你派的類型不是 Issue 宣告的類型」。
+      #
+      # 修法：預設改為 auto → 從 Issue body 解析。解析呼叫 dist 的 checkIssue
+      # （FIELD_TITLES 的權威實作），不自寫正則——factory-issue-check.yml 曾各寫
+      # 一份，那正是漂移的來源。人類仍可顯式指定覆寫，但會留下 ::notice:: 稽核痕跡。
+      #
+      # 位置：必須在「Guard base_branch safety」之前（guard 依 resolved type 決定
+      # 驗證類豁免），而 guard 又需要編譯後的 dist——故兩者都在 build 之後、
+      # 標籤與 Issue 留言之前。
+      - name: Resolve task_type (Issue 為準)
+        id: tasktype
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          REQUESTED: ${{ inputs.task_type }}
+        run: |
+          set -euo pipefail
+          DECLARED=$(gh issue view "${{ inputs.issue_number }}" --json body --jq .body \
+            | node -e '
+              let s = ""
+              process.stdin.on("data", (d) => (s += d)).on("end", async () => {
+                const { checkIssue } = await import("./dist/cli/factory-issue-check.js")
+                process.stdout.write(checkIssue(s).taskType ?? "")
+              })')
+          echo "issue 宣告的任務類型: ${DECLARED:-（無法解析）}"
+          if [ "$REQUESTED" = "auto" ]; then
+            if [ -z "$DECLARED" ]; then
+              echo "::error::task_type=auto 但 Issue #${{ inputs.issue_number }} 的任務類型欄位無法解析。請修正 Issue，或 dispatch 時顯式指定 task_type。"
+              exit 1
+            fi
+            RESOLVED="$DECLARED"
+          else
+            RESOLVED="$REQUESTED"
+            if [ -n "$DECLARED" ] && [ "$DECLARED" != "$REQUESTED" ]; then
+              echo "::notice::dispatch 指定 task_type=${REQUESTED}，與 Issue 宣告的 $DECLARED 不同——以 dispatch 為準（人類覆寫）。"
+            fi
+          fi
+          echo "resolved task_type: $RESOLVED"
+          echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
+
+      # base_branch guard（ADR-013＋ADR-029 §6）：判定邏輯**只**在
+      # dist/cli/factory-verify-mode.js（src/cli/factory-verify-mode.ts）。
+      #   - 非驗證類：base_branch 不得為 main（ADR-013 原規則）。
+      #   - 驗證類（agent-verify-*）：允許目標 repo 的預設分支，或過渡期相容值
+      #     software-factory；其他值一律擋下並顯示 CLI 的 error。
+      # 判定需要已解析的 task_type 與編譯後的 dist，故位於 build 之後；仍在任何
+      # LLM 成本與 Issue 留言之前（一次 gh api 查預設分支，零 LLM 成本）。
+      # 查不到預設分支時 fail closed：guard 不能因查詢失敗而放行。
+      - name: Guard base_branch safety (ADR-013 / ADR-029 §6)
+        id: verifymode
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          TASK_TYPE: ${{ steps.tasktype.outputs.value }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        run: |
+          set -euo pipefail
+          mkdir -p .factory
+          if ! DEFAULT_BRANCH=$(gh api "repos/$GH_REPO" --jq .default_branch 2>/dev/null) || [ -z "$DEFAULT_BRANCH" ]; then
+            echo "::error::無法取得目標 repo $GH_REPO 的預設分支——base_branch guard 無法判定，停止派工（App token 需 metadata 讀取權限）"
+            exit 1
+          fi
+          node dist/cli/factory-verify-mode.js \
+            --task-type "$TASK_TYPE" \
+            --base-branch "$BASE_BRANCH" \
+            --default-branch "$DEFAULT_BRANCH" > .factory/verify-mode.json
+          cat .factory/verify-mode.json
+          echo "verify=$(jq -r .verify .factory/verify-mode.json)" >> "$GITHUB_OUTPUT"
+          echo "requires_catalog=$(jq -r .requiresCatalog .factory/verify-mode.json)" >> "$GITHUB_OUTPUT"
+          echo "requires_risk_paths=$(jq -r .requiresRiskPaths .factory/verify-mode.json)" >> "$GITHUB_OUTPUT"
+          echo "requires_stage_prereqs=$(jq -r .requiresStagePrereqs .factory/verify-mode.json)" >> "$GITHUB_OUTPUT"
+          if [ "$(jq -r .baseBranchAllowed .factory/verify-mode.json)" != "true" ]; then
+            echo "::error::$(jq -r .error .factory/verify-mode.json)"
+            exit 1
+          fi
+          if [ "$(jq -r .verify .factory/verify-mode.json)" = "true" ]; then
+            echo "::notice::驗證模式（ADR-029 §6）：base_branch=${BASE_BRANCH}（目標 repo 預設分支 ${DEFAULT_BRANCH}）；不做三軸計分、不讀 catalog／risk-paths、不檢查 factory-stage prereqs"
+          fi
 
       # 標籤必須預先存在（gh issue edit --add-label 不會自動建立，缺一個整條指令失敗）。
       # 冪等：--force 在已存在時更新顏色而不報錯。
@@ -297,7 +386,10 @@ jobs:
       #   - 不提供略過用的 input（ADR-018 §12 先例）：真要略過，清空 Issue 的前置欄位，留有紀錄；
       #   - 兩個變體都會執行本步；只有變體 a 留言，避免同一則說明貼兩次。
       #   - gh 查詢失敗 → 同樣停派（fail-closed），原因印在 run log。
+      #   - ADR-029 §6：驗證類 task 不檢查 prereqs（階段順序由 aswf.dev 的 G1–G4 決定），
+      #     故以 guard 的 requires_stage_prereqs 輸出閘控；其他類型行為不變。
       - name: Check prerequisites (ADR-022)
+        if: steps.verifymode.outputs.requires_stage_prereqs == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
@@ -320,48 +412,6 @@ jobs:
             exit 1
           fi
           echo "前置工作項皆已完成（或未宣告）"
-
-      # 任務類型以 **Issue 為準**（docs/02 §3.2：Issue 是工作項契約）。
-      #
-      # 實測（Issue #287，2026-09-13）：Issue body 宣告 agent-fix-bug，但 dispatch
-      # 漏帶 -f task_type，input 的預設值 agent-add-tests 靜默生效——agent 收到
-      # task-template-add-tests.txt，完全照 add-tests 規矩走（test-only、缺陷以
-      # it.skip 交付），實作與文件兩層從未產生。整個 run 是綠的，沒有任何訊息
-      # 說明「你派的類型不是 Issue 宣告的類型」。
-      #
-      # 修法：預設改為 auto → 從 Issue body 解析。解析呼叫 dist 的 checkIssue
-      # （FIELD_TITLES 的權威實作），不自寫正則——factory-issue-check.yml 曾各寫
-      # 一份，那正是漂移的來源。人類仍可顯式指定覆寫，但會留下 ::notice:: 稽核痕跡。
-      - name: Resolve task_type (Issue 為準)
-        id: tasktype
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          GH_REPO: ${{ inputs.repo }}
-          REQUESTED: ${{ inputs.task_type }}
-        run: |
-          set -euo pipefail
-          DECLARED=$(gh issue view "${{ inputs.issue_number }}" --json body --jq .body \
-            | node -e '
-              let s = ""
-              process.stdin.on("data", (d) => (s += d)).on("end", async () => {
-                const { checkIssue } = await import("./dist/cli/factory-issue-check.js")
-                process.stdout.write(checkIssue(s).taskType ?? "")
-              })')
-          echo "issue 宣告的任務類型: ${DECLARED:-（無法解析）}"
-          if [ "$REQUESTED" = "auto" ]; then
-            if [ -z "$DECLARED" ]; then
-              echo "::error::task_type=auto 但 Issue #${{ inputs.issue_number }} 的任務類型欄位無法解析。請修正 Issue，或 dispatch 時顯式指定 task_type。"
-              exit 1
-            fi
-            RESOLVED="$DECLARED"
-          else
-            RESOLVED="$REQUESTED"
-            if [ -n "$DECLARED" ] && [ "$DECLARED" != "$REQUESTED" ]; then
-              echo "::notice::dispatch 指定 task_type=${REQUESTED}，與 Issue 宣告的 $DECLARED 不同——以 dispatch 為準（人類覆寫）。"
-            fi
-          fi
-          echo "resolved task_type: $RESOLVED"
-          echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
 
       # DSH 的 sandbox 不會把 GH_TOKEN 傳進 agent 的 process 環境（實測：
       # step 層的 gh 可用 App token，但 agent 內的 gh 看不到任何 token）。
@@ -501,8 +551,12 @@ jobs:
           echo "phase=$DECISION" >> "$GITHUB_OUTPUT"
           echo "spec_name=$SPEC_NAME" >> "$GITHUB_OUTPUT"
 
+      # 三軸計分（docs/06 §5.1）需要 catalog-info.yaml 與 risk-paths.yml。ADR-029 §6：
+      # 驗證類 task 不做三軸計分、也不要求這兩個檔案，故以 guard 的輸出閘控；
+      # 非驗證類（requires_catalog／requires_risk_paths 皆 true）行為完全不變。
       - name: Initial score
         id: score
+        if: steps.verifymode.outputs.requires_catalog == 'true' && steps.verifymode.outputs.requires_risk_paths == 'true'
         run: |
           mkdir -p .factory/run
           node dist/cli/factory-score.js \
@@ -512,7 +566,9 @@ jobs:
           cat .factory/score.json
 
       # in-loop → 貼標籤 + 留言，並以 exit 1 阻斷後續 agent 步驟
+      # （驗證類不計分，故無 in-loop 閘門：ADR-029 §6「不做三軸計分」。）
       - name: Apply score labels
+        if: steps.verifymode.outputs.requires_catalog == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
@@ -571,6 +627,9 @@ jobs:
       # Step 2.5 — 模型 tier 選擇（docs/ADR/011, docs/04 §7）。
       # 以「Issue 需求分析（零 LLM 成本）＋初始計分」決定 model chain；agent 步驟
       # 沿 chain 依序嘗試（provider 層失敗 fallback）。dry_run 也執行以驗證接線。
+      # ADR-029 §6：驗證類不做三軸計分，`.factory/score.json` 不存在——此時不傳
+      # `--score`（factory-model 的 --score 本來就是選填），複雜度改由 Issue 文字判定。
+      # 傳一個不存在的檔案會讓 CLI fail-loud，等於驗證類永遠選不到模型。
       - name: Select model tier
         id: model
         env:
@@ -584,9 +643,13 @@ jobs:
           if [ -n "${{ steps.specphase.outputs.phase }}" ]; then
             SPEC_PHASE_FLAG="--spec-phase ${{ steps.specphase.outputs.phase }}"
           fi
-          node dist/cli/factory-model.js $SPEC_PHASE_FLAG \
+          SCORE_FLAG="--score .factory/score.json"
+          if [ "${{ steps.verifymode.outputs.requires_catalog }}" != "true" ]; then
+            SCORE_FLAG=""
+            echo "驗證模式：不讀初始計分（ADR-029 §6），模型 tier 由 Issue 內容判定"
+          fi
+          node dist/cli/factory-model.js $SPEC_PHASE_FLAG $SCORE_FLAG \
             --issue .factory/issue.json \
-            --score .factory/score.json \
             --tiers config/dsh/model-tiers.yaml \
             --providers config/dsh/settings.providers.yaml \
             --tier "${{ inputs.model_tier }}" \
@@ -918,6 +981,19 @@ jobs:
               if [ "${{ inputs.nversion }}" != "true" ]; then
                 VARIANT_HEADER="【單一變體執行】本工作項只有你一個執行者。分支一律以 \`${VARIANT_PREFIX}\` 開頭（例：\`${VARIANT_PREFIX}01-test\`）；CI 會驗證分支前綴，違反即判 needs-human。"
               fi
+              # ADR-029 §5（Task 1 審查 R2）：驗證類 agent 不建分支、不 push、不開 PR，
+              # 產出只進加密 artifact。上面兩段 header 假設 agent 會建 PR，對驗證類是
+              # 錯誤指令——必須**整段替換**，不是附加。variant 語意保留（仍說明是哪個
+              # 變體在跑），但不給分支前綴任務；白名單與停手規則以 task template 為準。
+              if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
+                VARIANT_HEADER="【形式化驗證（ADR-029 §5）：你是變體 ${VARIANT_ID}】本工作項是驗證流程的一個階段，產出只留在目標 repo 工作區與加密 artifact，由機制端（aswf.dev）取回；分支與 PR 由機制端處理，不是你。
+          - **不得**建立或推送任何分支（包括 \`${VARIANT_PREFIX}\`），**不得**執行 \`git push\`，**不得**以 \`gh pr create\` 開 PR。
+          - **不得**把發現寫進 Issue、Issue 留言或任何公開位置（Issue body 只寫範圍與階段）；發現只留在 task template 指定的產出檔與 report.json。
+          - 產出留在工作區；可以 \`git commit\` 到**本地**（不 push），crosscheck 以工作區相對 base 的 diff 比對白名單。
+          - variant 代號 ${VARIANT_ID} 只用於區分平行執行；本模式沒有變體分支，不要建立它。
+          - 寫入白名單與停手規則以 task template 為準；本 header 與模板衝突時，以模板為準。
+          "
+              fi
               # 單次嘗試上限：剩餘預算與（首次）總預算的較小值。逾時訊號先 TERM
               # （讓 DSH flush session log 與 stdout），30 秒後才 KILL——DSH headless
               # 在收到 TERM 時仍有機會完成 flush（usage 量測依賴 session log）。
@@ -1017,8 +1093,9 @@ jobs:
       # 寫「（變體 a）」、qwen3.8-max 完全沒標變體，PR 列表看不出 #722/#723 是配對）。
       # 只改本變體前綴（factory/<issue>-<variant>-）的 open PR；格式見 factory-nversion-pr.ts。
       # 附註性質：失敗不擋 run。agent 逾時/失敗時也跑（PR 可能已開）。
+      # ADR-029 §5：驗證類不開 PR（沒有分支可查），跳過本步。
       - name: Normalize N-version PR titles
-        if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
+        if: always() && steps.agent.outcome != 'skipped' && steps.verifymode.outputs.verify != 'true' && inputs.dry_run != true
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -1050,8 +1127,9 @@ jobs:
       #   nversion=false：一律確保是正式 PR。
       # 轉 draft 失敗（例如該 repo 的方案不支援 draft PR）不擋 run：記入
       # .factory/draft-state.txt 隨 artifact 上傳，由比對卡片警示。
+      # ADR-029 §5：驗證類不開 PR，跳過本步。
       - name: Normalize PR draft state
-        if: always() && steps.agent.outcome != 'skipped' && inputs.dry_run != true
+        if: always() && steps.agent.outcome != 'skipped' && steps.verifymode.outputs.verify != 'true' && inputs.dry_run != true
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -1204,17 +1282,28 @@ jobs:
           # 因此失效，但分支前綴檢查只靠本地分支，仍然有效——以 ::warning:: 讓人看見。
           # 先寫檔再解析、不用管線：本 step 的 shell 是 `bash -e`（沒有 pipefail），
           # `git ... | awk` 的結束碼只看 awk，ls-remote 失敗會被吞掉。
-          if git -C target ls-remote --heads origin > .factory/ls-remote.txt; then
-            awk '{ sub("^refs/heads/", "", $2); print $2 }' .factory/ls-remote.txt > .factory/remote-branches.txt
+          #
+          # ADR-029 §5、§6：驗證類不建分支（R2：可以本地 commit，不 push），故改帶
+          # `--verify-only`——crosscheck 以工作區相對 base 的 diff 比對，並套用
+          # specs／測試檔白名單。變體隔離只看分支，驗證模式不適用（不傳 --variant）。
+          VERIFY_FLAG=""
+          VARIANT_FLAG=""
+          if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
+            VERIFY_FLAG="--verify-only"
+            echo "驗證模式：crosscheck 以工作區 diff 比對 specs/** 與測試檔白名單（ADR-029 §5）"
           else
-            echo "::warning::git ls-remote 失敗：本次無法檢查「沿用另一變體的 PR」"
-            : > .factory/remote-branches.txt
+            if git -C target ls-remote --heads origin > .factory/ls-remote.txt; then
+              awk '{ sub("^refs/heads/", "", $2); print $2 }' .factory/ls-remote.txt > .factory/remote-branches.txt
+            else
+              echo "::warning::git ls-remote 失敗：本次無法檢查「沿用另一變體的 PR」"
+              : > .factory/remote-branches.txt
+            fi
+            VARIANT_FLAG="--variant ${{ matrix.variant }} --remote-branches .factory/remote-branches.txt"
           fi
-          VARIANT_FLAG="--variant ${{ matrix.variant }} --remote-branches .factory/remote-branches.txt"
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e
@@ -1328,9 +1417,13 @@ jobs:
       # TOKEN_BUDGET 由 input 帶入（0 = 不設限），judge 讀 env（Q02-5 SR7 接線）。
       # crosscheck skipped（dry_run）或成功才放行 judge；crosscheck 失敗時其自身已貼
       # needs-human，judge 不該再基於（可能是假的）report 產出終點。
+      #
+      # ADR-029 §6：驗證類不做三軸計分、也不要求 catalog-info.yaml／risk-paths.yml
+      # （`factory-score` 缺 catalog 時 fail-loud），且終態由 aswf.dev 的 G1–G4 判定，
+      # 故以 guard 的 verify 輸出跳過 judge；其他類型行為不變。
       - name: Judge terminal state
         id: judge
-        if: steps.agent.outcome == 'success' && (steps.crosscheck.outcome == 'success' || steps.crosscheck.outcome == 'skipped') && (steps.specverify.outcome == 'success' || steps.specverify.outcome == 'skipped')
+        if: steps.agent.outcome == 'success' && (steps.crosscheck.outcome == 'success' || steps.crosscheck.outcome == 'skipped') && (steps.specverify.outcome == 'success' || steps.specverify.outcome == 'skipped') && steps.verifymode.outputs.verify != 'true'
         env:
           TOKEN_BUDGET: ${{ inputs.token_budget }}
         run: |
@@ -1495,6 +1588,7 @@ jobs:
           path: |
             target/.factory/run/
             !target/.factory/run/gh-token
+            .factory/verify-mode.json
             .factory/model.json
             .factory/issue.json
             .factory/scoreboard-event.json
@@ -1565,8 +1659,14 @@ jobs:
       # 排在比對卡片之前：終態是必要的，卡片是附註，卡片失敗不得連帶讓終態缺席。
       # 先貼標籤、後留言：留言帶終態標記，G1／G2 只認這個標記；若標籤失敗，
       # 標記就不會出現，G1 會接手補 needs-human，而不是誤以為終態已完整寫入。
+      #
+      # ADR-029 §5：驗證類沒有 judge 終態（run job 已跳過 judge），也沒有 PR；
+      # terminal 會把「agent 完成但沒有 judge」判成 needs-human，而留言會把階段
+      # 結果寫進公開 Issue。故驗證模式整步跳過——階段結果由 aswf.dev 取回加密
+      # artifact 後自行呈現。`needs.run.outputs.verify` 由 run job 的 guard 輸出。
       - name: Write terminal state
         id: terminal
+        if: needs.run.outputs.verify != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
@@ -1595,8 +1695,10 @@ jobs:
           jq -r .comment terminal.json > terminal.md
           gh issue comment "$ISSUE" --repo "$GH_REPO" --body-file terminal.md
 
+      # ADR-029 §5：驗證類沒有 PR（也沒有 judge 終態可比較），比對卡片會在 Issue
+      # 公開兩個變體的產出線索，故驗證模式跳過；非驗證類行為不變。
       - name: Generate comparison report and post comment
-        if: always() && inputs.nversion && steps.terminal.outputs.write == 'true'
+        if: always() && needs.run.outputs.verify != 'true' && inputs.nversion && steps.terminal.outputs.write == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -1647,8 +1749,9 @@ jobs:
       # 兩個變體都結束後，在每個 open PR 內文頂端插入（重跑時原地取代）指向另一變體 PR
       # 的區塊（fubon-tradingbot#721：單開 #722 看不到 #723 的存在，審查者可能只看一份就合併）。
       # 沿用上一步的 pr-a.json／pr-b.json，以前綴精確過濾。附註性質：失敗不擋 job。
+      # ADR-029 §5：驗證類不開 PR，跳過。
       - name: Link N-version sibling PRs
-        if: always() && inputs.nversion && steps.terminal.outputs.write == 'true'
+        if: always() && needs.run.outputs.verify != 'true' && inputs.nversion && steps.terminal.outputs.write == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -1682,8 +1785,10 @@ jobs:
       # 細節留言、規格階段留言、PBT 摘要都含 run id，舊判斷會因此誤以為終態已寫入。
       # 所有變體都沒啟動 agent 時不補（前置閘門已留下自己的訊號，與 G2 同規則）；
       # 變體沒有產物時視為「可能已啟動」，寧可多交還一次也不讓終態缺席。
+      # ADR-029 §5：驗證模式本來就不寫終態（Write terminal state 已跳過），G1 若照
+      # 舊條件會把它當成「終態寫入失敗」而補 needs-human——必須同步跳過。
       - name: Ensure terminal state (guard)
-        if: always() && steps.terminal.outcome != 'success'
+        if: always() && needs.run.outputs.verify != 'true' && steps.terminal.outcome != 'success'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
