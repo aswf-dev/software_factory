@@ -127,3 +127,24 @@ export function encryptDir(opts: { dir: string; outFile: string; recipient: stri
 ## 後續
 
 V3（scoreboard `/verify` 頁面、GitHub OAuth、回呼 API 傳遞 G1 確認後的輸入、live handlers、發佈 PR）與 V4（uber_payment_poc 驗收）各自另寫計畫。V1 最終審查的 I2–I4（effect 序列化、failed／blocked 狀態、gate 可退回／BPMN 版本釘住）是 V3 的驗收門檻。
+
+---
+
+## 修訂（controller，Task 1 review 後）
+
+Task 1 審查指出五個跨 Task 的缺口，併入後續 Task：
+
+**Task 2 擴大**（原 guard 豁免之外，還要）：
+- **VARIANT_HEADER 閘控**：`factory-run.yml` 注入到所有 agent prompt 的 `VARIANT_HEADER`（約 L911-919）命令 agent 建 `factory/<issue>-<variant>-` 分支並宣稱 CI 驗證前綴。驗證類 task 必須改注入一份「不建分支、不 push、不開 PR」的 header（保留 variant 以維持 N-version 選項）。
+- **跳過評分／裁判／留言**：`Initial score`（約 L504-510）、`Judge`（約 L1331-1343，`factory-score.ts` 在缺 `catalog-info.yaml` 時拋錯）、以及終態／compare 的留言（約 L1595-1608）在驗證模式必須跳過（ADR-029 §5/§6：不寫發現到公開 Issue）。
+- **crosscheck 白名單依語言放寬**：`specs/**`、`**/*.test.*`、`**/*_test.go`、`**/tests/**`、`**/test/**`，並在 runbook 說明。
+- 移除「不得 commit」與 crosscheck `uncommitted-changes` 的衝突：驗證類 agent **可以 commit 到本地**（不 push），crosscheck 以 diff 比對工作區。
+
+**Task 3 擴大**：加密 bundle 的範圍從 `target/.factory/run/` 擴大到
+`target/.factory/run/` ＋ `target/specs/**` ＋ 被修改／新增的測試檔，並在 bundle 內保留相對路徑（下一個階段要用）。
+
+**新增 Task 6：階段輸入 bundle**（V2 必需，否則階段 ③ 不可能完成）
+- `src/cli/factory-verify-input.ts`：以 `VERIFY_AGE_PRIVATE_KEY` 解密上一個階段的 bundle（或 G1 確認後的 `RULES.md`／G2 的 `TRIAGE.md`），解到 `target/` 下，路徑白名單同 Task 3。
+- workflow 新增 input `verify_input_bundle`（base64，可空）與步驟：驗證模式下先解包，再跑 agent。
+- 測試：加密→解密往返、白名單外的路徑（`src/**`、`.github/**`）必須拒絕。
+- 註：token 效期與 bundle 傳遞的實際串接由 V3 的 Worker 負責；V2 只保證 CLI 與 workflow 能接收並驗證。
