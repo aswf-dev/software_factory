@@ -17,17 +17,21 @@
  *
  * 另外，`--mechanism-dir`（workflow 傳 `$GITHUB_WORKSPACE/.factory`）下的機制檔
  * （`VERIFY_MECHANISM_FILES`：issue body、crosscheck 檔案清單、model 等）以
- * `mechanism/<name>` 進 bundle。它們含目標內容，驗證模式**不再明文上傳**；明文
- * artifact 只剩 bundle 與無內容診斷（steps.json／session-diag.json）。解包端以
- * 「路徑 ∈ `mechanism/` ＋ 清單名」分辨來源：這些路徑不可能是 target 的 bundle
- * 路徑（不在 specs／run 下、也不符合測試白名單；測試釘住），不會與還原檔衝突。
+ * `kind: "mechanism"`＋**裸檔名**進 bundle。它們含目標內容，驗證模式**不再明文上傳**；
+ * 明文 artifact 只剩 bundle 與無內容診斷（steps.json／session-diag.json）。
+ *
+ * 來源只由 `kind` 欄位決定（ruling R7），不靠路徑前綴：前綴慣例要求每個讀取端都
+ * 正確實作同一條字串規則，任何一端寫錯就會把機制檔當成 target 檔還原（或反之）。
+ * 因此本模組不匯出任何前綴常數；階段輸入的還原端（`factory-verify-input`）只接受
+ * `kind: "target"`，看到 `mechanism` 行就整份拒絕。
  *
  * 根目錄（`specs`、`.factory/run`）本身是 symlink、或解析後落在 target 外時一律
  * 拋錯（fail closed）——`readdir` 會跟隨根的 symlink，把 runner 上任意目錄打包。
  * 根不存在（agent 失敗前）則略過；其他 I/O 錯誤照樣往外拋。
  *
  * 格式：age（X25519 recipient）密文，明文是 JSON lines，每行
- * `{"path":"<相對 target 的路徑>","b64":"<原始位元組的 base64>"}`。base64 而非
+ * `{"kind":"target"|"mechanism","path":"…","b64":"<原始位元組的 base64>"}`；
+ * `target` 的 path 相對 `target/`，`mechanism` 的 path 是機制檔名。base64 而非
  * UTF-8：specs 可能有任意二進位內容（ITF trace、olean 等），文字編碼會壞掉。
  * 整個 payload 在記憶體組好才加密、只寫最終密文，避免任何明文側檔。
  *
@@ -71,8 +75,8 @@ export const VERIFY_MECHANISM_FILES = [
   'model.json',
   'verify-mode.json',
 ] as const
-/** bundle 內機制檔的路徑前綴（`mechanism/issue.json`…），與相對 target 的路徑分開。 */
-export const MECHANISM_PREFIX = 'mechanism/'
+/** bundle 每一行的來源（ruling R7）：讀取端只依此分流，不看路徑長相。 */
+export type BundleKind = 'target' | 'mechanism'
 /** 掃描測試檔時不進的目錄：版本庫、依賴、factory 內部檔與已另行處理的 specs。 */
 const SKIP_DIR_NAMES: ReadonlySet<string> = new Set(['.git', 'node_modules', '.factory', 'specs'])
 
@@ -90,7 +94,7 @@ export interface EncryptVerifyBundleOptions {
 export interface EncryptVerifyBundleResult {
   /** 實際打包的檔案（相對 target，排序後）。 */
   files: string[]
-  /** 實際打包的機制檔在 bundle 內的路徑（`mechanism/<name>`，排序後）。 */
+  /** 實際打包的機制檔名（`kind: "mechanism"` 行的 path，排序後）。 */
   mechanism: string[]
 }
 
@@ -100,7 +104,7 @@ export interface EncryptVerifyBundleResult {
  * 這是 target 路徑進 bundle 的**唯一**決策點：run 目錄全收（gh-token 除外）、specs
  * 全收（`.lake/build/` 除外）、其餘只收驗證白名單的測試檔。target `.factory/` 下非
  * run 的檔案不進 bundle；workflow 的機制 metadata（在 `$GITHUB_WORKSPACE/.factory`，
- * 不在 target 下）另由 `collectMechanismEntries` 以 `mechanism/<name>` 收進來。
+ * 不在 target 下）另由 `collectMechanismEntries` 以 `kind: "mechanism"` 收進來。
  */
 function isBundlePath(rel: string): boolean {
   if (rel === GH_TOKEN_PATH) return false
@@ -259,8 +263,9 @@ function collectBundlePaths(targetDir: string): string[] {
   return [...files].sort()
 }
 
-/** bundle 的一筆：bundle 內路徑與來源檔的絕對路徑。 */
+/** bundle 的一筆：來源、bundle 內路徑與來源檔的絕對路徑。 */
 interface BundleEntry {
+  kind: BundleKind
   path: string
   abs: string
 }
@@ -281,14 +286,16 @@ function collectMechanismEntries(mechanismDir: string | undefined): BundleEntry[
     if (!stats.isFile()) {
       throw new CliError(`機制檔 ${name} 不是一般檔案（symlink？）：拒絕打包（ADR-029 §5，fail closed）`)
     }
-    entries.push({ path: `${MECHANISM_PREFIX}${name}`, abs })
+    entries.push({ kind: 'mechanism', path: name, abs })
   }
   return entries
 }
 
 /** 把檔案讀成 JSON lines 明文（記憶體組完才加密，不落任何明文側檔）。 */
 function serializeBundle(entries: readonly BundleEntry[]): Buffer {
-  const lines = entries.map(({ path, abs }) => JSON.stringify({ path, b64: readFileSync(abs).toString('base64') }))
+  const lines = entries.map(({ kind, path, abs }) =>
+    JSON.stringify({ kind, path, b64: readFileSync(abs).toString('base64') }),
+  )
   return Buffer.from(lines.map((line) => `${line}\n`).join(''), 'utf8')
 }
 
@@ -328,7 +335,8 @@ export async function encryptVerifyBundle(
   const targetDir = resolveTargetDir(opts.targetDir)
   const files = collectBundlePaths(targetDir)
   const mechanism = collectMechanismEntries(opts.mechanismDir)
-  const payload = serializeBundle([...files.map((rel) => ({ path: rel, abs: join(targetDir, rel) })), ...mechanism])
+  const targetEntries = files.map((rel): BundleEntry => ({ kind: 'target', path: rel, abs: join(targetDir, rel) }))
+  const payload = serializeBundle([...targetEntries, ...mechanism])
   const encrypter = new Encrypter()
   encrypter.addRecipient(key)
   const ciphertext = await encrypter.encrypt(payload)

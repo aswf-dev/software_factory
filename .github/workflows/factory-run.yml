@@ -33,6 +33,14 @@ on:
         type: choice
         options: [statements, proofs]
         default: statements
+      # ADR-029 §5（V2 Task 6）：上一階段產出＋G1／G2 確認檔的密文 bundle，由 aswf.dev 以
+      # **runner 公鑰**加密（runner 以 repo secret VERIFY_RUNNER_AGE_IDENTITY 解密）。
+      # dispatch input 是公開的，所以 URL 本身不帶任何秘密：任何人下載也只拿到密文。
+      verify_input_url:
+        description: 驗證類階段輸入 bundle 的 URL（僅驗證模式；必須是 https://aswf.dev/…；空＝不還原）
+        required: false
+        type: string
+        default: ''
       repo:
         description: 目標 repo（owner/name）；預設本 repo（docs/09 §2.2）
         required: false
@@ -271,6 +279,24 @@ jobs:
           fi
           echo "resolved task_type: $RESOLVED"
           echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
+
+      # R12（ADR-029 §5 安全修補）：resolved task type 可以來自 Issue body（自由文字），
+      # 而後續步驟以它選模板、判驗證模式、當 CLI 參數。解析後**立即**以 dispatch 的
+      # choice 清單（扣掉 auto）做 allowlist：未知值一律停止，之後每個步驟看到的都是
+      # 列舉值。清單與 task_type 的 options 由 test/adversarial/verify-input-steps 釘住。
+      # 不把原值印進 log（可能含 workflow command 或換行）。
+      - name: Validate resolved task_type (allowlist)
+        env:
+          TASK_TYPE: ${{ steps.tasktype.outputs.value }}
+        run: |
+          set -euo pipefail
+          case "$TASK_TYPE" in
+            agent-add-tests|agent-fix-bug|agent-update-deps|agent-write-docs|agent-write-spec|agent-analyze|agent-propose-skill|agent-pbt-audit|agent-verify-grill|agent-verify-quint|agent-verify-lean|agent-verify-tests)
+              echo "task_type allowlisted" ;;
+            *)
+              echo "::error::resolved task_type 不在已知清單內（R12）——停止派工；請修正 Issue 的任務類型欄位或顯式指定 task_type"
+              exit 1 ;;
+          esac
 
       # base_branch guard（ADR-013＋ADR-029 §6）：判定邏輯**只**在
       # dist/cli/factory-verify-mode.js（src/cli/factory-verify-mode.ts）。
@@ -529,6 +555,55 @@ jobs:
           git -c http.https://github.com/.extraheader= push origin --delete "$PROBE"
           git switch - 2>/dev/null || true
           echo "app token write access verified (${{ inputs.repo }})"
+
+      # ADR-029 §5（V2 Task 6）：驗證類的階段輸入。aswf.dev 把 G1 確認的 RULES.md、G2 的
+      # TRIAGE.md 與上一階段的 specs/** 產出以 runner 公鑰加密成 bundle；這裡下載並以
+      # factory-verify-input 解密還原到 target/（只收 kind=target、白名單路徑，任何不合規
+      # 整份拒絕、不寫任何檔）。
+      #   - 只在驗證模式、且 URL 非空時執行；非驗證 task 完全不碰這個 input。
+      #   - 位置：所有 target checkout／分支切換之後（還原的檔案不被 checkout -B 蓋掉），
+      #     讀 target/specs 的步驟（heavy preflight、lean-toolchain pin）與 agent 之前。
+      #   - URL 經 env 傳入（不以 ${{ }} 內嵌），且必須是 https://aswf.dev/…：host 逐字比對，
+      #     不允許 userinfo、port、子網域；curl 不跟隨 redirect、只走 https、失敗即停、
+      #     有大小與時間上限（--max-filesize 在伺服器未宣告長度時擋不住，故下載後再量一次）。
+      #   - 私鑰只來自 repo secret VERIFY_RUNNER_AGE_IDENTITY（不是 Worker 的
+      #     VERIFY_AGE_PRIVATE_KEY），以 env 名稱交給 CLI；URL 有值而 secret 缺漏 → fail closed。
+      #   - log 只印還原數量，不印路徑（run log 公開）。
+      - name: Restore verify stage input (age)
+        if: steps.verifymode.outputs.verify == 'true' && inputs.verify_input_url != ''
+        env:
+          VERIFY_INPUT_URL: ${{ inputs.verify_input_url }}
+          VERIFY_RUNNER_AGE_IDENTITY: ${{ secrets.VERIFY_RUNNER_AGE_IDENTITY }}
+        run: |
+          set -euo pipefail
+          MAX_BUNDLE_BYTES=20971520
+          # host 必須逐字是 aswf.dev 且緊接 `/`（排除 userinfo、port、相似網域）；
+          # 其餘只允許 URL 安全字元（無空白、引號、反斜線、`#`、`$`、`@`）。
+          URL_RE='^https://aswf\.dev/[A-Za-z0-9._~%/?=&+-]*$'
+          if ! [[ "$VERIFY_INPUT_URL" =~ $URL_RE ]]; then
+            echo "::error::階段輸入 URL 必須是 https://aswf.dev/…（host 逐字比對、無 userinfo／port、無空白或 shell 字元）——拒絕下載（ADR-029 §5）"
+            exit 1
+          fi
+          IDENTITY_CHECK="${VERIFY_RUNNER_AGE_IDENTITY:-}"
+          if [ -z "${IDENTITY_CHECK// /}" ]; then
+            echo "::error::VERIFY_RUNNER_AGE_IDENTITY 未設定——有階段輸入 URL 卻無法解密，停止派工（fail closed，不在缺輸入的情況下執行 agent）"
+            exit 1
+          fi
+          BUNDLE="${RUNNER_TEMP:?}/verify-input.age"
+          trap 'rm -f "$BUNDLE"' EXIT
+          rm -f "$BUNDLE"
+          curl --silent --show-error --fail --proto '=https' --max-redirs 0 \
+            --connect-timeout 20 --max-time 120 --max-filesize "$MAX_BUNDLE_BYTES" \
+            -o "$BUNDLE" "$VERIFY_INPUT_URL"
+          SIZE=$(wc -c < "$BUNDLE" | tr -d ' ')
+          if [ "$SIZE" -gt "$MAX_BUNDLE_BYTES" ]; then
+            echo "::error::階段輸入 bundle 超過 ${MAX_BUNDLE_BYTES} bytes——拒絕還原"
+            exit 1
+          fi
+          RESULT=$(node dist/cli/factory-verify-input.js \
+            --bundle "$BUNDLE" --identity-env VERIFY_RUNNER_AGE_IDENTITY --target target)
+          COUNT=$(printf '%s' "$RESULT" | jq -r '.restored | numbers')
+          echo "verify stage input restored: ${COUNT} file(s)"
 
       # Step 2 — 初始計分（agent 啟動前，docs/06 §5.1）。
       # catalog/risk-paths 讀目標 repo（target/），不再是本 repo 根。
@@ -1431,7 +1506,7 @@ jobs:
           VERIFY_MODE="${{ steps.verifymode.outputs.verify }}"
           if [ "$VERIFY_MODE" = "true" ]; then
             # ADR-029 §5：Actions log 是公開的；crosscheck.json 帶 agent 改動的檔案清單，
-            # 只進加密 bundle（mechanism/crosscheck.json）。log 只印計數。
+            # 只進加密 bundle（kind=mechanism 的 crosscheck.json）。log 只印計數。
             jq -er '"crosscheck: ok=\(.ok) mismatches=\((.mismatches // []) | length) advisories=\((.advisories // []) | length)"' \
               .factory/crosscheck.json 2>/dev/null || echo "crosscheck: 未產出 JSON"
           else
@@ -1446,7 +1521,7 @@ jobs:
           jq -e 'type == "object"' .factory/crosscheck.json >/dev/null 2>&1 && HAS_JSON=true
           if [ "$HAS_JSON" != true ] && [ -s .factory/crosscheck.err ]; then
             if [ "$VERIFY_MODE" = "true" ]; then
-              # stderr 可能帶出 report 內容：驗證模式只進加密 bundle（mechanism/crosscheck.err）
+              # stderr 可能帶出 report 內容：驗證模式只進加密 bundle（kind=mechanism 的 crosscheck.err）
               echo "::error::factory-crosscheck 未產出 JSON（驗證模式：stderr 只收進加密 bundle）"
             else
               echo "::error::factory-crosscheck 未產出 JSON：$(head -n 1 .factory/crosscheck.err | head -c 500 | iconv -f UTF-8 -t UTF-8 -c)"
@@ -1473,7 +1548,7 @@ jobs:
             echo "::error::${HEADLINE}（詳見 .factory/crosscheck.json）"
             # ADR-029 §5（ruling R6）：下方的明細留言帶 mismatch detail（目標 repo 的路徑）、
             # crosscheck stderr 與 usage.md——驗證模式只貼一行無內容狀態，明細只在加密
-            # bundle（mechanism/crosscheck.json）。本步 exit 非零照樣記入 steps.json。
+            # bundle（kind=mechanism 的 crosscheck.json）。本步 exit 非零照樣記入 steps.json。
             if [ "$VERIFY_MODE" = "true" ]; then
               STATUS_JSON=$(node "$GITHUB_WORKSPACE/dist/cli/factory-verify-status.js" \
                 --stage "$STAGE" --phase "${{ inputs.verify_phase }}" \
@@ -1584,13 +1659,15 @@ jobs:
         if: steps.agent.outcome == 'success' && (steps.crosscheck.outcome == 'success' || steps.crosscheck.outcome == 'skipped') && (steps.specverify.outcome == 'success' || steps.specverify.outcome == 'skipped') && steps.verifymode.outputs.verify != 'true'
         env:
           TOKEN_BUDGET: ${{ inputs.token_budget }}
+          # R12：task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換
+          TASK_TYPE: ${{ steps.tasktype.outputs.value }}
         run: |
           # --task-type：write-spec 一律不自動合併（ADR-018 護欄②，計分之後套用）
           node dist/cli/factory-judge.js \
             target/.factory/run/report.json \
             target/catalog-info.yaml \
             target/.github/factory/risk-paths.yml \
-            --task-type "${{ steps.tasktype.outputs.value }}" \
+            --task-type "$TASK_TYPE" \
             > .factory/judge.json
           cat .factory/judge.json
 
@@ -1721,12 +1798,14 @@ jobs:
         env:
           SCOREBOARD_URL: ${{ vars.SCOREBOARD_URL }}
           SCOREBOARD_TOKEN: ${{ secrets.SCOREBOARD_TOKEN }}
+          # R12：task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換
+          TASK_TYPE: ${{ steps.tasktype.outputs.value }}
         run: |
           node "$GITHUB_WORKSPACE/dist/cli/factory-push-event.js" \
             --repo "${{ inputs.repo }}" \
             --issue "${{ inputs.issue_number }}" \
             --run-id "${{ github.run_id }}" \
-            --task-type "${{ steps.tasktype.outputs.value }}" \
+            --task-type "$TASK_TYPE" \
             --report "$GITHUB_WORKSPACE/target/.factory/run/report.json" \
             --judge "$GITHUB_WORKSPACE/.factory/judge.json" \
             --crosscheck "$GITHUB_WORKSPACE/.factory/crosscheck.json" \
@@ -1820,7 +1899,7 @@ jobs:
       # 驗證模式的唯一 artifact：age 密文＋兩份無內容診斷——steps.json（各步驟
       # outcome 字串）與 session-diag.json（factory-session-diag 只輸出計數／長度／
       # 工具名）。issue／crosscheck／model／verify-mode 等機制 JSON 含目標內容（Issue
-      # body、檔案清單），只在 bundle 內（mechanism/<name>）；**不含** target/**。
+      # body、檔案清單），只在 bundle 內（kind=mechanism 行）；**不含** target/**。
       # 條件要求加密步驟成功：缺 secret 或加密失敗時不上傳任何東西。
       - name: Upload encrypted verify artifacts
         if: always() && steps.verifymode.outputs.verify == 'true' && steps.verify-encrypt.outcome == 'success'

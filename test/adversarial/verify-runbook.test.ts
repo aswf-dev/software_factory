@@ -52,4 +52,19 @@ describe('docs/34-verify-runbook.md', () => {
     expect(doc).toContain('age -d -i')
     for (const f of ['verify-bundle.age', 'steps.json', 'session-diag.json']) expect(doc).toContain(f)
   })
+
+  it('bundle 格式帶 kind（R7）：解密指令依 kind 分流，不再以 mechanism/ 前綴辨識來源', () => {
+    expect(doc).toContain('{"kind":"target","path":"specs/lean/RULES.md","b64":')
+    expect(doc).toContain('{"kind":"mechanism","path":"issue.json","b64":')
+    expect(doc).toContain('select(.kind == "target")')
+    expect(doc).toContain('select(.kind == "mechanism")')
+    expect(doc).not.toContain('mechanism/<name>')
+    expect(doc).not.toContain('mechanism/*')
+  })
+
+  it('階段輸入：verify_input_url 與 runner keypair（VERIFY_RUNNER_AGE_IDENTITY）有說明', () => {
+    expect(doc).toContain('-f verify_input_url=https://aswf.dev/')
+    expect(doc).toContain('VERIFY_RUNNER_AGE_IDENTITY')
+    expect(doc).toContain('factory-verify-input')
+  })
 })

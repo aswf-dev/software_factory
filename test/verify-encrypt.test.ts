@@ -8,8 +8,8 @@
  *   1. 加解密往返後 path 集合與位元組完全一致（含非 UTF-8 與含空白檔名）；
  *   2. 範圍：run／specs（含 dot files、排除 .lake/build）＋ agent 改動的測試檔；
  *   3. 公鑰缺漏或不合法時拋錯且不產生任何輸出檔（fail closed）；
- *   4. 機制 JSON（issue／crosscheck／model…）只以 `mechanism/<name>` 進密文，
- *      不再以明文 artifact 上傳；
+ *   4. 機制 JSON（issue／crosscheck／model…）只以 `kind: "mechanism"`＋裸檔名進密文，
+ *      不再以明文 artifact 上傳；每行以 `kind` 標明來源（ruling R7），不靠路徑前綴；
  *   5. 根目錄（specs、.factory/run）是 symlink 或解析到 target 外 → 拋錯。
  */
 import { execFileSync } from 'node:child_process'
@@ -18,16 +18,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Decrypter, generateX25519Identity, identityToRecipient } from 'age-encryption'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import {
-  MECHANISM_PREFIX,
-  VERIFY_MECHANISM_FILES,
-  encryptVerifyBundle,
-  main,
-  parseArgs,
-} from '../src/cli/factory-verify-encrypt.js'
+import * as encryptModule from '../src/cli/factory-verify-encrypt.js'
+import { VERIFY_MECHANISM_FILES, encryptVerifyBundle, main, parseArgs } from '../src/cli/factory-verify-encrypt.js'
 import { isVerifyAllowedPath } from '../src/pipeline/verify-scope.js'
 
 interface BundleLine {
+  kind: 'target' | 'mechanism'
   path: string
   b64: string
 }
@@ -130,6 +126,9 @@ describe('encryptVerifyBundle：age 往返與 bundle 範圍', () => {
 
     const lines = await decryptBundle(outFile, identity)
     expect(lines.map((line) => line.path)).toEqual(expected)
+    // 每一行都帶 kind（ruling R7）；沒有 mechanismDir 時全是 target，且欄位只有這三個
+    for (const line of lines) expect(Object.keys(line).sort()).toEqual(['b64', 'kind', 'path'])
+    expect(new Set(lines.map((line) => line.kind))).toEqual(new Set(['target']))
     for (const line of lines) {
       expect(line.b64).toBe(readFileSync(join(target, line.path)).toString('base64'))
     }
@@ -242,7 +241,7 @@ describe('encryptVerifyBundle：根目錄不得是 symlink 或解析到 target �
   })
 })
 
-describe('encryptVerifyBundle：機制 JSON 只以密文進 bundle（mechanism/<name>）', () => {
+describe('encryptVerifyBundle：機制 JSON 只以密文進 bundle（kind: mechanism、裸檔名）', () => {
   function makeMechanismDir(): string {
     const dir = tempDir('factory-verify-mech-')
     writeFixture(dir, 'issue.json', '{"body":"target issue body"}')
@@ -258,7 +257,7 @@ describe('encryptVerifyBundle：機制 JSON 只以密文進 bundle（mechanism/<
     return dir
   }
 
-  it('清單內存在的機制檔以 mechanism/<name> 打包、位元組不變；缺的（judge.json）略過', async () => {
+  it('清單內存在的機制檔以 kind=mechanism＋裸檔名打包、位元組不變；缺的（judge.json）略過', async () => {
     const target = makeTarget()
     writeFixture(target, 'specs/quint/model.qnt', 'module M {}')
     const mechanismDir = makeMechanismDir()
@@ -266,21 +265,20 @@ describe('encryptVerifyBundle：機制 JSON 只以密文進 bundle（mechanism/<
 
     const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient, mechanismDir })
 
-    const expectedMechanism = [
-      'mechanism/crosscheck.err',
-      'mechanism/crosscheck.json',
-      'mechanism/issue.json',
-      'mechanism/model.json',
-      'mechanism/verify-mode.json',
-    ]
+    const expectedMechanism = ['crosscheck.err', 'crosscheck.json', 'issue.json', 'model.json', 'verify-mode.json']
     expect(result.files).toEqual(['specs/quint/model.qnt'])
     expect(result.mechanism).toEqual(expectedMechanism)
     const lines = await decryptBundle(outFile, identity)
-    expect(lines.map((l) => l.path)).toEqual(['specs/quint/model.qnt', ...expectedMechanism])
-    for (const line of lines.filter((l) => l.path.startsWith(MECHANISM_PREFIX))) {
-      const name = line.path.slice(MECHANISM_PREFIX.length)
-      expect(line.b64).toBe(readFileSync(join(mechanismDir, name)).toString('base64'))
+    expect(lines.map((l) => [l.kind, l.path])).toEqual([
+      ['target', 'specs/quint/model.qnt'],
+      ...expectedMechanism.map((name) => ['mechanism', name]),
+    ])
+    for (const line of lines.filter((l) => l.kind === 'mechanism')) {
+      expect(line.b64).toBe(readFileSync(join(mechanismDir, line.path)).toString('base64'))
     }
+    // 往返：target 行解回原位元組
+    const targetLine = lines.find((l) => l.kind === 'target')
+    expect(Buffer.from(targetLine?.b64 ?? '', 'base64').toString('utf8')).toBe('module M {}')
   })
 
   it('未指定 mechanismDir → 不帶任何機制檔（mechanism 為空）', async () => {
@@ -305,7 +303,9 @@ describe('encryptVerifyBundle：機制 JSON 只以密文進 bundle（mechanism/<
     expect(existsSync(outFile)).toBe(false)
   })
 
-  it('mechanism/<name> 永遠不會是 target 的 bundle 路徑（解包端可依路徑分辨來源）', async () => {
+  it('來源只由 kind 決定：不匯出路徑前綴慣例，target 內同名檔案仍是 kind=target（R7）', async () => {
+    // 前綴慣例一旦匯出，就會有消費端「依路徑前綴分流」——ruling R7 要求只看 kind。
+    expect(Object.keys(encryptModule)).not.toContain('MECHANISM_PREFIX')
     expect(VERIFY_MECHANISM_FILES).toEqual([
       'crosscheck.err',
       'crosscheck.json',
@@ -314,15 +314,24 @@ describe('encryptVerifyBundle：機制 JSON 只以密文進 bundle（mechanism/<
       'model.json',
       'verify-mode.json',
     ])
-    for (const name of VERIFY_MECHANISM_FILES) {
-      expect(isVerifyAllowedPath(`${MECHANISM_PREFIX}${name}`), name).toBe(false)
-    }
-    // 端到端：target 裡同名的檔案不會以 target 路徑進 bundle
+    // 機制檔名本身不是 target 的白名單路徑（不會與 target 行重名而誤導讀者）
+    for (const name of VERIFY_MECHANISM_FILES) expect(isVerifyAllowedPath(name), name).toBe(false)
+    // 端到端：agent 在 specs 下種一個同名檔案，它仍是 kind=target 的 specs 路徑；
+    // 真正的機制檔只以 kind=mechanism 出現。
     const target = makeTarget()
+    writeFixture(target, 'specs/issue.json', 'planted by agent')
     writeFixture(target, 'mechanism/issue.json', 'planted by agent')
+    const mechanismDir = tempDir('factory-verify-mech-')
+    writeFixture(mechanismDir, 'issue.json', '{"body":"real"}')
     const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
-    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient })
-    expect(result.files).toEqual([])
+    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient, mechanismDir })
+    expect(result.files).toEqual(['specs/issue.json'])
+    expect(result.mechanism).toEqual(['issue.json'])
+    const lines = await decryptBundle(outFile, identity)
+    expect(lines.map((l) => [l.kind, l.path])).toEqual([
+      ['target', 'specs/issue.json'],
+      ['mechanism', 'issue.json'],
+    ])
   })
 })
 

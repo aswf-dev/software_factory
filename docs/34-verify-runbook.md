@@ -32,6 +32,11 @@
    缺 `### 任務類型`、`### 需求描述（PRD）` 或 DoD 三個勾選項任一即紅燈停派。PRD **只寫**
    repository、範圍 glob 與階段——**不寫**缺陷線索、規格內容或任何發現（ADR-029 §5）。
 4. 機制 repo 的 LLM 金鑰 secrets（與一般工作項相同）。
+5. **要帶階段輸入時（§3.3）**：機制 repo 設有 secret `VERIFY_RUNNER_AGE_IDENTITY`（runner
+   私鑰，`AGE-SECRET-KEY-1…`）。這是**另一組** keypair：公鑰交給 aswf.dev Worker（var
+   `VERIFY_RUNNER_AGE_RECIPIENT`）加密輸入，與 `VERIFY_AGE_PUBLIC_KEY`／
+   `VERIFY_AGE_PRIVATE_KEY`（加密產出）分離——runner 私鑰外洩只影響進 runner 的輸入。
+   有 URL 卻缺這個 secret 時 `Restore verify stage input (age)` 直接失敗（fail closed）。
 
 ## 3. 開 Issue 與手動 dispatch
 
@@ -125,6 +130,29 @@ gh workflow run factory-run.yml -R aswf-dev/software_factory \
 - N-version 預設開啟（兩個變體 `a`／`b`，各自一份密文 bundle）；只要一份時加
   `-f nversion=false`。
 - `agent-verify-lean` 的 run 會另外安裝 Lean（見 §6）；其他三種不裝。
+- 解析出的 task type（含 `auto` 從 Issue 解析的值）在 `Validate resolved task_type
+  (allowlist)` 以 dispatch 的 12 個選項逐字比對，未知值直接停止（ruling R12）。
+
+### 3.3 階段輸入（`verify_input_url`）
+
+第 ② 階段之後的 run 需要前面階段的產出（G1 確認的 `specs/quint/RULES.md`、G2 的
+`specs/quint/TRIAGE.md`、上一階段的 `specs/**`）。aswf.dev 把它們以 **runner 公鑰**加密成
+與 §4 同格式的 bundle（只含 `kind: "target"` 行），dispatch 時以 URL 帶入：
+
+```bash
+gh workflow run factory-run.yml -R aswf-dev/software_factory \
+  -f repo=<owner>/<name> -f issue_number=<N> \
+  -f task_type=agent-verify-quint -f base_branch=<預設分支> \
+  -f verify_input_url=https://aswf.dev/<bundle 路徑>
+```
+
+- dispatch input 是公開的：URL 不帶任何秘密，下載到的只是密文。
+- 只在驗證模式還原；URL 必須是 `https://aswf.dev/…`（host 逐字比對，不接受 userinfo、
+  port、子網域；不跟隨 redirect；上限 20 MB、120 秒）。
+- 還原由 `factory-verify-input` 執行：只收 `kind: "target"`、路徑在驗證白名單或
+  `specs/**` 內；任何 `mechanism` 行、絕對路徑、`..`、`.git`／`.factory`、經 symlink 的
+  寫入 → **整份拒絕、不寫任何檔**，run 停在 agent 之前。已存在的檔案被覆寫。
+- run log 只印還原數量，不印路徑。
 
 ## 4. 產出：只有密文
 
@@ -140,15 +168,17 @@ gh workflow run factory-run.yml -R aswf-dev/software_factory \
 都**不**以明文上傳，只在 bundle 內。
 
 bundle 的範圍：`target/.factory/run/**`（排除 `gh-token`）、`target/specs/**`（排除
-`.lake/build/`）、agent 改動或新增且落在白名單內的測試檔，以及 `mechanism/<name>`
-（`$GITHUB_WORKSPACE/.factory` 下的機制 JSON）。每行格式：
+`.lake/build/`）、agent 改動或新增且落在白名單內的測試檔，以及
+`$GITHUB_WORKSPACE/.factory` 下的機制 JSON（`issue.json`、`crosscheck.json`、`model.json`…）。
+每行一個 JSON 物件，以 `kind` 標明來源（ruling R7）：
 
 ```json
-{"path":"specs/lean/RULES.md","b64":"<原始位元組的 base64>"}
+{"kind":"target","path":"specs/lean/RULES.md","b64":"<原始位元組的 base64>"}
+{"kind":"mechanism","path":"issue.json","b64":"<原始位元組的 base64>"}
 ```
 
-`path` 是相對 `target/` 的路徑（機制檔是 `mechanism/<name>`）。Task 6 會再加一個
-結構欄位 `kind`（`target`／`mechanism`，ruling R7），讀取端不要假設只有這兩個欄位。
+`kind: "target"` 的 `path` 相對 `target/`；`kind: "mechanism"` 的 `path` 是機制檔名
+（不帶任何前綴）。**來源只看 `kind`**，不要依路徑長相判斷。
 
 ## 5. 本機解密與讀取
 
@@ -157,20 +187,28 @@ gh run download <run-id> -R aswf-dev/software_factory -n factory-run-<N>-a -D ou
 # upload-artifact 會去掉共同祖先 .factory/，三個檔案在 out-a/ 根目錄
 age -d -i key.txt out-a/verify-bundle.age > out-a/bundle.jsonl
 
-# 列出所有路徑
-jq -r .path out-a/bundle.jsonl
+# 列出所有行的來源與路徑
+jq -r '"\(.kind)\t\(.path)"' out-a/bundle.jsonl
 
-# 讀單一檔案
-jq -r 'select(.path == "specs/lean/RULES.md") | .b64' out-a/bundle.jsonl | base64 -d
+# 讀單一 target 檔案／單一機制檔
+jq -r 'select(.kind == "target" and .path == "specs/lean/RULES.md") | .b64' out-a/bundle.jsonl | base64 -d
+jq -r 'select(.kind == "mechanism" and .path == "issue.json") | .b64' out-a/bundle.jsonl | base64 -d
 
-# 全部還原到 out-a/files/（mechanism/* 也會落在 out-a/files/mechanism/）
-jq -c . out-a/bundle.jsonl | while IFS= read -r line; do
-  p=$(printf '%s' "$line" | jq -r .path)
-  case "$p" in /*|*..*) echo "skip suspicious path: $p" >&2; continue ;; esac
-  mkdir -p "out-a/files/$(dirname "$p")"
-  printf '%s' "$line" | jq -r .b64 | base64 -d > "out-a/files/$p"
-done
+# 全部還原：target 行到 out-a/target/，機制檔到 out-a/mechanism/（依 kind 分流）
+restore() { # $1 = kind, $2 = 輸出目錄
+  jq -c --arg k "$1" 'select(.kind == $k)' out-a/bundle.jsonl | while IFS= read -r line; do
+    p=$(printf '%s' "$line" | jq -r .path)
+    case "$p" in /*|..|../*|*/..|*/../*|'') echo "skip suspicious path: $p" >&2; continue ;; esac
+    mkdir -p "$2/$(dirname "$p")"
+    printf '%s' "$line" | jq -r .b64 | base64 -d > "$2/$p"
+  done
+}
+restore target out-a/target
+restore mechanism out-a/mechanism
 ```
+
+`select(.kind == "target")`／`select(.kind == "mechanism")` 是唯一的分流依據；機制檔名
+不帶前綴，兩類同名時也不會互相覆蓋（各自的輸出目錄）。
 
 解出來的內容可能含未修補的缺陷——**不要**貼回 Issue、PR 或任何公開位置。
 

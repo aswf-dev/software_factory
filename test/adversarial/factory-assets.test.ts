@@ -2265,11 +2265,14 @@ describe('write-spec 階段判定接線（ADR-018 §12）', () => {
     // 順便擋下「多一個可覆寫階段的欄位」這種後門。
     // `verify_phase` 是 ADR-029 §2 的 Lean 兩次執行參數（statements → G3 簽核 →
     // proofs），由機制端在簽核後才以 proofs 派工；它不是 write-spec 的階段後門。
+    // `verify_input_url` 是 ADR-029 §5 的驗證類階段輸入（runner 公鑰加密的 bundle，
+    // 只在驗證模式還原、只收 specs／測試檔）；同樣不是 write-spec 的階段後門。
     const inputs = Object.keys(wf().on.workflow_dispatch.inputs)
     expect(inputs).toEqual([
       'issue_number',
       'task_type',
       'verify_phase',
+      'verify_input_url',
       'repo',
       'base_branch',
       'dry_run',
@@ -2291,7 +2294,10 @@ describe('write-spec 階段判定接線（ADR-018 §12）', () => {
     expect(cc).toContain('--write-spec-phase ${{ steps.specphase.outputs.phase }}')
     expect(cc).toContain('--pr-bodies .factory/pr-bodies.json')
     expect(cc).toContain('--source-snapshot .factory/spec-source-snapshot.md')
-    expect(byId('judge')).toContain('--task-type "${{ steps.tasktype.outputs.value }}"')
+    // R12：task type 經 env 傳入（不在 run 內以 ${{ }} 內嵌）
+    const judge = steps().find((s) => s.id === 'judge') as Step & { env?: Record<string, string> }
+    expect(judge.env?.['TASK_TYPE']).toBe('${{ steps.tasktype.outputs.value }}')
+    expect(byId('judge')).toContain('--task-type "$TASK_TYPE"')
   })
   it('人貼的兩個 spec 標籤也預先建立（不存在就貼不上）', () => {
     const w = read('.github/workflows/factory-run.yml')
