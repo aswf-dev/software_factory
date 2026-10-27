@@ -207,8 +207,14 @@ jobs:
 
       # Quint evaluator 與 Apalache 快取（~/.quint）——write-spec 的集中驗證（ADR-018 §7）
       # 會用到；並行 run 直接下載會撞 GitHub rate limit（#234），做法同 quint-verify.yml。
-      - name: Cache Quint toolchain
-        uses: actions/cache@v6
+      #
+      # 拆成 restore＋save（ADR-029 §5，review M1）：合併版 actions/cache 的 post-job save
+      # 會在 agent 之後把 ~/.quint 寫回快取——驗證模式的 agent 有 shell，跑完後的 ~/.quint
+      # 不得寫回（下一個 run 會原樣還原並執行它）。restore 無條件、與原本同 path／key／
+      # restore-keys；save 見「Save Quint toolchain」（只在非驗證模式）。
+      - name: Restore Quint toolchain
+        id: quintcache
+        uses: actions/cache/restore@v6
         with:
           path: ~/.quint
           key: quint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -349,6 +355,8 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
           VARIANT: ${{ matrix.variant }}
+          # task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換（review M4）
+          STAGE: ${{ steps.tasktype.outputs.value }}
         run: |
           mkdir -p .factory
           # --risk-paths 讀目標 repo（target/ 已於前一步 checkout）：事前風險路徑
@@ -377,7 +385,7 @@ jobs:
             if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
               if grep -q '格式不合規' .factory/issue-check.txt; then
                 STATUS_JSON=$(node dist/cli/factory-verify-status.js \
-                  --stage "${{ steps.tasktype.outputs.value }}" --phase "${{ inputs.verify_phase }}" \
+                  --stage "$STAGE" --phase "${{ inputs.verify_phase }}" \
                   --outcome needs-human \
                   --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
                 printf '%s' "$STATUS_JSON" | jq -r .comment > .factory/verify-status.md
@@ -790,39 +798,77 @@ jobs:
           fi
 
       # Lean 工具鏈（ADR-029 §7）：只給 agent-verify-lean，版本固定 v4.35.0，只用 Lean
-      # core（不裝任何 Lake 外部套件）。其他驗證階段與一般 task 都不執行這兩步——
+      # core（不裝任何 Lake 外部套件）。其他驗證階段與一般 task 都不執行這些步驟——
       # 不付安裝時間，agent 也不會在不需要時拿到 lean／lake。
       #
-      # 快取刻意只有 ~/.elan（公開的 toolchain）與 .lake/packages（依賴；core-only 時為空），
-      # **不快取 .lake/build**：那是使用者 specs 的編譯產物（olean 帶定理名與敘述）。
-      # key 對所有目標 repo 相同（toolchain＋manifest hash），快取 build 等於把 A repo
-      # 的產物還原到 B repo 的 runner；而公開 repo 的 Actions cache 對同 repo 的其他
-      # workflow 可讀。core-only 的 build 只有幾個檔，重建只要數秒，快取沒有收益。
-      - name: Cache Lean toolchain (elan)
+      # 目標 repo 已有 specs/lean/lean-toolchain 時，必須釘在同一版本（review M3）：
+      # lake 依它切換 toolchain，版本不符等於在未安裝、未驗證的 toolchain 上跑。
+      # 檔案不存在時通過（agent 依 skill 範本建立）。最先執行：不符就不付安裝時間。
+      - name: Check target lean-toolchain pin
         if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean'
-        uses: actions/cache@v6
+        env:
+          EXPECTED_TOOLCHAIN: leanprover/lean4:v4.35.0
+        run: |
+          set -euo pipefail
+          PIN_FILE=target/specs/lean/lean-toolchain
+          if [ ! -e "$PIN_FILE" ]; then
+            echo "目標 repo 尚無 ${PIN_FILE}（agent 依範本建立）"
+            exit 0
+          fi
+          PIN=$(cat "$PIN_FILE")
+          PIN="${PIN#"${PIN%%[![:space:]]*}"}"
+          PIN="${PIN%"${PIN##*[![:space:]]}"}"
+          if [ "$PIN" != "$EXPECTED_TOOLCHAIN" ]; then
+            echo "::error::目標 repo 的 ${PIN_FILE} 必須是 ${EXPECTED_TOOLCHAIN}（ADR-029 §7），實得「${PIN}」——請修正後重新 dispatch"
+            exit 1
+          fi
+          echo "lean-toolchain pin OK: $PIN"
+
+      # 快取**只有** ~/.elan（公開的 toolchain），key 固定、沒有 restore-keys（review I1/R8）；
+      # target/ 底下一律不快取：.lake/build 是使用者 specs 的編譯產物（olean 帶定理名與
+      # 敘述），key 對所有目標 repo 相同，快取它等於把 A repo 的產物還原到 B repo 的
+      # runner；而公開 repo 的 Actions cache 對同 repo 的其他 workflow 可讀。
+      # restore 在安裝前；save 在安裝與 lean --version 檢查**之後、agent 之前**，且只在
+      # miss 時——agent 有 shell，跑完後的 ~/.elan 不得寫回快取（下一個 run 會執行它）。
+      # 不用合併版 actions/cache：它的 post-job save 在 agent 之後。
+      - name: Restore Lean toolchain cache (elan)
+        id: leancache
+        if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean'
+        uses: actions/cache/restore@v6
         with:
-          path: |
-            ~/.elan
-            target/specs/lean/.lake/packages
-          key: lean-${{ runner.os }}-leanprover/lean4:v4.35.0-${{ hashFiles('target/specs/lean/lake-manifest.json') }}
-          restore-keys: |
-            lean-${{ runner.os }}-leanprover/lean4:v4.35.0-
+          path: ~/.elan
+          key: lean-elan-${{ runner.os }}-leanprover/lean4:v4.35.0
 
       # elan 本體以固定版本的 release asset 下載並先驗 SHA-256 才執行。不用官方的
       # 安裝腳本（下載後直接交給 shell）：那支腳本即使釘在某個 tag，仍會下載「latest」release 的
       # 二進位，版本與內容都不受控。本步驟做的事與它相同（下載 → 解壓 → elan-init），
       # 只是平台固定為 runner 的 x86_64 Linux。升級 elan 時同時改 ELAN_VERSION 與
       # ELAN_SHA256（GitHub release 頁的 asset digest）。
+      # 快取命中時沒有經過 SHA-256（review M2）：改驗 elan 自報版本＝ELAN_VERSION，
+      # 不符或 binary 不存在即 fail closed（不默默改走下載，避免掩蓋壞掉的快取）。
       - name: Install Lean toolchain (elan)
         if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean'
         env:
           LEAN_TOOLCHAIN: leanprover/lean4:v4.35.0
           ELAN_VERSION: v4.2.4
           ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
+          CACHE_HIT: ${{ steps.leancache.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          if [ ! -x "$HOME/.elan/bin/elan" ]; then
+          if [ "$CACHE_HIT" = "true" ]; then
+            if [ ! -x "$HOME/.elan/bin/elan" ]; then
+              echo "::error::Lean 快取命中但 ~/.elan/bin/elan 不存在——快取內容不完整，fail closed"
+              exit 1
+            fi
+            ELAN_REPORTED=$("$HOME/.elan/bin/elan" --version || true)
+            case "$ELAN_REPORTED " in
+              "elan ${ELAN_VERSION#v} "*) echo "elan restored from cache: $ELAN_REPORTED" ;;
+              *)
+                echo "::error::快取還原的 elan 版本不是 ${ELAN_VERSION}（實得「${ELAN_REPORTED}」）——快取未經 SHA-256，fail closed"
+                exit 1
+                ;;
+            esac
+          else
             if [ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]; then
               echo "::error::Lean 安裝只支援 Linux x86_64 runner，實得 $(uname -s)-$(uname -m)"
               exit 1
@@ -834,13 +880,18 @@ jobs:
             tar -xzf "$ELAN_TMP/elan.tar.gz" -C "$ELAN_TMP"
             "$ELAN_TMP/elan-init" -y --no-modify-path --default-toolchain "$LEAN_TOOLCHAIN"
             rm -rf "$ELAN_TMP"
-          else
-            echo "elan restored from cache: $("$HOME/.elan/bin/elan" --version)"
           fi
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
           "$HOME/.elan/bin/elan" toolchain install "$LEAN_TOOLCHAIN"
           "$HOME/.elan/bin/elan" default "$LEAN_TOOLCHAIN"
           "$HOME/.elan/bin/lean" --version | tee /dev/stderr | grep -F "version 4.35.0"
+
+      - name: Save Lean toolchain cache (elan)
+        if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean' && steps.leancache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.elan
+          key: lean-elan-${{ runner.os }}-leanprover/lean4:v4.35.0
 
       # Step 3 — 執行 agent（DSH headless，受限沙箱；或 dry-run stub）。
       # agent 的工作目錄 = target/（目標 repo）；機制（node_modules/dist/config）
@@ -1293,18 +1344,20 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
+          # task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換（review M4）
+          STAGE: ${{ steps.tasktype.outputs.value }}
         run: |
           set +e
           ANALYZE_FLAG=""
-          if [ "${{ steps.tasktype.outputs.value }}" = "agent-analyze" ]; then
+          if [ "$STAGE" = "agent-analyze" ]; then
             # analyze 模式：crosscheck 驗證「僅分析不實作」（非 docs/ 變更 → fail-loud）
             ANALYZE_FLAG="--analyze-only"
-          elif [ "${{ steps.tasktype.outputs.value }}" = "agent-propose-skill" ]; then
+          elif [ "$STAGE" = "agent-propose-skill" ]; then
             # propose-skill 模式（E6／ADR-016 §3 閘門 1）：只允許 proposals/skills/ 與
             # docs/；任何 .dsh/、src/、.github/ 變更 → fail-loud → needs-human。
             # 兩個旗標互斥（CLI 會拒絕同時指定），故此處用 elif 而非各自獨立判斷。
             ANALYZE_FLAG="--propose-skill-only"
-          elif [ "${{ steps.tasktype.outputs.value }}" = "agent-write-spec" ]; then
+          elif [ "$STAGE" = "agent-write-spec" ]; then
             # write-spec（ADR-018 §9 護欄①、§12）：階段白名單、source.md 快照、關閉關鍵字。
             # crosscheck 只讀本地資料：本工作項各 factory PR 的描述在此以 gh 取得、寫檔傳入。
             gh pr list --state open --limit 200 --json headRefName,body \
@@ -1315,7 +1368,7 @@ jobs:
             if [ "${{ steps.specphase.outputs.phase }}" = "invariants" ]; then
               ANALYZE_FLAG="$ANALYZE_FLAG --source-snapshot .factory/spec-source-snapshot.md"
             fi
-          elif [ "${{ steps.tasktype.outputs.value }}" = "agent-pbt-audit" ]; then
+          elif [ "$STAGE" = "agent-pbt-audit" ]; then
             # pbt-audit（ADR-019 §5、R6）：只允許新增或修改 PBT 測試檔、不得刪除。
             # 這是 in-loop 豁免的前提之一（apply-score-labels.ts IN_LOOP_ALLOWED_TASK_TYPES）。
             # 其他類型不帶旗標時，crosscheck 反過來檢查「不得產出 PBT 檔」。
@@ -1423,7 +1476,7 @@ jobs:
             # bundle（mechanism/crosscheck.json）。本步 exit 非零照樣記入 steps.json。
             if [ "$VERIFY_MODE" = "true" ]; then
               STATUS_JSON=$(node "$GITHUB_WORKSPACE/dist/cli/factory-verify-status.js" \
-                --stage "${{ steps.tasktype.outputs.value }}" --phase "${{ inputs.verify_phase }}" \
+                --stage "$STAGE" --phase "${{ inputs.verify_phase }}" \
                 --outcome needs-human \
                 --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
               printf '%s' "$STATUS_JSON" | jq -r .comment > .factory/verify-status.md
@@ -1505,6 +1558,18 @@ jobs:
             exit 1
           fi
 
+      # Quint 快取存檔（review M1）。~/.quint 是 lazy 下載的：Install and build 不會填它，
+      # 實際寫入者是 agent 與上方的 write-spec 集中驗證——存檔若放在 agent 之前，存到的
+      # 是空目錄（且 key 精確命中後就再也不會更新），非驗證模式就失去快取。故 save 留在
+      # 這裡、行為等同原本的 post-job save（成功才存、精確命中不存），但以
+      # `verify == 'false'` 排除驗證模式：guard 沒產出（空字串）時也不存，fail closed。
+      - name: Save Quint toolchain
+        if: steps.verifymode.outputs.verify == 'false' && steps.quintcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.quint
+          key: quint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       # Step 5 — 執行後判定：重計分 + 停手規則（重用 runWorkItem 管線）。
       # report.json 在 target/.factory/run/（agent cwd=target）；catalog/risk-paths 讀目標 repo。
       # TOKEN_BUDGET 由 input 帶入（0 = 不設限），judge 讀 env（Q02-5 SR7 接線）。
@@ -1538,6 +1603,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
+          # task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換（review M4）
+          STAGE: ${{ steps.tasktype.outputs.value }}
         run: |
           cd target
           node "$GITHUB_WORKSPACE/dist/cli/write-report.js" \
@@ -1550,7 +1617,7 @@ jobs:
             OUTCOME=needs-human
             if [ "${{ steps.agent.outputs.inner_timeout }}" = "true" ]; then OUTCOME=timeout; fi
             STATUS_JSON=$(node "$GITHUB_WORKSPACE/dist/cli/factory-verify-status.js" \
-              --stage "${{ steps.tasktype.outputs.value }}" --phase "${{ inputs.verify_phase }}" \
+              --stage "$STAGE" --phase "${{ inputs.verify_phase }}" \
               --outcome "$OUTCOME" \
               --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
             printf '%s' "$STATUS_JSON" | jq -r .comment > "$GITHUB_WORKSPACE/.factory/verify-status.md"

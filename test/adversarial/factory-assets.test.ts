@@ -2328,7 +2328,8 @@ describe('write-spec 集中驗證接線（ADR-018 §7）', () => {
     expect(run).not.toContain('--add-label')
   })
   it('Quint 工具鏈快取在安裝之前（避免並行下載撞 rate limit）', () => {
-    const cache = idx((s) => s.uses === 'actions/cache@v6' && s.name === 'Cache Quint toolchain')
+    // 拆成 restore＋save（ADR-029 M1）：restore 仍在安裝之前；save 的閘控由 verify-lean-toolchain.test.ts 釘住
+    const cache = idx((s) => s.uses === 'actions/cache/restore@v6' && s.name === 'Restore Quint toolchain')
     expect(cache).toBeGreaterThanOrEqual(0)
     expect(cache).toBeLessThan(idx((s) => s.name === 'Install and build'))
   })

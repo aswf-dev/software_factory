@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const ROOT = join(import.meta.dirname, '../..')
 const WORKFLOW = '.github/workflows/factory-run.yml'
 
-type Step = { id?: string; name?: string; run?: string; with?: { path?: string } }
+type Step = { id?: string; name?: string; run?: string; env?: Record<string, string>; with?: { path?: string } }
 
 function steps(): Step[] {
   const { load } = require('js-yaml') as typeof import('js-yaml')
@@ -31,10 +31,8 @@ function steps(): Step[] {
 }
 
 /** crosscheck step 的 run script，`${{ }}` 以固定值代入（同 Actions 的文字替換語意）。 */
-function crosscheckScript(overrides: Record<string, string> = {}): string {
-  const run = steps().find((s) => s.id === 'crosscheck')?.run
-  if (run === undefined) throw new Error('找不到 id: crosscheck 的 step')
-  const values: Record<string, string> = {
+function crosscheckValues(overrides: Record<string, string>): Record<string, string> {
+  return {
     'steps.tasktype.outputs.value': 'agent-fix-bug',
     'steps.verifymode.outputs.verify': 'false',
     'inputs.issue_number': '670',
@@ -50,11 +48,37 @@ function crosscheckScript(overrides: Record<string, string> = {}): string {
     'github.repository': 'aswf-dev/software_factory',
     ...overrides,
   }
-  return run.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
+}
+
+function substitute(text: string, values: Record<string, string>): string {
+  return text.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     const v = values[expr]
     if (v === undefined) throw new Error(`測試未提供 \${{ ${expr} }} 的值`)
     return v
   })
+}
+
+function crosscheckStep(): Step {
+  const s = steps().find((x) => x.id === 'crosscheck')
+  if (s?.run === undefined) throw new Error('找不到 id: crosscheck 的 step')
+  return s
+}
+
+function crosscheckScript(overrides: Record<string, string> = {}): string {
+  return substitute(crosscheckStep().run!, crosscheckValues(overrides))
+}
+
+/** step 的 `env:`（同樣代入）；含測試未提供的運算式（token 等）的變數略過。 */
+function crosscheckEnv(overrides: Record<string, string> = {}): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(crosscheckStep().env ?? {})) {
+    try {
+      out[k] = substitute(String(v), crosscheckValues(overrides))
+    } catch {
+      // 未提供的運算式：不設定
+    }
+  }
+  return out
 }
 
 interface StepResult {
@@ -128,7 +152,13 @@ function runStep(
   const r = spawnSync('bash', ['-e', '-c', crosscheckScript(overrides)], {
     cwd: dir,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, STUB_DIR: dir, GITHUB_WORKSPACE: dir },
+    env: {
+      ...process.env,
+      ...crosscheckEnv(overrides),
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      STUB_DIR: dir,
+      GITHUB_WORKSPACE: dir,
+    },
   })
   const commentPath = join(dir, 'comment.md')
   const labelsPath = join(dir, 'labels.txt')

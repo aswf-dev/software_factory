@@ -29,6 +29,7 @@ interface Step {
   name?: string
   if?: string
   run?: string
+  env?: Record<string, string>
 }
 
 interface Workflow {
@@ -133,6 +134,15 @@ describe('每一處 Issue 留言都已歸類（新增而未歸類即紅燈）', 
   })
 
   for (const name of STATUS_STEPS) {
+    // M4：task type 經 env 進 shell，run 內不內嵌 `${{ steps.tasktype.outputs.value }}`
+    // （Actions 的 `${{ }}` 是文字替換；值一旦被 shell 解讀就是 injection 面）
+    it(`${name}：task type 以 env STAGE 傳入，run 內沒有內嵌的 tasktype 運算式`, () => {
+      const s = stepByName(name)
+      expect(s.env?.['STAGE']).toBe('${{ steps.tasktype.outputs.value }}')
+      expect(s.run ?? '').not.toMatch(/\$\{\{\s*steps\.tasktype\.outputs\.value\s*\}\}/)
+      expect(s.run ?? '').toContain('--stage "$STAGE"')
+    })
+
     it(`${name}：驗證分支呼叫 factory-verify-status，留言檔是它的輸出`, () => {
       const run = stepByName(name).run ?? ''
       expect(run).toContain('factory-verify-status.js')
@@ -156,6 +166,19 @@ function substitute(run: string, values: Record<string, string>): string {
     if (v === undefined) throw new Error(`測試未提供 \${{ ${expr} }} 的值`)
     return v
   })
+}
+
+/** step 的 `env:`，以同樣的值代入；值含測試未提供的運算式（例如 token）時略過該變數。 */
+function stepEnv(step: Step, values: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(step.env ?? {})) {
+    try {
+      out[k] = substitute(String(v), values)
+    } catch {
+      // 未提供的運算式：不設定
+    }
+  }
+  return out
 }
 
 const BASE_VALUES: Record<string, string> = {
@@ -244,7 +267,8 @@ function runStep(
   )
   stub('git', 'echo "unexpected git call: $*" >&2; exit 99')
   const values = { ...BASE_VALUES, ...overrides }
-  const r = spawnSync('bash', ['-e', '-c', substitute(stepByName(name).run ?? '', values)], {
+  const step = stepByName(name)
+  const r = spawnSync('bash', ['-e', '-c', substitute(step.run ?? '', values)], {
     cwd: dir,
     encoding: 'utf8',
     env: {
@@ -253,6 +277,7 @@ function runStep(
       STUB_DIR: dir,
       GITHUB_WORKSPACE: dir,
       VARIANT: 'a',
+      ...stepEnv(step, values),
       ...env,
     },
   })
