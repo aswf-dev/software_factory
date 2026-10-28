@@ -1534,9 +1534,15 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
   ): GitRunner {
     return (args) => {
       calls.push(args)
-      if (args[0] === 'diff' && args[1] === '--name-only') return script.diffNameOnly ?? ''
-      if (args[0] === 'diff' && args[1] === '--shortstat') return script.shortStat ?? ''
-      if (args[0] === 'diff' && args[1] === '--unified=0') return script.unifiedDiff ?? ''
+      if (args[0] === 'diff') {
+        // R24：verify 事實必須關掉 rename 偵測。預設 -M 對 100% 改名只列新路徑，
+        // 被刪掉的產品檔就從 verify-scope 白名單逃出去。
+        if (!args.includes('--no-renames')) throw new Error('verify diff must pass --no-renames')
+        if (args[1] === '--name-only') return script.diffNameOnly ?? ''
+        if (args[1] === '--shortstat') return script.shortStat ?? ''
+        if (args[1] === '--unified=0') return script.unifiedDiff ?? ''
+        throw new Error(`unexpected git diff flag: ${args[1]}`)
+      }
       if (args[0] === 'status') return script.status ?? ''
       if (args[0] === 'ls-files') return script.otherFiles ?? ''
       throw new Error(`驗證模式不該呼叫：git ${args.join(' ')}`)
@@ -1675,9 +1681,9 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
         ),
         { base: 'main', target: 'target' },
       )
-      expect(calls).toContainEqual(['diff', '--name-only', 'main'])
-      expect(calls).toContainEqual(['diff', '--shortstat', 'main'])
-      expect(calls).toContainEqual(['diff', '--unified=0', 'main'])
+      expect(calls).toContainEqual(['diff', '--name-only', '--no-renames', 'main'])
+      expect(calls).toContainEqual(['diff', '--shortstat', '--no-renames', 'main'])
+      expect(calls).toContainEqual(['diff', '--unified=0', '--no-renames', 'main'])
       expect(actual.branches).toEqual([])
       expect(actual.paths).toEqual(['specs/quint/model.qnt', 'test/x.test.ts', 'specs/lean/Specs/Proofs.lean'])
       expect(actual.added).toBe(12)
@@ -2360,6 +2366,69 @@ describe('驗證模式的不可變 diff 基準（--base-sha，R19／C2）', () =
     const withoutSha = main(['12', reportPathForScope, '--target', repo, '--base', 'HEAD', '--verify-only'])
     expect(withoutSha.actual.paths).toEqual([])
     expect(withoutSha.mismatches.map((m) => m.kind)).toContain('no-trace')
+  })
+
+  it('R24：`git mv` 後 commit——被刪的 src/app.ts 仍在 git 事實裡並被判越界（rename 偵測不得只列新路徑）', () => {
+    const repo = newRepo()
+    write(repo, 'src/app.ts', 'export const answer = 42\n')
+    commit(repo, 'base source file')
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    // 100% 改名：git 預設 rename 偵測顯示成單一 R100，`--name-only` 只列新路徑。
+    mkdirSync(join(repo, 'test'), { recursive: true })
+    gitIn(repo, 'mv', 'src/app.ts', 'test/app.test.ts')
+    commit(repo, 'agent rename')
+
+    const out = main([
+      '12',
+      report({ changedPaths: ['test/app.test.ts'], changedLines: 1 }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+
+    // 新測試檔是 agent 的交付，必須留在事實裡（report 比對與 bundle 都靠它）；
+    // 被改名的產品檔則必須以刪除現形，否則 verify-scope 白名單被繞過。
+    expect(out.actual.paths).toEqual(['src/app.ts', 'test/app.test.ts'])
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+    expect(out.ok).toBe(false)
+  })
+
+  it('R24 containment：沒有改名的 repo，事實與白名單結果不變（--no-renames 不改變一般 diff）', () => {
+    const repo = newRepo()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'test/existing.test.ts', 'it("x", () => {})\n')
+    commit(repo, 'base fixtures')
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\nmodule Aux {}\n')
+    write(repo, 'test/new.test.ts', 'it("y", () => {})\n')
+    commit(repo, 'agent changes')
+
+    const out = main([
+      '12',
+      report({ changedPaths: ['specs/quint/model.qnt', 'test/new.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+
+    expect(out.actual).toEqual({
+      branches: [],
+      paths: ['specs/quint/model.qnt', 'test/new.test.ts'],
+      added: 2,
+      deleted: 0,
+      uncommitted: [],
+      assertionDelta: 0,
+    })
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
   })
 
   it('--base-sha 需為 40-hex、只適用於 --verify-only、且必須解析得到 commit', () => {

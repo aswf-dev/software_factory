@@ -99,7 +99,11 @@ gh issue create -R <owner>/<name> \
 ```
 
 標題同樣公開，只寫階段。驗證模式不貼格式卡：合規時不留言，不合規時只貼一行無內容
-needs-human 狀態（§6）並停派，原因只在 run log 的 `cat .factory/issue-check.txt`。
+needs-human 狀態（§6）並停派。run log 也**看不到完整格式卡**——驗證模式只印一行
+`issue format: ok=<true|false> missing=<逗號分隔的欄位 id>` 摘要（
+`factory-issue-check --summary-out` 的機械可讀輸出）；完整卡片只留在 runner 的
+`.factory/issue-check.txt`，不進 artifact、也不在加密 bundle 的機制檔清單內，run 結束
+即消失。要診斷缺哪個欄位，看 run log 的 `missing=`（固定列舉的欄位 id）。
 驗證模式不讀計分，模型 tier 與 agent 逾時預算由 Issue 文字的複雜度分析決定
 （`Select model tier`）：PRD 含 `quint` 之類工具字樣即判 heavy-verify（critical tier、
 逾時放寬，`src/issue-analysis/complexity.ts`）；要固定時 dispatch 加 `-f model_tier=…`。
@@ -379,7 +383,13 @@ runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的�
    仍以「非驗證」處理並補一則通用 needs-human，即使另一個變體其實已進入 agent。判讀時
    以 run 的 jobs 清單與 cleanup 留言交叉確認，不要把「沒有終態」當成「沒啟動」。
 
-7. **原始 git 錯誤仍可能帶絕對路徑**：`factory-verify-encrypt`／`factory-crosscheck` 對檔案
-   系統呼叫（`readdir`／`lstat`／`readFile`／`realpath`）已只輸出相對路徑與 errno，但
-   `git ls-files`／`git status` 等指令本身的失敗訊息仍可能含 runner 上的絕對路徑。這是已知
-   殘留（只影響錯誤訊息，不含檔案內容），V3 會把 verify 類 CLI 的錯誤輸出統一改成相對路徑。
+7. **部分錯誤訊息仍可能帶絕對路徑**：`factory-verify-encrypt` 的檔案系統呼叫
+   （`readdir`／`lstat`／`readFile`／`realpath`）都經 `fsFailure` 轉成相對路徑＋errno；
+   `factory-crosscheck` 則**沒有**逐一包裝每個 `readFileSync`（report、`--pr-bodies`、
+   `--source-snapshot` 等），這類錯誤由共用的 `formatCliError` 印出 Node 原始的
+   `err.path`／`err.message`。workflow 呼叫 crosscheck 時傳的都是相對路徑（`--target
+   target`、`target/.factory/run/report.json`、`--restored-manifest
+   .factory/verify-restored.json`），所以實務上不會出現 runner 的絕對路徑；只有直接以
+   絕對路徑呼叫 CLI 時才可能。`git ls-files`／`git status` 等指令本身的失敗訊息仍可能含
+   runner 上的絕對路徑。這是已知殘留（只影響錯誤訊息，不含檔案內容），V3 會把 verify 類
+   CLI 的錯誤輸出統一改成相對路徑。

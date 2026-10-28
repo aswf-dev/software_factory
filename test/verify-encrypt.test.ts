@@ -708,6 +708,33 @@ describe('encryptVerifyBundle：不可變 diff 基準 --base-sha（R19／C2）',
       parseArgs(['--target', 't', '--out', '/tmp/x.age', '--recipient', 'age1abc', '--base-sha', '--target', 't']),
     ).toThrow(/base-sha/)
   })
+
+  /**
+   * R24：`changedPaths` 的 `git diff --name-only --diff-filter=ACMR` 也必須帶
+   * `--no-renames`（與 crosscheck 的 verify 事實一致）。R 在 ACMR 內，預設 rename
+   * 偵測仍會列出新路徑；關掉偵測後舊路徑以 D（被 filter 排除）、新路徑以 A
+   * （保留）出現——這個測試釘住「新測試檔一定進 bundle」，不能被一致性修改弄丟。
+   */
+  it('R24：100% `git mv src/app.ts test/app.test.ts` 後 commit → 新測試檔仍進 bundle', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'src/app.ts', 'export const answer = 42\n')
+    commitAll(target, 'base')
+    const preAgent = git(target, 'rev-parse', 'HEAD').trim()
+    mkdirSync(join(target, 'test'), { recursive: true })
+    git(target, 'mv', 'src/app.ts', 'test/app.test.ts')
+    commitAll(target, 'agent rename')
+
+    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: preAgent })
+
+    expect(result.files).toEqual(['test/app.test.ts'])
+    const lines = await decryptBundle(outFile, identity)
+    expect(lines.map((line) => line.path)).toEqual(['test/app.test.ts'])
+    expect(lines.map((line) => Buffer.from(line.b64, 'base64').toString('utf8'))).toEqual([
+      'export const answer = 42\n',
+    ])
+  })
 })
 
 /**

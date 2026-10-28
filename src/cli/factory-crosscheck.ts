@@ -864,14 +864,21 @@ function collectUntrackedIgnoringInfoExclude(git: GitRunner, target: string): st
  *
  * `base` 通常是分支名；R19 後 main 會傳入 `--base-sha` 解析出的不可變 commit，
  * 兩者對 `git diff` 而言都只是 ref——本函式不區分，也不得退回分支名。
+ *
+ * `--no-renames` 是必要的（R24）：預設 rename 偵測會把「刪 A、加 B」摺成一筆
+ * R100，`--name-only` 只列新路徑——把產品檔 `git mv` 成測試檔就能讓刪除從
+ * verify-scope 白名單消失。關掉後舊路徑必以刪除出現，新測試檔仍以新增出現；
+ * 三段 diff（paths／shortstat／assertion delta）都帶同一旗標，事實才一致。
  */
 export function collectVerifyDiff(
   git: GitRunner,
   opts: { base: string; target: string },
 ): CrosscheckActual {
   const { base, target } = opts
-  const diffPaths = parseDiffNameOnly(git(['diff', '--name-only', base], target)).map(normalizePath)
-  const stat = parseShortStat(git(['diff', '--shortstat', base], target))
+  const diffPaths = parseDiffNameOnly(
+    git(['diff', '--name-only', '--no-renames', base], target),
+  ).map(normalizePath)
+  const stat = parseShortStat(git(['diff', '--shortstat', '--no-renames', base], target))
   // 未追蹤檔不在 diff 內，補進來才算得出「有沒有交付」。`--untracked-files=all`
   // 是關鍵：預設會把整棵新目錄收成 `?? specs/`，回報 `specs/quint/model.qnt`
   // 的合規 run 會被判 reported-not-in-diff ＋ diff-not-reported 假紅。
@@ -895,7 +902,7 @@ export function collectVerifyDiff(
     added: stat.added,
     deleted: stat.deleted,
     uncommitted: parseStatusPorcelain(statusOutput),
-    assertionDelta: countAssertionDelta(git(['diff', '--unified=0', base], target)).delta,
+    assertionDelta: countAssertionDelta(git(['diff', '--unified=0', '--no-renames', base], target)).delta,
   }
 }
 

@@ -258,6 +258,9 @@ function resolveBaseSha(targetDir: string, sha: string): string {
  * - 空 repo（尚無 HEAD）→ null（同上）。
  * - 其餘 → `git diff <base>` ∪ `git ls-files --others`；`--diff-filter=ACMR`
  *   排除刪除，`-z` 避免檔名含空白／引號時被 git 加引號而比對失敗。
+ *   `--no-renames`（R24）與 crosscheck 的 verify 事實一致：關掉 rename 偵測後
+ *   改名以 D+A 呈現（D 被 filter 排除、新增的新測試檔仍保留），bundle 不再
+ *   依賴 R 在 `--diff-filter=ACMR` 下的列舉語意。
  *
  * `baseSha` 有值時（R19／C2）先驗形狀與可解析性，再以該 commit 為唯一基準：
  * base-branch 檔與 `origin/<base>` 都不參與。不是 git 工作區卻帶了 baseSha
@@ -273,7 +276,14 @@ function changedPaths(targetDir: string, baseSha?: string): Set<string> | null {
     const base = readBaseBranch(targetDir)
     baseRef = base === undefined ? null : resolveBaseRef(targetDir, base)
   }
-  const diff = tryGit(targetDir, ['diff', '--name-only', '--diff-filter=ACMR', '-z', baseRef ?? 'HEAD'])
+  const diff = tryGit(targetDir, [
+    'diff',
+    '--name-only',
+    '--no-renames',
+    '--diff-filter=ACMR',
+    '-z',
+    baseRef ?? 'HEAD',
+  ])
   if (diff === null) return null
   const paths = new Set<string>(splitNul(diff))
   // 不用 `--exclude-standard`：它會讀 agent 可寫的 `.git/info/exclude`（及 global

@@ -136,4 +136,28 @@ describe('docs/34-verify-runbook.md', () => {
     expect(doc).toContain('continue-on-error')
     expect(doc).toContain('~/.elan/bin/lean')
   })
+
+  it('R24：§3.1 不再說原因在 run log 的完整格式卡；驗證模式只印摘要，卡片只留 runner', () => {
+    const s31 = doc.slice(doc.indexOf('### 3.1 Issue 格式'), doc.indexOf('### 3.2 dispatch'))
+    // workflow 只印 `issue format: ok=… missing=…`（summary-out），不是 `cat` 完整卡片
+    expect(s31).toContain('issue format: ok=')
+    expect(s31).toContain('missing=')
+    expect(s31).not.toContain('cat .factory/issue-check.txt')
+    // 完整格式卡是 runner-only：不進 artifact，也不在加密 bundle 的機制檔清單內
+    expect(s31).toContain('只留在 runner')
+    expect(s31).toContain('不進 artifact')
+    expect(s31).toContain('不在加密 bundle')
+  })
+
+  it('R24：§7.7 收窄 fs 錯誤宣稱——crosscheck 未逐一包裝 readFileSync，靠 workflow 傳相對路徑', () => {
+    const s77 = doc.slice(doc.indexOf('7. **部分錯誤訊息'))
+    expect(s77).toContain('`factory-crosscheck` 則**沒有**')
+    expect(s77).toContain('err.path')
+    expect(s77).toContain('err.message')
+    // 舊的過寬宣稱不得留下
+    expect(s77).not.toContain('已只輸出相對路徑')
+    expect(s77).toContain('相對路徑')
+    expect(s77).toMatch(/直接以\s*絕對路徑呼叫/)
+    expect(s77).toContain('git ls-files')
+  })
 })
