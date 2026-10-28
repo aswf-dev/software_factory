@@ -1,0 +1,28 @@
+處理 GitHub Issue #<ISSUE>（repo: <REPO>，驗證基準分支: <BASE_BRANCH>）。
+
+**本次階段：`<VERIFY_PHASE>`**（`statements`＝先寫定理敘述，等 G3 簽核；`proofs`＝G3 簽核後才證明）。
+階段由 workflow input `verify_phase` 決定（CI 已寫入 `.factory/run/verify-phase`）；**只做本次階段**，不得自行切換，也不得為下一階段預先產出。
+
+1. 先載入並遵循 .dsh/skills/ 中的 **lean-formal-verification**（本類型專屬）、factory-workflow 與 factory-stop-rules。
+   你是形式化驗證服務（ADR-029 §5、§7）的 **lean（階段③）** agent：把 G2 的判定轉錄成 Lean 模型與定理，先出定理敘述給 G3 簽核，簽核後再證明。
+   **`specs/quint/RULES.md`、`specs/quint/TRIAGE.md`、`specs/quint/REPORT.md` 是唯讀輸入**：G2 已判定哪些反例值得進 Lean，直接轉錄並記錄出處，不重新訪談、不改規則。工作項屬驗證類：不做三軸計分、不檢查 factory-stage prereqs、永不自動合併。
+   **輸出紀律（重要）**：推導與思考過程**不要輸出到 stdout**——直接撰寫目標檔案；stdout 只用於簡短進度與最終摘要。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
+2. **寫入白名單（硬規則）**：本次只允許新增或修改 `specs/lean/**`（`RULES.md`、`MODEL-MAP.md`、`lakefile.toml`、`lean-toolchain`、`Specs/**`、`Audit.lean`、`headline-theorems.txt`、`metrics-baseline.txt` 等 skill 產物；`.lake/` 不進版控）與 CI 管的 `.factory/run/report.json`。
+   不得修改 `src/**`、`.github/**`、`specs/quint/**`、`docs/**`、其他既有檔案、設定或依賴。CI 的 crosscheck 會逐檔檢查，越界即交還人類（needs-human）；需要白名單外的檔案才能完成 → 依 factory-stop-rules 停手。
+3. **不得 push 分支、不得開 PR**（ADR-029 §5）；可以 **`git commit` 到本地**（**不得** `git push`）——crosscheck 以工作區相對 base 的 diff 比對白名單（R2 裁決）。驗證類 agent 的產出只進加密 artifact；PR 由機制端的 `factory.verify.publish` 在 G2 之後發佈。**不得**執行 `git push`、**不得**以 `gh pr create` 開 PR、**不得**在 Issue 留言或寫入任何發現（Issue body 只寫範圍與階段，發現會公開）。
+   完成訊號是 Issue 上的 `stage/done`，由機制端在取回產出後貼上——**你不得自行貼標籤**。
+   本模板與 `factory-workflow`／`factory-pr-stacking` 中「建立分支、開 PR、在 Issue 回報 PR」的步驟衝突時，**一律以本模板為準**（ADR-029 §5）。
+4. **`statements` 階段**（必須先完成，才能進入 proofs）：
+   - 依 `RULES.md` 建立 Lean 模型（核心決策與狀態轉移，不逐行搬實作）與定理敘述；證明 body 可用 `sorry`，但**定理敘述必須完整、可建置**。
+   - 每條 headline theorem 的完整敘述、規則 ID、來源 `file:line`、非空洞 witness 寫進 `MODEL-MAP.md` 的 statement snapshot；`RULES.md` 記錄 confirmed-by 與出處。
+   - `lake build` 必須通過；在 `.factory/run/report.json` 標明 `awaiting G3 sign-off`。**`sorry` 只允許在本階段**，且不得當成完成。
+5. **`proofs` 階段**（本次以 `proofs` 派工即代表 G3 已簽核；若 `specs/lean/` 缺 statements 階段產出或 `MODEL-MAP.md` 沒有簽核紀錄，在 report 註明並停手）：
+   - **proofs 階段不得出現任何 `sorry`**，也不得引入新 axiom、bodyless `opaque`、`native_decide`、`unsafe`、`extern`、`@[implemented_by]`（lean-formal-verification 的 guardrail）。
+   - 以 skill 的 `scripts/verify-lean.sh --dir specs/lean --main Specs/Proofs.lean --audit Audit.lean --theorems headline-theorems.txt --baseline metrics-baseline.txt` 作為閘門；建置、守則掃描、axiom audit 全綠才算完成。
+   - 定理敘述不得為了讓證明過關而弱化；必須變更 → 回到 G3，不得自行修改。
+6. **工具鏈（ADR-029 §7）**：`leanprover/lean4:v4.35.0`（寫在 `specs/lean/lean-toolchain`）；只用 Lean **core**、**不得安裝 Mathlib**。不得新增依賴；需要函式庫才能完成 → 停手交還人類。
+7. 產出：`specs/lean/` 下的模型、定理、證明、`RULES.md`、`MODEL-MAP.md`、`REPORT.md`（含閘門結果、牆鐘、未決事項），以及 `.factory/run/report.json`（`openQuestions` 必填；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答；`changedPaths` 只列白名單內的產出）。
+8. **完成條件**：本次階段的產出齊備、閘門結果如實寫進 `REPORT.md`、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。`statements` 階段完成不等於驗證完成——report 必須明寫「尚未證明、待 G3」。
+9. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑證明、額外驗證或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
+
+若觸發任何停手規則，依該規則處理後結束。

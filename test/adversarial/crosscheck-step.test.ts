@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const ROOT = join(import.meta.dirname, '../..')
 const WORKFLOW = '.github/workflows/factory-run.yml'
 
-type Step = { id?: string; name?: string; run?: string; with?: { path?: string } }
+type Step = { id?: string; name?: string; run?: string; env?: Record<string, string>; with?: { path?: string } }
 
 function steps(): Step[] {
   const { load } = require('js-yaml') as typeof import('js-yaml')
@@ -31,11 +31,12 @@ function steps(): Step[] {
 }
 
 /** crosscheck step 的 run script，`${{ }}` 以固定值代入（同 Actions 的文字替換語意）。 */
-function crosscheckScript(): string {
-  const run = steps().find((s) => s.id === 'crosscheck')?.run
-  if (run === undefined) throw new Error('找不到 id: crosscheck 的 step')
-  const values: Record<string, string> = {
+function crosscheckValues(overrides: Record<string, string>): Record<string, string> {
+  return {
     'steps.tasktype.outputs.value': 'agent-fix-bug',
+    'steps.verifymode.outputs.verify': 'false',
+    // 階段輸入步驟的 outcome；預設未執行（非驗證模式）
+    'steps.verifyinput.outcome': '',
     'inputs.issue_number': '670',
     'inputs.base_branch': 'software-factory',
     'github.run_id': '424242',
@@ -43,12 +44,45 @@ function crosscheckScript(): string {
     // 非 write-spec 類型：這兩個值只出現在 write-spec 分支內，不會被讀到
     'steps.specphase.outputs.phase': '',
     'steps.specphase.outputs.spec_name': '',
+    // 驗證模式的無內容狀態留言（factory-verify-status）用到的值
+    'inputs.verify_phase': 'statements',
+    'github.server_url': 'https://github.com',
+    'github.repository': 'aswf-dev/software_factory',
+    // C2／R19：agent 之前寫入的不可變 base commit（step output 經 env 傳入）
+    'steps.basesha.outputs.sha': 'a'.repeat(40),
+    ...overrides,
   }
-  return run.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
+}
+
+function substitute(text: string, values: Record<string, string>): string {
+  return text.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     const v = values[expr]
     if (v === undefined) throw new Error(`測試未提供 \${{ ${expr} }} 的值`)
     return v
   })
+}
+
+function crosscheckStep(): Step {
+  const s = steps().find((x) => x.id === 'crosscheck')
+  if (s?.run === undefined) throw new Error('找不到 id: crosscheck 的 step')
+  return s
+}
+
+function crosscheckScript(overrides: Record<string, string> = {}): string {
+  return substitute(crosscheckStep().run!, crosscheckValues(overrides))
+}
+
+/** step 的 `env:`（同樣代入）；含測試未提供的運算式（token 等）的變數略過。 */
+function crosscheckEnv(overrides: Record<string, string> = {}): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(crosscheckStep().env ?? {})) {
+    try {
+      out[k] = substitute(String(v), crosscheckValues(overrides))
+    } catch {
+      // 未提供的運算式：不設定
+    }
+  }
+  return out
 }
 
 interface StepResult {
@@ -73,6 +107,9 @@ function runStep(
   crosscheck: { stdout: string; stderr: string; code: number },
   /** `git ls-remote --heads origin` 的 stub 輸出；null = ls-remote 失敗。 */
   lsRemote: string | null = '',
+  /** 覆寫 `${{ }}` 的值（例如驗證模式）。 */
+  overrides: Record<string, string> = {},
+  opts: { baseShaFile?: boolean; factsFile?: boolean } = {},
 ): StepResult {
   const dir = mkdtempSync(join(tmpdir(), 'crosscheck-step-'))
   dirs.push(dir)
@@ -80,15 +117,34 @@ function runStep(
   mkdirSync(bin)
   mkdirSync(join(dir, '.factory'))
   mkdirSync(join(dir, 'target/.factory/run'), { recursive: true })
+  // C2／R19：workflow 的 pre-agent 步驟會寫這份檔；step 在驗證模式要求它存在
+  if (opts.baseShaFile !== false) writeFileSync(join(dir, '.factory/base-sha'), 'a'.repeat(40))
+  // R25：facts 由 clean-repo 步驟寫在 target 之外；驗證模式要求它存在。
+  if (opts.factsFile !== false) {
+    writeFileSync(
+      join(dir, '.factory/verify-facts.json'),
+      JSON.stringify({
+        baseSha: 'a'.repeat(40),
+        changed: [],
+        linesAdded: 0,
+        linesDeleted: 0,
+        assertionDelta: 0,
+      }),
+    )
+  }
   writeFileSync(join(dir, 'cc.stdout'), crosscheck.stdout)
   writeFileSync(join(dir, 'cc.stderr'), crosscheck.stderr)
   const stub = (name: string, body: string) => {
     writeFileSync(join(bin, name), `#!/usr/bin/env bash\n${body}\n`)
     chmodSync(join(bin, name), 0o755)
   }
+  // 驗證模式的狀態留言 CLI 另行處理（內容契約由 verify-issue-comments.test.ts 釘住）
   stub(
     'node',
-    `echo "$*" > "$STUB_DIR/node-args.txt"; cat "$STUB_DIR/cc.stdout"; cat "$STUB_DIR/cc.stderr" >&2; exit ${crosscheck.code}`,
+    [
+      'case "$1" in *factory-verify-status.js) echo \'{"comment":"verify-status"}\'; exit 0 ;; esac',
+      `echo "$*" > "$STUB_DIR/node-args.txt"; cat "$STUB_DIR/cc.stdout"; cat "$STUB_DIR/cc.stderr" >&2; exit ${crosscheck.code}`,
+    ].join('\n'),
   )
   if (lsRemote !== null) writeFileSync(join(dir, 'ls-remote.txt'), lsRemote)
   stub(
@@ -113,10 +169,16 @@ function runStep(
     ].join('\n'),
   )
   // GitHub Actions 的 run step 以 `bash -e {0}` 執行（見 run log 的 shell: 行）
-  const r = spawnSync('bash', ['-e', '-c', crosscheckScript()], {
+  const r = spawnSync('bash', ['-e', '-c', crosscheckScript(overrides)], {
     cwd: dir,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, STUB_DIR: dir, GITHUB_WORKSPACE: dir },
+    env: {
+      ...process.env,
+      ...crosscheckEnv(overrides),
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      STUB_DIR: dir,
+      GITHUB_WORKSPACE: dir,
+    },
   })
   const commentPath = join(dir, 'comment.md')
   const labelsPath = join(dir, 'labels.txt')
@@ -222,6 +284,100 @@ describe('crosscheck step：N-version 變體隔離', () => {
     expect(r.log).toContain('::warning::git ls-remote 失敗')
     expect(r.remoteBranches).toBe('')
     expect(r.nodeArgs).toContain('--variant a')
+  })
+
+  it('驗證模式：帶 --verify-only、不呼叫 ls-remote、不傳 --variant（ADR-029 §5）', () => {
+    const r = runStep({ stdout: ok, stderr: '', code: 0 }, '', {
+      'steps.verifymode.outputs.verify': 'true',
+      'steps.verifyinput.outcome': 'skipped',
+    })
+    expect(r.status, r.log).toBe(0)
+    expect(r.nodeArgs).toContain('--verify-only')
+    // C2／R19：以 agent 啟動前的不可變 commit 為基準，不是可移動的 base 分支
+    expect(r.nodeArgs).toContain(`--base-sha ${'a'.repeat(40)}`)
+    // R25：crosscheck 只吃 clean-repo facts，不再對 target 跑 git
+    expect(r.nodeArgs).toContain('--facts .factory/verify-facts.json')
+    expect(r.nodeArgs).not.toContain('--variant')
+    // 沒還原階段輸入 → 不帶 manifest
+    expect(r.nodeArgs).not.toContain('--restored-manifest')
+    // 驗證分支不呼叫 git ls-remote（stub 對非預期呼叫 exit 99，status 0 即證明）
+    expect(r.remoteBranches).toBeUndefined()
+  })
+
+  it('驗證模式缺 .factory/base-sha → fail closed（不呼叫 crosscheck、不退回分支名）', () => {
+    const r = runStep({ stdout: '', stderr: '', code: 0 }, '', { 'steps.verifymode.outputs.verify': 'true' }, {
+      baseShaFile: false,
+    })
+    expect(r.status, r.log).not.toBe(0)
+    expect(r.nodeArgs).toBe('')
+    expect(r.log).toContain('缺 pre-agent base commit')
+  })
+
+  it('驗證模式缺 .factory/verify-facts.json → fail closed（不回退到 target 內的 git 事實）', () => {
+    const r = runStep({ stdout: ok, stderr: '', code: 0 }, '', { 'steps.verifymode.outputs.verify': 'true' }, {
+      factsFile: false,
+    })
+    expect(r.status, r.log).not.toBe(0)
+    expect(r.nodeArgs).toBe('')
+    expect(r.log).toContain('缺 clean-repo facts')
+  })
+
+  it('階段輸入步驟成功 → 帶 --restored-manifest；未執行 → 不帶（R13）', () => {
+    const ran = runStep({ stdout: ok, stderr: '', code: 0 }, '', {
+      'steps.verifymode.outputs.verify': 'true',
+      'steps.verifyinput.outcome': 'success',
+    })
+    expect(ran.status, ran.log).toBe(0)
+    expect(ran.nodeArgs).toContain('--restored-manifest .factory/verify-restored.json')
+
+    const skipped = runStep({ stdout: ok, stderr: '', code: 0 }, '', {
+      'steps.verifymode.outputs.verify': 'true',
+      'steps.verifyinput.outcome': 'skipped',
+    })
+    expect(skipped.status, skipped.log).toBe(0)
+    expect(skipped.nodeArgs).not.toContain('--restored-manifest')
+  })
+})
+
+/**
+ * ADR-029 §5：本 repo 的 Actions log 是公開的。驗證模式的 crosscheck.json 帶有
+ * agent 改動的檔案清單（mismatch detail、實際變更路徑），crosscheck.err 可能帶出
+ * report 內容——兩者都只進加密 bundle，log 只印計數。非驗證模式維持原樣。
+ */
+describe('crosscheck step：驗證模式不把檔案清單印進公開 log', () => {
+  const VERIFY = { 'steps.verifymode.outputs.verify': 'true' }
+  const SECRET_PATH = 'src/payments/ledger-secret.ts'
+  const withPaths = JSON.stringify({
+    issueNumber: 670,
+    ok: false,
+    mismatches: [{ kind: 'verify-out-of-scope', detail: `越界：${SECRET_PATH}` }],
+    advisories: [{ kind: 'requirements-uncovered', detail: SECRET_PATH }],
+    headline: '變更超出任務類型允許的範圍',
+    actualFiles: [SECRET_PATH, 'specs/lean/Rules.lean'],
+  })
+
+  it('驗證模式：log 只有 ok／mismatch／advisory 計數，不含任何檔案路徑', () => {
+    const r = runStep({ stdout: withPaths, stderr: '', code: 1 }, '', VERIFY)
+    expect(r.status).not.toBe(0)
+    expect(r.log).toContain('crosscheck: ok=false mismatches=1 advisories=1')
+    expect(r.log).not.toContain(SECRET_PATH)
+    expect(r.log).not.toContain('specs/lean/Rules.lean')
+    // 標題與 advisory 種類是固定列舉值（不含內容），照常提示
+    expect(r.log).toContain('::error::變更超出任務類型允許的範圍')
+  })
+
+  it('驗證模式：crosscheck 沒產出 JSON 時不把 stderr 印進 log', () => {
+    const r = runStep({ stdout: '', stderr: `error: report invalid near ${SECRET_PATH}`, code: 1 }, '', VERIFY)
+    expect(r.status).not.toBe(0)
+    expect(r.log).not.toContain(SECRET_PATH)
+    expect(r.log).toContain('crosscheck: 未產出 JSON')
+  })
+
+  it('非驗證模式：仍 cat 完整 JSON 與 stderr（行為不變）', () => {
+    const r = runStep({ stdout: withPaths, stderr: '', code: 1 })
+    expect(r.log).toContain(withPaths)
+    const e = runStep({ stdout: '', stderr: REPORT_INVALID, code: 1 })
+    expect(e.log).toContain(REPORT_INVALID)
   })
 })
 

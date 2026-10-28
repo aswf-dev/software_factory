@@ -50,3 +50,23 @@ export function runCli(run: () => unknown, io: CliIo = defaultIo): number {
     return 1
   }
 }
+
+/**
+ * `runCli` 的 async 版本（主體含非同步 I/O，例如 age 加密）。
+ *
+ * 語意完全相同：成功印 JSON 並回 0，失敗印單行訊息並回 1。**不得**把
+ * `runCli` 直接用在 async 主體上——`JSON.stringify(Promise)` 會印出 `{}` 且
+ * 永遠 exit 0，正是這個 helper 要防的「gate 靜默通過」。
+ */
+export async function runCliAsync(
+  run: () => Promise<unknown>,
+  io: CliIo = defaultIo,
+): Promise<number> {
+  try {
+    io.stdout(`${JSON.stringify(await run(), null, 2)}\n`)
+    return 0
+  } catch (err) {
+    io.stderr(`${formatCliError(err)}\n`)
+    return 1
+  }
+}
