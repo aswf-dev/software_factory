@@ -39,3 +39,38 @@ This product includes third-party software:
       LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
       OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
       SOFTWARE.
+
+  .dsh/skills/lean-formal-verification/
+    Vendored unmodified from skills (https://github.com/philipz/skills),
+    skills/lean-formal-verification/ directory at commit
+    924bdcd424da4827ba6777a7432916f05c2ca944 (git tree
+    dd800943d74c2ae4d8e28d54a5658935dc6f7a87). Copied 2026-10-27 from the local
+    install ~/.agents/skills/lean-formal-verification/ (installed 2026-10-24 by the
+    skills CLI; its recorded skillFolderHash equals the tree above). Bundle sha256
+    (factory-skills-lock hashBundle):
+    3316dd890650ba47576fea7baf5e1fab868c0a8141c3c340f02858eb8f5bb96f.
+    Dispatched only to agent-verify-lean work items (skills-lock onlyFor).
+    The repository is licensed under the MIT License, reproduced below as the
+    license requires:
+
+      MIT License
+
+      Copyright (c) 2026 Matt Pocock
+
+      Permission is hereby granted, free of charge, to any person obtaining a copy
+      of this software and associated documentation files (the "Software"), to deal
+      in the Software without restriction, including without limitation the rights
+      to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+      copies of the Software, and to permit persons to whom the Software is
+      furnished to do so, subject to the following conditions:
+
+      The above copyright notice and this permission notice shall be included in all
+      copies or substantial portions of the Software.
+
+      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+      IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+      FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+      AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+      LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+      OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+      SOFTWARE.

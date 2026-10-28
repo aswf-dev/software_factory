@@ -7,8 +7,8 @@ allowBuilds:
 overrides:
   adm-zip: '>=0.6.0'
   # pnpm audit high（2026-10-01）：transitive 依賴的修補版下限
-  fast-uri: '>=3.1.8 <4'
-  undici: '>=8.10.2 <9'
+  fast-uri: '>=3.1.9 <4'
+  undici: '>=8.12.3 <9'
   brace-expansion: '>=5.0.12 <6'
   '@grpc/grpc-js': '>=1.14.5 <2'
   # pnpm audit（2026-10-06）：proxy-addr critical GHSA-jqcg-44mw-7w3h（dsh>pi-ai>@google/genai>mcp sdk>express）
@@ -16,6 +16,14 @@ overrides:
   # compression high GHSA-vc2v-76pw-4v95（dsh>dsh-web-app>dsh-host-webserver）
   proxy-addr: '>=2.0.8 <3'
   source-map-js: '>=1.2.2 <2'
+  # pnpm audit（2026-10-28）：undici 8.0–8.11 DoS／憑證處理（5 high + 3 moderate）已由上面的
+  # undici override 覆蓋；dsh 傳遞依賴 zod 4.4.3 落在 GHSA-mrhx-c7xc-m3w5（high，<4.6.6），
+  # 以 overrides 統一升到 4.6.7（與本專案直接依賴同版）。
+  zod: '>=4.6.7 <5'
+  # pnpm audit（2026-10-28）：@vitest/mocker 4.1.11 的檔案服務路徑問題
+  # （GHSA-qxg6-89mg-rqv8／GHSA-xp26-3454-mjgp）已於 4.1.12 修補；本專案 vitest 仍釘
+  # 4.1.11（4.1.12 會讓數個 git-heavy 測試在平行執行下超時），因此只升這個子套件。
+  '@vitest/mocker': '>=4.1.12 <5'
   compression: '>=1.8.2 <2'
   # pnpm audit high（2026-10-07）：sharp GHSA-wq5f-xc86-pv6w（librsvg CVE；dsh>dsh-base>dsh-attachment-local）、
   # MCP SDK OAuth 憑證外洩 GHSA-6qxp-vccf-f47h（client：dsh>dsh-mcp-client，上游鎖 2.0.0；

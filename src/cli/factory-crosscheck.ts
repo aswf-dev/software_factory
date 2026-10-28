@@ -16,12 +16,46 @@
  *   - 各分支相對 base 的三點 diff（--name-only / --shortstat）
  *   - 工作樹狀態（--porcelain）——成功執行後不應殘留未提交變更
  *
+ * 驗證模式（`--verify-only`，ADR-029 §5、§6）例外：驗證類 agent **不建分支、
+ * 不 push、不開 PR**，因此事實來源改為「工作區（含本地 commit）相對 base 的
+ * diff」——`git diff <base>` 已涵蓋 commit 與未提交變更，未追蹤的新檔另由
+ * `git status --porcelain` 的 `??` 補上。未提交變更在此模式**不是** mismatch
+ * （R2 裁決：可以 commit 到本地，不 commit 也以同一份 diff 比對），而變更範圍
+ * 改由 `VERIFY_ALLOWED_GLOBS`（specs/** 與各語言測試檔）白名單檢查。
+ *
+ * 階段輸入的還原清單（`--restored-manifest`，R13）只扣除**還原後未被動過**的檔案：
+ * 以 manifest 的 sha256 對磁碟重算，被改動或刪除的還原輸入反而是 agent 的違規
+ * 變更，記為 `restored-input-modified`（R15）——這讓「還原輸入唯讀」成為機械規則。
+ *
+ * **diff 基準必須不可變**（`--base-sha`，R19／C2）：R2 允許驗證 agent 在本地
+ * commit，而 agent 就站在 base 分支上——commit 一前進，`git diff <base>` 就變空：
+ * 合規 agent 被判 no-trace／reported-not-in-diff 假紅，越界 agent 則整批變更消失
+ * （白名單被繞過）。workflow 在 agent 之前把 HEAD 寫進 target 外的
+ * `.factory/base-sha`，本 CLI 以 `--base-sha <40-hex>` 使用該 commit 並**忽略
+ * 分支名**；形狀不合或解析不到 commit 一律 fail-loud，不默默退回分支名。
+ * 所有 git 子行程另經 `git-safe` 執行（`GIT_NO_REPLACE_OBJECTS=1`、global／system
+ * config 指向 `/dev/null`、worktree 以絕對路徑釘住、`--no-pager --no-ext-diff
+ * --no-textconv --text`、`core.fsmonitor=false`、excludes／attributes 指向
+ * `/dev/null`）：agent 以 `git replace`、repo-local config（textconv、fsmonitor、
+ * 假 worktree）或 `.git/info/exclude`／`-diff` 屬性偽造 diff、`git status` 一律
+ * 無效（N1、N4）。`git status` 仍會套用 `.git/info/exclude`，未追蹤交付另由
+ * `collectUntrackedIgnoringInfoExclude` 補上（見 collectVerifyDiff）。
+ *
+ * **帶 `--facts` 時上述 git 路徑全部不執行**（R25）：事實由
+ * `factory-verify-facts` 在 `$RUNNER_TEMP` 的 clean repo 重建（archive 不跑
+ * clean filter、rsync 不讀 target git config、`git add -f` 不理 ignore 檔），
+ * crosscheck 只讀 JSON 並以 `--base-sha` 交叉驗證 `facts.baseSha`。workflow 的
+ * 驗證模式永遠走這條路；無 facts 的 `--verify-only` 只保留給相容性。
+ *
  * 有意不做的檢查：changedLines 的數值精確比對（agent 的計數口徑可能不同，
  * 會誤傷）；PR 是否真的推送（需網路，且 factory-rescore 已在 PR 層獨立重計分）。
  */
-import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { countAssertionDelta } from '../assertion-count/count.js'
+import { isPbtTestPath } from '../pbt-audit/languages.js'
+import { isVerifyAllowedPath, VERIFY_ALLOWED_GLOBS } from '../pipeline/verify-scope.js'
 import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/unreported.js'
 import { isValidSpecName } from '../write-spec/intake.js'
 import {
@@ -33,6 +67,9 @@ import {
   type SpecPhase,
 } from '../write-spec/scope.js'
 import { checkPbtAuditScope, checkPbtOutsideAudit } from '../pbt-audit/scope.js'
+import { isLakeBuildArtifact } from './factory-verify-encrypt.js'
+import { isNeutralisedPath, loadVerifyFacts, type VerifyFacts } from './factory-verify-facts.js'
+import { execGit } from './git-safe.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, formatCliError } from './run-cli.js'
@@ -85,7 +122,34 @@ export const SCOPE_MISMATCH_KINDS: ReadonlySet<string> = new Set([
   'propose-skill-scope',
   'onboard-scope',
   'write-spec-scope',
+  'verify-scope',
+  'verify-neutralised-path',
 ])
+
+/**
+ * 驗證類白名單的實作在 `src/pipeline/verify-scope.ts`：`factory-verify-encrypt`
+ * 也用它決定 bundle 要帶哪些 agent 改動的測試檔。此處 re-export 維持既有
+ * 呼叫端（與測試）的 import 路徑不變。
+ */
+export { VERIFY_ALLOWED_GLOBS }
+
+/**
+ * 驗證類的變更範圍檢查；由 main 在 `--verify-only` 時呼叫（路徑已排除 .factory/**）。
+ *
+ * dot segment 只在 specs/** 內放行、`.github` 一律拒絕；細節見 `isVerifyAllowedPath`。
+ */
+export function checkVerifyScope(changedPaths: readonly string[]): CrosscheckMismatch[] {
+  const outside = changedPaths.filter((p) => !isVerifyAllowedPath(p))
+  if (outside.length === 0) return []
+  return [
+    {
+      kind: 'verify-scope',
+      detail:
+        `驗證類 task 只允許 ${VERIFY_ALLOWED_GLOBS.join('、')} 的變更，實際 diff 含越界變更：${outside.join('、')}` +
+        '。驗證 agent 只能寫規格樹與測試檔，不得修改正式程式碼、設定、依賴或 .github/**（ADR-029 §5、§6）',
+    },
+  ]
+}
 
 /**
  * N-version 變體隔離類的 mismatch kind（見 checkVariantIsolation）。report 可能完全誠實、
@@ -290,11 +354,12 @@ export interface CrosscheckOutput {
 /** git 命令注入點（測試以 fake 取代）；cwd 為目標 repo checkout。 */
 export type GitRunner = (args: string[], cwd?: string) => string
 
-/* v8 ignore start -- 真實 git 二進位的薄包裝：單元測試一律注入 fake runner */
-export const realGit: GitRunner = (args, cwd) => {
-  return execFileSync('git', args, { encoding: 'utf8', cwd })
-}
-/* v8 ignore stop */
+/**
+ * 真實 git 的薄包裝：所有子行程都經 `git-safe`（N1：關閉 replace refs、
+ * 隔離 global/system config）。測試以 fake runner 取代；真實 git 的
+ * replace／惡意 config 行為由 `factory-crosscheck.test.ts` 的 N1 測試涵蓋。
+ */
+export const realGit: GitRunner = (args, cwd) => execGit(args, { cwd })
 
 /** 把 `git for-each-ref --format=%(refname:short)` 的輸出切成分支名清單。 */
 export function parseForEachRefOutput(output: string): string[] {
@@ -378,6 +443,7 @@ export function compareReportToActual(
   analyzeOnly = false,
   proposeSkillOnly = false,
   onboardOnly = false,
+  verifyOnly = false,
 ): CrosscheckMismatch[] {
   const mismatches: CrosscheckMismatch[] = []
   const reported = collectReportedPaths(report.changedPaths)
@@ -504,7 +570,10 @@ export function compareReportToActual(
       detail: `report 宣稱變更 ${report.changedLines} 行但 diff 為空`,
     })
   }
-  if (actual.uncommitted.length > 0) {
+  // 驗證模式：R2 裁決「可以 commit 到本地（不 push）」，且未提交也以同一份
+  // 工作區 diff 比對——所以未提交變更不再是 mismatch（否則不 commit 的 agent
+  // 會被自己的合規產出判紅）。變更範圍另由 checkVerifyScope 白名單把關。
+  if (!verifyOnly && actual.uncommitted.length > 0) {
     mismatches.push({
       kind: 'uncommitted-changes',
       detail: `工作樹仍有未提交變更：${actual.uncommitted.join('、')}`,
@@ -515,7 +584,11 @@ export function compareReportToActual(
   // 都是靜默缺漏——crosscheck 必須 fail-loud，不讓「每條驗收條件一個明確狀態」
   // 的契約被空值矇混。注意：shape（型別/enum）已由 ReportSchema 的 zod 收緊，
   // 此處只管內容完備性（有 diff 卻未回報、blank id/status）。
-  if (hasDiff) {
+  //
+  // 驗證模式不套用：驗證階段沒有「驗收條件→實作」的對應（完成與否由 G1–G4
+  // 閘門決定，ADR-029 §2），task template 也不要求 requirements；硬套會讓
+  // grill／quint／lean 三個階段的所有合規產出被判 needs-human。
+  if (hasDiff && !verifyOnly) {
     const reqs = report.requirements ?? []
     if (reqs.length === 0) {
       mismatches.push({
@@ -676,6 +749,350 @@ export function collectActualDiff(
   }
 }
 
+/**
+ * `git status --porcelain` 的未追蹤檔（`??` 行）。
+ *
+ * 驗證模式沒有「先 commit 再比對」的前提：agent 可能直接寫了新檔而沒有
+ * `git add`。`git diff <base>` 看不到未追蹤檔，若只靠它，合法的交付會被判
+ * `no-trace`／`unreported-changes` 假紅——故以 status 補上。
+ *
+ * git 會以 C-style 引號包裹含空白／引號／控制字元／非 ASCII 的路徑
+ * （`core.quotePath` 預設開啟），例如 `?? "specs/a b.qnt"`；不先解開就會把
+ * 引號與跳脫序列當成路徑的一部分，讓合法的含空白檔名被判越界。
+ */
+export function parseUntrackedPaths(output: string): string[] {
+  const out: string[] = []
+  for (const line of output.split('\n')) {
+    const trimmed = line.trimEnd()
+    if (!trimmed.startsWith('?? ')) continue
+    const n = normalizePath(unquoteGitPath(trimmed.slice(3)))
+    if (n.length > 0) out.push(n)
+  }
+  return out
+}
+
+/** git C-style 引號的單字元跳脫（`git quote.c` 定義的同名集合）。 */
+const GIT_QUOTE_ESCAPES: Readonly<Record<string, number>> = {
+  a: 0x07,
+  b: 0x08,
+  f: 0x0c,
+  n: 0x0a,
+  r: 0x0d,
+  t: 0x09,
+  v: 0x0b,
+  '\\': 0x5c,
+  '"': 0x22,
+}
+
+/**
+ * 解開 git 的 C-style 引號（含 `\NNN` octal byte 跳脫，可跨多位元組 UTF-8）。
+ * 沒有被引號完整包住時原樣回傳（不完整的引號不吞路徑）。
+ */
+function unquoteGitPath(raw: string): string {
+  const quoted = /^"([\s\S]*)"$/.exec(raw)
+  if (quoted === null) return raw
+  const inner = raw.slice(1, -1)
+  const bytes: number[] = []
+  let last = 0
+  for (const match of inner.matchAll(/\\([0-7]{1,3})|\\(.)/gs)) {
+    bytes.push(...Buffer.from(inner.slice(last, match.index), 'utf8'))
+    const octal = match[1]
+    if (octal !== undefined) {
+      bytes.push(parseInt(octal, 8) & 0xff)
+    } else {
+      const escaped = match[2] as string
+      const code = GIT_QUOTE_ESCAPES[escaped]
+      // 未知跳脫不在 git 的輸出裡；保留反斜線比靜默吞掉更安全
+      if (code === undefined) bytes.push(...Buffer.from(`\\${escaped}`, 'utf8'))
+      else bytes.push(code)
+    }
+    last = match.index + match[0]!.length
+  }
+  bytes.push(...Buffer.from(inner.slice(last), 'utf8'))
+  return Buffer.from(bytes).toString('utf8')
+}
+
+/**
+ * 未追蹤檔清單，目錄項逐目錄展開。
+ *
+ * `--untracked-files=all` 讓 git 把新目錄逐檔列出（預設收成單一 `?? specs/`）；
+ * 但巢狀 git repo 等情況仍可能只給目錄項。此時以
+ * `git ls-files --others --exclude-per-directory=.gitignore -- <dir>` 展開；展開仍為空
+ * 就保留目錄項，不靜默丟掉一棵真實存在的未追蹤樹。
+ * 刻意不用 `--exclude-standard`：那會套用 agent 可寫的 `.git/info/exclude`（N4）。
+ */
+function collectUntrackedPaths(git: GitRunner, statusOutput: string, target: string): string[] {
+  const out: string[] = []
+  for (const p of parseUntrackedPaths(statusOutput)) {
+    if (!p.endsWith('/')) {
+      out.push(p)
+      continue
+    }
+    const dir = p.replace(/\/+$/, '')
+    const listed = parseDiffNameOnly(
+      git(['ls-files', '--others', '--exclude-per-directory=.gitignore', '--', dir], target),
+    )
+      .map(unquoteGitPath)
+      .map(normalizePath)
+    if (listed.length === 0) out.push(p)
+    else out.push(...listed)
+  }
+  return out
+}
+
+/**
+ * 未追蹤檔的權威清單（**不讀** `.git/info/exclude`／global ignore）。
+ *
+ * `git status --untracked-files=all` 與 `git ls-files --others --exclude-standard`
+ * 都套用 `.git/info/exclude`——那是 agent 可寫的檔案面（`target/.git/info/exclude`），
+ * 一行 `*` 就能讓整批新產出從事實清單消失；global ignore 的預設路徑
+ * （`$XDG_CONFIG_HOME/git/ignore`）同理。
+ * `--exclude-per-directory=.gitignore` 只讀版本庫自己的 `.gitignore`（tracked 檔，
+ * 改動本身就會出現在 diff 裡），保留正常 ignore 語意、關掉這個繞道。
+ */
+function collectUntrackedIgnoringInfoExclude(git: GitRunner, target: string): string[] {
+  return parseDiffNameOnly(
+    git(['ls-files', '--others', '--exclude-per-directory=.gitignore'], target),
+  )
+    .map(unquoteGitPath)
+    .map(normalizePath)
+    .filter((p) => p.length > 0)
+}
+
+/**
+ * 把 `factory-verify-facts` 的 JSON 轉成 crosscheck 的 `CrosscheckActual`
+ * （R25）。驗證模式帶 `--facts` 時這是唯一的事實來源；`branches` 恆為空、
+ * `uncommitted` 恆為空（clean repo 的事實沒有「未提交」的概念）。
+ *
+ * 這裡只防禦性過濾 neutralised 路徑的 **D（刪除）**：workflow 在 agent 之前已把
+ * base 內的 instruction／skill 路徑移到一旁，那些刪除不是 agent 的越界變更；舊
+ * facts（或漏掉排除的版本）也不能讓 tracked `.dsh`／`.agents` 的刪除變成 scope
+ * 假紅。A（agent 新建）與 M（改寫）**必須保留**：R26 (d) 要求 agent 在
+ * `.dsh`／`.agents` 下自建檔案時由 `verify-scope` 判紅，不能靜默吞掉。
+ */
+export function actualFromVerifyFacts(facts: VerifyFacts): CrosscheckActual {
+  return {
+    branches: [],
+    paths: facts.changed
+      .filter((entry) => entry.status !== 'D' || !isNeutralisedPath(entry.path))
+      .map((entry) => entry.path),
+    added: facts.linesAdded,
+    deleted: facts.linesDeleted,
+    uncommitted: [],
+    assertionDelta: facts.assertionDelta,
+  }
+}
+
+/**
+ * 驗證模式的 git 事實（ADR-029 §5、§6；R2 裁決）。
+ *
+ * 驗證類 agent 不建分支，所以沒有 `factory/<issue>-*` 可比對；事實來源是
+ * **工作區（含本地 commit）相對 base 的 diff**：
+ *   - `git diff <base>`：已 commit 與未 commit 的變更（不含未追蹤檔）
+ *   - `git status --porcelain` 的 `??`：未追蹤的新檔（通常就是新產出）
+ *
+ * `branches` 恆為空陣列：驗證模式沒有變體分支，變體隔離檢查不適用。
+ * `uncommitted` 仍照實回報供診斷，但驗證模式不把它當 mismatch（main 判定）。
+ *
+ * `base` 通常是分支名；R19 後 main 會傳入 `--base-sha` 解析出的不可變 commit，
+ * 兩者對 `git diff` 而言都只是 ref——本函式不區分，也不得退回分支名。
+ *
+ * `--no-renames` 是必要的（R24）：預設 rename 偵測會把「刪 A、加 B」摺成一筆
+ * R100，`--name-only` 只列新路徑——把產品檔 `git mv` 成測試檔就能讓刪除從
+ * verify-scope 白名單消失。關掉後舊路徑必以刪除出現，新測試檔仍以新增出現；
+ * 三段 diff（paths／shortstat／assertion delta）都帶同一旗標，事實才一致。
+ */
+export function collectVerifyDiff(
+  git: GitRunner,
+  opts: { base: string; target: string },
+): CrosscheckActual {
+  const { base, target } = opts
+  const diffPaths = parseDiffNameOnly(
+    git(['diff', '--name-only', '--no-renames', base], target),
+  ).map(normalizePath)
+  const stat = parseShortStat(git(['diff', '--shortstat', '--no-renames', base], target))
+  // 未追蹤檔不在 diff 內，補進來才算得出「有沒有交付」。`--untracked-files=all`
+  // 是關鍵：預設會把整棵新目錄收成 `?? specs/`，回報 `specs/quint/model.qnt`
+  // 的合規 run 會被判 reported-not-in-diff ＋ diff-not-reported 假紅。
+  // 順序：diff 在前、untracked 在後，維持輸出的可預期性（測試與留言都依此順序）。
+  const statusOutput = git(['status', '--porcelain', '--untracked-files=all'], target)
+  const paths = [...diffPaths]
+  for (const p of collectUntrackedPaths(git, statusOutput, target)) {
+    // 已提交／已暫存的檔案也會出現在 status（`A `），但只有 `??` 會被
+    // parseUntrackedPaths 取用；diff 與 untracked 理論上不重疊，仍去重避免
+    // 同一路徑在 report 比對與白名單檢查中出現兩次。
+    if (!paths.includes(p)) paths.push(p)
+  }
+  // status 會套用 `.git/info/exclude`（agent 可寫）：未追蹤交付可能整批被藏住。
+  // 這條清單不讀它，補回 status 看不到的檔案（N4）。
+  for (const p of collectUntrackedIgnoringInfoExclude(git, target)) {
+    if (!paths.includes(p)) paths.push(p)
+  }
+  return {
+    branches: [],
+    paths,
+    added: stat.added,
+    deleted: stat.deleted,
+    uncommitted: parseStatusPorcelain(statusOutput),
+    assertionDelta: countAssertionDelta(git(['diff', '--unified=0', '--no-renames', base], target)).delta,
+  }
+}
+
+/** 還原清單的一筆（`factory-verify-input` 在 agent 之前寫入，R13／R15）。 */
+interface RestoredInput {
+  path: string
+  /** 還原當時寫入位元組的 sha256（hex、小寫）；crosscheck 會以磁碟重算，不信任這個值本身。 */
+  sha256: string
+}
+
+/** manifest 的 sha256 欄位：64 位小寫 hex（與 `createHash('sha256').digest('hex')` 一致）。 */
+const SHA256_HEX = /^[0-9a-f]{64}$/
+
+/**
+ * 讀 `factory-verify-input` 寫的還原清單（R13、R15）。檔案不存在、非 JSON、形狀錯、
+ * 重複路徑或含非還原白名單路徑都是 hard error：靜默忽略會讓有還原輸入的 run 回到
+ * diff-not-reported 假紅，或讓壞掉的 manifest 悄悄失去扣除／唯讀驗證效果。
+ *
+ * 舊版 `{ "restored": ["<path>"] }` 直接拒絕、不自動升級（R15）：那個形狀沒有雜湊，
+ * 無法判斷還原輸入是否被 agent 改動或刪除——而這正是「還原輸入唯讀」的唯一機械
+ * 防線。清單由本 repo 的 restore 步驟產生，兩端必須同步；靜默接受舊形狀等於讓
+ * 防線消失。
+ *
+ * 路徑也必須落在還原端允許的範圍（`specs/**` 或驗證白名單），且排除 PBT 測試檔與
+ * `.lake/build`（R15）：manifest 在 runner 工作區、agent 有寫入權限，若接受任意
+ * 路徑，agent 就能把自己改的產品程式碼列進 manifest 讓 crosscheck 與白名單檢查
+ * 同時看不到；PBT 檔入列則可遮蔽 `pbt-outside-audit`，建置快取入列則等於宣稱可
+ * 重建的產物是「還原輸入」。
+ */
+function loadRestoredManifest(path: string): RestoredInput[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    throw new CliError(`--restored-manifest (${path}) 無法讀取或不是合法 JSON`)
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new CliError(`--restored-manifest (${path}) 必須是 JSON 物件`)
+  }
+  const restored = (parsed as { restored?: unknown }).restored
+  if (!Array.isArray(restored)) {
+    throw new CliError(
+      `--restored-manifest (${path}) 的 restored 必須是 [{ "path", "sha256" }] 陣列（舊版字串陣列已不接受，見 R15）`,
+    )
+  }
+  const entries: RestoredInput[] = []
+  const seen = new Set<string>()
+  for (const entry of restored) {
+    if (typeof entry === 'string') {
+      throw new CliError(
+        `--restored-manifest (${path}) 是舊版格式 { "restored": [string] }——` +
+          '需要 { "restored": [ { "path", "sha256" } ] }（R15：還原輸入唯讀，以雜湊驗證；不提供自動升級，請重跑還原步驟）',
+      )
+    }
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      throw new CliError(`--restored-manifest (${path}) 的 restored 條目必須是 { path, sha256 } 物件`)
+    }
+    const { path: restoredPath, sha256 } = entry as { path?: unknown; sha256?: unknown }
+    if (typeof restoredPath !== 'string') {
+      throw new CliError(`--restored-manifest (${path}) 的 restored 條目缺 path（必須是字串）`)
+    }
+    if (typeof sha256 !== 'string' || !SHA256_HEX.test(sha256)) {
+      throw new CliError(`--restored-manifest (${path}) 的 restored 條目缺 sha256（必須是 64 位小寫 hex）`)
+    }
+    if (!isRestoredManifestPath(restoredPath)) {
+      throw new CliError(
+        `--restored-manifest (${path}) 含不在還原白名單內的路徑（還原端只寫 specs/** 與測試檔，且不得是 PBT 測試檔或 .lake/build）`,
+      )
+    }
+    if (seen.has(restoredPath)) {
+      throw new CliError(`--restored-manifest (${path}) 含重複路徑（扣除與驗證結果會取決於處理順序）`)
+    }
+    seen.add(restoredPath)
+    entries.push({ path: restoredPath, sha256 })
+  }
+  return entries
+}
+
+/** manifest 的單一路徑是否可能是 `factory-verify-input` 還原的檔案。 */
+function isRestoredManifestPath(p: string): boolean {
+  if (p === '' || p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false
+  const segments = p.split('/')
+  if (
+    segments.some(
+      (segment) => segment === '' || segment === '.' || segment === '..' || segment.toLowerCase() === '.git',
+    )
+  ) {
+    return false
+  }
+  // PBT 檔只能由稽核工單產出（ADR-019 §2）：若可從 manifest 扣除，agent 就能在驗證
+  // 階段寫 PBT 檔並讓 pbt-outside-audit 看不到它（R15）。
+  if (isPbtTestPath(p)) return false
+  // 建置快取可重建、也不是還原端的輸入（factory-verify-encrypt 不打包）——同一個
+  // predicate，兩端不得漂移（R14、R15）。
+  if (isLakeBuildArtifact(p)) return false
+  return isVerifyAllowedPath(p)
+}
+
+/**
+ * 驗證還原輸入仍是「唯讀」的（R15）：逐一以磁碟上的實際位元組重算 sha256，只有
+ * **存在且雜湊相符**的路徑才算未動的還原輸入，才能從 agent 的 diff 扣除。
+ *
+ * 被改動或刪除的路徑反而是 agent 的（違規）變更：不扣除（讓 diff-not-reported
+ * 也能現形），並產生 `restored-input-modified`——與 diff-not-reported 同等級的
+ * hard mismatch。manifest 裡的雜湊只是「還原當時」的紀錄，判斷一律以重算結果為
+ * 準：偽造或過期的雜湊不會被當成「檔案沒被動」的證據。
+ */
+function verifyRestoredInputs(
+  entries: readonly RestoredInput[],
+  target: string,
+): { unchanged: string[]; mismatches: CrosscheckMismatch[] } {
+  const unchanged: string[] = []
+  const mismatches: CrosscheckMismatch[] = []
+  for (const { path: restoredPath, sha256 } of entries) {
+    let current: string
+    try {
+      current = createHash('sha256')
+        .update(readFileSync(resolve(target, restoredPath)))
+        .digest('hex')
+    } catch {
+      // 刪除、被換成目錄、權限被改掉……都無法證明還是原本的輸入。
+      mismatches.push({
+        kind: 'restored-input-modified',
+        detail:
+          `還原的階段輸入已不存在或無法讀取：${restoredPath}——還原輸入是唯讀的，agent 不得刪除或替換` +
+          '（ADR-029 §5；read-only 規則由 manifest 的 sha256 機械驗證）',
+      })
+      continue
+    }
+    if (current !== sha256) {
+      mismatches.push({
+        kind: 'restored-input-modified',
+        detail:
+          `還原的階段輸入被修改：${restoredPath}——目前的內容與還原時的 sha256 不符；` +
+          '還原輸入是唯讀的，前一階段確認過的規格不得被本階段改寫（ADR-029 §5）',
+      })
+      continue
+    }
+    unchanged.push(restoredPath)
+  }
+  return { unchanged, mismatches }
+}
+
+/**
+ * 把「雜湊相符的」已還原階段輸入從實際 diff 扣除（R13）。輸入不是 agent 的交付，
+ * 不該被要求出現在 report.changedPaths；白名單與變更行數檢查也不該把它算進去。
+ * 被改動的還原輸入不在 unchanged 內，因此仍留在 diff 裡（見 verifyRestoredInputs）。
+ */
+function subtractRestoredPaths(actual: CrosscheckActual, restored: readonly string[]): CrosscheckActual {
+  if (restored.length === 0) return actual
+  const excluded = new Set(restored)
+  return {
+    ...actual,
+    paths: actual.paths.filter((p) => !excluded.has(p)),
+    uncommitted: actual.uncommitted.filter((p) => !excluded.has(p)),
+  }
+}
+
 /** 讀取並驗證 report.json（契約同 factory-judge，共用 ReportSchema）。 */
 function loadReport(reportPath: string) {
   const text = readFileSync(reportPath, 'utf8')
@@ -714,10 +1131,45 @@ export interface VariantArgs {
   remoteBranchesPath: string
 }
 
+/** `--base-sha` 的格式（R19）：完整 40 位 hex commit；分支名／簡短 SHA 一律拒絕。 */
+const BASE_SHA_HEX = /^[0-9a-f]{40}$/i
+
+/**
+ * 驗證 `--base-sha` 的形狀並正規化為小寫。刻意只收完整 40 位 hex：簡短 SHA 的
+ * 解析規則取決於 repo 狀態（歧義時會變），不是「不可變 commit」。
+ */
+export function parseBaseSha(value: string): string {
+  const sha = value.trim().toLowerCase()
+  if (!BASE_SHA_HEX.test(sha)) {
+    throw new CliError(
+      `--base-sha 必須是完整的 40-hex commit（40 位十六進位；收到「${value}」）——` +
+        '驗證模式的 diff 基準是 agent 啟動前的 HEAD，不是可移動的分支名（R19）',
+    )
+  }
+  return sha
+}
+
+/**
+ * 確認 `--base-sha` 在此 repo 解析得到 commit。解析不到就 fail-loud：默默退回
+ * 分支名會讓 C2 的假紅／白名單繞過原樣重現，而且沒有任何訊號。
+ */
+export function resolveBaseSha(git: GitRunner, target: string, sha: string): string {
+  try {
+    const resolved = git(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], target).trim()
+    if (resolved !== '') return resolved
+  } catch {
+    // 落到下方統一的 CliError：不把 git 的 stderr 當成使用者訊息
+  }
+  throw new CliError(
+    `--base-sha ${sha} 在此 repo 解析不到 commit——拒絕以可移動的分支名替代（R19，fail closed）`,
+  )
+}
+
 /**
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
- *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only]
+ *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only] [--verify-only]
+ *  [--base-sha <40-hex>] [--restored-manifest <file>] [--facts <file>]
  *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
  *   [--source-snapshot <file>]] [--variant <a|b> --remote-branches <file>]`。
  */
@@ -729,6 +1181,13 @@ export function parseArgs(argv: string[]): {
   proposeSkillOnly: boolean
   onboardOnly: boolean
   pbtAuditOnly: boolean
+  verifyOnly: boolean
+  /** agent 啟動前的 HEAD（R19）；存在時取代 `--base` 的分支名，只在 --verify-only 下有效。 */
+  baseSha?: string | undefined
+  /** `factory-verify-input` 的還原清單（只在 --verify-only 下有效）。 */
+  restoredManifestPath?: string | undefined
+  /** `factory-verify-facts` 的輸出（只在 --verify-only 下有效）；存在時不得再對 target 跑 git。 */
+  factsPath?: string | undefined
   requirementAnchors: string[]
   writeSpec?: WriteSpecArgs | undefined
   variant?: VariantArgs | undefined
@@ -742,6 +1201,10 @@ export function parseArgs(argv: string[]): {
   let proposeSkillOnly = false
   let onboardOnly = false
   let pbtAuditOnly = false
+  let verifyOnly = false
+  let baseSha: string | undefined
+  let restoredManifestPath: string | undefined
+  let factsPath: string | undefined
   let requirementAnchors: string[] = []
   let specPhase: string | undefined
   let specName: string | undefined
@@ -770,6 +1233,22 @@ export function parseArgs(argv: string[]): {
       onboardOnly = true
     } else if (arg === '--pbt-audit-only') {
       pbtAuditOnly = true
+    } else if (arg === '--verify-only') {
+      verifyOnly = true
+    } else if (arg === '--base-sha') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) {
+        throw new CliError('--base-sha requires a full 40-hex commit SHA')
+      }
+      baseSha = parseBaseSha(v)
+    } else if (arg === '--restored-manifest') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new CliError('--restored-manifest requires a path')
+      restoredManifestPath = v
+    } else if (arg === '--facts') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new CliError('--facts requires a path')
+      factsPath = v
     } else if (arg === '--requirement-anchors') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) {
@@ -796,13 +1275,14 @@ export function parseArgs(argv: string[]): {
   }
   // 各「僅產出」模式的允許清單互不相同，同時指定會讓實際生效的規則變得含糊
   // ——寧可紅燈，也不要讓寬鬆的那一套悄悄成為實際規則（同 factory-judge 的立場）。
-  // 以清單列舉而非兩兩比對：新增第四個模式時不會漏掉任何組合。
+  // 以清單列舉而非兩兩比對：新增第五個模式時不會漏掉任何組合。
   const exclusive = (
     [
       ['--analyze-only', analyzeOnly],
       ['--propose-skill-only', proposeSkillOnly],
       ['--onboard-only', onboardOnly],
       ['--pbt-audit-only', pbtAuditOnly],
+      ['--verify-only', verifyOnly],
       ['--write-spec-phase', specPhase !== undefined],
     ] as const
   )
@@ -810,6 +1290,29 @@ export function parseArgs(argv: string[]): {
     .map(([flag]) => flag)
   if (exclusive.length > 1) {
     throw new CliError(`${exclusive.join(' 與 ')} 不可同時指定`)
+  }
+  // 驗證模式沒有分支，`--variant` 的隔離檢查（分支前綴、遠端分支清單）不適用；
+  // 同時指定等於兩套互相矛盾的事實來源，fail-loud 而不是讓其中一套靜默失效。
+  if (verifyOnly && (variantId !== undefined || remoteBranchesPath !== undefined)) {
+    throw new CliError('--verify-only 不可與 --variant／--remote-branches 同時指定（驗證類不建分支）')
+  }
+  // 還原清單只有驗證模式會產生；其他模式帶了它等於接線錯誤，不可靜默忽略。
+  if (restoredManifestPath !== undefined && !verifyOnly) {
+    throw new CliError('--restored-manifest 只適用於 --verify-only（驗證模式的階段輸入還原）')
+  }
+  // 不可變 diff 基準同理：非驗證模式的事實來源是 factory/<issue>-* 分支，
+  // 帶了 --base-sha 等於兩套基準並存——寧可紅燈，也不要讓其中一套靜默失效。
+  if (baseSha !== undefined && !verifyOnly) {
+    throw new CliError('--base-sha 只適用於 --verify-only（不可變 diff 基準是驗證模式的事實來源，R19）')
+  }
+  // facts 只有驗證模式會產生；其他模式帶了它等於接線錯誤，不可靜默忽略。
+  if (factsPath !== undefined && !verifyOnly) {
+    throw new CliError('--facts 只適用於 --verify-only（clean repo 的事實是驗證模式的輸入，R25）')
+  }
+  // facts 的 baseSha 必須與 --base-sha 交叉驗證；只帶 facts 等於少了一個獨立基準，
+  // 無法確認 workflow 記下的 pre-agent commit 與事實檔是同一個。
+  if (factsPath !== undefined && baseSha === undefined) {
+    throw new CliError('--facts 需要同時指定 --base-sha（facts 的 baseSha 必須被獨立驗證，R25，fail closed）')
   }
   const issueNumber = Number(positional[0])
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
@@ -849,6 +1352,10 @@ export function parseArgs(argv: string[]): {
     proposeSkillOnly,
     onboardOnly,
     pbtAuditOnly,
+    verifyOnly,
+    baseSha,
+    restoredManifestPath,
+    factsPath,
     requirementAnchors,
     writeSpec,
     variant,
@@ -910,19 +1417,62 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     proposeSkillOnly,
     onboardOnly,
     pbtAuditOnly,
+    verifyOnly,
+    baseSha,
+    restoredManifestPath,
+    factsPath,
     requirementAnchors,
     writeSpec,
     variant,
   } = parseArgs(argv)
   const report = loadReport(reportPath)
-  const actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
+  // R25：帶 --facts 時，事實完全來自 workflow 在 clean repo 產生的 JSON；本步驟
+  // 不得再對 agent 工作樹跑任何 git 命令（clean filter／index flags／ignore 檔
+  // 因此沒有執行或說謊的機會）。--base-sha 仍獨立驗證：兩者不一致即紅燈。
+  const facts = factsPath === undefined ? undefined : loadVerifyFacts(factsPath)
+  if (facts !== undefined && baseSha !== facts.baseSha) {
+    throw new CliError(
+      `--base-sha ${String(baseSha)} 與 --facts 的 baseSha ${facts.baseSha} 不一致——` +
+        '拒絕混用兩個 diff 基準（R19／R25，fail closed）',
+    )
+  }
+  // 驗證類沒有分支（R2：本地 commit 可以、push 不行），事實來源改成工作區
+  // 相對 base 的 diff；其餘模式維持 factory/<issue>-* 分支的三點 diff。
+  // R19／C2：`--base-sha` 存在時以該不可變 commit 為基準，`--base` 的分支名
+  // 完全不參與（agent 的本地 commit 會推進本地 base 分支）。
+  let actual: CrosscheckActual
+  if (verifyOnly && facts !== undefined) {
+    actual = actualFromVerifyFacts(facts)
+  } else if (verifyOnly) {
+    actual = collectVerifyDiff(git, {
+      base:
+        baseSha === undefined
+          ? paths.base
+          : resolveBaseSha(git, paths.target, baseSha),
+      target: paths.target,
+    })
+  } else {
+    actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
+  }
+  // R13／R15：階段輸入是前一階段還原到工作區的檔案（tracked 檔案被覆寫時進 git
+  // diff，新檔則是 untracked），不是本次 agent 的交付。只有還原後**沒有被動過**
+  // （存在且 sha256 與 manifest 相符）的檔案才扣除；被改動或刪除的還原輸入留在
+  // diff 裡，另記為 restored-input-modified（hard，與 diff-not-reported 同級）。
+  let restoredInputMismatches: CrosscheckMismatch[] = []
+  if (restoredManifestPath !== undefined) {
+    const verified = verifyRestoredInputs(loadRestoredManifest(restoredManifestPath), paths.target)
+    actual = subtractRestoredPaths(actual, verified.unchanged)
+    restoredInputMismatches = verified.mismatches
+  }
   const mismatches = compareReportToActual(
     report,
     actual,
     analyzeOnly,
     proposeSkillOnly,
     onboardOnly,
+    verifyOnly,
   )
+  mismatches.push(...restoredInputMismatches)
   // PBT 範圍（ADR-019 §2、§5、R6）：audit 只能新增或修改 PBT 檔、不得刪除；其他類型
   // 不得產出 PBT 檔。前者是 in-loop 豁免的前提之一（apply-score-labels.ts）。
   const changed = actual.paths.filter((p) => !isFactoryInternal(p))
@@ -935,6 +1485,27 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     mismatches.push(...checkPbtAuditScope([...new Set([...changed, ...deleted])], deleted))
   } else {
     mismatches.push(...checkPbtOutsideAudit(changed))
+  }
+  // 驗證類的白名單（ADR-029 §5、§6）：只允許 specs/** 與測試檔。放在 report
+  // 一致性檢查之後：先確認 report 誠實，再確認變更範圍合法——兩者是不同處置。
+  if (verifyOnly) {
+    mismatches.push(...checkVerifyScope(changed))
+    // R26 (d)：agent 在 neutralised 路徑下新建的檔案不能因為落在白名單內就放行
+    //（例如 `specs/AGENTS.md` 符合 `specs/**`）。這裡用 `changed`（已扣除還原的
+    // 階段輸入、也已濾掉 neutralised D）而不是原始 facts；outside-whitelist 者
+    // 已由上一行涵蓋，這一行只補白名單內的漏網路徑。
+    const neutralisedAllowed = changed.filter(
+      (path) => isNeutralisedPath(path) && isVerifyAllowedPath(path),
+    )
+    if (neutralisedAllowed.length > 0) {
+      mismatches.push({
+        kind: 'verify-neutralised-path',
+        detail:
+          `agent 在 neutralised 路徑下新增／改寫檔案：${neutralisedAllowed.join('、')}` +
+          '。`.dsh`／`.agents`／`AGENTS.md`／`AGENTS.local.md`／`CLAUDE.md`／`CLAUDE.local.md`' +
+          ' 是 mechanism／instruction 面，即使路徑落在 specs／test 白名單內也不得由驗證 agent 建立（R26 (d)）',
+      })
+    }
   }
   let remoteBranches: string[] | undefined
   if (variant !== undefined) {

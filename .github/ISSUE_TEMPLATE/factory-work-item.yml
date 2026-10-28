@@ -17,6 +17,10 @@ body:
         - agent-analyze
         - agent-propose-skill
         - agent-pbt-audit
+        - agent-verify-grill
+        - agent-verify-quint
+        - agent-verify-lean
+        - agent-verify-tests
     validations:
       required: true
   - type: textarea

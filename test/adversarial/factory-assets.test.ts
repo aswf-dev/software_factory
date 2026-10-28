@@ -390,10 +390,15 @@ describe('factory-run.yml 多 repo 支援（Q-P2-1 統一，Phase 2 T4）', () =
     expect(content).toContain('base_branch:')
     expect(content).toContain('default: software-factory')
   })
-  it('Guard step：所有 repo 的 base_branch 一律不得為 main（含機制 repo，ADR-013 統一）', () => {
+  it('Guard step 改由 factory-verify-mode 判定：非驗證類仍不得用 main（ADR-013），規則只有一份實作', () => {
     expect(content).toMatch(/Guard base_branch safety/)
-    expect(content).toContain('inputs.base_branch')
-    expect(content).toContain('== "main"')
+    expect(content).toContain('dist/cli/factory-verify-mode.js')
+    expect(content).toContain('--base-branch "$BASE_BRANCH"')
+    expect(content).toContain('--default-branch "$DEFAULT_BRANCH"')
+    expect(content).toContain('.factory/verify-mode.json')
+    // 規則移到 CLI（src/cli/factory-verify-mode.ts）：workflow 不再自己比對 main，
+    // 否則兩份規則會漂移。非驗證類擋 main 由 test/verify-mode.test.ts 釘住。
+    expect(content).not.toMatch(/\$\{\{ inputs\.base_branch \}\}" == "main"/)
     // 統一後無「機制 repo 特例」——不再有 != "philipz/software_factory" 的放行條件
     expect(content).not.toContain('!= "philipz/software_factory"')
   })
@@ -478,7 +483,7 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       expect(c).toContain('export BASE_BRANCH=$(cat .factory/run/base-branch')
     }
   })
-  it('8 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
+  it('12 種 task_type 各有一個專屬 task-template 檔（下拉選單直接對應，ADR 決定）', () => {
     const w = read('.github/workflows/factory-run.yml')
     const m = w.match(/^ {8}options: \[(.+)\]$/m)
     expect(m).not.toBeNull()
@@ -495,15 +500,67 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'agent-analyze',
       'agent-propose-skill',
       'agent-pbt-audit',
+      'agent-verify-grill',
+      'agent-verify-quint',
+      'agent-verify-lean',
+      'agent-verify-tests',
     ])
-    // 檔名慣例：task-template-<type>.txt（type 無 agent- 前綴）——
-    // 路由必須剝除前綴，否則專屬模板永遠拼不出檔名（2026-08-21 實測抓到的
-    // 既有 bug：PR #101 後 4 型全部靜默 fallback 到通用模板）。
-    expect(w).toContain('task-template-${TASK_TYPE#agent-}.txt')
+    // 檔案選擇集中在 factory-task-template（I2）：驗證模式一律機制模板，非驗證
+    // 模式維持 target → 機制 → 通用的既有偏好。檔名剝除 agent- 前綴的規則由
+    // src/cli/factory-task-template.test.ts 釘住，workflow 只負責傳入 task type。
+    expect(w).toContain('dist/cli/factory-task-template.js')
+    expect(w).toContain('--task-type "$TASK_TYPE"')
     for (const t of options.filter((o) => o !== 'auto')) {
       const file = `task-template-${t.replace(/^agent-/, '')}.txt`
       expect(read(`.github/factory/${file}`)).toContain('<ISSUE>')
     }
+  })
+  /**
+   * 驗證類 template 是 agent 唯一的作業規則來源（ADR-029 §5）。缺一項就等於少一道
+   * 護欄：白名單少寫 → crosscheck 才擋（更晚、更貴）；沒寫禁止 push/PR → agent
+   * 會照一般型別的習慣開 PR，把未經 G2 的發現公開在目標 repo。
+   */
+  it('驗證類 task-template 帶階段目標、寫入白名單、禁止 push/PR、產出與 stage/done 完成條件', () => {
+    const perStage: Record<string, string[]> = {
+      grill: ['CODE-SUMMARY.md', '候選規則', 'openQuestions', '不得猜測規則', '未確認'],
+      quint: [
+        'specs/quint/RULES.md',
+        'specs/quint/model.qnt',
+        'specs/quint/instances.qnt',
+        'specs/quint/test.qnt',
+        'specs/quint/REPORT.md',
+        'specs/quint/traces/',
+        'quint run',
+        'quint verify',
+      ],
+      lean: ['verify_phase', 'statements', 'proofs', 'specs/lean/', 'sorry', 'Mathlib', 'v4.35.0'],
+      tests: ['todo', 'skip', '外部服務'],
+    }
+    for (const [stage, needles] of Object.entries(perStage)) {
+      const c = read(`.github/factory/task-template-verify-${stage}.txt`)
+      const label = `task-template-verify-${stage}`
+      expect(c, label).toContain('<ISSUE>')
+      expect(c, label).toContain('<REPO>')
+      expect(c, label).toContain('<BASE_BRANCH>')
+      expect(c, label).toContain('寫入白名單')
+      expect(c, label).toContain('不得 push 分支')
+      expect(c, label).toContain('不得開 PR')
+      expect(c, label).toContain('stage/done')
+      // 正式程式碼與機制設定不在白名單內（ADR-029 §6）：白名單必須明文排除。
+      expect(c, label).toContain('不得修改 `src/**`')
+      expect(c, label).toContain('`.github/**`')
+      for (const n of needles) expect(c, `${label} 缺少：${n}`).toContain(n)
+    }
+    // 各階段的禁止事項要寫成「不得」句，而不只是提到關鍵字。
+    expect(read('.github/factory/task-template-verify-quint.txt')).toMatch(/不得[^\n]*`quint verify`/)
+    expect(read('.github/factory/task-template-verify-lean.txt')).toMatch(/proofs[^]*?不得[^]*?sorry/)
+  })
+  it('lean 階段以 workflow input verify_phase（statements／proofs）分流', () => {
+    const w = read('.github/workflows/factory-run.yml')
+    expect(w).toContain('verify_phase:')
+    expect(w).toContain('options: [statements, proofs]')
+    expect(w).toContain('default: statements')
+    expect(read('.github/factory/task-template-verify-lean.txt')).toContain('<VERIFY_PHASE>')
   })
   it('通用模板 fallback 有 ::warning:: log（漂移不靜默，fail-loud 精神）', () => {
     const w = read('.github/workflows/factory-run.yml')
@@ -854,7 +911,7 @@ describe('Phase 2 資產釘選（Phase 2 T7）', () => {
   it('factory-run.yml 含 task_type 路由與 repo input', () => {
     const c = read('.github/workflows/factory-run.yml')
     expect(c).toContain('task_type')
-    expect(c).toContain('task-template-${TASK_TYPE#agent-}')
+    expect(c).toContain('dist/cli/factory-task-template.js')
     expect(c).toContain('inputs.repo')
   })
   it('factory-workflow skill 含任務型別分支與 --draft 禁令', () => {
@@ -935,7 +992,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
     const labels = [...yml.matchAll(/^ {8}- label: (.+)$/gm)].map((m) => m[1])
     expect(labels).toEqual([...DOD_LABELS])
   })
-  it('ISSUE_TEMPLATE 的 task_type 8 種選項齊全', () => {
+  it('ISSUE_TEMPLATE 的 task_type 12 種選項齊全', () => {
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     for (const t of [
       'agent-add-tests',
@@ -946,6 +1003,10 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-analyze',
       'agent-propose-skill',
       'agent-pbt-audit',
+      'agent-verify-grill',
+      'agent-verify-quint',
+      'agent-verify-lean',
+      'agent-verify-tests',
     ]) {
       expect(yml).toContain(t)
     }
@@ -1018,7 +1079,7 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'factory-run 不得再有固定類型的 input 預設',
     ).not.toContain('default: agent-add-tests')
   })
-  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（8 型，2026-09-01 C1 漂移修復）', () => {
+  it('Backstage taskType enum 與 ISSUE_TEMPLATE 下拉一致（12 型，2026-09-01 C1 漂移修復）', () => {
     const t = read('backstage/templates/factory-work-item/template.yaml')
     const yml = read('.github/ISSUE_TEMPLATE/factory-work-item.yml')
     const expected = [
@@ -1030,6 +1091,10 @@ describe('Backstage factory-work-item 模板與 DoD 契約（docs/ADR/009）', (
       'agent-analyze',
       'agent-propose-skill',
       'agent-pbt-audit',
+      'agent-verify-grill',
+      'agent-verify-quint',
+      'agent-verify-lean',
+      'agent-verify-tests',
     ]
     for (const ty of expected) {
       expect(t).toContain(ty)
@@ -2194,9 +2259,31 @@ describe('write-spec 階段判定接線（ADR-018 §12）', () => {
     const run = steps()[phaseIdx()]!.run!
     expect(run).toMatch(/if \[ "\$DECISION" = "refuse" \]; then[\s\S]*?gh issue comment[\s\S]*?exit 1/)
   })
-  it('沒有「指定階段」的 dispatch input（不留跳過第一階段的後門）', () => {
+  it('dispatch input 是精確 allowlist：沒有「指定 write-spec 階段」的後門', () => {
+    // 階段只能由 Issue 狀態推導（ADR-018 §12）。以**精確 allowlist** 取代正則
+    // （Task 1 審查 Minor）：正則只猜「像階段的名字」，`stage`／`write_spec_stage`
+    // 這類新增 input 不會被抓到；精確清單讓任何新 input 都必須在此顯性列出，
+    // 順便擋下「多一個可覆寫階段的欄位」這種後門。
+    // `verify_phase` 是 ADR-029 §2 的 Lean 兩次執行參數（statements → G3 簽核 →
+    // proofs），由機制端在簽核後才以 proofs 派工；它不是 write-spec 的階段後門。
+    // `verify_input_url` 是 ADR-029 §5 的驗證類階段輸入（runner 公鑰加密的 bundle，
+    // 只在驗證模式還原、只收 specs／測試檔）；同樣不是 write-spec 的階段後門。
     const inputs = Object.keys(wf().on.workflow_dispatch.inputs)
-    expect(inputs.filter((k) => /spec|phase/i.test(k))).toEqual([])
+    expect(inputs).toEqual([
+      'issue_number',
+      'task_type',
+      'verify_phase',
+      'verify_input_url',
+      'repo',
+      'base_branch',
+      'dry_run',
+      'dry_run_scenario',
+      'model_tier',
+      'model_provider',
+      'token_budget',
+      'agent_timeout_minutes',
+      'nversion',
+    ])
   })
   it('階段往下傳：選模型、任務模板、crosscheck、judge', () => {
     const byId = (id: string) => steps().find((s) => s.id === id)!.run!
@@ -2208,7 +2295,10 @@ describe('write-spec 階段判定接線（ADR-018 §12）', () => {
     expect(cc).toContain('--write-spec-phase ${{ steps.specphase.outputs.phase }}')
     expect(cc).toContain('--pr-bodies .factory/pr-bodies.json')
     expect(cc).toContain('--source-snapshot .factory/spec-source-snapshot.md')
-    expect(byId('judge')).toContain('--task-type "${{ steps.tasktype.outputs.value }}"')
+    // R12：task type 經 env 傳入（不在 run 內以 ${{ }} 內嵌）
+    const judge = steps().find((s) => s.id === 'judge') as Step & { env?: Record<string, string> }
+    expect(judge.env?.['TASK_TYPE']).toBe('${{ steps.tasktype.outputs.value }}')
+    expect(byId('judge')).toContain('--task-type "$TASK_TYPE"')
   })
   it('人貼的兩個 spec 標籤也預先建立（不存在就貼不上）', () => {
     const w = read('.github/workflows/factory-run.yml')
@@ -2245,7 +2335,8 @@ describe('write-spec 集中驗證接線（ADR-018 §7）', () => {
     expect(run).not.toContain('--add-label')
   })
   it('Quint 工具鏈快取在安裝之前（避免並行下載撞 rate limit）', () => {
-    const cache = idx((s) => s.uses === 'actions/cache@v6' && s.name === 'Cache Quint toolchain')
+    // 拆成 restore＋save（ADR-029 M1）：restore 仍在安裝之前；save 的閘控由 verify-lean-toolchain.test.ts 釘住
+    const cache = idx((s) => s.uses === 'actions/cache/restore@v6' && s.name === 'Restore Quint toolchain')
     expect(cache).toBeGreaterThanOrEqual(0)
     expect(cache).toBeLessThan(idx((s) => s.name === 'Install and build'))
   })
@@ -2274,7 +2365,7 @@ describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標�
       )
       .join('\n')
 
-  it('解析得到 workflow 的六個佔位字替換式', () => {
+  it('解析得到 workflow 的七個佔位字替換式', () => {
     expect(rules.map((r) => r.token).sort()).toEqual([
       '<BASE_BRANCH>',
       '<ISSUE>',
@@ -2282,12 +2373,13 @@ describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標�
       '<SPEC_NAME>',
       '<SPEC_PHASE>',
       '<VARIANT>',
+      '<VERIFY_PHASE>',
     ])
   })
   it('每個任務模板替換後都沒有殘留佔位字', () => {
     const dir = join(ROOT, '.github/factory')
     for (const f of readdirSync(dir).filter((n) => n.startsWith('task-template') && n.endsWith('.txt'))) {
-      const leftover = render(read(`.github/factory/${f}`)).match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME|VARIANT)>/g)
+      const leftover = render(read(`.github/factory/${f}`)).match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME|VARIANT|VERIFY_PHASE)>/g)
       expect(leftover, `${f} 替換後仍殘留 ${leftover?.join(', ')}`).toBeNull()
     }
   })
@@ -2428,9 +2520,13 @@ describe('Backstage dispatch 以登入者 OAuth token 執行（不依賴 PAT）'
 // 共用，未收窄的 installation token 會連同交給 agent（factory-run 的
 // target/.factory/run/gh-token 與 Run factory agent 的 GH_TOKEN），讓 agent 可在
 // 機制 repo 自我派工、刪除 run 紀錄。故每一處 mint 都必須明列權限且 actions 僅 read。
+//
+// ADR-029 §5（I3）：驗證模式另 mint 一個**唯讀** agent token（contents/issues/
+// metadata read）。它刻意沒有 pull-requests／actions 權限——那正是「agent 不會
+// push／開 PR」的機械保證，不是漏寫。
 describe('App token 一律收窄（agent 不得取得 actions:write）', () => {
   const { load } = require('js-yaml') as typeof import('js-yaml')
-  type Step = { uses?: string; with?: Record<string, string> }
+  type Step = { id?: string; uses?: string; with?: Record<string, string>; if?: string }
   const mints = readdirSync(join(ROOT, '.github/workflows'))
     .filter((f) => f.endsWith('.yml'))
     .flatMap((f) => {
@@ -2438,21 +2534,40 @@ describe('App token 一律收窄（agent 不得取得 actions:write）', () => {
       return Object.values(wf.jobs)
         .flatMap((j) => j.steps ?? [])
         .filter((s) => s.uses?.startsWith('actions/create-github-app-token@'))
-        .map((s) => ({ file: f, with: s.with ?? {} }))
+        .map((s) => ({ file: f, id: s.id, readOnly: s.with?.['permission-contents'] === 'read', with: s.with ?? {} }))
     })
+  /** 寫入權限的 mint（既有全部）；唯讀 agent token 另以專屬測試釘住。 */
+  const writeMints = mints.filter((m) => m.with['permission-contents'] === 'write')
 
-  it('至少找到 4 處 mint（factory-run／onboard／rescore／run-cleanup）', () => {
-    expect(mints.length).toBeGreaterThanOrEqual(4)
+  it('至少找到 4 處寫入 mint（factory-run／onboard／rescore／run-cleanup）＋唯讀 agent token', () => {
+    expect(writeMints.length).toBeGreaterThanOrEqual(4)
+    expect(mints.filter((m) => m.readOnly).length).toBeGreaterThanOrEqual(1)
   })
 
   // 明列才是保護所在：遺漏任何一項，token 就繼承 App 安裝的全部權限。
   // 值可以比 write 更窄（factory-stage-finalize 只需要 pull-requests: read，ADR-022）。
-  it.each(['contents', 'issues', 'pull-requests'])('每處明列 permission-%s（write 或更窄的 read）', (p) => {
+  it.each(['contents', 'issues'])('每處明列 permission-%s（write 或 read）', (p) => {
     for (const m of mints) expect(['write', 'read'], `${m.file}`).toContain(m.with[`permission-${p}`])
   })
 
-  it('每處 permission-actions 皆為 read', () => {
-    for (const m of mints) expect(m.with['permission-actions'], `${m.file}`).toBe('read')
+  it('寫入 mint 明列 pull-requests（read 或 write）', () => {
+    for (const m of writeMints) expect(['write', 'read'], `${m.file}`).toContain(m.with['permission-pull-requests'])
+  })
+
+  it('驗證模式的 agent token 只有 contents／issues／metadata read（沒有 PR／actions）', () => {
+    const token = mints.find((m) => m.file === 'factory-run.yml' && m.id === 'agent-token')
+    expect(token, 'factory-run.yml 缺少 id: agent-token').toBeDefined()
+    expect(token!.with).toMatchObject({
+      'permission-contents': 'read',
+      'permission-issues': 'read',
+      'permission-metadata': 'read',
+    })
+    expect(token!.with['permission-pull-requests']).toBeUndefined()
+    expect(token!.with['permission-actions']).toBeUndefined()
+  })
+
+  it('寫入 mint 的 permission-actions 皆為 read', () => {
+    for (const m of writeMints) expect(m.with['permission-actions'], `${m.file}`).toBe('read')
   })
 })
 
@@ -2487,5 +2602,131 @@ describe('整合測試建置紀律（平行 fork 不得共寫 dist/）', () => {
       // 不允許再出現裸 expect(status).toBe(0)（原因被丟棄的無聲紅燈）
       expect(c, f).not.toMatch(/expect\(status\)\.toBe\(0\)/)
     }
+  })
+})
+
+/**
+ * 驗證模式的 workflow 閘控（ADR-029 §5、§6；Task 1 審查後擴大）。
+ *
+ * 驗證類走同一支 factory-run，但四件事必須同時成立，否則不是洩漏就是每次誤紅：
+ *   1. guard 依 task type 放行目標 repo 的預設分支，並跳過 catalog／risk-paths／
+ *      factory-stage prereqs（ADR-013 對非驗證類不變）；
+ *   2. agent prompt 不得再命令它建分支／開 PR——VARIANT_HEADER 必須**整段替換**；
+ *   3. 計分／judge／終態與比對留言跳過（factory-score 缺 catalog-info 會拋錯；
+ *      終態留言會把階段結果寫進公開 Issue）；
+ *   4. crosscheck 改用 --verify-only（工作區 diff ＋ specs／測試檔白名單）。
+ * 這些性質壞掉時 run 仍可能是綠的（或每次紅），所以用解析後的 workflow 結構釘住。
+ */
+describe('驗證模式的 workflow 閘控（ADR-029 §5、§6）', () => {
+  const { load } = require('js-yaml') as typeof import('js-yaml')
+  type Step = { name?: string; id?: string; if?: string; run?: string }
+  const workflow = () =>
+    load(read('.github/workflows/factory-run.yml')) as {
+      jobs: {
+        run: { outputs?: Record<string, string>; steps: Step[] }
+        compare: { steps: Step[] }
+      }
+    }
+  const runSteps = () => workflow().jobs.run.steps
+  const compareSteps = () => workflow().jobs.compare.steps
+  const byName = (steps: Step[], name: string): Step => {
+    const s = steps.find((x) => x.name === name)
+    expect(s, `找不到 step：${name}`).toBeDefined()
+    return s!
+  }
+  const idx = (name: string): number => runSteps().findIndex((s) => s.name === name)
+  const GUARD = 'Guard base_branch safety (ADR-013 / ADR-029 §6)'
+
+  it('guard 以 factory-verify-mode 判定，輸出 verify／requires_* 供後續 if: 使用', () => {
+    const guard = byName(runSteps(), GUARD)
+    expect(guard.id).toBe('verifymode')
+    expect(guard.run).toContain('node dist/cli/factory-verify-mode.js')
+    expect(guard.run).toContain('--default-branch "$DEFAULT_BRANCH"')
+    expect(guard.run).toContain('gh api "repos/$GH_REPO" --jq .default_branch')
+    expect(guard.run).toContain('baseBranchAllowed')
+    expect(guard.run).toMatch(/exit 1/)
+    for (const out of ['verify', 'requires_catalog', 'requires_risk_paths', 'requires_stage_prereqs']) {
+      expect(guard.run, out).toContain(out)
+    }
+    // 豁免取決於 resolved task_type，故 guard 必在解析之後；也必在計分／agent
+    // 之前（合法的 base_branch 判定不該花到 LLM 成本）。
+    expect(idx('Resolve task_type (Issue 為準)')).toBeLessThan(idx(GUARD))
+    expect(idx(GUARD)).toBeLessThan(idx('Initial score'))
+    expect(idx(GUARD)).toBeLessThan(idx('Run factory agent'))
+  })
+
+  it('catalog／risk-paths／stage prereqs 以 guard 輸出閘控；非驗證類仍全跑', () => {
+    expect(byName(runSteps(), 'Initial score').if).toBe(
+      "steps.verifymode.outputs.requires_catalog == 'true' && steps.verifymode.outputs.requires_risk_paths == 'true'",
+    )
+    expect(byName(runSteps(), 'Apply score labels').if).toBe("steps.verifymode.outputs.requires_catalog == 'true'")
+    expect(byName(runSteps(), 'Check prerequisites (ADR-022)').if).toBe(
+      "steps.verifymode.outputs.requires_stage_prereqs == 'true'",
+    )
+  })
+
+  it('模型選擇在沒有 score.json 時不傳 --score（factory-model 對缺檔 fail-loud）', () => {
+    const run = byName(runSteps(), 'Select model tier').run!
+    expect(run).toContain('SCORE_FLAG=""')
+    expect(run).toContain('node dist/cli/factory-model.js $SPEC_PHASE_FLAG $SCORE_FLAG')
+    expect(run).toContain('requires_catalog')
+  })
+
+  it('judge 與 PR 正規化在驗證模式跳過（沒有分支／PR，也不該做三軸終態）', () => {
+    expect(byName(runSteps(), 'Judge terminal state').if).toContain("steps.verifymode.outputs.verify != 'true'")
+    for (const name of ['Normalize N-version PR titles', 'Normalize PR draft state']) {
+      expect(byName(runSteps(), name).if, name).toContain("steps.verifymode.outputs.verify != 'true'")
+    }
+  })
+
+  it('VARIANT_HEADER 對驗證類整段替換：不建／不推分支、不開 PR、不寫 Issue、可本地 commit', () => {
+    const run = byName(runSteps(), 'Run factory agent').run!
+    const marker = 'if [ "$VERIFY_MODE" = "true" ]; then'
+    const start = run.indexOf(marker)
+    expect(start, '找不到驗證模式的 header 覆寫').toBeGreaterThanOrEqual(0)
+    const end = run.indexOf('ATTEMPT_TIMEOUT="$REMAINING_SEC"', start)
+    expect(end).toBeGreaterThan(start)
+    const header = run.slice(start, end)
+    expect(header).toContain('VARIANT_HEADER=')
+    // 四條禁令與「可本地 commit」：少了任一項，agent 會照一般模板去建分支／開 PR
+    expect(header).toContain('建立或推送任何分支')
+    expect(header).toContain('git push')
+    expect(header).toContain('gh pr create')
+    expect(header).toContain('發現寫進 Issue')
+    expect(header).toContain('git commit')
+    expect(header).toContain('本地')
+    // variant 語意保留：header 仍說明自己是哪個變體
+    expect(header).toContain('變體 ${VARIANT_ID}')
+    // 覆寫必須排在兩段一般 header 之後（否則會被蓋掉）
+    expect(run.indexOf('VARIANT_HEADER="【N-version')).toBeLessThan(start)
+    expect(run.indexOf('VARIANT_HEADER="【單一變體執行】')).toBeLessThan(start)
+  })
+
+  it('crosscheck 驗證模式帶 --verify-only，且不再查遠端分支／傳 --variant', () => {
+    const run = byName(runSteps(), 'Cross-check report vs git diff').run!
+    expect(run).toContain('VERIFY_FLAG="--verify-only"')
+    expect(run).toContain('$ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG')
+    const from = run.indexOf('VERIFY_FLAG=""')
+    expect(from).toBeGreaterThanOrEqual(0)
+    const block = run.slice(from)
+    // 驗證分支先設 --verify-only；ls-remote／--variant 只在 else（非驗證）分支
+    expect(block.indexOf('VERIFY_FLAG="--verify-only"')).toBeLessThan(block.indexOf('ls-remote'))
+    expect(block.indexOf('ls-remote')).toBeLessThan(block.indexOf('$VARIANT_FLAG $VERIFY_FLAG'))
+  })
+
+  it('compare job 以 run job 的 verify 輸出跳過終態、比對卡片與 G1 守衛', () => {
+    expect(workflow().jobs.run.outputs?.verify).toBe('${{ steps.verifymode.outputs.verify }}')
+    for (const name of [
+      'Write terminal state',
+      'Generate comparison report and post comment',
+      'Link N-version sibling PRs',
+      'Ensure terminal state (guard)',
+    ]) {
+      expect(byName(compareSteps(), name).if, name).toContain("needs.run.outputs.verify != 'true'")
+    }
+    // 一般模式的終態／卡片語意不得被改掉
+    expect(byName(compareSteps(), 'Generate comparison report and post comment').if).toContain(
+      "inputs.nversion && steps.terminal.outputs.write == 'true'",
+    )
   })
 })
