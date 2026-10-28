@@ -119,6 +119,17 @@ describe('docs/34-verify-runbook.md', () => {
     expect(s76).toContain('通用 needs-human')
   })
 
+  it('I3：§7.1 說明驗證模式只發唯讀憑證、寫入 token 不外流、探測跳過（不再宣稱交寫入憑證給 agent）', () => {
+    const s71 = doc.slice(doc.indexOf('\n1. **agent 手上'), doc.indexOf('\n2. **G3'))
+    expect(s71).toContain('唯讀 installation token')
+    expect(s71).toMatch(/contents: read/)
+    expect(s71).toContain('persist-credentials: false')
+    expect(s71).toContain('git-credentials-')
+    expect(s71).toContain('跳過')
+    expect(s71).not.toContain('驗證模式不縮減')
+    expect(s71).not.toContain('探針也照常推送')
+  })
+
   it('I6：快取存檔是 best-effort，失敗不得讓 run 失敗（Lean 與 Quint 都寫明）', () => {
     expect(doc.match(/best-effort/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
     expect(doc).toContain('不得讓 run 失敗')

@@ -328,19 +328,19 @@ runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的�
 
 ## 7. 已知限制
 
-1. **agent 手上有寫入憑證——這是 ADR-029 §5 的主要殘留風險**：`Mint app token` 換發的
-   installation token 帶 `contents: write`、`issues: write`、`pull-requests: write`
-   （另有 `actions: read`），驗證模式不縮減。它被寫進 `target/.factory/run/gh-token`、嵌進
-   origin URL（`Configure agent git auth`），`Verify app token write access` 探針也照常推送
-   再刪除一個 `_factory-auth-probe-*` 分支。因此 agent 技術上可以 push 分支、把發現留言到
-   公開 Issue、或開 PR。攔它的只有：
-   - 驗證模式的 VARIANT_HEADER 與 task template prompt（明文禁止 push、`gh pr create`、
-     把發現寫進 Issue）；
-   - crosscheck `--verify-only`：只比對**本地**工作區相對 base 的 diff 與白名單，事實來源
-     不含遠端——已 push 的分支、已開的 PR、已貼的留言它都看不到；
-   - 事後的人工審查（目標 repo 的分支／PR／Issue 活動）。
-
-   機械阻止需在驗證模式不把寫入憑證交給 agent，留待後續。
+1. **agent 手上只有唯讀憑證**（2026-10-28 修正）：驗證模式另發一把唯讀 installation token
+   （`contents: read`、`issues: read`、`metadata: read`）寫進 `target/.factory/run/gh-token`
+   與 origin URL；帶寫入權限的 token 只留在 workflow 自己的步驟（留言、label、crosscheck、
+   terminal）。`actions/checkout` 對目標 repo 設 `persist-credentials: false`，且 agent 之前
+   會刪除 `$RUNNER_TEMP` 下所有 `git-credentials-*`，避免寫入 token 留在 agent 可讀的位置；
+   `Verify app token write access` 探針在驗證模式跳過。
+   因此 agent 技術上無法 push、無法留言到 Issue、無法開 PR——這是機械保證，不再只靠 prompt。
+   仍須人工注意的殘留：
+   - crosscheck `--verify-only` 只比對本地工作區相對不可變 base SHA（`--base-sha`）的 diff，
+     事實來源不含遠端；
+   - 目標 repo 的內容（含其 `.github/**`、`.dsh/**`）在驗證模式已被忽略或隔離，但 agent 仍會
+     讀到目標 repo 的程式碼，prompt injection 的防線是「模板只來自機制 repo」加上 crosscheck
+     與人工審查。
 2. **G3 未被機械強制**：`verify_phase=proofs` 只是 dispatch input，工廠不檢查 statements
    是否已經 G3 簽核；順序由 aswf.dev 的 BPMN 保證。
 3. **階段交接是「帶入」而非自動延續**（§3.3）：每個階段仍從目標 repo 預設分支的
@@ -378,3 +378,8 @@ runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的�
    沒有寫出）也可能讓 `verify` 為空：`needs.run.outputs.verify != 'true'` 成立，compare
    仍以「非驗證」處理並補一則通用 needs-human，即使另一個變體其實已進入 agent。判讀時
    以 run 的 jobs 清單與 cleanup 留言交叉確認，不要把「沒有終態」當成「沒啟動」。
+
+7. **原始 git 錯誤仍可能帶絕對路徑**：`factory-verify-encrypt`／`factory-crosscheck` 對檔案
+   系統呼叫（`readdir`／`lstat`／`readFile`／`realpath`）已只輸出相對路徑與 errno，但
+   `git ls-files`／`git status` 等指令本身的失敗訊息仍可能含 runner 上的絕對路徑。這是已知
+   殘留（只影響錯誤訊息，不含檔案內容），V3 會把 verify 類 CLI 的錯誤輸出統一改成相對路徑。
