@@ -611,8 +611,9 @@ jobs:
             echo "::error::階段輸入 bundle 超過 ${MAX_BUNDLE_BYTES} bytes——拒絕還原"
             exit 1
           fi
-          # manifest（.factory/verify-restored.json，target 外）記錄本次還原的檔案，
-          # 供 crosscheck 把它們從 agent 的實際 diff 扣除（R13）；只寫檔、不印路徑。
+          # manifest（.factory/verify-restored.json，target 外）記錄本次還原的檔案與
+          # 寫入位元組的 sha256，供 crosscheck 從 agent 的實際 diff 扣除未動的輸入，
+          # 並機械驗證還原輸入的唯讀性（R13、R15）；只寫檔、不印路徑。
           RESULT=$(node dist/cli/factory-verify-input.js \
             --bundle "$BUNDLE" --identity-env VERIFY_RUNNER_AGE_IDENTITY --target target \
             --manifest .factory/verify-restored.json)
@@ -1505,7 +1506,8 @@ jobs:
             VERIFY_FLAG="--verify-only"
             if [ "$VERIFY_INPUT_OUTCOME" = "success" ]; then
               # 還原的階段輸入不是 agent 的交付；交由 crosscheck 從實際 diff 扣除
-              # （檔案不存在／格式壞時 crosscheck 直接失敗，不靜默忽略）。
+              # 未動的檔案（存在且 sha256 相符），被改動／刪除則 fail-loud 為
+              # restored-input-modified（R13、R15；檔案不存在／格式壞時直接失敗）。
               RESTORED_FLAG="--restored-manifest .factory/verify-restored.json"
               echo "驗證模式：crosscheck 扣除階段輸入還原清單（R13）"
             fi

@@ -13,6 +13,7 @@
  *   4. 合法 bundle 位元組不變地還原，已存在的檔案被覆寫；
  *   5. CLI 只印還原數量，不印路徑（run log 是公開的）。
  */
+import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
@@ -60,6 +61,11 @@ function snapshot(root: string, rel = ''): Record<string, string> {
 
 function line(path: string, content: string | Uint8Array, kind = 'target'): Line {
   return { kind, path, b64: Buffer.from(content).toString('base64') }
+}
+
+/** manifest 的 sha256 是「實際寫入磁碟的原始位元組」的雜湊（hex、小寫）。 */
+function sha256Hex(content: string | Uint8Array): string {
+  return createHash('sha256').update(content).digest('hex')
 }
 
 async function encryptLines(lines: readonly (Line | string)[]): Promise<Uint8Array> {
@@ -167,7 +173,7 @@ describe('restoreVerifyInput：合法 bundle 位元組不變地還原', () => {
     expect(readdirSync(target)).toEqual([])
   })
 
-  it('把還原清單寫到 target 外的 manifest（排序後；不進 bundle）', async () => {
+  it('把還原清單寫到 target 外的 manifest（path＋實際寫入位元組的 sha256，依 path 排序；不進 bundle）', async () => {
     const target = tempDir('verify-input-target-')
     const workspace = tempDir('verify-input-workspace-')
     const manifestPath = join(workspace, '.factory', 'verify-restored.json')
@@ -176,15 +182,31 @@ describe('restoreVerifyInput：合法 bundle 位元組不變地還原', () => {
     writeFileSync(manifestPath, '{"restored":["stale"]}\n')
     const bundle = await encryptLines([
       line('specs/quint/TRIAGE.md', TRIAGE),
+      line('specs/quint/trace.itf.bin', BINARY),
       line('specs/quint/RULES.md', RULES),
     ])
 
     const result = await restoreVerifyInput({ bundle, identity, targetDir: target, manifestPath })
 
-    expect(result.restored).toEqual(['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'])
-    expect(JSON.parse(readFileSync(manifestPath, 'utf8'))).toEqual({
-      restored: ['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'],
+    expect(result.restored).toEqual([
+      'specs/quint/RULES.md',
+      'specs/quint/TRIAGE.md',
+      'specs/quint/trace.itf.bin',
+    ])
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      restored: { path: string; sha256: string }[]
+    }
+    expect(manifest).toEqual({
+      restored: [
+        { path: 'specs/quint/RULES.md', sha256: sha256Hex(RULES) },
+        { path: 'specs/quint/TRIAGE.md', sha256: sha256Hex(TRIAGE) },
+        { path: 'specs/quint/trace.itf.bin', sha256: sha256Hex(BINARY) },
+      ],
     })
+    // 雜湊取自「實際寫入的位元組」：磁碟上的內容重算後與 manifest 一致（含二進位）
+    for (const { path, sha256 } of manifest.restored) {
+      expect(sha256Hex(readFileSync(join(target, path))), path).toBe(sha256)
+    }
     // manifest 是 workspace 的機制檔，不在加密 bundle 的機制檔清單內
     expect(VERIFY_MECHANISM_FILES as readonly string[]).not.toContain('verify-restored.json')
   })
@@ -559,7 +581,10 @@ describe('CLI：parseArgs／main（只印數量）', () => {
     expect(JSON.stringify(result)).not.toContain('RULES')
     expect(readFileSync(join(target, 'specs/quint/RULES.md'), 'utf8')).toBe(RULES)
     expect(JSON.parse(readFileSync(manifestFile, 'utf8'))).toEqual({
-      restored: ['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'],
+      restored: [
+        { path: 'specs/quint/RULES.md', sha256: sha256Hex(RULES) },
+        { path: 'specs/quint/TRIAGE.md', sha256: sha256Hex(TRIAGE) },
+      ],
     })
   })
 

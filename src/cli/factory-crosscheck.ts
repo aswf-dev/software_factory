@@ -23,12 +23,19 @@
  * （R2 裁決：可以 commit 到本地，不 commit 也以同一份 diff 比對），而變更範圍
  * 改由 `VERIFY_ALLOWED_GLOBS`（specs/** 與各語言測試檔）白名單檢查。
  *
+ * 階段輸入的還原清單（`--restored-manifest`，R13）只扣除**還原後未被動過**的檔案：
+ * 以 manifest 的 sha256 對磁碟重算，被改動或刪除的還原輸入反而是 agent 的違規
+ * 變更，記為 `restored-input-modified`（R15）——這讓「還原輸入唯讀」成為機械規則。
+ *
  * 有意不做的檢查：changedLines 的數值精確比對（agent 的計數口徑可能不同，
  * 會誤傷）；PR 是否真的推送（需網路，且 factory-rescore 已在 PR 層獨立重計分）。
  */
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { countAssertionDelta } from '../assertion-count/count.js'
+import { isPbtTestPath } from '../pbt-audit/languages.js'
 import { isVerifyAllowedPath, VERIFY_ALLOWED_GLOBS } from '../pipeline/verify-scope.js'
 import { adviseUnreportedSkillGap, type UnreportedTrigger } from '../skill-gap/unreported.js'
 import { isValidSpecName } from '../write-spec/intake.js'
@@ -41,6 +48,7 @@ import {
   type SpecPhase,
 } from '../write-spec/scope.js'
 import { checkPbtAuditScope, checkPbtOutsideAudit } from '../pbt-audit/scope.js'
+import { isLakeBuildArtifact } from './factory-verify-encrypt.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, formatCliError } from './run-cli.js'
@@ -848,16 +856,33 @@ export function collectVerifyDiff(
   }
 }
 
+/** 還原清單的一筆（`factory-verify-input` 在 agent 之前寫入，R13／R15）。 */
+interface RestoredInput {
+  path: string
+  /** 還原當時寫入位元組的 sha256（hex、小寫）；crosscheck 會以磁碟重算，不信任這個值本身。 */
+  sha256: string
+}
+
+/** manifest 的 sha256 欄位：64 位小寫 hex（與 `createHash('sha256').digest('hex')` 一致）。 */
+const SHA256_HEX = /^[0-9a-f]{64}$/
+
 /**
- * 讀 `factory-verify-input` 寫的還原清單（R13）。檔案不存在、非 JSON、形狀錯或
- * 含非還原白名單路徑都是 hard error：靜默忽略會讓有還原輸入的 run 回到
- * diff-not-reported 假紅，或讓壞掉的 manifest 悄悄失去扣除效果。
+ * 讀 `factory-verify-input` 寫的還原清單（R13、R15）。檔案不存在、非 JSON、形狀錯、
+ * 重複路徑或含非還原白名單路徑都是 hard error：靜默忽略會讓有還原輸入的 run 回到
+ * diff-not-reported 假紅，或讓壞掉的 manifest 悄悄失去扣除／唯讀驗證效果。
  *
- * 路徑也必須落在還原端允許的範圍（`specs/**` 或驗證白名單）：manifest 在 runner
- * 工作區、agent 有寫入權限，若接受任意路徑，agent 就能把自己改的產品程式碼列進
- * manifest，讓 crosscheck 與白名單檢查同時看不到它。
+ * 舊版 `{ "restored": ["<path>"] }` 直接拒絕、不自動升級（R15）：那個形狀沒有雜湊，
+ * 無法判斷還原輸入是否被 agent 改動或刪除——而這正是「還原輸入唯讀」的唯一機械
+ * 防線。清單由本 repo 的 restore 步驟產生，兩端必須同步；靜默接受舊形狀等於讓
+ * 防線消失。
+ *
+ * 路徑也必須落在還原端允許的範圍（`specs/**` 或驗證白名單），且排除 PBT 測試檔與
+ * `.lake/build`（R15）：manifest 在 runner 工作區、agent 有寫入權限，若接受任意
+ * 路徑，agent 就能把自己改的產品程式碼列進 manifest 讓 crosscheck 與白名單檢查
+ * 同時看不到；PBT 檔入列則可遮蔽 `pbt-outside-audit`，建置快取入列則等於宣稱可
+ * 重建的產物是「還原輸入」。
  */
-function loadRestoredManifest(path: string): string[] {
+function loadRestoredManifest(path: string): RestoredInput[] {
   let parsed: unknown
   try {
     parsed = JSON.parse(readFileSync(path, 'utf8'))
@@ -868,15 +893,42 @@ function loadRestoredManifest(path: string): string[] {
     throw new CliError(`--restored-manifest (${path}) 必須是 JSON 物件`)
   }
   const restored = (parsed as { restored?: unknown }).restored
-  if (!Array.isArray(restored) || !restored.every((p): p is string => typeof p === 'string')) {
-    throw new CliError(`--restored-manifest (${path}) 的 restored 必須是字串陣列`)
+  if (!Array.isArray(restored)) {
+    throw new CliError(
+      `--restored-manifest (${path}) 的 restored 必須是 [{ "path", "sha256" }] 陣列（舊版字串陣列已不接受，見 R15）`,
+    )
   }
-  for (const p of restored) {
-    if (!isRestoredManifestPath(p)) {
-      throw new CliError(`--restored-manifest (${path}) 含不在還原白名單內的路徑（還原端只寫 specs/** 與測試檔）`)
+  const entries: RestoredInput[] = []
+  const seen = new Set<string>()
+  for (const entry of restored) {
+    if (typeof entry === 'string') {
+      throw new CliError(
+        `--restored-manifest (${path}) 是舊版格式 { "restored": [string] }——` +
+          '需要 { "restored": [ { "path", "sha256" } ] }（R15：還原輸入唯讀，以雜湊驗證；不提供自動升級，請重跑還原步驟）',
+      )
     }
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      throw new CliError(`--restored-manifest (${path}) 的 restored 條目必須是 { path, sha256 } 物件`)
+    }
+    const { path: restoredPath, sha256 } = entry as { path?: unknown; sha256?: unknown }
+    if (typeof restoredPath !== 'string') {
+      throw new CliError(`--restored-manifest (${path}) 的 restored 條目缺 path（必須是字串）`)
+    }
+    if (typeof sha256 !== 'string' || !SHA256_HEX.test(sha256)) {
+      throw new CliError(`--restored-manifest (${path}) 的 restored 條目缺 sha256（必須是 64 位小寫 hex）`)
+    }
+    if (!isRestoredManifestPath(restoredPath)) {
+      throw new CliError(
+        `--restored-manifest (${path}) 含不在還原白名單內的路徑（還原端只寫 specs/** 與測試檔，且不得是 PBT 測試檔或 .lake/build）`,
+      )
+    }
+    if (seen.has(restoredPath)) {
+      throw new CliError(`--restored-manifest (${path}) 含重複路徑（扣除與驗證結果會取決於處理順序）`)
+    }
+    seen.add(restoredPath)
+    entries.push({ path: restoredPath, sha256 })
   }
-  return restored
+  return entries
 }
 
 /** manifest 的單一路徑是否可能是 `factory-verify-input` 還原的檔案。 */
@@ -890,12 +942,64 @@ function isRestoredManifestPath(p: string): boolean {
   ) {
     return false
   }
+  // PBT 檔只能由稽核工單產出（ADR-019 §2）：若可從 manifest 扣除，agent 就能在驗證
+  // 階段寫 PBT 檔並讓 pbt-outside-audit 看不到它（R15）。
+  if (isPbtTestPath(p)) return false
+  // 建置快取可重建、也不是還原端的輸入（factory-verify-encrypt 不打包）——同一個
+  // predicate，兩端不得漂移（R14、R15）。
+  if (isLakeBuildArtifact(p)) return false
   return isVerifyAllowedPath(p) || p.startsWith('specs/')
 }
 
 /**
- * 把已還原的階段輸入從實際 diff 扣除（R13）。輸入不是 agent 的交付，不該被要求
- * 出現在 report.changedPaths；白名單與變更行數檢查也不該把它算進去。
+ * 驗證還原輸入仍是「唯讀」的（R15）：逐一以磁碟上的實際位元組重算 sha256，只有
+ * **存在且雜湊相符**的路徑才算未動的還原輸入，才能從 agent 的 diff 扣除。
+ *
+ * 被改動或刪除的路徑反而是 agent 的（違規）變更：不扣除（讓 diff-not-reported
+ * 也能現形），並產生 `restored-input-modified`——與 diff-not-reported 同等級的
+ * hard mismatch。manifest 裡的雜湊只是「還原當時」的紀錄，判斷一律以重算結果為
+ * 準：偽造或過期的雜湊不會被當成「檔案沒被動」的證據。
+ */
+function verifyRestoredInputs(
+  entries: readonly RestoredInput[],
+  target: string,
+): { unchanged: string[]; mismatches: CrosscheckMismatch[] } {
+  const unchanged: string[] = []
+  const mismatches: CrosscheckMismatch[] = []
+  for (const { path: restoredPath, sha256 } of entries) {
+    let current: string
+    try {
+      current = createHash('sha256')
+        .update(readFileSync(resolve(target, restoredPath)))
+        .digest('hex')
+    } catch {
+      // 刪除、被換成目錄、權限被改掉……都無法證明還是原本的輸入。
+      mismatches.push({
+        kind: 'restored-input-modified',
+        detail:
+          `還原的階段輸入已不存在或無法讀取：${restoredPath}——還原輸入是唯讀的，agent 不得刪除或替換` +
+          '（ADR-029 §5；read-only 規則由 manifest 的 sha256 機械驗證）',
+      })
+      continue
+    }
+    if (current !== sha256) {
+      mismatches.push({
+        kind: 'restored-input-modified',
+        detail:
+          `還原的階段輸入被修改：${restoredPath}——目前的內容與還原時的 sha256 不符；` +
+          '還原輸入是唯讀的，前一階段確認過的規格不得被本階段改寫（ADR-029 §5）',
+      })
+      continue
+    }
+    unchanged.push(restoredPath)
+  }
+  return { unchanged, mismatches }
+}
+
+/**
+ * 把「雜湊相符的」已還原階段輸入從實際 diff 扣除（R13）。輸入不是 agent 的交付，
+ * 不該被要求出現在 report.changedPaths；白名單與變更行數檢查也不該把它算進去。
+ * 被改動的還原輸入不在 unchanged 內，因此仍留在 diff 裡（見 verifyRestoredInputs）。
  */
 function subtractRestoredPaths(actual: CrosscheckActual, restored: readonly string[]): CrosscheckActual {
   if (restored.length === 0) return actual
@@ -1177,11 +1281,15 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   let actual = verifyOnly
     ? collectVerifyDiff(git, { base: paths.base, target: paths.target })
     : collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
-  // R13：階段輸入是前一階段還原到工作區的檔案（tracked 檔案被覆寫時進 git diff，
-  // 新檔則是 untracked），不是本次 agent 的交付。先扣除再比對，否則每個串接階段
-  // 都會被判 diff-not-reported。
+  // R13／R15：階段輸入是前一階段還原到工作區的檔案（tracked 檔案被覆寫時進 git
+  // diff，新檔則是 untracked），不是本次 agent 的交付。只有還原後**沒有被動過**
+  // （存在且 sha256 與 manifest 相符）的檔案才扣除；被改動或刪除的還原輸入留在
+  // diff 裡，另記為 restored-input-modified（hard，與 diff-not-reported 同級）。
+  let restoredInputMismatches: CrosscheckMismatch[] = []
   if (restoredManifestPath !== undefined) {
-    actual = subtractRestoredPaths(actual, loadRestoredManifest(restoredManifestPath))
+    const verified = verifyRestoredInputs(loadRestoredManifest(restoredManifestPath), paths.target)
+    actual = subtractRestoredPaths(actual, verified.unchanged)
+    restoredInputMismatches = verified.mismatches
   }
   const mismatches = compareReportToActual(
     report,
@@ -1191,6 +1299,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     onboardOnly,
     verifyOnly,
   )
+  mismatches.push(...restoredInputMismatches)
   // PBT 範圍（ADR-019 §2、§5、R6）：audit 只能新增或修改 PBT 檔、不得刪除；其他類型
   // 不得產出 PBT 檔。前者是 in-loop 豁免的前提之一（apply-score-labels.ts）。
   const changed = actual.paths.filter((p) => !isFactoryInternal(p))

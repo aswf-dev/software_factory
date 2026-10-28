@@ -153,10 +153,16 @@ gh workflow run factory-run.yml -R aswf-dev/software_factory \
   `specs/**` 內；任何 `mechanism` 行、絕對路徑、`..`、`.git`／`.factory`、
   `specs/**/.lake/build/**`、經 symlink 的寫入 → **整份拒絕、不寫任何檔**，run 停在
   agent 之前。空 bundle（零筆）同樣拒絕。已存在的檔案被覆寫。
-- 還原成功後另寫 `.factory/verify-restored.json`（`{ "restored": ["specs/...", …] }`，
-  排序）；檔案在 `target/` 外、不進加密 bundle、也不上傳 artifact。crosscheck 以
-  `--restored-manifest .factory/verify-restored.json` 把這些路徑從 agent 的實際 diff
-  扣除，否則每個串接階段都會被誤判 `diff-not-reported`。
+- 還原成功後另寫 `.factory/verify-restored.json`
+  （`{ "restored": [ { "path": "specs/…", "sha256": "<64 位 hex>" }, … ] }`，依 path
+  排序；雜湊取自實際寫入的位元組）；檔案在 `target/` 外、不進加密 bundle、也不上傳
+  artifact。crosscheck 以 `--restored-manifest .factory/verify-restored.json` 先從
+  磁碟重算 sha256：只有**存在且雜湊相符**的還原路徑會從 agent 的實際 diff 扣除
+  （否則每個串接階段都會被誤判 `diff-not-reported`）。
+- 還原輸入是**唯讀**的：agent 改動或刪除任何還原檔案，crosscheck 產生
+  `restored-input-modified`（hard mismatch，與 `diff-not-reported` 同級）並把該路徑
+  留在 diff 裡。manifest 的雜湊只是「還原當時」的紀錄，crosscheck 一律重算、不信任
+  檔案裡的數值；舊版 `{ "restored": ["specs/…"] }` 形狀直接拒絕（不自動升級）。
 - run log 只印還原數量，不印路徑。
 
 ## 4. 產出：只有密文
@@ -230,7 +236,7 @@ restore mechanism out-a/mechanism
 | 三軸計分（`Initial score`）、`Apply score labels` | 執行 | 跳過 |
 | `factory-stage prereqs`（ADR-022） | 執行 | 跳過（階段順序由 aswf.dev 的 G1–G4 決定） |
 | VARIANT_HEADER | 建 `factory/<N>-<v>-` 分支並開 PR | 整段替換：不建／不推分支、不開 PR、可本地 commit |
-| crosscheck | 分支前綴、變體隔離、REQ 錨定 | `--verify-only`：工作區相對 base 的 diff 對白名單；有階段輸入時加 `--restored-manifest .factory/verify-restored.json` 先扣除還原的輸入 |
+| crosscheck | 分支前綴、變體隔離、REQ 錨定 | `--verify-only`：工作區相對 base 的 diff 對白名單；有階段輸入時加 `--restored-manifest .factory/verify-restored.json`，先扣除還原的輸入（僅雜湊仍相符者；被改動／刪除 → `restored-input-modified`） |
 | `Judge terminal state`、PR 標題／draft 正規化 | 執行 | 跳過 |
 | compare job：終態、比對卡片、互指 PR、G1 守衛 | 執行 | 跳過 |
 | `Push event to scoreboard` | 執行 | 跳過（事件帶 skillGap 自由文字與檔案清單） |

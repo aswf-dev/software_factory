@@ -30,7 +30,14 @@
  * stdout 只有還原**數量**：run log 是公開的，路徑本身（規格名稱、測試檔位置）就是
  * 目標 repo 的資訊。另寫一份還原清單到 `--manifest`（預設
  * `.factory/verify-restored.json`，必須在 target 外）：crosscheck 用它把還原的
- * 輸入從 agent 的實際 diff 扣除（R13）。清單不進加密 bundle、不上傳 artifact。
+ * 輸入從 agent 的實際 diff 扣除（R13），並以清單裡的 sha256 機械驗證「還原輸入
+ * 是唯讀的」（R15）。因此清單是
+ * `{ "restored": [ { "path": "<相對 target>", "sha256": "<hex>" } ] }`（依 path
+ * 排序），雜湊取自**實際寫入的位元組**；清單不進加密 bundle、不上傳 artifact。
+ *
+ * 舊版的 `{ "restored": ["<path>"] }` 形狀沒有雜湊，agent 改動或刪除還原輸入後
+ * crosscheck 仍會通過——那是唯一的機械防線。crosscheck 因此直接拒絕舊形狀，不做
+ * 靜默升級（清單由本 CLI 與 crosscheck 同一個 job 產生／消費，兩者必須同步）。
  *
  * CLI（workflow 呼叫）：
  *   node dist/cli/factory-verify-input.js \
@@ -40,6 +47,7 @@
  *
  * 私鑰以「env 變數名」傳入而非值：值不會出現在 argv（`ps`、錯誤訊息）裡。
  */
+import { createHash } from 'node:crypto'
 import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeFileSync, writeSync } from 'node:fs'
 import type { Stats } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -57,8 +65,9 @@ export interface RestoreVerifyInputOptions {
   /** 目標 repo 的 checkout（workflow 中是 `target`）。 */
   targetDir: string
   /**
-   * 還原清單的輸出路徑（workflow 傳 `.factory/verify-restored.json`）。必須在
-   * `target/` 外：它不是 agent 工作區的一部分，也不進加密 bundle。省略時不寫。
+   * 還原清單的輸出路徑（workflow 傳 `.factory/verify-restored.json`）。內容是
+   * `{ "restored": [ { "path", "sha256" } ] }`（R13、R15）。必須在 `target/` 外：
+   * 它不是 agent 工作區的一部分，也不進加密 bundle。省略時不寫。
    */
   manifestPath?: string
 }
@@ -72,6 +81,12 @@ export interface RestoreVerifyInputResult {
 interface RestoreEntry {
   path: string
   bytes: Uint8Array
+}
+
+/** 還原清單的一筆：相對 target 的路徑，以及實際寫入位元組的 sha256（hex）。 */
+interface RestoredManifestEntry {
+  path: string
+  sha256: string
 }
 
 const IDENTITY_PREFIX = 'AGE-SECRET-KEY-1'
@@ -292,8 +307,19 @@ function writeEntry(abs: string, bytes: Uint8Array, path: string): void {
   }
 }
 
-/** 把還原清單寫到 target 外；寫不出來就 fail closed（agent 不得在缺 manifest 下執行）。 */
-function writeManifest(abs: string, restored: readonly string[]): void {
+/** 還原清單用的雜湊：與 crosscheck 重算磁碟位元組的演算法一致（sha256、hex、小寫）。 */
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+/**
+ * 把還原清單寫到 target 外；寫不出來就 fail closed（agent 不得在缺 manifest 下執行）。
+ *
+ * 格式固定為 `{ "restored": [ { "path", "sha256" }, … ] }`（呼叫端已依 path 排序）：
+ * crosscheck 以此雜湊斷定還原輸入未被 agent 動過（R15），所以雜湊必須是**寫入磁碟
+ * 的位元組**的 sha256，而不是 bundle 內 base64 字串的雜湊。
+ */
+function writeManifest(abs: string, restored: readonly RestoredManifestEntry[]): void {
   try {
     mkdirSync(dirname(abs), { recursive: true })
     writeFileSync(abs, `${JSON.stringify({ restored }, null, 2)}\n`)
@@ -337,10 +363,17 @@ export async function restoreVerifyInput(opts: RestoreVerifyInputOptions): Promi
   }
   validateDistinct(entries)
   const planned = entries.map((entry) => ({ abs: validateOnDisk(target, entry.path), bytes: entry.bytes, path: entry.path }))
-  for (const { abs, bytes, path } of planned) writeEntry(abs, bytes, path)
-  const restored = planned.map(({ path }) => path).sort()
+  // 雜湊只從「真正交給 writeEntry 的位元組」算：manifest 是 crosscheck 判斷還原
+  // 輸入是否被動過的唯一依據（R15），不能取自 bundle 的 base64 或正規化後的文字。
+  const restored: RestoredManifestEntry[] = []
+  for (const { abs, bytes, path } of planned) {
+    writeEntry(abs, bytes, path)
+    restored.push({ path, sha256: sha256Hex(bytes) })
+  }
+  // validateDistinct 已保證路徑互異，比較器不需要（也不可能）回傳 0。
+  restored.sort((a, b) => (a.path < b.path ? -1 : 1))
   if (manifest !== null) writeManifest(manifest, restored)
-  return { restored }
+  return { restored: restored.map(({ path }) => path) }
 }
 
 /** 預設的還原清單路徑（相對 cwd，即 workflow 的 `$GITHUB_WORKSPACE`；在 target 外）。 */

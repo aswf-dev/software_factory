@@ -5,9 +5,10 @@
  * report 與實際 diff 的雙向比較、參數解析、以及 main 的編排（fake git runner）。
  */
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CliError } from './run-cli.js'
 import {
@@ -1724,12 +1725,42 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
   describe('--verify-only 的 main 編排', () => {
     let dir: string
     let reportPath: string
+    /** 還原 fixture 的獨立根目錄：各測試互不汙染，afterAll 一次清掉。 */
+    const restoredRoots: string[] = []
 
     beforeAll(() => {
       dir = mkdtempSync(join(tmpdir(), 'crosscheck-verify-'))
       reportPath = join(dir, 'report.json')
     })
-    afterAll(() => rmSync(dir, { recursive: true, force: true }))
+    afterAll(() => {
+      rmSync(dir, { recursive: true, force: true })
+      for (const root of restoredRoots) rmSync(root, { recursive: true, force: true })
+    })
+
+    /** manifest 記錄的是還原位元組的 sha256（hex、小寫），crosscheck 以磁碟重算比對。 */
+    const sha256 = (bytes: string | Uint8Array): string =>
+      createHash('sha256').update(bytes).digest('hex')
+
+    /**
+     * 建立「`factory-verify-input` 已還原」的狀態：檔案寫進獨立 `target/`，manifest
+     * 依還原端格式記錄每個檔案的實際 sha256（依 path 排序）。
+     */
+    function restoredFixture(files: Record<string, string>): { target: string; manifest: string } {
+      const root = mkdtempSync(join(tmpdir(), 'crosscheck-restored-'))
+      restoredRoots.push(root)
+      const target = join(root, 'target')
+      const entries = Object.entries(files)
+        .map(([path, content]) => {
+          const abs = join(target, path)
+          mkdirSync(dirname(abs), { recursive: true })
+          writeFileSync(abs, content)
+          return { path, sha256: sha256(content) }
+        })
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+      const manifest = join(root, 'restored.json')
+      writeFileSync(manifest, JSON.stringify({ restored: entries }))
+      return { target, manifest }
+    }
 
     it('白名單內變更 → ok=true；未提交變更不再是 mismatch（R2）', () => {
       writeFileSync(
@@ -1815,21 +1846,20 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       expect(out.mismatches.some((m) => m.kind.startsWith('requirements-'))).toBe(false)
     })
 
-    it('--restored-manifest：還原輸入（tracked 與 untracked）不算 agent 交付，扣除後與 report 一致', () => {
-      const manifestPath = join(dir, 'restored.json')
-      writeFileSync(
-        manifestPath,
-        JSON.stringify({ restored: ['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'] }),
-      )
+    it('--restored-manifest：未動的還原輸入（tracked 與 untracked）不算 agent 交付，扣除後與 report 一致', () => {
+      const { target, manifest } = restoredFixture({
+        'specs/quint/RULES.md': '# RULES\n',
+        'specs/quint/TRIAGE.md': '# TRIAGE\n',
+      })
       writeFileSync(
         reportPath,
         makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
       )
       const out = main(
-        ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest],
         verifyGit({
           diffNameOnly: 'specs/quint/RULES.md\nspecs/quint/model.qnt\n',
-          shortStat: ' 1 file changed, 5 insertions(+)',
+          shortStat: ' 2 files changed, 8 insertions(+)',
           status: '?? specs/quint/TRIAGE.md\n?? specs/quint/model.qnt\n',
         }),
       )
@@ -1840,20 +1870,21 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
     })
 
     it('--restored-manifest：還原端白名單內的測試檔也可扣除（manifest 與還原端同一套路徑規則）', () => {
-      const manifestPath = join(dir, 'restored-test-file.json')
-      writeFileSync(manifestPath, JSON.stringify({ restored: ['test/unit.test.ts'] }))
+      const { target, manifest } = restoredFixture({ 'test/unit.test.ts': 'it("x", () => {})\n' })
       writeFileSync(
         reportPath,
         makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
       )
       const out = main(
-        ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest],
         verifyGit({
           diffNameOnly: 'test/unit.test.ts\nspecs/quint/model.qnt\n',
-          shortStat: ' 1 file changed, 5 insertions(+)',
+          shortStat: ' 2 files changed, 6 insertions(+)',
+          status: ' M test/unit.test.ts\n',
         }),
       )
       expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.actual.uncommitted).toEqual([])
       expect(out.ok).toBe(true)
     })
 
@@ -1876,6 +1907,163 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       expect(out.ok).toBe(true)
     })
 
+    it('--restored-manifest：agent 改動還原輸入 → restored-input-modified（hard），且不從 diff 扣除', () => {
+      const { target, manifest } = restoredFixture({
+        'specs/quint/RULES.md': '# RULES\n',
+        'specs/quint/TRIAGE.md': '# TRIAGE\n',
+      })
+      // agent 改掉上一階段確認過的 RULES.md（唯讀輸入）
+      writeFileSync(join(target, 'specs/quint/RULES.md'), '# RULES\n\n- 放寬：餘額可為負\n')
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 2, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest],
+        verifyGit({
+          diffNameOnly: 'specs/quint/RULES.md\nspecs/quint/model.qnt\n',
+          shortStat: ' 2 files changed, 3 insertions(+)',
+          status: ' M specs/quint/RULES.md\n?? specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.ok).toBe(false)
+      expect(out.mismatches.map((m) => m.kind)).toEqual(['diff-not-reported', 'restored-input-modified'])
+      const modified = out.mismatches[1]
+      expect(modified?.detail).toContain('specs/quint/RULES.md')
+      expect(modified?.detail).toMatch(/修改/)
+      expect(modified?.category).toBe('consistency')
+      // 被改的還原輸入仍算 agent 的變更（雙重訊號：diff-not-reported ＋ restored-input-modified）
+      const unreported = out.mismatches[0]
+      expect(unreported?.detail).toContain('specs/quint/RULES.md')
+      expect(unreported?.detail).not.toContain('specs/quint/TRIAGE.md')
+      expect(out.actual.paths).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
+      expect(out.actual.uncommitted).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
+    })
+
+    it('--restored-manifest：agent 刪除還原輸入 → restored-input-modified（hard）', () => {
+      const { target, manifest } = restoredFixture({
+        'specs/quint/RULES.md': '# RULES\n',
+        'specs/quint/TRIAGE.md': '# TRIAGE\n',
+      })
+      rmSync(join(target, 'specs/quint/TRIAGE.md'))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 1, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest],
+        verifyGit({
+          diffNameOnly: 'specs/quint/TRIAGE.md\nspecs/quint/model.qnt\n',
+          shortStat: ' 2 files changed, 2 insertions(+), 3 deletions(-)',
+          status: ' D specs/quint/TRIAGE.md\n?? specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.ok).toBe(false)
+      const modified = out.mismatches.find((m) => m.kind === 'restored-input-modified')
+      expect(modified?.detail).toContain('specs/quint/TRIAGE.md')
+      expect(modified?.detail).toMatch(/不存在|無法讀取/)
+      // 未動的 RULES.md 照常扣除；被刪的那個留在 diff 裡
+      expect(out.actual.paths).toEqual(['specs/quint/TRIAGE.md', 'specs/quint/model.qnt'])
+    })
+
+    it('--restored-manifest：manifest 的 sha256 不被信任——一律以磁碟重算，偽造雜湊 → mismatch', () => {
+      const { target } = restoredFixture({ 'specs/quint/RULES.md': '# RULES\n' })
+      writeFileSync(join(target, 'specs/quint/RULES.md'), '# tampered\n')
+      const forged = join(dir, 'restored-forged.json')
+      writeFileSync(
+        forged,
+        JSON.stringify({
+          restored: [{ path: 'specs/quint/RULES.md', sha256: sha256('# forged claim\n') }],
+        }),
+      )
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 1, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', forged],
+        verifyGit({
+          diffNameOnly: 'specs/quint/RULES.md\nspecs/quint/model.qnt\n',
+          shortStat: ' 2 files changed, 2 insertions(+)',
+        }),
+      )
+      expect(out.ok).toBe(false)
+      expect(out.mismatches.map((m) => m.kind)).toContain('restored-input-modified')
+      expect(out.mismatches.find((m) => m.kind === 'restored-input-modified')?.detail).toContain(
+        'specs/quint/RULES.md',
+      )
+      // 沒有扣除：manifest 的數值不是「這個檔案沒被動」的證據
+      expect(out.actual.paths).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
+    })
+
+    it('--restored-manifest：重複路徑 → CliError', () => {
+      const entry = { path: 'specs/quint/RULES.md', sha256: sha256('# RULES\n') }
+      const manifestPath = join(dir, 'restored-dup.json')
+      // 兩筆同路徑（雜湊相同或不同都一樣）：扣除結果取決於處理順序，拒絕
+      writeFileSync(manifestPath, JSON.stringify({ restored: [entry, { ...entry, sha256: sha256('other') }] }))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      expect(() =>
+        main(
+          ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+          verifyGit({}),
+        ),
+      ).toThrow(/重複路徑/)
+    })
+
+    it('--restored-manifest：舊版 {restored:[string]} 形狀被明確拒絕（不自動升級）', () => {
+      const manifestPath = join(dir, 'restored-legacy.json')
+      writeFileSync(manifestPath, JSON.stringify({ restored: ['specs/quint/RULES.md'] }))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const run = (): unknown =>
+        main(
+          ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+          verifyGit({}),
+        )
+      expect(run).toThrow(CliError)
+      expect(run).toThrow(/舊版/)
+      expect(run).toThrow(/sha256/)
+      expect(run).toThrow(/restored-manifest/)
+    })
+
+    it('--restored-manifest：PBT 測試檔與 .lake/build 不得列為還原輸入（不得遮蔽 pbt-outside-audit／建置產物）', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const manifestPath = join(dir, 'restored-scope.json')
+      const run = (payload: unknown): unknown => {
+        writeFileSync(manifestPath, JSON.stringify(payload))
+        return main(
+          ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+          verifyGit({}),
+        )
+      }
+      for (const p of [
+        'test/ledger.pbt.test.ts',
+        'specs/quint/ledger.pbt.test.ts',
+        'src/ledger.pbt.test.ts',
+        'specs/lean/.lake/build/Ledger.olean',
+        'specs/quint/.lake/build/trace.itf.json',
+        'specs/lean/.lake/build/sub/x.olean',
+      ]) {
+        expect(() => run({ restored: [{ path: p, sha256: sha256('x') }] }), p).toThrow(/還原白名單/)
+      }
+      // 對照：普通測試檔與 specs 檔（非 PBT、非 .lake/build）仍是合法的還原輸入
+      const { target, manifest } = restoredFixture({
+        'test/ledger.test.ts': 'it("x", () => {})\n',
+        'specs/quint/model.qnt': 'module M {}\n',
+      })
+      expect(() =>
+        main(['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest], verifyGit({})),
+      ).not.toThrow()
+    })
+
     it('--restored-manifest：檔案不存在、非 JSON、形狀錯或含白名單外路徑 → hard error（不靜默忽略）', () => {
       writeFileSync(
         reportPath,
@@ -1884,6 +2072,7 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       const path = join(dir, 'restored-bad.json')
       const run = (): ReturnType<typeof main> =>
         main(['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', path], verifyGit({}))
+      const good = { path: 'specs/quint/RULES.md', sha256: sha256('# RULES\n') }
 
       expect(() =>
         main(['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', join(dir, 'nope.json')], verifyGit({})),
@@ -1894,25 +2083,28 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
         '42',
         '"x"',
         '[]',
+        '{}',
         '{"restored":"specs/quint/RULES.md"}',
-        '{"restored":[42]}',
-        '{"restored":["src/app.ts"]}',
-        '{"restored":["../escape.md"]}',
-        '{"restored":["/etc/passwd"]}',
+        '{"restored":{}}',
+        JSON.stringify({ restored: [null] }),
+        JSON.stringify({ restored: [42] }),
+        JSON.stringify({ restored: [['specs/quint/RULES.md']] }),
+        JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md' }] }),
+        JSON.stringify({ restored: [{ sha256: good.sha256 }] }),
+        JSON.stringify({ restored: [{ path: 42, sha256: good.sha256 }] }),
+        JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md', sha256: 42 }] }),
+        JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md', sha256: 'abc' }] }),
+        JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md', sha256: good.sha256.toUpperCase() }] }),
+        JSON.stringify({ restored: [{ path: 'src/app.ts', sha256: good.sha256 }] }),
+        JSON.stringify({ restored: [{ path: '../escape.md', sha256: good.sha256 }] }),
+        JSON.stringify({ restored: [{ path: '/etc/passwd', sha256: good.sha256 }] }),
       ]) {
         writeFileSync(path, bad)
         expect(() => run(), bad).toThrow(/restored-manifest/)
       }
       // 路徑字串本身不合還原端規則：空、反斜線、NUL、空／. segment、.git
-      for (const restored of [
-        [''],
-        ['specs\\x'],
-        ['specs/a\0b'],
-        ['specs//x'],
-        ['specs/./x'],
-        ['specs/.git/x'],
-      ]) {
-        const payload = JSON.stringify({ restored })
+      for (const p of ['', 'specs\\x', 'specs/a\0b', 'specs//x', 'specs/./x', 'specs/.git/x']) {
+        const payload = JSON.stringify({ restored: [{ path: p, sha256: good.sha256 }] })
         writeFileSync(path, payload)
         expect(() => run(), payload).toThrow(/restored-manifest/)
       }
@@ -1936,7 +2128,12 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
         const manifest = join(dir, 'restored-integration.json')
         writeFileSync(
           manifest,
-          JSON.stringify({ restored: ['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'] }),
+          JSON.stringify({
+            restored: [
+              { path: 'specs/quint/RULES.md', sha256: sha256('# RULES\n') },
+              { path: 'specs/quint/TRIAGE.md', sha256: sha256('# TRIAGE\n') },
+            ],
+          }),
         )
         writeFileSync(
           reportPath,
@@ -1964,6 +2161,27 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
         expect(mismatch?.detail).toContain('specs/quint/RULES.md')
         expect(mismatch?.detail).toContain('specs/quint/TRIAGE.md')
         expect(mismatch?.detail).not.toContain('model.qnt')
+
+        // 唯讀規則（R15）：agent 改動還原輸入後，同一份 manifest 不再扣除它
+        writeFileSync(join(repo, 'specs/quint/RULES.md'), '# RULES（被 agent 改寫）\n')
+        const tampered = main([
+          '12',
+          reportPath,
+          '--target',
+          repo,
+          '--base',
+          'HEAD',
+          '--verify-only',
+          '--restored-manifest',
+          manifest,
+        ])
+        expect(tampered.ok).toBe(false)
+        expect(tampered.mismatches.map((m) => m.kind)).toContain('restored-input-modified')
+        expect(
+          tampered.mismatches.find((m) => m.kind === 'restored-input-modified')?.detail,
+        ).toContain('specs/quint/RULES.md')
+        // 未動的 TRIAGE.md 仍被扣除
+        expect(tampered.actual.paths).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
       } finally {
         rmSync(repo, { recursive: true, force: true })
       }
