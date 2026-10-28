@@ -66,6 +66,7 @@ import type { Stats } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { Encrypter } from 'age-encryption'
 import { isVerifyAllowedPath } from '../pipeline/verify-scope.js'
+import { isNeutralisedPath, loadVerifyFacts, type VerifyFacts } from './factory-verify-facts.js'
 import { execGit } from './git-safe.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, runCliAsync } from './run-cli.js'
@@ -110,6 +111,12 @@ export interface EncryptVerifyBundleOptions {
    * 完全忽略 base-branch 檔與分支名。非 40-hex 或解析不到 commit → fail closed。
    */
   baseSha?: string | undefined
+  /**
+   * `factory-verify-facts` 的輸出（R25）：存在時 bundle 範圍完全來自這份 JSON，
+   * 不再對 target 跑任何 git 命令（clean filter／index flags／ignore 檔失效）。
+   * 必須同時提供 `baseSha`，且兩者的 baseSha 必須相符。
+   */
+  factsPath?: string | undefined
 }
 
 export interface EncryptVerifyBundleResult {
@@ -353,7 +360,7 @@ function isScannableRoot(targetDir: string, rel: string): boolean {
  * 直接跳過（git 事實與檔案系統之間可能有 race），但其他 I/O 錯誤會往外拋——
  * 打包不完整比 abort 更危險（下一階段會拿到缺檔的規格）。
  */
-function collectBundlePaths(targetDir: string, baseSha?: string): string[] {
+function collectBundlePaths(targetDir: string, baseSha?: string, facts?: VerifyFacts): string[] {
   const files = new Set<string>()
   const add = (rel: string): void => {
     if (!isBundlePath(rel)) return
@@ -364,7 +371,16 @@ function collectBundlePaths(targetDir: string, baseSha?: string): string[] {
     if (!isScannableRoot(targetDir, root)) continue
     for (const rel of walkFiles(targetDir, root, neverSkip)) add(rel)
   }
-  for (const rel of changedPaths(targetDir, baseSha) ?? collectAllBundlePaths(targetDir)) add(rel)
+  if (facts !== undefined) {
+    // R25：事實來自 clean repo；不再呼叫 changedPaths（那會對 target 跑 git）。
+    // D 不進 bundle（與舊 --diff-filter=ACMR 一致）；neutralised 路徑防禦性排除。
+    for (const entry of facts.changed) {
+      if (entry.status === 'D' || isNeutralisedPath(entry.path)) continue
+      add(entry.path)
+    }
+  } else {
+    for (const rel of changedPaths(targetDir, baseSha) ?? collectAllBundlePaths(targetDir)) add(rel)
+  }
   return [...files].sort()
 }
 
@@ -450,9 +466,22 @@ export async function encryptVerifyBundle(
 ): Promise<EncryptVerifyBundleResult> {
   const key = validateRecipient(opts.recipient)
   const targetDir = resolveTargetDir(opts.targetDir)
-  // R19：先驗 base-sha（形狀＋可解析性）才掃描；任何寫入都還沒發生，失敗即不產出。
+  // R19／R25：先驗 base-sha 與 facts（形狀＋兩者一致）才掃描；任何寫入都還沒
+  // 發生，失敗即不產出。帶 facts 時不再對 target 跑 git。
   const baseSha = opts.baseSha === undefined ? undefined : normalizeBaseSha(opts.baseSha)
-  const files = collectBundlePaths(targetDir, baseSha)
+  const facts = opts.factsPath === undefined ? undefined : loadVerifyFacts(opts.factsPath)
+  if (facts !== undefined) {
+    if (baseSha === undefined) {
+      throw new CliError('--facts 需要同時指定 --base-sha（R25，fail closed）')
+    }
+    if (baseSha !== facts.baseSha) {
+      throw new CliError(
+        `--base-sha ${baseSha} 與 --facts 的 baseSha ${facts.baseSha} 不一致——` +
+          '拒絕混用兩個 diff 基準（R19／R25，fail closed）',
+      )
+    }
+  }
+  const files = collectBundlePaths(targetDir, baseSha, facts)
   const mechanism = collectMechanismEntries(opts.mechanismDir)
   const targetEntries = files.map((rel): BundleEntry => ({ kind: 'target', path: rel, abs: join(targetDir, rel) }))
   const payload = serializeBundle([...targetEntries, ...mechanism])
@@ -471,6 +500,7 @@ const FLAGS = {
   '--recipient': 'recipient',
   '--mechanism-dir': 'mechanismDir',
   '--base-sha': 'baseSha',
+  '--facts': 'factsPath',
 } as const satisfies Record<string, keyof EncryptVerifyBundleOptions>
 
 /**
@@ -492,13 +522,14 @@ export function parseArgs(argv: string[]): EncryptVerifyBundleOptions {
     // fail-closed 語意，且必須在掃描／寫入之前發生。
     values[key] = key === 'baseSha' ? value.trim().toLowerCase() : value
   }
-  const { targetDir, outFile, recipient, mechanismDir, baseSha } = values
+  const { targetDir, outFile, recipient, mechanismDir, baseSha, factsPath } = values
   if (targetDir === undefined) throw new CliError('--target is required')
   if (outFile === undefined) throw new CliError('--out is required')
   if (recipient === undefined) throw new CliError('--recipient is required')
   const parsed: EncryptVerifyBundleOptions = { targetDir, outFile, recipient }
   if (mechanismDir !== undefined) parsed.mechanismDir = mechanismDir
   if (baseSha !== undefined) parsed.baseSha = baseSha
+  if (factsPath !== undefined) parsed.factsPath = factsPath
   return parsed
 }
 

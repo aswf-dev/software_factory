@@ -518,11 +518,46 @@ jobs:
           permission-issues: read
           permission-metadata: read
 
-      - name: Write agent run env (token / base / repo)
+      # R25／ADR-029 §5：token 選擇改成**顯式的兩個分支**，不再用
+      # `verify == true && read-only || write`。那個運算式在唯讀 token 為空時會
+      # 靜默回退到寫入 token——正是驗證模式最不能發生的事。空值一律 fail closed。
+      # 解析結果寫進 $RUNNER_TEMP/agent-gh-token（mode 600），agent 與 Write agent
+      # run env 都只從這個檔讀取：寫入 token 不再出現在 agent 步驟的 env 運算式裡，
+      # 也不經 step output（runner 會跳過「看起來含 secret」的 output）。
+      - name: Resolve agent token (verify mode fail closed)
+        id: agenttoken
         env:
-          # 驗證模式：唯讀 agent token；其餘模式：既有寫入 token（行為不變）。
-          GH_TOKEN: ${{ steps.verifymode.outputs.verify == 'true' && steps.agent-token.outputs.token || steps.app-token.outputs.token }}
+          VERIFY_MODE: ${{ steps.verifymode.outputs.verify }}
+          READ_ONLY_TOKEN: ${{ steps.agent-token.outputs.token }}
+          WRITE_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          set -euo pipefail
+          TOKEN_FILE="${RUNNER_TEMP:?}/agent-gh-token"
+          rm -f "$TOKEN_FILE"
+          if [ "$VERIFY_MODE" = "true" ]; then
+            if [ -z "${READ_ONLY_TOKEN:-}" ]; then
+              echo "::error::驗證模式的唯讀 agent token 為空——拒絕回退到寫入 token（fail closed，ADR-029 §5／R25）"
+              exit 1
+            fi
+            AGENT_TOKEN="$READ_ONLY_TOKEN"
+          else
+            if [ -z "${WRITE_TOKEN:-}" ]; then
+              echo "::error::App token 為空——停止派工（fail closed）"
+              exit 1
+            fi
+            AGENT_TOKEN="$WRITE_TOKEN"
+          fi
+          echo "::add-mask::$AGENT_TOKEN"
+          (umask 077 && printf '%s' "$AGENT_TOKEN" > "$TOKEN_FILE")
+
+      - name: Write agent run env (token / base / repo)
+        run: |
+          AGENT_TOKEN_FILE="${RUNNER_TEMP:?}/agent-gh-token"
+          if [ ! -s "$AGENT_TOKEN_FILE" ]; then
+            echo "::error::agent token 檔不存在——拒絕在沒有憑證的情況下啟動 agent（fail closed）"
+            exit 1
+          fi
+          GH_TOKEN=$(cat "$AGENT_TOKEN_FILE")
           mkdir -p target/.factory/run
           printf '%s' "$GH_TOKEN" > target/.factory/run/gh-token
           printf '%s' "${{ inputs.base_branch }}" > target/.factory/run/base-branch
@@ -1097,19 +1132,27 @@ jobs:
       # （rank 400）的機制技能——包含停手規則與「不 push／不寫發現」的 SOP。
       # 因此在 agent 之前把它整棵移到 $RUNNER_TEMP（不還原；agent 之後任何步驟都
       # 不搬回來）。非驗證模式不執行：那裡 .dsh/skills 是 agent 的合法產出。
-      - name: Neutralize target workspace skills (verify only)
+      - name: Neutralize target agent instructions (verify only)
         if: steps.verifymode.outputs.verify == 'true'
         run: |
           set -euo pipefail
-          TARGET_DOT_DSH="$GITHUB_WORKSPACE/target/.dsh"
-          if [ -e "$TARGET_DOT_DSH" ] || [ -L "$TARGET_DOT_DSH" ]; then
-            DEST="${RUNNER_TEMP:?}/target-dsh-${GITHUB_RUN_ID:-run}"
-            rm -rf "$DEST"
-            mv "$TARGET_DOT_DSH" "$DEST"
-            echo "target .dsh moved aside (verify mode): DSH rank-100 workspace skills cannot shadow \$HOME/.dsh/skills"
-          else
-            echo "target .dsh absent (verify mode)"
-          fi
+          # R25：不只 .dsh。`.agents` 是 DSH rank-200 的 workspace skills；
+          # `AGENTS.md`／`CLAUDE.md` 是 agent 會載入的 instruction 檔——目標 repo
+          # 都可以用它們覆寫機制端的 SOP。全部移到 $RUNNER_TEMP/away，agent 看不到；
+          # factory-verify-facts 也會在 base 與 facts 兩側排除同一批路徑。
+          AWAY="${RUNNER_TEMP:?}/away"
+          mkdir -p "$AWAY"
+          for REL in .dsh .agents AGENTS.md CLAUDE.md; do
+            SRC="$GITHUB_WORKSPACE/target/$REL"
+            if [ -e "$SRC" ] || [ -L "$SRC" ]; then
+              DEST="$AWAY/$REL"
+              rm -rf "$DEST"
+              mv "$SRC" "$DEST"
+              echo "target $REL moved aside (verify mode): not visible to the agent and excluded from facts"
+            else
+              echo "target $REL absent (verify mode)"
+            fi
+          done
 
       # ADR-029 §5（I2b 續）：agent 之後不得把 target/.dsh 搬回——否則本步只是
       # 把問題延後到下一次探索。刻意沒有 restore 步驟。
@@ -1142,7 +1185,6 @@ jobs:
         # 且逾時 = process 被砍、agent 來不及寫 report（34735315950 實證）。
         timeout-minutes: ${{ fromJSON(steps.agent-timeout.outputs.step_timeout_minutes) }}
         env:
-          GH_TOKEN: ${{ steps.verifymode.outputs.verify == 'true' && steps.agent-token.outputs.token || steps.app-token.outputs.token }}
           # 多 provider 金鑰：全部以 env 傳入（DSH 在 sandbox 外讀取），
           # 由 model_provider 選擇使用哪一個；未設定的會 MISSING_CREDENTIAL。
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -1159,6 +1201,15 @@ jobs:
           GIT_COMMITTER_NAME: softwarefactory-bot[bot]
           GIT_COMMITTER_EMAIL: softwarefactory-bot[bot]@users.noreply.github.com
         run: |
+          # R25：憑證只從 $RUNNER_TEMP 的 600 檔讀取（不經 step output，runner 會跳過
+          # 含 secret 的 output）。缺檔即 fail closed。
+          AGENT_TOKEN_FILE="${RUNNER_TEMP:?}/agent-gh-token"
+          if [ ! -s "$AGENT_TOKEN_FILE" ]; then
+            echo "::error::agent token 檔不存在——拒絕在沒有憑證的情況下啟動 agent（fail closed）"
+            exit 1
+          fi
+          GH_TOKEN=$(cat "$AGENT_TOKEN_FILE")
+          export GH_TOKEN
           set +e
           # agent 牆鐘（ADR-019 R10：PBT 稽核留言的「機制實測」）。寫 GITHUB_ENV 而非
           # report.json：report 由 agent 自己寫，受測者填寫的量測值沒有意義。
@@ -1448,6 +1499,34 @@ jobs:
             "${{ inputs.issue_number }}" "$code" \
             .factory/run/stdout.txt .factory/run/stderr.txt "${REPORT_ARGS[@]}"
 
+      # R25（wave 6）：事實不在 agent 工作樹裡推導。clean filter／index flags／
+      # ignore 檔之所以能執行或說謊，是因為 crosscheck 在 agent 之後仍對 target 跑
+      # git；這裡改由 factory-verify-facts 在 $RUNNER_TEMP 的 clean repo 重建事實，
+      # 輸出寫在 target 之外的 .factory/verify-facts.json，後續兩個 CLI 只消費它。
+      # agent 失敗時也跑（encrypt 需要部分事實）；缺 base-sha 或 facts 寫不出來一律
+      # fail closed——crosscheck／encrypt 不會拿到「舊的」或替代的事實。
+      - name: Materialise verify facts (clean repo)
+        id: verifyfacts
+        if: always() && steps.verifymode.outputs.verify == 'true' && (steps.agent.outcome == 'success' || steps.agent.outcome == 'failure')
+        env:
+          VERIFY_BASE_SHA: ${{ steps.basesha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERIFY_BASE_SHA:-}" ] || [ ! -s "$GITHUB_WORKSPACE/.factory/base-sha" ]; then
+            echo "::error::缺 pre-agent base commit（$GITHUB_WORKSPACE/.factory/base-sha）——拒絕在沒有不可變基準時materialise facts（R19／R25，fail closed）"
+            exit 1
+          fi
+          rm -f "$GITHUB_WORKSPACE/.factory/verify-facts.json"
+          node "$GITHUB_WORKSPACE/dist/cli/factory-verify-facts.js" \
+            --target "$GITHUB_WORKSPACE/target" \
+            --base-sha "$VERIFY_BASE_SHA" \
+            --out "$GITHUB_WORKSPACE/.factory/verify-facts.json" > /dev/null
+          if [ ! -s "$GITHUB_WORKSPACE/.factory/verify-facts.json" ]; then
+            echo "::error::factory-verify-facts 未產出 JSON——crosscheck／encrypt 不得回退到 target 內的 git 事實（R25，fail closed）"
+            exit 1
+          fi
+          echo "::notice::verify facts materialised in a clean repo (target git config／filters／index flags are not consulted)"
+
       # N-version PR 標題由機制決定，不靠 agent（fubon-tradingbot#721：同一份指引下 opus-5-5
       # 寫「（變體 a）」、qwen3.8-max 完全沒標變體，PR 列表看不出 #722/#723 是配對）。
       # 只改本變體前綴（factory/<issue>-<variant>-）的 open PR；格式見 factory-nversion-pr.ts。
@@ -1658,6 +1737,7 @@ jobs:
           VARIANT_FLAG=""
           RESTORED_FLAG=""
           BASE_SHA_FLAG=""
+          FACTS_FLAG=""
           if [ "$VERIFY_MODE" = "true" ]; then
             VERIFY_FLAG="--verify-only"
             # C2／R19：沒有 pre-agent base commit 就 fail closed。退回 `--base`
@@ -1667,6 +1747,12 @@ jobs:
               exit 1
             fi
             BASE_SHA_FLAG="--base-sha $VERIFY_BASE_SHA"
+            # R25：crosscheck 不再對 target 跑 git；facts 檔缺失即 fail closed。
+            if [ ! -s "$GITHUB_WORKSPACE/.factory/verify-facts.json" ]; then
+              echo "::error::缺 clean-repo facts（$GITHUB_WORKSPACE/.factory/verify-facts.json）——驗證模式不得回退到 target 內的 git 事實（R25，fail closed）"
+              exit 1
+            fi
+            FACTS_FLAG="--facts .factory/verify-facts.json"
             if [ "$VERIFY_INPUT_OUTCOME" = "success" ]; then
               # 還原的階段輸入不是 agent 的交付；交由 crosscheck 從實際 diff 扣除
               # 未動的檔案（存在且 sha256 相符），被改動／刪除則 fail-loud 為
@@ -1687,7 +1773,7 @@ jobs:
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG $BASE_SHA_FLAG $RESTORED_FLAG \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG $BASE_SHA_FLAG $RESTORED_FLAG $FACTS_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e
@@ -2053,13 +2139,20 @@ jobs:
             echo "::error::缺 pre-agent base commit（$GITHUB_WORKSPACE/.factory/base-sha）——拒絕以可移動的分支名計算 bundle 範圍（R19，fail closed）"
             exit 1
           fi
+          # R25：bundle 範圍來自 clean-repo facts；缺檔即 fail closed（不得回退到
+          # 在 target 內跑 git）。
+          if [ ! -s "$GITHUB_WORKSPACE/.factory/verify-facts.json" ]; then
+            echo "::error::缺 clean-repo facts（$GITHUB_WORKSPACE/.factory/verify-facts.json）——拒絕回退到 target 內的 git 事實（R25，fail closed）"
+            exit 1
+          fi
           # 檔案清單屬 metadata，仍可能透露測試命名／分析方向；stdout 不進 log。
           node "$GITHUB_WORKSPACE/dist/cli/factory-verify-encrypt.js" \
             --target "$GITHUB_WORKSPACE/target" \
             --out "$GITHUB_WORKSPACE/.factory/verify-bundle.age" \
             --recipient "$VERIFY_AGE_PUBLIC_KEY" \
             --mechanism-dir "$GITHUB_WORKSPACE/.factory" \
-            --base-sha "$VERIFY_BASE_SHA" > /dev/null
+            --base-sha "$VERIFY_BASE_SHA" \
+            --facts "$GITHUB_WORKSPACE/.factory/verify-facts.json" > /dev/null
           echo "::notice::驗證模式產出已加密為 .factory/verify-bundle.age（只上傳密文）"
 
       # 診斷：agent 的 stdout/stderr/report 上傳成 artifact（失敗也要，否則無從查）

@@ -41,6 +41,12 @@
  * 無效（N1、N4）。`git status` 仍會套用 `.git/info/exclude`，未追蹤交付另由
  * `collectUntrackedIgnoringInfoExclude` 補上（見 collectVerifyDiff）。
  *
+ * **帶 `--facts` 時上述 git 路徑全部不執行**（R25）：事實由
+ * `factory-verify-facts` 在 `$RUNNER_TEMP` 的 clean repo 重建（archive 不跑
+ * clean filter、rsync 不讀 target git config、`git add -f` 不理 ignore 檔），
+ * crosscheck 只讀 JSON 並以 `--base-sha` 交叉驗證 `facts.baseSha`。workflow 的
+ * 驗證模式永遠走這條路；無 facts 的 `--verify-only` 只保留給相容性。
+ *
  * 有意不做的檢查：changedLines 的數值精確比對（agent 的計數口徑可能不同，
  * 會誤傷）；PR 是否真的推送（需網路，且 factory-rescore 已在 PR 層獨立重計分）。
  */
@@ -62,6 +68,7 @@ import {
 } from '../write-spec/scope.js'
 import { checkPbtAuditScope, checkPbtOutsideAudit } from '../pbt-audit/scope.js'
 import { isLakeBuildArtifact } from './factory-verify-encrypt.js'
+import { isNeutralisedPath, loadVerifyFacts, type VerifyFacts } from './factory-verify-facts.js'
 import { execGit } from './git-safe.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
@@ -852,6 +859,26 @@ function collectUntrackedIgnoringInfoExclude(git: GitRunner, target: string): st
 }
 
 /**
+ * 把 `factory-verify-facts` 的 JSON 轉成 crosscheck 的 `CrosscheckActual`
+ * （R25）。驗證模式帶 `--facts` 時這是唯一的事實來源；`branches` 恆為空、
+ * `uncommitted` 恆為空（clean repo 的事實沒有「未提交」的概念）。
+ *
+ * 這裡再過濾一次 neutralised 路徑：workflow 的 `factory-verify-facts` 已在
+ * base 與 facts 兩側排除它們，但舊 facts（或漏掉排除的版本）也不能讓 tracked
+ * `.dsh`／`.agents` 的刪除變成 scope 假紅。
+ */
+export function actualFromVerifyFacts(facts: VerifyFacts): CrosscheckActual {
+  return {
+    branches: [],
+    paths: facts.changed.map((entry) => entry.path).filter((path) => !isNeutralisedPath(path)),
+    added: facts.linesAdded,
+    deleted: facts.linesDeleted,
+    uncommitted: [],
+    assertionDelta: facts.assertionDelta,
+  }
+}
+
+/**
  * 驗證模式的 git 事實（ADR-029 §5、§6；R2 裁決）。
  *
  * 驗證類 agent 不建分支，所以沒有 `factory/<issue>-*` 可比對；事實來源是
@@ -1137,7 +1164,7 @@ export function resolveBaseSha(git: GitRunner, target: string, sha: string): str
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
  *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only] [--verify-only]
- *  [--base-sha <40-hex>] [--restored-manifest <file>]
+ *  [--base-sha <40-hex>] [--restored-manifest <file>] [--facts <file>]
  *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
  *   [--source-snapshot <file>]] [--variant <a|b> --remote-branches <file>]`。
  */
@@ -1154,6 +1181,8 @@ export function parseArgs(argv: string[]): {
   baseSha?: string | undefined
   /** `factory-verify-input` 的還原清單（只在 --verify-only 下有效）。 */
   restoredManifestPath?: string | undefined
+  /** `factory-verify-facts` 的輸出（只在 --verify-only 下有效）；存在時不得再對 target 跑 git。 */
+  factsPath?: string | undefined
   requirementAnchors: string[]
   writeSpec?: WriteSpecArgs | undefined
   variant?: VariantArgs | undefined
@@ -1170,6 +1199,7 @@ export function parseArgs(argv: string[]): {
   let verifyOnly = false
   let baseSha: string | undefined
   let restoredManifestPath: string | undefined
+  let factsPath: string | undefined
   let requirementAnchors: string[] = []
   let specPhase: string | undefined
   let specName: string | undefined
@@ -1210,6 +1240,10 @@ export function parseArgs(argv: string[]): {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) throw new CliError('--restored-manifest requires a path')
       restoredManifestPath = v
+    } else if (arg === '--facts') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new CliError('--facts requires a path')
+      factsPath = v
     } else if (arg === '--requirement-anchors') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) {
@@ -1266,6 +1300,15 @@ export function parseArgs(argv: string[]): {
   if (baseSha !== undefined && !verifyOnly) {
     throw new CliError('--base-sha 只適用於 --verify-only（不可變 diff 基準是驗證模式的事實來源，R19）')
   }
+  // facts 只有驗證模式會產生；其他模式帶了它等於接線錯誤，不可靜默忽略。
+  if (factsPath !== undefined && !verifyOnly) {
+    throw new CliError('--facts 只適用於 --verify-only（clean repo 的事實是驗證模式的輸入，R25）')
+  }
+  // facts 的 baseSha 必須與 --base-sha 交叉驗證；只帶 facts 等於少了一個獨立基準，
+  // 無法確認 workflow 記下的 pre-agent commit 與事實檔是同一個。
+  if (factsPath !== undefined && baseSha === undefined) {
+    throw new CliError('--facts 需要同時指定 --base-sha（facts 的 baseSha 必須被獨立驗證，R25，fail closed）')
+  }
   const issueNumber = Number(positional[0])
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new CliError(`issueNumber must be a positive integer, got ${positional[0] ?? '(missing)'}`)
@@ -1307,6 +1350,7 @@ export function parseArgs(argv: string[]): {
     verifyOnly,
     baseSha,
     restoredManifestPath,
+    factsPath,
     requirementAnchors,
     writeSpec,
     variant,
@@ -1371,24 +1415,40 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     verifyOnly,
     baseSha,
     restoredManifestPath,
+    factsPath,
     requirementAnchors,
     writeSpec,
     variant,
   } = parseArgs(argv)
   const report = loadReport(reportPath)
+  // R25：帶 --facts 時，事實完全來自 workflow 在 clean repo 產生的 JSON；本步驟
+  // 不得再對 agent 工作樹跑任何 git 命令（clean filter／index flags／ignore 檔
+  // 因此沒有執行或說謊的機會）。--base-sha 仍獨立驗證：兩者不一致即紅燈。
+  const facts = factsPath === undefined ? undefined : loadVerifyFacts(factsPath)
+  if (facts !== undefined && baseSha !== facts.baseSha) {
+    throw new CliError(
+      `--base-sha ${String(baseSha)} 與 --facts 的 baseSha ${facts.baseSha} 不一致——` +
+        '拒絕混用兩個 diff 基準（R19／R25，fail closed）',
+    )
+  }
   // 驗證類沒有分支（R2：本地 commit 可以、push 不行），事實來源改成工作區
   // 相對 base 的 diff；其餘模式維持 factory/<issue>-* 分支的三點 diff。
   // R19／C2：`--base-sha` 存在時以該不可變 commit 為基準，`--base` 的分支名
   // 完全不參與（agent 的本地 commit 會推進本地 base 分支）。
-  let actual = verifyOnly
-    ? collectVerifyDiff(git, {
-        base:
-          baseSha === undefined
-            ? paths.base
-            : resolveBaseSha(git, paths.target, baseSha),
-        target: paths.target,
-      })
-    : collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
+  let actual: CrosscheckActual
+  if (verifyOnly && facts !== undefined) {
+    actual = actualFromVerifyFacts(facts)
+  } else if (verifyOnly) {
+    actual = collectVerifyDiff(git, {
+      base:
+        baseSha === undefined
+          ? paths.base
+          : resolveBaseSha(git, paths.target, baseSha),
+      target: paths.target,
+    })
+  } else {
+    actual = collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
+  }
   // R13／R15：階段輸入是前一階段還原到工作區的檔案（tracked 檔案被覆寫時進 git
   // diff，新檔則是 untracked），不是本次 agent 的交付。只有還原後**沒有被動過**
   // （存在且 sha256 與 manifest 相符）的檔案才扣除；被改動或刪除的還原輸入留在

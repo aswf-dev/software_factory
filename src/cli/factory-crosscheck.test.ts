@@ -2803,3 +2803,125 @@ describe('N4：repo-local git config／attributes／exclude 不得改變驗證�
     expect(out.ok).toBe(true)
   })
 })
+
+/**
+ * R25（wave 6）：verify 模式的 crosscheck 改吃 `factory-verify-facts` 產出的
+ * facts JSON，**不再對 agent 工作樹跑任何 git 命令**。target 的 clean filter／
+ * index flags／ignore 檔因此沒有執行或說謊的機會。
+ */
+describe('驗證模式的 facts JSON（--facts，R25）', () => {
+  const dirs: string[] = []
+  const sha = 'a'.repeat(40)
+
+  const factsFile = (partial: Record<string, unknown> = {}): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-facts-'))
+    dirs.push(dir)
+    const path = join(dir, 'verify-facts.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        baseSha: sha,
+        changed: [],
+        linesAdded: 0,
+        linesDeleted: 0,
+        assertionDelta: 0,
+        ...partial,
+      }),
+    )
+    return path
+  }
+
+  const reportFile = (partial: Record<string, unknown> = {}): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-facts-report-'))
+    dirs.push(dir)
+    const path = join(dir, 'report.json')
+    writeFileSync(path, makeReport({ requirements: undefined, ...partial }))
+    return path
+  }
+
+  const neverGit: GitRunner = () => {
+    throw new Error('帶 --facts 時不得呼叫 git（R25）')
+  }
+
+  afterAll(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('parseArgs：--facts 需有值、只適用於 --verify-only、且必須搭配 --base-sha', () => {
+    const facts = 'facts.json'
+    expect(parseArgs(['12', 'r.json', '--verify-only', '--base-sha', sha, '--facts', facts]).factsPath).toBe(facts)
+    expect(parseArgs(['12', 'r.json', '--verify-only']).factsPath).toBeUndefined()
+    expect(() => parseArgs(['12', 'r.json', '--facts', facts])).toThrow(/--verify-only/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--facts', facts])).toThrow(/--base-sha/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--base-sha', sha, '--facts'])).toThrow(/requires/)
+    expect(() =>
+      parseArgs(['12', 'r.json', '--verify-only', '--base-sha', sha, '--facts', '--base', 'main']),
+    ).toThrow(/requires/)
+  })
+
+  it('main 只消費 facts，不呼叫 git；實際值＝facts 的 changed／行數／斷言', () => {
+    const facts = factsFile({
+      changed: [
+        { path: 'test/new.test.ts', status: 'A' },
+        { path: 'specs/quint/model.qnt', status: 'M' },
+      ],
+      linesAdded: 7,
+      linesDeleted: 2,
+      assertionDelta: 3,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['test/new.test.ts', 'specs/quint/model.qnt'], changedLines: 9 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.actual).toEqual({
+      branches: [],
+      paths: ['test/new.test.ts', 'specs/quint/model.qnt'],
+      added: 7,
+      deleted: 2,
+      uncommitted: [],
+      assertionDelta: 3,
+    })
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('status D 的越界刪除仍在事實裡（verify-scope 不得被吃掉）', () => {
+    const facts = factsFile({ changed: [{ path: 'src/app.ts', status: 'D' }], linesDeleted: 3 })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['src/app.ts'], changedLines: 3 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.actual.paths).toEqual(['src/app.ts'])
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+    expect(out.ok).toBe(false)
+  })
+
+  it('防禦性過濾 .dsh／.agents／AGENTS.md／CLAUDE.md（舊 facts 也不得 red）', () => {
+    const facts = factsFile({
+      changed: [
+        { path: '.dsh/skills/x/SKILL.md', status: 'D' },
+        { path: '.agents/skills/x/SKILL.md', status: 'D' },
+        { path: 'AGENTS.md', status: 'D' },
+        { path: 'test/new.test.ts', status: 'A' },
+      ],
+      linesAdded: 1,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['test/new.test.ts'], changedLines: 1 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.actual.paths).toEqual(['test/new.test.ts'])
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('--base-sha 與 facts.baseSha 不一致 → CliError（不得默認其中一個）', () => {
+    const facts = factsFile({ baseSha: 'b'.repeat(40) })
+    expect(() =>
+      main(
+        ['12', reportFile(), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+        neverGit,
+      ),
+    ).toThrow(/base-sha.*facts/i)
+  })
+})

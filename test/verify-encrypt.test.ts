@@ -873,3 +873,93 @@ describe('N4：repo-local exclude 不得讓未追蹤交付從 bundle 消失', ()
     ])
   })
 })
+
+/**
+ * R25（wave 6）：verify 模式的 encrypt 改吃 `factory-verify-facts` 的 facts JSON，
+ * 不再對 agent 工作樹跑 git。target 的 clean filter／index flags／ignore 檔因此
+ * 不參與「哪些 agent 改動要進 bundle」的決定。
+ */
+describe('encryptVerifyBundle：--facts 取代 target 內的 git 事實（R25）', () => {
+  const sha = 'a'.repeat(40)
+
+  function factsFixture(partial: Record<string, unknown> = {}): string {
+    const dir = tempDir('factory-verify-facts-json-')
+    const path = join(dir, 'verify-facts.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        baseSha: sha,
+        changed: [],
+        linesAdded: 0,
+        linesDeleted: 0,
+        assertionDelta: 0,
+        ...partial,
+      }),
+    )
+    return path
+  }
+
+  it('只打包 facts 的 A／M 測試檔；D 與未列出的檔案不進 bundle（target 不是 git repo）', async () => {
+    const target = makeTarget()
+    const outDir = tempDir('factory-verify-out-')
+    const outFile = join(outDir, 'verify-bundle.age')
+    writeFixture(target, '.factory/run/report.json', '{"ok":true}\n')
+    writeFixture(target, 'specs/quint/model.qnt', 'module M {}\n')
+    writeFixture(target, 'test/new.test.ts', 'it("new", () => {})\n')
+    writeFixture(target, 'test/existing.test.ts', 'it("existing", () => {})\n')
+    writeFixture(target, 'test/unrelated.test.ts', 'it("unrelated", () => {})\n')
+    writeFixture(target, 'test/deleted.test.ts', 'it("deleted", () => {})\n')
+
+    const facts = factsFixture({
+      changed: [
+        { path: 'test/new.test.ts', status: 'A' },
+        { path: 'test/existing.test.ts', status: 'M' },
+        { path: 'test/deleted.test.ts', status: 'D' },
+      ],
+      linesAdded: 2,
+      linesDeleted: 1,
+    })
+
+    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: sha, factsPath: facts })
+    expect(result.files).toEqual([
+      '.factory/run/report.json',
+      'specs/quint/model.qnt',
+      'test/existing.test.ts',
+      'test/new.test.ts',
+    ])
+    const lines = await decryptBundle(outFile, identity)
+    expect(lines.map((l) => l.path)).toEqual(result.files)
+    expect(lines.find((l) => l.path === 'test/new.test.ts')?.b64).toBe(
+      Buffer.from('it("new", () => {})\n').toString('base64'),
+    )
+  })
+
+  it('facts 依賴 --base-sha，且 baseSha 必須相符；缺檔／格式錯 → fail closed 且不寫輸出', async () => {
+    const target = makeTarget()
+    const outDir = tempDir('factory-verify-out-')
+    const outFile = join(outDir, 'verify-bundle.age')
+    const facts = factsFixture({ changed: [] })
+
+    await expect(encryptVerifyBundle({ targetDir: target, outFile, recipient, factsPath: facts })).rejects.toThrow(
+      /--base-sha/,
+    )
+    await expect(
+      encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: 'b'.repeat(40), factsPath: facts }),
+    ).rejects.toThrow(/base-sha.*facts|facts.*base-sha/i)
+    await expect(
+      encryptVerifyBundle({
+        targetDir: target,
+        outFile,
+        recipient,
+        baseSha: sha,
+        factsPath: join(outDir, 'missing.json'),
+      }),
+    ).rejects.toThrow(/無法讀取/)
+    expect(existsSync(outFile)).toBe(false)
+  })
+
+  it('parseArgs：接受 --facts', () => {
+    const facts = factsFixture()
+    expect(parseArgs(['--target', 't', '--out', 'o.age', '--recipient', recipient, '--base-sha', sha, '--facts', facts]).factsPath).toBe(facts)
+  })
+})

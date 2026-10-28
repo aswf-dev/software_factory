@@ -109,7 +109,7 @@ function runStep(
   lsRemote: string | null = '',
   /** 覆寫 `${{ }}` 的值（例如驗證模式）。 */
   overrides: Record<string, string> = {},
-  opts: { baseShaFile?: boolean } = {},
+  opts: { baseShaFile?: boolean; factsFile?: boolean } = {},
 ): StepResult {
   const dir = mkdtempSync(join(tmpdir(), 'crosscheck-step-'))
   dirs.push(dir)
@@ -119,6 +119,19 @@ function runStep(
   mkdirSync(join(dir, 'target/.factory/run'), { recursive: true })
   // C2／R19：workflow 的 pre-agent 步驟會寫這份檔；step 在驗證模式要求它存在
   if (opts.baseShaFile !== false) writeFileSync(join(dir, '.factory/base-sha'), 'a'.repeat(40))
+  // R25：facts 由 clean-repo 步驟寫在 target 之外；驗證模式要求它存在。
+  if (opts.factsFile !== false) {
+    writeFileSync(
+      join(dir, '.factory/verify-facts.json'),
+      JSON.stringify({
+        baseSha: 'a'.repeat(40),
+        changed: [],
+        linesAdded: 0,
+        linesDeleted: 0,
+        assertionDelta: 0,
+      }),
+    )
+  }
   writeFileSync(join(dir, 'cc.stdout'), crosscheck.stdout)
   writeFileSync(join(dir, 'cc.stderr'), crosscheck.stderr)
   const stub = (name: string, body: string) => {
@@ -282,6 +295,8 @@ describe('crosscheck step：N-version 變體隔離', () => {
     expect(r.nodeArgs).toContain('--verify-only')
     // C2／R19：以 agent 啟動前的不可變 commit 為基準，不是可移動的 base 分支
     expect(r.nodeArgs).toContain(`--base-sha ${'a'.repeat(40)}`)
+    // R25：crosscheck 只吃 clean-repo facts，不再對 target 跑 git
+    expect(r.nodeArgs).toContain('--facts .factory/verify-facts.json')
     expect(r.nodeArgs).not.toContain('--variant')
     // 沒還原階段輸入 → 不帶 manifest
     expect(r.nodeArgs).not.toContain('--restored-manifest')
@@ -296,6 +311,15 @@ describe('crosscheck step：N-version 變體隔離', () => {
     expect(r.status, r.log).not.toBe(0)
     expect(r.nodeArgs).toBe('')
     expect(r.log).toContain('缺 pre-agent base commit')
+  })
+
+  it('驗證模式缺 .factory/verify-facts.json → fail closed（不回退到 target 內的 git 事實）', () => {
+    const r = runStep({ stdout: ok, stderr: '', code: 0 }, '', { 'steps.verifymode.outputs.verify': 'true' }, {
+      factsFile: false,
+    })
+    expect(r.status, r.log).not.toBe(0)
+    expect(r.nodeArgs).toBe('')
+    expect(r.log).toContain('缺 clean-repo facts')
   })
 
   it('階段輸入步驟成功 → 帶 --restored-manifest；未執行 → 不帶（R13）', () => {

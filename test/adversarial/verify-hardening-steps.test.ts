@@ -90,6 +90,8 @@ function runStep(step: Step, opts: RunOptions = {}): RunResult {
   mkdirSync(bin)
   mkdirSync(join(dir, 'home'))
   mkdirSync(join(dir, 'runner_temp'))
+  // R25：agent token 經 $RUNNER_TEMP 的 600 檔傳遞；測試預設放一個有效值。
+  writeFileSync(join(dir, 'runner_temp/agent-gh-token'), 'test-agent-token')
   const stub = (name: string, body: string): void => {
     const path = join(bin, name)
     writeFileSync(path, `#!/usr/bin/env bash\n${body}\n`)
@@ -204,47 +206,62 @@ describe('I2a：驗證模式的 task template 一律來自機制 repo', () => {
   })
 })
 
-describe('I2b：驗證模式在 agent 之前把 target/.dsh 移開', () => {
-  const dsh = (): Step => stepByName('Neutralize target workspace skills (verify only)')
+describe('I2b：驗證模式在 agent 之前把 .dsh／.agents／AGENTS.md／CLAUDE.md 移開（R25）', () => {
+  const neutralize = (): Step => stepByName('Neutralize target agent instructions (verify only)')
 
   it('只在驗證模式執行，且在 agent 之前', () => {
-    expect(dsh().if).toBe("steps.verifymode.outputs.verify == 'true'")
-    expect(indexByName('Neutralize target workspace skills (verify only)')).toBeLessThan(
+    expect(neutralize().if).toBe("steps.verifymode.outputs.verify == 'true'")
+    expect(indexByName('Neutralize target agent instructions (verify only)')).toBeLessThan(
       indexByName('Run factory agent'),
     )
   })
 
-  it('planted target/.dsh/skills/x/SKILL.md 在 agent 之前消失（移到 RUNNER_TEMP，不還原）', () => {
-    const r = runStep(dsh(), {
+  it('planted .dsh／.agents／AGENTS.md／CLAUDE.md 在 agent 之前全部移到 RUNNER_TEMP/away（不還原）', () => {
+    const r = runStep(neutralize(), {
       env: { GITHUB_RUN_ID: 'fixture-run' },
-      setup: (dir) => writeFile(dir, 'target/.dsh/skills/x/SKILL.md', 'rank-100 shadow\n'),
+      setup: (dir) => {
+        writeFile(dir, 'target/.dsh/skills/x/SKILL.md', 'rank-100 shadow\n')
+        writeFile(dir, 'target/.agents/skills/y/SKILL.md', 'rank-200 shadow\n')
+        writeFile(dir, 'target/AGENTS.md', 'target agent instructions\n')
+        writeFile(dir, 'target/CLAUDE.md', 'target claude instructions\n')
+      },
     })
     expect(r.status, r.log).toBe(0)
-    expect(existsSync(join(r.dir, 'target/.dsh'))).toBe(false)
-    expect(existsSync(join(r.dir, 'runner_temp/target-dsh-fixture-run'))).toBe(true)
-    expect(readFileSync(join(r.dir, 'runner_temp/target-dsh-fixture-run/skills/x/SKILL.md'), 'utf8')).toContain(
-      'rank-100 shadow',
-    )
-    expect(r.log).toContain('target .dsh moved aside')
+    for (const rel of ['.dsh', '.agents', 'AGENTS.md', 'CLAUDE.md']) {
+      expect(existsSync(join(r.dir, 'target', rel)), rel).toBe(false)
+      expect(existsSync(join(r.dir, 'runner_temp/away', rel)), rel).toBe(true)
+    }
+    expect(readFileSync(join(r.dir, 'runner_temp/away/.dsh/skills/x/SKILL.md'), 'utf8')).toContain('rank-100 shadow')
+    expect(readFileSync(join(r.dir, 'runner_temp/away/AGENTS.md'), 'utf8')).toContain('target agent instructions')
+    expect(r.log).toContain('.dsh moved aside')
+    expect(r.log).toContain('.agents moved aside')
+    expect(r.log).toContain('AGENTS.md moved aside')
+    expect(r.log).toContain('CLAUDE.md moved aside')
   })
 
-  it('target 沒有 .dsh 時是 no-op（可重跑）', () => {
-    const r = runStep(dsh(), {})
+  it('target 沒有這些路徑時是 no-op（可重跑）', () => {
+    const r = runStep(neutralize(), {})
     expect(r.status, r.log).toBe(0)
-    expect(r.log).toContain('target .dsh absent')
+    for (const rel of ['.dsh', '.agents', 'AGENTS.md', 'CLAUDE.md']) {
+      expect(r.log).toContain(`${rel} absent`)
+    }
   })
 
-  it('agent 之後沒有任何步驟把它搬回去', () => {
+  it('agent 之後沒有任何步驟把它們搬回去', () => {
     const after = steps().slice(indexByName('Run factory agent'))
     for (const step of after) {
-      expect(step.run ?? '', step.name).not.toMatch(/mv[^\n]*target\/\.dsh/)
+      expect(step.run ?? '', step.name).not.toMatch(/mv[^\n]*target\/(\.dsh|\.agents|AGENTS\.md|CLAUDE\.md)/)
     }
   })
 })
 
 /* ------------------------------------------------------------------ I3 */
 
-describe('I3：驗證模式只把唯讀 App token 交給 agent', () => {
+describe('I3：驗證模式只把唯讀 App token 交給 agent（R25：空值 fail closed）', () => {
+  const resolveToken = (): Step => stepById('agenttoken')
+  const RO = '${{ steps.agent-token.outputs.token }}'
+  const WRITE = '${{ steps.app-token.outputs.token }}'
+
   it('第二個 installation token 只在驗證模式 mint，權限是 contents／issues／metadata read', () => {
     const token = stepById('agent-token')
     expect(token.if).toBe("steps.verifymode.outputs.verify == 'true'")
@@ -259,17 +276,62 @@ describe('I3：驗證模式只把唯讀 App token 交給 agent', () => {
     expect(write.with?.['permission-pull-requests']).toBe('write')
   })
 
-  it('agent 的 gh-token 在驗證模式來自唯讀 token；非驗證模式維持寫入 token', () => {
-    const step = stepByName('Write agent run env (token / base / repo)')
-    const expr = step.env?.['GH_TOKEN'] ?? ''
-    expect(expr).toContain('steps.agent-token.outputs.token')
-    expect(expr).toContain('steps.app-token.outputs.token')
-    expect(expr).toContain("steps.verifymode.outputs.verify == 'true'")
+  it('R25：不再有 `verify == true && read-only || write` 的運算式，也沒有任何 `|| app-token` 回退', () => {
+    const yaml = readFileSync(join(ROOT, WORKFLOW), 'utf8')
+    expect(yaml).not.toMatch(/\|\|\s*steps\.app-token\.outputs\.token/)
+    expect(yaml).not.toContain("steps.verifymode.outputs.verify == 'true' && steps.agent-token.outputs.token")
+    // 解析後的 env 也不得殘留舊運算式
+    for (const step of steps()) {
+      for (const value of Object.values(step.env ?? {})) {
+        expect(String(value)).not.toMatch(/\|\|\s*steps\.app-token\.outputs\.token/)
+      }
+    }
+  })
 
-    // 實際執行：step 拿到的 GH_TOKEN 就是寫進 gh-token 的值（read-only 版本由上面的運算式決定）
+  it('resolve token 步驟：兩個顯式分支；驗證模式的唯讀 token 為空 → exit 1', () => {
+    const step = resolveToken()
+    expect(step.env?.['VERIFY_MODE']).toBe('${{ steps.verifymode.outputs.verify }}')
+    expect(step.env?.['READ_ONLY_TOKEN']).toBe(RO)
+    expect(step.env?.['WRITE_TOKEN']).toBe(WRITE)
+    const script = step.run ?? ''
+    expect(script).toContain('if [ "$VERIFY_MODE" = "true" ]; then')
+    expect(script).toContain('else')
+    expect(script).toContain('唯讀 agent token 為空')
+    expect(script).toContain('exit 1')
+    // token 走 $RUNNER_TEMP 的 600 檔，不經 step output（後者遇到 secret 會被 runner 跳過）
+    expect(script).toContain('agent-gh-token')
+    expect(script).not.toContain('$GITHUB_OUTPUT')
+
+    const empty = runStep(step, { env: { VERIFY_MODE: 'true', READ_ONLY_TOKEN: '', WRITE_TOKEN: 'write' } })
+    expect(empty.status).not.toBe(0)
+    expect(empty.log).toContain('唯讀 agent token 為空')
+    expect(existsSync(join(empty.dir, 'runner_temp/agent-gh-token'))).toBe(false)
+
+    const readOnly = runStep(step, {
+      env: { VERIFY_MODE: 'true', READ_ONLY_TOKEN: 'ghs_read_only', WRITE_TOKEN: 'ghs_write' },
+    })
+    expect(readOnly.status, readOnly.log).toBe(0)
+    expect(readFileSync(join(readOnly.dir, 'runner_temp/agent-gh-token'), 'utf8')).toBe('ghs_read_only')
+    expect(readFileSync(join(readOnly.dir, 'runner_temp/agent-gh-token'), 'utf8')).not.toContain('ghs_write')
+
+    const plain = runStep(step, {
+      env: { VERIFY_MODE: 'false', READ_ONLY_TOKEN: '', WRITE_TOKEN: 'ghs_write' },
+    })
+    expect(plain.status, plain.log).toBe(0)
+    expect(readFileSync(join(plain.dir, 'runner_temp/agent-gh-token'), 'utf8')).toBe('ghs_write')
+  })
+
+  it('agent 與 Write agent run env 都只從 resolve 後的 600 檔讀 token（不拼運算式）', () => {
+    for (const name of ['Run factory agent', 'Write agent run env (token / base / repo)']) {
+      const step = stepByName(name)
+      expect(step.env?.['GH_TOKEN'], name).toBeUndefined()
+      expect(step.run ?? '', name).toContain('agent-gh-token')
+      expect(step.run ?? '', name).not.toContain('steps.app-token')
+      expect(step.run ?? '', name).not.toContain('steps.agent-token')
+    }
+    // 實際執行：Write agent run env 從檔案讀到的值就是寫進 gh-token 的值
     const token = 'ghs_read_only_token_value'
-    const r = runStep(step, {
-      env: { GH_TOKEN: token },
+    const r = runStep(stepByName('Write agent run env (token / base / repo)'), {
       values: {
         'inputs.base_branch': 'main',
         'inputs.repo': 'owner/name',
@@ -277,22 +339,43 @@ describe('I3：驗證模式只把唯讀 App token 交給 agent', () => {
         'inputs.nversion': 'true',
         'inputs.verify_phase': 'statements',
       },
-      setup: (dir) => mkdirSync(join(dir, 'target'), { recursive: true }),
+      setup: (dir) => {
+        mkdirSync(join(dir, 'target'), { recursive: true })
+        writeFileSync(join(dir, 'runner_temp/agent-gh-token'), token)
+      },
     })
     expect(r.status, r.log).toBe(0)
     expect(readFileSync(join(r.dir, 'target/.factory/run/gh-token'), 'utf8')).toBe(token)
+  })
+
+  it('agent token 檔不存在 → 兩個消費步驟都 fail closed', () => {
+    const writeEnv = runStep(stepByName('Write agent run env (token / base / repo)'), {
+      values: {
+        'inputs.base_branch': 'main',
+        'inputs.repo': 'owner/name',
+        'matrix.variant': 'a',
+        'inputs.nversion': 'true',
+        'inputs.verify_phase': 'statements',
+      },
+      setup: (dir) => {
+        mkdirSync(join(dir, 'target'), { recursive: true })
+        rmSync(join(dir, 'runner_temp/agent-gh-token'), { force: true })
+      },
+    })
+    expect(writeEnv.status, writeEnv.log).not.toBe(0)
+    expect(writeEnv.log).toContain('agent token 檔不存在')
+
+    // agent 步驟含大量 ${{ }} 輸入，靜態釘住同一道 fail-closed 檢查即可
+    const agent = stepByName('Run factory agent').run ?? ''
+    expect(agent).toContain('agent-gh-token')
+    expect(agent).toContain('agent token 檔不存在')
+    expect(agent).toMatch(/if \[ ! -s "\$AGENT_TOKEN_FILE" \]; then[\s\S]*?exit 1/)
   })
 
   it('write token 的 push 探針在驗證模式跳過', () => {
     expect(stepByName('Verify app token write access (target repo)').if).toBe(
       "steps.verifymode.outputs.verify != 'true'",
     )
-  })
-
-  it('agent 步驟的 GH_TOKEN 在驗證模式也是唯讀 token', () => {
-    const expr = stepByName('Run factory agent').env?.['GH_TOKEN'] ?? ''
-    expect(expr).toContain('steps.agent-token.outputs.token')
-    expect(expr).toContain("steps.verifymode.outputs.verify == 'true'")
   })
 })
 
@@ -472,5 +555,46 @@ describe('I1：驗證模式 log 不印 Issue 內容', () => {
     })
     expect(plain.status, plain.log).toBe(0)
     expect(plain.log).toContain(`::warning::provider=p/m 失敗（agent-error）：${SECRET}`)
+  })
+})
+
+/* ------------------------------------------------------------------ R25 */
+
+describe('R25：verify 事實改由 clean repo 產生（factory-verify-facts）', () => {
+  const factsStep = (): Step => stepByName('Materialise verify facts (clean repo)')
+
+  it('步驟在 agent 之後、crosscheck／encrypt 之前，且 agent 失敗時仍可取部分事實', () => {
+    expect(factsStep().if).toContain('always()')
+    expect(factsStep().if).toContain("steps.verifymode.outputs.verify == 'true'")
+    expect(factsStep().if).toContain("steps.agent.outcome == 'success' || steps.agent.outcome == 'failure'")
+    const facts = indexByName('Materialise verify facts (clean repo)')
+    expect(facts).toBeGreaterThan(indexByName('Run factory agent'))
+    expect(facts).toBeLessThan(indexByName('Cross-check report vs git diff'))
+    expect(facts).toBeLessThan(indexByName('Encrypt verify artifacts (age)'))
+  })
+
+  it('呼叫 factory-verify-facts，輸出在 target 外（.factory/verify-facts.json），缺 base-sha 即 fail closed', () => {
+    const script = factsStep().run ?? ''
+    expect(script).toContain('dist/cli/factory-verify-facts.js')
+    expect(script).toContain('--target "$GITHUB_WORKSPACE/target"')
+    expect(script).toContain('--base-sha "$VERIFY_BASE_SHA"')
+    expect(script).toContain('--out "$GITHUB_WORKSPACE/.factory/verify-facts.json"')
+    expect(script).not.toContain('--out "$GITHUB_WORKSPACE/target')
+    expect(script).toMatch(/if \[ -z "\$\{VERIFY_BASE_SHA:-\}" \][\s\S]*?\.factory\/base-sha[\s\S]*?exit 1/)
+    expect(factsStep().env?.['VERIFY_BASE_SHA']).toBe('${{ steps.basesha.outputs.sha }}')
+  })
+
+  it('crosscheck 在驗證模式帶 --facts（且不帶時仍維持舊相容路徑）', () => {
+    const script = stepById('crosscheck').run ?? ''
+    expect(script).toContain('FACTS_FLAG="--facts .factory/verify-facts.json"')
+    expect(script).toContain('if [ "$VERIFY_MODE" = "true" ]; then')
+    expect(script).toContain('$FACTS_FLAG')
+    expect(script).toMatch(/if \[ ! -s "\$GITHUB_WORKSPACE\/\.factory\/verify-facts\.json" \][\s\S]*?exit 1/)
+  })
+
+  it('encrypt 帶 --facts，且缺 facts 檔即 fail closed（不回退 target 內的 git）', () => {
+    const script = stepById('verify-encrypt').run ?? ''
+    expect(script).toContain('--facts "$GITHUB_WORKSPACE/.factory/verify-facts.json"')
+    expect(script).toMatch(/if \[ ! -s "\$GITHUB_WORKSPACE\/\.factory\/verify-facts\.json" \][\s\S]*?exit 1/)
   })
 })

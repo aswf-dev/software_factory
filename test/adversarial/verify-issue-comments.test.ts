@@ -230,6 +230,17 @@ function runStep(
   mkdirSync(join(dir, 'cli'))
   // C2／R19：workflow 的 pre-agent 步驟會寫這份檔；crosscheck 在驗證模式要求它存在
   writeFileSync(join(dir, '.factory/base-sha'), 'a'.repeat(40))
+  // R25：verify 事實由 clean repo 產生；crosscheck 在驗證模式要求這份 JSON 存在。
+  writeFileSync(
+    join(dir, '.factory/verify-facts.json'),
+    JSON.stringify({
+      baseSha: 'a'.repeat(40),
+      changed: [],
+      linesAdded: 0,
+      linesDeleted: 0,
+      assertionDelta: 0,
+    }),
+  )
   for (const [base, { stdout, code }] of Object.entries(cli)) {
     writeFileSync(join(dir, 'cli', `${base}.out`), stdout)
     writeFileSync(join(dir, 'cli', `${base}.code`), String(code))
