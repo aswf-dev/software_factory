@@ -595,8 +595,12 @@ function pruneFactsTree(dir: string, relDir: string, base: BaseTreeExtraction): 
       const baseOid = base.neutralisedOids.get(rel)
       if (baseOid !== undefined && entryBlobOid(abs, entry) === baseOid) {
         rmSync(abs, { force: true })
-        continue
       }
+      // R28：neutralised 路徑**永遠不是**建置產物。base 已有的原樣搬回可以忽略，
+      // 但 agent 新建／改寫的一律留在 facts（A）由 crosscheck 判紅——不能落到下面
+      // 的 artifact prune（`specs/build/AGENTS.md` 這類會被靜默刪掉，facts 變空、
+      // crosscheck 反而綠）。
+      continue
     }
     if (isArtifactPath(rel) && !base.paths.has(rel)) rmSync(abs, { force: true })
   }

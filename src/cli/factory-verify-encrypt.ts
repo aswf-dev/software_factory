@@ -133,8 +133,15 @@ export interface EncryptVerifyBundleResult {
  * 全收（`.lake/build/` 除外）、其餘只收驗證白名單的測試檔。target `.factory/` 下非
  * run 的檔案不進 bundle；workflow 的機制 metadata（在 `$GITHUB_WORKSPACE/.factory`，
  * 不在 target 下）另由 `collectMechanismEntries` 以 `kind: "mechanism"` 收進來。
+ *
+ * neutralised 路徑（`.dsh`／`.agents` segment、`AGENTS.md`／`AGENTS.local.md`／
+ * `CLAUDE.md`／`CLAUDE.local.md`）在**任何** collector 都先被拒絕（R28）：specs
+ * walk 不看 facts 的 neutralised 過濾，若只在 facts 迴圈排除，crosscheck 判紅後
+ * upload step 仍會把 `specs/AGENTS.md` 打包出去；下一階段再被還原。bundle 與
+ * crosscheck 必須用同一個 `isNeutralisedPath` 定義。
  */
 function isBundlePath(rel: string): boolean {
+  if (isNeutralisedPath(rel)) return false
   if (rel === GH_TOKEN_PATH) return false
   if (isLakeBuildArtifact(rel)) return false
   if (rel.startsWith('.factory/')) return rel.startsWith(`${RUN_DIR}/`)

@@ -332,6 +332,15 @@ describe('restoreVerifyInput：整份拒絕（fail closed，不寫任何檔）',
     await expectRejected([line('specs/lean/.lake/build', 'cache')], /lake\/build|建置快取/)
   })
 
+  it('R28：neutralised 路徑（specs 內的 AGENTS.md／.dsh）→ 整份拒絕、不寫任何檔', async () => {
+    // `specs/**` 的白名單形狀會放行這些路徑；還原端必須用與 facts／encrypt 相同的
+    // neutralisation 定義另外擋掉，否則加密端漏掉的檔案會在這裡被寫回工作區。
+    await expectRejected([line('specs/AGENTS.md', 'planted instructions')], /neutralis/)
+    await expectRejected([line('specs/.dsh/skills/x/SKILL.md', 'planted skill')], /neutralis/)
+    await expectRejected([line('specs/.agents/skills/y/SKILL.md', 'planted skill')], /neutralis/)
+    await expectRejected([line('specs/build/CLAUDE.local.md', 'planted instructions')], /neutralis/)
+  })
+
   it('單一 segment 超過 NAME_MAX（255 bytes）→ 寫入前就拒絕', async () => {
     await expectRejected([line(`specs/${'a'.repeat(256)}.qnt`, 'x')], /segment 過長/)
     await expectRejected([line(`specs/中${'文'.repeat(85)}.qnt`, 'x')], /segment 過長/)

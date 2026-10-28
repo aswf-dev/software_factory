@@ -17,6 +17,9 @@
  *   - 絕對路徑、反斜線、NUL、空／`.`／`..` segment、`.git` segment、`.factory/**`
  *     （run 目錄與 token 所在）、解析後落在 target 外 → 拒絕；
  *   - specs 樹內任何 `.lake/build/` 路徑（加密端不打包的建置快取）→ 拒絕，兩端一致；
+ *   - neutralised 路徑（任一 `.dsh`／`.agents` segment、`AGENTS.md`／`AGENTS.local.md`／
+ *     `CLAUDE.md`／`CLAUDE.local.md` 檔名）→ 拒絕：加密端從不打包（R28），還原端
+ *     收到即整份拒絕，階段輸入沒有任何路徑可以把 instruction 面帶回 agent 工作區；
  *   - path／segment 長度超過檔案系統上限（PATH_MAX 1024、NAME_MAX 255 bytes）→
  *     在寫入前拒絕（避免寫到一半才 ENAMETOOLONG，且 fs 錯誤不帶絕對路徑）；
  *   - 寫入路徑上任何既有 segment 是 symlink（含目標檔本身）→ 拒絕：即使 symlink
@@ -55,6 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { Decrypter } from 'age-encryption'
 import { isVerifyAllowedPath } from '../pipeline/verify-scope.js'
 import { isLakeBuildArtifact } from './factory-verify-encrypt.js'
+import { isNeutralisedPath } from './factory-verify-facts.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, runCliAsync } from './run-cli.js'
 
@@ -201,6 +205,17 @@ function validatePath(path: string, lineNo: number): void {
   if (isLakeBuildArtifact(path)) {
     throw new CliError(
       `${where}：path 位於 .lake/build（可重建的建置快取）——加密端不打包，還原端也拒絕（ADR-029 §5）`,
+    )
+  }
+  // R28：neutralised 路徑（`.dsh`／`.agents` segment 與四個 instruction 檔名）是
+  // mechanism／instruction 面。`specs/**` 白名單在形狀上會放行 `specs/AGENTS.md`，
+  // 所以必須另擋；加密端已經不打包，出現即代表產生端錯了或被動過 → 與其他禁入
+  // 路徑一樣整份拒絕（先驗證全部、再寫，target 保持原狀）。
+  if (isNeutralisedPath(path)) {
+    throw new CliError(
+      `${where}：path 是 neutralised 的 mechanism／instruction 面` +
+        '（.dsh／.agents segment 或 AGENTS.md／AGENTS.local.md／CLAUDE.md／CLAUDE.local.md）' +
+        '——加密端不打包，還原端整份拒絕（R28，ADR-029 §5）',
     )
   }
   if (!isVerifyAllowedPath(path)) {

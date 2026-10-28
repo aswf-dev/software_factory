@@ -314,6 +314,11 @@ base 與 facts 兩側，agent 修改它仍回報 `M`；同一 `dist/` 下 agent 
 crosscheck 以 `verify-scope` 判紅（crosscheck 的防禦性過濾只丟 `D`，不丟 `A`／`M`）。
 若新檔剛好落在 specs／test 白名單內（例如 `specs/AGENTS.md`、`test/CLAUDE.local.md`），
 白名單不得成為繞道：crosscheck 另以 `verify-neutralised-path`（scope 類）判紅。
+這些路徑也**永遠不會進加密 bundle**：`factory-verify-encrypt` 的所有收集器（含 specs
+walk）都先用同一個 `isNeutralisedPath` 過濾（R28）；upload step 在 crosscheck 失敗時
+仍會執行，所以這一層是必要的。`factory-verify-input` 收到任何 neutralised 路徑即整份
+拒絕——即使 crosscheck 判紅後 bundle 照樣產生，還原端也沒有任何路徑可以把它們帶回
+agent 工作區。
 
 輸出 `$GITHUB_WORKSPACE/.factory/verify-facts.json`（target 外），crosscheck 與
 encrypt 以 `--facts` 消費；兩者仍以 `--base-sha` 獨立驗證 `facts.baseSha`，不一致
@@ -448,3 +453,12 @@ runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的�
    絕對路徑呼叫 CLI 時才可能。`git ls-files`／`git status` 等指令本身的失敗訊息仍可能含
    runner 上的絕對路徑。這是已知殘留（只影響錯誤訊息，不含檔案內容），V3 會把 verify 類
    CLI 的錯誤輸出統一改成相對路徑。
+
+8. **artifact 名稱目錄下的新檔只是偵測缺口，不是交付路徑（R28）**：artifact prune 只
+   套用在 facts 中不存在於 base 的條目，所以 agent 在 `src/dist/evil.ts` 這類 artifact
+   名稱目錄下新建、又不在 `specs/**`／測試路徑內的白名單外檔案，會被 prune 掉且
+   crosscheck 不會回報；它們同時也不會進加密 bundle（encrypt 只收 `.factory/run`、
+   `specs/**` 與白名單測試檔），所以這是**偵測缺口**，不是交付路徑，待 V3 收斂。
+   neutralised 路徑不受此影響：agent 新建的一律留在 facts 以 `A` 判紅（即使在
+   `specs/build/`、`specs/dist/` 之下），而且永遠不會進加密 bundle、也無法經
+   `factory-verify-input` 還原——收到即整份拒絕。

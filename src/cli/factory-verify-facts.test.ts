@@ -900,3 +900,84 @@ describe('R26 (c)／(d)：instruction 檔案的完整 neutralisation 與新檔 s
     expect(result.ok).toBe(false)
   })
 })
+
+/**
+ * R28：wave 7 的 artifact prune 在 neutralised 分支之後執行，於是「agent 在
+ * artifact 名稱目錄下新建 neutralised 檔」會直接從 facts 消失（facts `changed:[]`、
+ * crosscheck `ok:true`）。neutralised 路徑永遠不是建置產物：base 已有的原樣搬回
+ * 可以忽略，但 agent 新建／改寫的一定要留在 facts 以 `A` 回報。
+ */
+describe('R28：artifact 目錄名下的 neutralised 路徑不得被 prune 掉', () => {
+  const NEUTRALISED_UNDER_ARTIFACTS = [
+    'specs/build/AGENTS.md',
+    'specs/build/.dsh/skills/x/SKILL.md',
+    'specs/build/.agents/skills/y/SKILL.md',
+    'specs/dist/CLAUDE.md',
+  ]
+
+  it('agent 新建 → facts 逐條保留 A，crosscheck 逐條以 scope 類 mismatch 判紅（ok:false）', async () => {
+    const { repo, baseSha } = makeRepo()
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    moveNeutralisedAside(repo)
+    for (const rel of NEUTRALISED_UNDER_ARTIFACTS) writeFile(repo, rel, 'planted instructions\n')
+
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+
+    // `git diff --cached --name-status` 依 path 排序
+    const expected = [...NEUTRALISED_UNDER_ARTIFACTS]
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      .map((path) => ({ path, status: 'A' as const }))
+    expect(facts.changed).toEqual(expected)
+
+    // report 誠實列出這四筆（每檔一行、沒有 assertion）→ 只剩 scope 類的判定
+    const result = crosscheckMain(
+      [
+        '12',
+        report(NEUTRALISED_UNDER_ARTIFACTS, NEUTRALISED_UNDER_ARTIFACTS.length, 0),
+        '--target',
+        repo,
+        '--verify-only',
+        '--base-sha',
+        baseSha,
+        '--facts',
+        out,
+      ],
+      () => {
+        throw new Error('verify 模式帶 --facts 時不得對 target 跑任何 git 命令（R25）')
+      },
+    )
+    expect(result.ok).toBe(false)
+    expect(result.mismatches.map((m) => m.kind)).toEqual(['verify-neutralised-path'])
+    const scopeDetails = result.mismatches
+      .filter((m) => m.category === 'scope')
+      .map((m) => m.detail)
+      .join('\n')
+    for (const rel of NEUTRALISED_UNDER_ARTIFACTS) expect(scopeDetails, rel).toContain(rel)
+  })
+
+  it('合規 run（test + specs 模型檔、無 neutralised 內容）維持事實與 ok:true', async () => {
+    const { repo, baseSha } = makeRepo()
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    moveNeutralisedAside(repo)
+    writeFile(repo, 'specs/quint/model.qnt', 'module Ledger {}\n')
+    writeFile(repo, 'test/new.test.ts', "it('new', () => {})\n")
+
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+    expect(facts.changed).toEqual([
+      { path: 'specs/quint/model.qnt', status: 'A' },
+      { path: 'test/new.test.ts', status: 'A' },
+    ])
+
+    const changedPaths = ['specs/quint/model.qnt', 'test/new.test.ts']
+    const result = crosscheckMain(
+      ['12', report(changedPaths, 2, 0), '--target', repo, '--verify-only', '--base-sha', baseSha, '--facts', out],
+      () => {
+        throw new Error('verify 模式帶 --facts 時不得對 target 跑任何 git 命令（R25）')
+      },
+    )
+    expect(result.mismatches).toEqual([])
+    expect(result.ok).toBe(true)
+  })
+})

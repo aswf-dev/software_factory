@@ -30,6 +30,7 @@ import { Decrypter, generateX25519Identity, identityToRecipient } from 'age-encr
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import * as encryptModule from '../src/cli/factory-verify-encrypt.js'
 import { VERIFY_MECHANISM_FILES, encryptVerifyBundle, main, parseArgs } from '../src/cli/factory-verify-encrypt.js'
+import { isNeutralisedPath, main as factsMain } from '../src/cli/factory-verify-facts.js'
 import { CliError, formatCliError } from '../src/cli/run-cli.js'
 import { isVerifyAllowedPath } from '../src/pipeline/verify-scope.js'
 
@@ -961,5 +962,67 @@ describe('encryptVerifyBundle：--facts 取代 target 內的 git 事實（R25）
   it('parseArgs：接受 --facts', () => {
     const facts = factsFixture()
     expect(parseArgs(['--target', 't', '--out', 'o.age', '--recipient', recipient, '--base-sha', sha, '--facts', facts]).factsPath).toBe(facts)
+  })
+})
+
+/**
+ * R28：crosscheck 判紅不等於不外流。upload step 在 crosscheck 失敗時仍會執行，
+ * 而 encrypt 的 specs walk 不看 neutralised 路徑——`specs/AGENTS.md` 因此進得去
+ * 加密 bundle，下一階段再被 `factory-verify-input` 收下。bundle 必須與 crosscheck
+ * 用同一個 neutralisation 定義。
+ */
+describe('R28：neutralised 路徑永不進 bundle（specs walk 也一樣）', () => {
+  it('agent 在 artifact 名稱目錄下新建的 neutralised 檔全部排除；合法 specs／test 檔仍打包', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'README.md', '# fixture\n')
+    commitAll(target, 'base')
+    const baseSha = git(target, 'rev-parse', 'HEAD').trim()
+
+    const neutralised = [
+      'specs/build/AGENTS.md',
+      'specs/build/.dsh/skills/x/SKILL.md',
+      'specs/build/.agents/skills/y/SKILL.md',
+      'specs/dist/CLAUDE.md',
+    ]
+    for (const rel of neutralised) writeFixture(target, rel, 'planted instructions\n')
+    writeFixture(target, 'specs/build/legit.test.ts', "it('legit', () => {})\n")
+    writeFixture(target, 'test/new.test.ts', "it('new', () => {})\n")
+
+    // 真實 CLI：先 materialise facts（clean repo），再以 --facts 打包
+    const previousRunnerTemp = process.env.RUNNER_TEMP
+    process.env.RUNNER_TEMP = tempDir('factory-verify-runner-')
+    const factsFile = join(tempDir('factory-verify-facts-out-'), 'verify-facts.json')
+    try {
+      factsMain(['--target', target, '--base-sha', baseSha, '--out', factsFile])
+    } finally {
+      if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP
+      else process.env.RUNNER_TEMP = previousRunnerTemp
+    }
+
+    const result = await main([
+      '--target',
+      target,
+      '--out',
+      outFile,
+      '--recipient',
+      recipient,
+      '--base-sha',
+      baseSha,
+      '--facts',
+      factsFile,
+    ])
+
+    const expected = ['specs/build/legit.test.ts', 'test/new.test.ts']
+    expect(result.files).toEqual(expected)
+    const lines = await decryptBundle(outFile, identity)
+    expect(lines.map((line) => line.path)).toEqual(expected)
+    for (const rel of neutralised) {
+      expect(result.files, rel).not.toContain(rel)
+      expect(lines.map((line) => line.path), rel).not.toContain(rel)
+    }
+    // 更強的形式：bundle 內不得有任何 neutralised 路徑（不只是列舉的四筆）
+    for (const line of lines) expect(isNeutralisedPath(line.path), line.path).toBe(false)
   })
 })
