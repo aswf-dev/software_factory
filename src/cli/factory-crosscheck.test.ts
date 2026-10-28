@@ -1210,6 +1210,7 @@ describe('categorizeMismatch／crosscheckHeadline：政策違規與報告不一�
     'propose-skill-scope',
     'onboard-scope',
     'write-spec-scope',
+    'verify-neutralised-path',
   ])('%s → scope（變更超出任務類型允許的範圍）', (kind) => {
     expect(categorizeMismatch(kind)).toBe('scope')
   })
@@ -2896,12 +2897,14 @@ describe('驗證模式的 facts JSON（--facts，R25）', () => {
     expect(out.ok).toBe(false)
   })
 
-  it('防禦性過濾 .dsh／.agents／AGENTS.md／CLAUDE.md（舊 facts 也不得 red）', () => {
+  it('防禦性過濾 neutralised 路徑的「刪除」（舊 facts 的 tracked .dsh 刪除不得 red）', () => {
     const facts = factsFile({
       changed: [
         { path: '.dsh/skills/x/SKILL.md', status: 'D' },
         { path: '.agents/skills/x/SKILL.md', status: 'D' },
         { path: 'AGENTS.md', status: 'D' },
+        { path: 'AGENTS.local.md', status: 'D' },
+        { path: 'nested/CLAUDE.local.md', status: 'D' },
         { path: 'test/new.test.ts', status: 'A' },
       ],
       linesAdded: 1,
@@ -2911,6 +2914,50 @@ describe('驗證模式的 facts JSON（--facts，R25）', () => {
       neverGit,
     )
     expect(out.actual.paths).toEqual(['test/new.test.ts'])
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('R26 (d)：neutralised 路徑的「新增」不是刪除——保留並判 verify-scope（不得靜默吞掉）', () => {
+    const facts = factsFile({
+      changed: [{ path: '.dsh/skills/selfauth/SKILL.md', status: 'A' }],
+      linesAdded: 2,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['.dsh/skills/selfauth/SKILL.md'], changedLines: 2 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.actual.paths).toEqual(['.dsh/skills/selfauth/SKILL.md'])
+    expect(out.ok).toBe(false)
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain(
+      '.dsh/skills/selfauth/SKILL.md',
+    )
+  })
+
+  it('R26 (d)：neutralised 路徑落在 specs 白名單內也不得放行（verify-neutralised-path）', () => {
+    const facts = factsFile({
+      changed: [{ path: 'specs/lean/AGENTS.md', status: 'A' }],
+      linesAdded: 1,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['specs/lean/AGENTS.md'], changedLines: 1 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    const finding = out.mismatches.find((m) => m.kind === 'verify-neutralised-path')
+    expect(finding?.category).toBe('scope')
+    expect(finding?.detail).toContain('specs/lean/AGENTS.md')
+    expect(out.ok).toBe(false)
+  })
+
+  it('R26 (d) 對照組：specs 內的正常新增仍是白名單允許（不誤紅）', () => {
+    const facts = factsFile({
+      changed: [{ path: 'specs/lean/Spec.lean', status: 'A' }],
+      linesAdded: 1,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['specs/lean/Spec.lean'], changedLines: 1 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
     expect(out.mismatches).toEqual([])
     expect(out.ok).toBe(true)
   })

@@ -206,7 +206,7 @@ describe('I2a：驗證模式的 task template 一律來自機制 repo', () => {
   })
 })
 
-describe('I2b：驗證模式在 agent 之前把 .dsh／.agents／AGENTS.md／CLAUDE.md 移開（R25）', () => {
+describe('I2b：驗證模式在 agent 之前把 .dsh／.agents 與四個 instruction 檔名移開（R25／R26）', () => {
   const neutralize = (): Step => stepByName('Neutralize target agent instructions (verify only)')
 
   it('只在驗證模式執行，且在 agent 之前', () => {
@@ -216,35 +216,51 @@ describe('I2b：驗證模式在 agent 之前把 .dsh／.agents／AGENTS.md／CLA
     )
   })
 
-  it('planted .dsh／.agents／AGENTS.md／CLAUDE.md 在 agent 之前全部移到 RUNNER_TEMP/away（不還原）', () => {
+  it('planted 的 .dsh／.agents 與四個 instruction 檔名（含 local／nested）全部移到 RUNNER_TEMP/away（不還原）', () => {
     const r = runStep(neutralize(), {
       env: { GITHUB_RUN_ID: 'fixture-run' },
       setup: (dir) => {
         writeFile(dir, 'target/.dsh/skills/x/SKILL.md', 'rank-100 shadow\n')
         writeFile(dir, 'target/.agents/skills/y/SKILL.md', 'rank-200 shadow\n')
+        writeFile(dir, 'target/nested/.dsh/skills/z/SKILL.md', 'nested rank-100 shadow\n')
         writeFile(dir, 'target/AGENTS.md', 'target agent instructions\n')
         writeFile(dir, 'target/CLAUDE.md', 'target claude instructions\n')
+        writeFile(dir, 'target/AGENTS.local.md', 'target local agent instructions\n')
+        writeFile(dir, 'target/CLAUDE.local.md', 'target local claude instructions\n')
+        writeFile(dir, 'target/docs/AGENTS.md', 'nested agent instructions\n')
+        writeFile(dir, 'target/pkg/CLAUDE.local.md', 'nested local claude instructions\n')
       },
     })
     expect(r.status, r.log).toBe(0)
-    for (const rel of ['.dsh', '.agents', 'AGENTS.md', 'CLAUDE.md']) {
+    for (const rel of [
+      '.dsh',
+      '.agents',
+      'nested/.dsh',
+      'AGENTS.md',
+      'CLAUDE.md',
+      'AGENTS.local.md',
+      'CLAUDE.local.md',
+      'docs/AGENTS.md',
+      'pkg/CLAUDE.local.md',
+    ]) {
       expect(existsSync(join(r.dir, 'target', rel)), rel).toBe(false)
       expect(existsSync(join(r.dir, 'runner_temp/away', rel)), rel).toBe(true)
     }
     expect(readFileSync(join(r.dir, 'runner_temp/away/.dsh/skills/x/SKILL.md'), 'utf8')).toContain('rank-100 shadow')
-    expect(readFileSync(join(r.dir, 'runner_temp/away/AGENTS.md'), 'utf8')).toContain('target agent instructions')
-    expect(r.log).toContain('.dsh moved aside')
-    expect(r.log).toContain('.agents moved aside')
-    expect(r.log).toContain('AGENTS.md moved aside')
-    expect(r.log).toContain('CLAUDE.md moved aside')
+    expect(readFileSync(join(r.dir, 'runner_temp/away/nested/.dsh/skills/z/SKILL.md'), 'utf8')).toContain(
+      'nested rank-100 shadow',
+    )
+    expect(readFileSync(join(r.dir, 'runner_temp/away/docs/AGENTS.md'), 'utf8')).toContain('nested agent instructions')
+    // 「記錄搬了什麼」：每一條都以相對路徑寫進 run log（不是只印一個總數）
+    for (const rel of ['.dsh', '.agents', 'nested/.dsh', 'AGENTS.md', 'CLAUDE.md', 'AGENTS.local.md', 'CLAUDE.local.md', 'docs/AGENTS.md', 'pkg/CLAUDE.local.md']) {
+      expect(r.log, rel).toContain(`${rel} moved aside`)
+    }
   })
 
   it('target 沒有這些路徑時是 no-op（可重跑）', () => {
     const r = runStep(neutralize(), {})
     expect(r.status, r.log).toBe(0)
-    for (const rel of ['.dsh', '.agents', 'AGENTS.md', 'CLAUDE.md']) {
-      expect(r.log).toContain(`${rel} absent`)
-    }
+    expect(r.log).toContain('no agent instruction paths')
   })
 
   it('agent 之後沒有任何步驟把它們搬回去', () => {

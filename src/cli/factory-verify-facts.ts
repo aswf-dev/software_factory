@@ -11,16 +11,23 @@
  * token。只要事實推導還會在 target 內執行 git，就永遠有下一個可執行面。
  *
  * 因此本 CLI 把事實搬到 target 外重建：
- *   1. `git -C <target> archive <base-sha>` 取 base（archive 不跑 clean filter），
- *      解到 `$RUNNER_TEMP/<work>/base`；
- *   2. `rsync -a` 把工作樹複製到 `$RUNNER_TEMP/<work>/facts`（排除 `.git`、
- *      `.dsh`、`.agents`、`AGENTS.md`、`CLAUDE.md`）——rsync 不讀 agent 的 git
- *      config，也不執行任何過濾器；
- *   3. 在 `$RUNNER_TEMP/<work>/calc` `git init` 一個乾淨 repo，套用**顯式最小
+ *   1. `git -C <target> ls-tree -r -z --full-tree <base-sha>` 列出 base 的
+ *      mode／type／oid／path，再以 `git cat-file --batch` 逐 blob 取內容，寫到
+ *      `$RUNNER_TEMP/<work>/base`。**兩者都不讀 attributes**（R26）：agent 可寫的
+ *      `.git/info/attributes` 因此不能用 `export-ignore` 藏掉刪除、也不能用
+ *      `export-subst` 把 base 內容換成 agent 的內容。非 blob 條目（gitlink／
+ *      submodule）跳過並留 warning；mode `100755` 保留可執行位。
+ *   2. `rsync -a` 把工作樹複製到 `$RUNNER_TEMP/<work>/facts`（只排除 `.git`）——
+ *      rsync 不讀 agent 的 git config，也不執行任何過濾器；
+ *   3. 依 base 路徑集修剪 facts：neutralised 路徑中與 base blob 相同的檔案移除
+ *      （workflow 已把它們移到一旁）；建置／產物目錄下**不在 base** 的條目移除
+ *      （agent 的 `npm install`／`coverage`／`.lake/build` 不是交付），但 base
+ *      已 commit 的 `dist/` 檔仍保留在事實裡，agent 修改它仍會回報 M；
+ *   4. 在 `$RUNNER_TEMP/<work>/calc` `git init` 一個乾淨 repo，套用**顯式最小
  *      config**（`core.hooksPath=/dev/null`、`core.fsmonitor=false`、身分與
  *      `commit.gpgsign=false`），把 base 樹複製進去、`git add -A -f`、commit；
  *      再把 facts 覆蓋上去（刪掉 facts 沒有的檔案）、`git add -A -f`；
- *   4. 以 `git diff --cached` 產生 changed／lines／assertion 事實。
+ *   5. 以 `git diff --cached` 產生 changed／lines／assertion 事實。
  *
  * `-f` 讓所有 ignore 檔（含 agent 自己寫的 `.gitignore`）失效；index flags
  * （assume-unchanged／skip-worktree）不存在於新 repo；attributes／filter 只可能
@@ -32,23 +39,26 @@
  *   寫到 runner 的其他位置）。
  * - 輸出 JSON 是 crosscheck／encrypt 唯一的事實來源；workflow 把它寫在 target
  *   之外的 `.factory/verify-facts.json`。
- * - `.dsh`／`.agents`／`AGENTS.md`／`CLAUDE.md` 在 base 與 facts 兩側都排除：
- *   workflow 在 agent 之前已把他們移到一旁（tracked 的刪除因此不是 agent 的
- *   越界變更），事實層再過濾一次，讓舊 facts 或漏掉的 workflow 步驟也不會
- *   產生 scope 假紅。
- * - `git archive` 仍會讀 target 的 repo-local config；它不執行 clean filter／
- *   hooks／fsmonitor，且 `GIT_NO_REPLACE_OBJECTS=1`、global／system config 指向
- *   `/dev/null`，所以 base 的物件解析不受 agent 的 `git replace` 影響。詳細殘留
- *   見 docs/34 §7。
+ * - neutralised 路徑（`.dsh`／`.agents` 目錄與 `AGENTS.md`／`AGENTS.local.md`／
+ *   `CLAUDE.md`／`CLAUDE.local.md` 檔名，任何深度）只在**存在於 base**時被忽略：
+ *   base 內的檔案在 agent 之前已移到一旁，不應變成刪除；agent 在這些路徑下
+ *   **新建**的檔案仍留在 facts（status A），由 crosscheck 判 verify-scope 紅。
+ * - `ls-tree`／`cat-file` 仍以 target 的物件庫解析 base；`GIT_NO_REPLACE_OBJECTS=1`
+ *   與指向 `/dev/null` 的 global／system config 讓 `git replace` 不得改寫基準。
+ *   兩者都不處理 attributes，也不執行 clean filter／hooks／fsmonitor。
  */
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -60,12 +70,42 @@ import { CliError, runCli } from './run-cli.js'
 /** `--base-sha` 的形狀：完整 40 位 hex commit（與 crosscheck／encrypt 相同）。 */
 const BASE_SHA_HEX = /^[0-9a-f]{40}$/i
 
-/** 外部命令輸出的上限；超過即 fail closed（不讓 archive 把 runner 記憶體吃光）。 */
+/** 外部命令輸出的上限；超過即 fail closed（不讓 base 擷取把 runner 記憶體吃光）。 */
 const MAX_COMMAND_OUTPUT = 512 * 1024 * 1024
 
 /** 事實計算要排除的路徑 segment／檔名（workflow 在 agent 之前把他們移到一旁）。 */
 const NEUTRALISED_SEGMENTS: ReadonlySet<string> = new Set(['.dsh', '.agents'])
-const NEUTRALISED_FILE_NAMES: ReadonlySet<string> = new Set(['AGENTS.md', 'CLAUDE.md'])
+const NEUTRALISED_FILE_NAMES: ReadonlySet<string> = new Set([
+  'AGENTS.md',
+  'AGENTS.local.md',
+  'CLAUDE.md',
+  'CLAUDE.local.md',
+])
+
+/**
+ * 建置／產物目錄（任何深度）。這些是 agent 執行工具鏈的副作用，不是交付；
+ * `git add -A -f` 會把它們當成新增，若不排除，合規的 run 會被
+ * `verify-scope`／`diff-not-reported` 假紅。清單刻意只收跨語言常見、可重建、
+ * 不該進版控的目錄；`.lake/build` 另以兩段式路徑判斷（見 `isArtifactPath`）。
+ *
+ * **不整棵排除 base 已 commit 的內容**：base 是 tracked 檔案的集合，commit 進
+ * `dist/` 的檔案仍是真實交付；排除只套用在 facts 中「不存在於 base」的條目
+ * （見 `pruneFactsTree`）。這樣 agent 修改已 commit 的 `dist/app.js` 仍回報 M。
+ */
+const ARTIFACT_SEGMENTS: ReadonlySet<string> = new Set([
+  'node_modules',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
+  '.gradle',
+  'coverage',
+  'dist',
+  'build',
+  'target',
+])
 
 /** clean repo 的顯式最小 config；不繼承 target 或 global 的任何設定。 */
 const CALC_CONFIG = [
@@ -117,6 +157,14 @@ export function isNeutralisedPath(rel: string): boolean {
     .some(
       (segment) => NEUTRALISED_SEGMENTS.has(segment) || NEUTRALISED_FILE_NAMES.has(segment),
     )
+}
+
+/** 路徑是否落在建置／產物目錄（任何深度；`.lake/build` 為兩段式前綴）。 */
+export function isArtifactPath(rel: string): boolean {
+  const segments = rel.split('/')
+  return segments.some(
+    (segment, i) => ARTIFACT_SEGMENTS.has(segment) || (segment === '.lake' && segments[i + 1] === 'build'),
+  )
 }
 
 /** 驗證並正規化 base SHA；形狀不合即 fail closed（不得退回分支名）。 */
@@ -329,39 +377,228 @@ function resolveTargetDir(targetDir: string): string {
   return target
 }
 
-/**
- * `git -C <target> archive <base-sha>` → `tar -x`。
- *
- * archive 只輸出 tree 內容，不執行 clean filter／smudge／hooks／fsmonitor；這是
- * 本設計的關鍵前提。輸出經記憶體轉交 tar（不落任何明文 tar 檔）。
- */
-function extractBaseTree(targetDir: string, baseSha: string, baseDir: string): void {
-  const archive = runCommand(
-    'git',
-    ['-C', targetDir, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', 'archive', baseSha],
-    { env: hardenedEnv() },
-  )
-  const tarInput = requireSuccess(archive, 'git archive')
-  const tar = runCommand('tar', ['-x', '-C', baseDir], { input: tarInput })
-  requireSuccess(tar, 'tar')
+/** `git ls-tree` 的一筆：mode／type／oid／path（path 是 repo 相對路徑）。 */
+export interface BaseTreeEntry {
+  mode: string
+  type: string
+  oid: string
+  path: string
+}
+
+/** base 擷取結果：所有 blob 路徑、neutralised blob 的 oid、以及警告。 */
+export interface BaseTreeExtraction {
+  /** base 內所有 blob 路徑（含 neutralised；用來判斷 facts 條目是否已 commit）。 */
+  paths: Set<string>
+  /** neutralised 路徑 → base blob oid；用來辨認「原封不動搬回來」的檔案。 */
+  neutralisedOids: Map<string, string>
+  /** 非 blob 條目（submodule／gitlink）的警告；不中斷事實計算。 */
+  warnings: string[]
 }
 
 /**
- * 把 base 樹裡殘留的 neutralised 路徑刪掉。
+ * 驗證 git tree 路徑是安全的相對路徑。
  *
- * workflow 在 agent 之前已把 target 的這些路徑移到 `$RUNNER_TEMP/away`，但 base
- * commit 仍可能 **tracked** 它們；若留著，facts 側（rsync 已排除）會把它們算成
- * agent 的刪除，產生 scope 假紅。base 與 facts 兩側都排除後，事實裡根本不會出
- * 現這些路徑。
+ * 正常 git 不允許 `..`／空 segment／`.git` 進 tree，但 base 物件庫是 agent 可寫的；
+ * 擷取會把路徑接到 `$RUNNER_TEMP` 下，任何逃逸都必須在寫檔前 fail closed。
  */
-function removeNeutralisedPaths(dir: string): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const abs = join(dir, entry.name)
-    if (isNeutralisedPath(entry.name)) {
-      rmSync(abs, { recursive: true, force: true })
-    } else if (entry.isDirectory()) {
-      removeNeutralisedPaths(abs)
+export function isSafeTreePath(path: string): boolean {
+  if (path === '' || path.startsWith('/') || path.includes('\0')) return false
+  return path
+    .split('/')
+    .every(
+      (segment) =>
+        segment !== '' && segment !== '.' && segment !== '..' && segment.toLowerCase() !== '.git',
+    )
+}
+
+/**
+ * 解析 `git ls-tree -r -z --full-tree` 的輸出。
+ *
+ * `-z` 的每一筆是 `mode SP type SP oid TAB path NUL`；path 可以含空白、換行、
+ * 非 ASCII，所以先找第一個 TAB 再切 header，不能對整筆 split 空白。
+ */
+export function parseLsTree(output: Buffer): BaseTreeEntry[] {
+  const entries: BaseTreeEntry[] = []
+  for (const raw of output.toString('utf8').split('\0')) {
+    if (raw === '') continue
+    const tab = raw.indexOf('\t')
+    if (tab < 0) throw new CliError('git ls-tree 輸出缺 TAB（fail closed）')
+    const header = raw.slice(0, tab)
+    const path = raw.slice(tab + 1)
+    const match = /^([0-9]{6}) (blob|tree|commit) ([0-9a-f]{40})$/.exec(header)
+    if (match === null) throw new CliError('git ls-tree 輸出格式不符（fail closed）')
+    if (!isSafeTreePath(path)) {
+      throw new CliError(`git ls-tree 出現不安全的 path ${JSON.stringify(path)}（fail closed）`)
     }
+    entries.push({
+      mode: match[1] as string,
+      type: match[2] as string,
+      oid: match[3] as string,
+      path,
+    })
+  }
+  return entries
+}
+
+/**
+ * 解析 `git cat-file --batch` 的輸出。
+ *
+ * 每一筆是 `<oid> blob <size> LF <content> LF`；content 是二進位且可能含 LF，
+ * 因此必須依 header 的 size 切，不能用 split。`missing`／型別不符／長度不足
+ * 一律 fail closed——部分 base 比完整 base 更危險（刪除會被誤判成事實）。
+ */
+export function parseCatFileBatch(output: Buffer, oids: readonly string[]): Map<string, Buffer> {
+  const contents = new Map<string, Buffer>()
+  let offset = 0
+  for (const oid of oids) {
+    const headerEnd = output.indexOf(0x0a, offset)
+    if (headerEnd < 0) throw new CliError('git cat-file --batch 輸出缺 header（fail closed）')
+    const header = output.subarray(offset, headerEnd).toString('utf8')
+    if (header.endsWith(' missing')) {
+      throw new CliError(`git cat-file --batch 找不到 blob ${oid}（fail closed）`)
+    }
+    const parts = header.split(' ')
+    const size = Number(parts[2])
+    if (parts.length !== 3 || parts[0] !== oid || parts[1] !== 'blob' || !Number.isInteger(size) || size < 0) {
+      throw new CliError('git cat-file --batch 輸出格式不符（fail closed）')
+    }
+    const contentStart = headerEnd + 1
+    const contentEnd = contentStart + size
+    if (contentEnd >= output.length || output[contentEnd] !== 0x0a) {
+      throw new CliError('git cat-file --batch 內容長度不符（fail closed）')
+    }
+    contents.set(oid, output.subarray(contentStart, contentEnd))
+    offset = contentEnd + 1
+  }
+  return contents
+}
+
+/** git blob 的 SHA-1（`sha1("blob <size>\0" + content)`），用來比對 base 與 facts。 */
+function gitBlobOid(content: Buffer): string {
+  const hash = createHash('sha1')
+  hash.update(`blob ${content.length}\0`)
+  hash.update(content)
+  return hash.digest('hex')
+}
+
+/** 把單一 base blob 寫進 base 樹；symlink 建 symlink，100755 保留可執行位。 */
+function writeBaseEntry(baseDir: string, entry: BaseTreeEntry, content: Buffer): void {
+  const abs = join(baseDir, entry.path)
+  mkdirSync(dirname(abs), { recursive: true })
+  if (entry.mode === '120000') {
+    symlinkSync(content.toString('utf8'), abs)
+    return
+  }
+  const executable = entry.mode === '100755'
+  writeFileSync(abs, content)
+  chmodSync(abs, executable ? 0o755 : 0o644)
+}
+
+/**
+ * 以 `ls-tree` + `cat-file --batch` 重建 base 樹（R26）。
+ *
+ * 兩者只讀物件庫，**不讀 attributes**：agent 寫在 `.git/info/attributes` 的
+ * `export-ignore`／`export-subst` 對它們沒有作用。只寫 blob；gitlink／submodule
+ * （type `commit`）跳過並回傳 warning。neutralised 路徑不寫入 base，但 oid 記在
+ * `neutralisedOids`——facts 側用它辨認「被移到一旁又被原封不動搬回來」的檔案。
+ */
+export function extractBaseTree(targetDir: string, baseSha: string, baseDir: string): BaseTreeExtraction {
+  const listing = requireSuccess(
+    runCommand(
+      'git',
+      [
+        '-C',
+        targetDir,
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'core.fsmonitor=false',
+        'ls-tree',
+        '-r',
+        '-z',
+        '--full-tree',
+        baseSha,
+      ],
+      { env: hardenedEnv() },
+    ),
+    'git ls-tree',
+  )
+  const entries = parseLsTree(listing)
+  const paths = new Set<string>()
+  const neutralisedOids = new Map<string, string>()
+  const warnings: string[] = []
+  const byOid = new Map<string, BaseTreeEntry[]>()
+  for (const entry of entries) {
+    if (entry.type !== 'blob') {
+      warnings.push(
+        `skip non-blob git entry ${JSON.stringify(entry.path)} (type ${entry.type}, mode ${entry.mode}); submodules/gitlinks are not materialised`,
+      )
+      continue
+    }
+    paths.add(entry.path)
+    if (isNeutralisedPath(entry.path)) {
+      neutralisedOids.set(entry.path, entry.oid)
+      continue
+    }
+    const group = byOid.get(entry.oid)
+    if (group === undefined) byOid.set(entry.oid, [entry])
+    else group.push(entry)
+  }
+  const oids = [...byOid.keys()]
+  if (oids.length > 0) {
+    const contents = parseCatFileBatch(
+      requireSuccess(
+        runCommand('git', ['-C', targetDir, 'cat-file', '--batch'], {
+          env: hardenedEnv(),
+          input: Buffer.from(`${oids.join('\n')}\n`),
+        }),
+        'git cat-file --batch',
+      ),
+      oids,
+    )
+    for (const [oid, group] of byOid) {
+      const content = contents.get(oid) as Buffer
+      for (const entry of group) writeBaseEntry(baseDir, entry, content)
+    }
+  }
+  return { paths, neutralisedOids, warnings }
+}
+
+/**
+ * 檔案／symlink 的 git blob oid。只對非目錄條目呼叫；rsync -a 只會產生
+ * regular file／symlink，特殊檔不會進 facts。
+ */
+function entryBlobOid(abs: string, entry: { isFile(): boolean }): string {
+  return entry.isFile()
+    ? gitBlobOid(readFileSync(abs))
+    : gitBlobOid(Buffer.from(readlinkSync(abs)))
+}
+
+/**
+ * 修剪 facts 樹（R26 (b)／(c)／(d)）：
+ *
+ * - neutralised 路徑：只有當 facts 的內容與 base blob 完全相同時才移除（workflow
+ *   已把它移到一旁，原封不動搬回來不算變更）；新路徑或不同內容留著 → status A，
+ *   由 crosscheck 判越界。
+ * - 建置／產物目錄：只移除**不存在於 base** 的條目。base 已 commit 的 `dist/app.js`
+ *   仍在 base 與 facts 兩側，agent 改它會回報 M；同目錄的未追蹤產物被排除。
+ */
+function pruneFactsTree(dir: string, relDir: string, base: BaseTreeExtraction): void {
+  for (const entry of readdirSync(join(dir, relDir), { withFileTypes: true })) {
+    const rel = relDir === '' ? entry.name : `${relDir}/${entry.name}`
+    const abs = join(dir, rel)
+    if (entry.isDirectory()) {
+      pruneFactsTree(dir, rel, base)
+      continue
+    }
+    if (isNeutralisedPath(rel)) {
+      const baseOid = base.neutralisedOids.get(rel)
+      if (baseOid !== undefined && entryBlobOid(abs, entry) === baseOid) {
+        rmSync(abs, { force: true })
+        continue
+      }
+    }
+    if (isArtifactPath(rel) && !base.paths.has(rel)) rmSync(abs, { force: true })
   }
 }
 
@@ -389,9 +626,9 @@ function writeFacts(outFile: string, facts: VerifyFacts): void {
 /**
  * 在 `$RUNNER_TEMP` 內重建 base／facts／calc 三個樹並回傳事實。
  *
- * 任何一步失敗（`RUNNER_TEMP` 未設定、target 不存在、base-sha 解析不到、git／
- * rsync／tar 非零、輸出不可寫）都拋 CliError；caller（CLI 或 workflow）以非零
- * 結束，crosscheck／encrypt 因此拿不到 facts 而 fail closed。
+ * 任何一步失敗（`RUNNER_TEMP` 未設定、target 不存在、base-sha 解析不到、
+ * ls-tree／cat-file／rsync／git calc 非零、輸出不可寫）都拋 CliError；caller
+ * （CLI 或 workflow）以非零結束，crosscheck／encrypt 因此拿不到 facts 而 fail closed。
  */
 export function materialiseVerifyFacts(opts: MaterialiseFactsOptions): VerifyFacts {
   const runnerTemp = process.env.RUNNER_TEMP
@@ -408,28 +645,23 @@ export function materialiseVerifyFacts(opts: MaterialiseFactsOptions): VerifyFac
   mkdirSync(factsDir, { recursive: true })
   mkdirSync(calcDir, { recursive: true })
 
-  // (a) base：archive 不執行 clean filter（R25 的核心前提）。
-  extractBaseTree(targetDir, baseSha, baseDir)
-  removeNeutralisedPaths(baseDir)
+  // (a) base：ls-tree + cat-file --batch，完全不經 attributes（R26 的核心前提）。
+  const base = extractBaseTree(targetDir, baseSha, baseDir)
+  for (const warning of base.warnings) process.stderr.write(`${warning}\n`)
 
-  // (b) facts：rsync 不讀 agent 的 git config，也不執行任何 filter。
-  rsync([
-    '-a',
-    '--exclude=.git',
-    '--exclude=.dsh',
-    '--exclude=.agents',
-    '--exclude=AGENTS.md',
-    '--exclude=CLAUDE.md',
-    `${targetDir}/`,
-    `${factsDir}/`,
-  ])
+  // (b) facts：rsync 不讀 agent 的 git config，也不執行任何 filter；只排除 .git，
+  //     建置產物與 neutralised 路徑由 pruneFactsTree 依 base 內容判斷。
+  rsync(['-a', '--exclude=.git', `${targetDir}/`, `${factsDir}/`])
+  pruneFactsTree(factsDir, '', base)
 
   // (c) calc：乾淨 repo + base commit，再把 facts 覆蓋上去；`-f` 忽略所有 ignore 檔。
   calcGit(calcDir, ['init', '--quiet', '--initial-branch=main'])
-  rsync(['-a', '--exclude=.git', `${baseDir}/`, `${calcDir}/`])
+  // --checksum：base 與 facts 可能同尺寸、同一秒寫入（agent 立刻改一個字元）；
+  // rsync 預設的 size+mtime quick check 會把這種變更當成已同步而漏掉。
+  rsync(['-a', '--checksum', '--exclude=.git', `${baseDir}/`, `${calcDir}/`])
   calcGit(calcDir, ['add', '-A', '-f'])
   calcGit(calcDir, ['commit', '--quiet', '--allow-empty', '-m', 'factory-verify-facts base'])
-  rsync(['-a', '--delete', '--exclude=.git', `${factsDir}/`, `${calcDir}/`])
+  rsync(['-a', '--delete', '--checksum', '--exclude=.git', `${factsDir}/`, `${calcDir}/`])
   calcGit(calcDir, ['add', '-A', '-f'])
 
   const changed = parseNameStatus(

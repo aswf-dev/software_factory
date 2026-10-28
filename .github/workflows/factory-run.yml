@@ -1136,23 +1136,35 @@ jobs:
         if: steps.verifymode.outputs.verify == 'true'
         run: |
           set -euo pipefail
-          # R25：不只 .dsh。`.agents` 是 DSH rank-200 的 workspace skills；
-          # `AGENTS.md`／`CLAUDE.md` 是 agent 會載入的 instruction 檔——目標 repo
-          # 都可以用它們覆寫機制端的 SOP。全部移到 $RUNNER_TEMP/away，agent 看不到；
-          # factory-verify-facts 也會在 base 與 facts 兩側排除同一批路徑。
+          # R25／R26：`.dsh` 是 DSH rank-100 的 workspace skills、`.agents` 是
+          # rank-200；`AGENTS.md`／`CLAUDE.md` 及 DSH 的 local overlays
+          # `AGENTS.local.md`／`CLAUDE.local.md` 是 agent 會載入的 instruction 檔。
+          # 目標 repo 可以用它們覆寫機制端的 SOP，而且 nested 版本同樣有效；因此在
+          # agent 之前把**任何深度**的這些檔名與 `.dsh`／`.agents` 目錄移到
+          # $RUNNER_TEMP/away，agent 看不到。factory-verify-facts 只在 base 既有
+          # 路徑上忽略它們；agent 新建的檔案仍會進事實並判 verify-scope 紅。
           AWAY="${RUNNER_TEMP:?}/away"
           mkdir -p "$AWAY"
-          for REL in .dsh .agents AGENTS.md CLAUDE.md; do
-            SRC="$GITHUB_WORKSPACE/target/$REL"
-            if [ -e "$SRC" ] || [ -L "$SRC" ]; then
-              DEST="$AWAY/$REL"
-              rm -rf "$DEST"
-              mv "$SRC" "$DEST"
-              echo "target $REL moved aside (verify mode): not visible to the agent and excluded from facts"
-            else
-              echo "target $REL absent (verify mode)"
-            fi
-          done
+          MOVED=0
+          move_aside() {
+            REL="$1"
+            DEST="$AWAY/$REL"
+            mkdir -p "$(dirname "$DEST")"
+            rm -rf "$DEST"
+            mv "$GITHUB_WORKSPACE/target/$REL" "$DEST"
+            echo "target $REL moved aside (verify mode): not visible to the agent"
+            MOVED=$((MOVED + 1))
+          }
+          # 先搬目錄（-prune：不進入已搬走的目錄），再搬 instruction 檔名。
+          while IFS= read -r -d '' SRC; do
+            move_aside "${SRC#"$GITHUB_WORKSPACE/target/"}"
+          done < <(find "$GITHUB_WORKSPACE/target" \( -name .dsh -o -name .agents \) -prune -print0)
+          while IFS= read -r -d '' SRC; do
+            move_aside "${SRC#"$GITHUB_WORKSPACE/target/"}"
+          done < <(find "$GITHUB_WORKSPACE/target" \( -name AGENTS.md -o -name AGENTS.local.md -o -name CLAUDE.md -o -name CLAUDE.local.md \) -prune -print0)
+          if [ "$MOVED" -eq 0 ]; then
+            echo "no agent instruction paths under target (verify mode)"
+          fi
 
       # ADR-029 §5（I2b 續）：agent 之後不得把 target/.dsh 搬回——否則本步只是
       # 把問題延後到下一次探索。刻意沒有 restore 步驟。

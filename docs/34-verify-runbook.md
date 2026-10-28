@@ -284,18 +284,45 @@ base 分支上；對分支名 `git diff <base>` 會在 commit 後變成空集合
 （`target/` 外，agent sandbox 寫不到），crosscheck 與 encrypt 皆以 `--base-sha <40-hex>`
 使用該 commit 並忽略分支名；檔案缺失或 SHA 解析不到時 fail closed。
 
-**clean-repo facts**（R25）：驗證模式的事實不再在 agent 工作樹裡推導。agent 之後由
-`factory-verify-facts` 執行三個步驟：`git -C target archive <base-sha>`（archive
-不跑 clean filter）解到 `$RUNNER_TEMP`、以 `rsync -a` 複製工作樹（排除 `.git`、
-`.dsh`、`.agents`、`AGENTS.md`、`CLAUDE.md`；rsync 不讀 target 的 git config），
-再在 `$RUNNER_TEMP` 的乾淨 repo 以顯式最小 config 重建 base／facts 並以
-`git add -A -f` 產生 diff。輸出 `$GITHUB_WORKSPACE/.factory/verify-facts.json`
-（target 外），crosscheck 與 encrypt 以 `--facts` 消費；兩者仍以 `--base-sha`
-獨立驗證 `facts.baseSha`，不一致即 fail closed。target 的 clean filter／index
-flags（assume-unchanged、skip-worktree）／ignore 檔因此不再被執行或相信。具
-`--facts` 時 crosscheck 與 encrypt **不得**再對 target 跑任何 git 命令；缺 facts
-檔或 `factory-verify-facts` 失敗時整個 run fail closed（不回退舊路徑）。舊的
-`--verify-only` 無 facts 路徑只保留給相容性，workflow 永遠帶 facts。
+**clean-repo facts**（R25／R26）：驗證模式的事實不再在 agent 工作樹裡推導。agent
+之後由 `factory-verify-facts` 執行：`git -C target ls-tree -r -z --full-tree
+<base-sha>` 列出 base 的 mode／type／oid／path，再以 `git cat-file --batch` 逐 blob
+取內容寫到 `$RUNNER_TEMP`；兩者都**不處理 attributes**（`export-ignore` 不能藏掉
+base 的刪除、`export-subst` 不能替換 base 內容），也不跑 clean filter。只寫
+`type == blob` 的條目（`100755` 保留可執行位、`120000` 建 symlink）；gitlink／
+submodule（type `commit`）跳過並在 run log 留一行 warning。命令輸出上限 512 MiB，
+超過或任何一步失敗即 fail closed。接著以 `rsync -a --checksum` 複製工作樹（只排除
+`.git`；rsync 不讀 target 的 git config），依 base 路徑集修剪 facts，再在
+`$RUNNER_TEMP` 的乾淨 repo 以顯式最小 config 重建 base／facts 並以
+`git add -A -f` 產生 diff。
+
+**建置／產物排除清單**（R26 (b)，任何深度）：`node_modules`、`.venv`、`venv`、
+`__pycache__`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache`、`.gradle`、
+`coverage`、`dist`、`build`、`target`，以及任何 `.lake/build` 下的路徑。理由：
+agent 執行 `npm install`／測試／Lean build 會產生大量可重建檔案，`git add -A -f`
+把它們當成新增，合規 run 會被 `verify-scope`／`diff-not-reported` 假紅。排除只
+套用在 **facts 中不存在於 base 的條目**：base 已 commit 的 `dist/app.js` 仍在
+base 與 facts 兩側，agent 修改它仍回報 `M`；同一 `dist/` 下 agent 新產生的
+`dist/generated.js` 則被排除（「目錄層級排除 + 只排除 untracked-in-facts 條目」）。
+
+**neutralisation**（R26 (c)／(d)）：agent 之前把 `target/` 下**任何深度**的
+`.dsh`／`.agents` 目錄與 `AGENTS.md`／`AGENTS.local.md`／`CLAUDE.md`／
+`CLAUDE.local.md` 檔名移到 `$RUNNER_TEMP/away`，每一條搬移都印出相對路徑。
+`factory-verify-facts` 只忽略**存在於 base** 的 neutralised 路徑（且只在 facts
+內容與 base blob 相同時，將「搬回來但沒改」視為無變更）；base commit 內的檔案
+因此不會變成刪除，但 agent 在這些路徑下**新建**的檔案仍以 `A` 進 facts，
+crosscheck 以 `verify-scope` 判紅（crosscheck 的防禦性過濾只丟 `D`，不丟 `A`／`M`）。
+若新檔剛好落在 specs／test 白名單內（例如 `specs/AGENTS.md`、`test/CLAUDE.local.md`），
+白名單不得成為繞道：crosscheck 另以 `verify-neutralised-path`（scope 類）判紅。
+
+輸出 `$GITHUB_WORKSPACE/.factory/verify-facts.json`（target 外），crosscheck 與
+encrypt 以 `--facts` 消費；兩者仍以 `--base-sha` 獨立驗證 `facts.baseSha`，不一致
+即 fail closed。target 的 clean filter／index flags（assume-unchanged、
+skip-worktree）／ignore 檔因此不再被執行或相信。具 `--facts` 時 crosscheck 與
+encrypt **不得**再對 target 跑任何 git 命令（`test/verify-facts-no-git.test.ts`
+以 PATH 上的 fake git 釘住）；缺 facts 檔或 `factory-verify-facts` 失敗時整個 run
+fail closed（不回退舊路徑）。舊的 `--verify-only` 無 facts 路徑只保留給相容性，
+workflow 永遠帶 facts。
 
 **agent 的 token**（I3／R25）：驗證模式另 mint 一個唯讀 installation token
 （contents／issues／metadata `read`），只有它寫進 `target/.factory/run/gh-token` 與
@@ -308,13 +335,15 @@ agent 與 `Write agent run env` 只從這個檔讀取（不經 step output——
 看起來含 secret 的 output），agent 步驟的 env 直接引用寫入 token 的運算式已移除；
 缺檔同樣 fail closed。
 
-**task template 與 skills**（I2／R25）：驗證模式**一律**用機制 repo 的
+**task template 與 skills**（I2／R25／R26）：驗證模式**一律**用機制 repo 的
 `.github/factory/task-template-verify-*.txt`；目標 repo 的同名模板不讀（否則受測者可以
-授權自己 push／開 PR／寫發現）。agent 之前另把 `target/.dsh`（rank-100）、
-`target/.agents`（rank-200）與 `AGENTS.md`／`CLAUDE.md` 全部移到
-`$RUNNER_TEMP/away`（不還原；tracked 或 untracked 都移），避免目標 repo 覆寫機制端
-的 SOP；`factory-verify-facts` 在 base 與 facts 兩側也排除同一批路徑，因此 tracked
-`.dsh`／`.agents` 的刪除不會被誤判成驗證 agent 的越界變更。
+授權自己 push／開 PR／寫發現）。agent 之前另把 `target/.dsh`
+（rank-100）、`target/.agents`（rank-200）——這兩者與下列檔名在**任何深度**都算——
+以及 `AGENTS.md`／`AGENTS.local.md`／`CLAUDE.md`／`CLAUDE.local.md`（DSH 也會載入
+local overlays 與 nested 版本）全部移到 `$RUNNER_TEMP/away`（不還原；tracked 或 untracked 都移），避免目標 repo 覆寫
+機制端的 SOP；`factory-verify-facts` 只忽略存在於 base 的同一批路徑，因此 tracked
+路徑的刪除不會被誤判成驗證 agent 的越界變更，而 agent 新建的同名路徑仍會被
+`verify-scope` 擋下。
 
 **Lean 工具鏈**（ADR-029 §7）：`leanprover/lean4:v4.35.0`，只用 core。以下步驟只在
 `agent-verify-lean` 執行，依序：
@@ -363,9 +392,11 @@ runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的�
    因此 agent 技術上無法 push、無法留言到 Issue、無法開 PR——這是機械保證，不再只靠 prompt。
    仍須人工注意的殘留：
    - crosscheck `--verify-only` 只比對本地工作區相對不可變 base SHA（`--base-sha`）的 diff，
-     事實來源是 `factory-verify-facts` 在 clean repo 重建的 JSON（不含遠端）；`git
-     archive` 仍會套用 base commit 內的 `export-subst` 屬性（只影響 base 內容、不執行
-     任何程式），這是本設計接受的最小殘留；
+     事實來源是 `factory-verify-facts` 在 clean repo 重建的 JSON（不含遠端）。base
+     擷取走 `git ls-tree`＋`git cat-file --batch`，**不讀 attributes**，因此
+     `.git/info/attributes` 的 `export-ignore`／`export-subst` 不再影響事實；仍以
+     `GIT_NO_REPLACE_OBJECTS=1`、`/dev/null` global／system config 與 512 MiB 輸出
+     上限防護物件庫層的改寫與資源耗盡（失敗一律 fail closed）；
    - 目標 repo 的內容（含其 `.github/**`、`.dsh/**`）在驗證模式已被忽略或隔離，但 agent 仍會
      讀到目標 repo 的程式碼，prompt injection 的防線是「模板只來自機制 repo」加上 crosscheck
      與人工審查。

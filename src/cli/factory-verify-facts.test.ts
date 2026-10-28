@@ -1,32 +1,41 @@
 /**
- * factory-verify-facts（R25，wave 6）：在 **clean repo** 裡materialise git 事實。
+ * factory-verify-facts（R25／R26）：在 **clean repo** 裡materialise git 事實。
  *
  * 這些測試全部使用真實 git／rsync／tar，因為要釘住的正是「target 工作樹的
  * git 設定不再參與事實計算」：clean filter、assume-unchanged、skip-worktree、
- * 自我忽略的 .gitignore、被移到一旁的 .dsh／.agents／AGENTS.md／CLAUDE.md。
+ * 自我忽略的 .gitignore、被移到一旁的 agent instruction 檔，以及 **R26** 的
+ * `.git/info/attributes`（export-ignore／export-subst）與建置產物。
  * 任何一個用 fake 都可以假綠。
  */
 import { execFileSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
+  readlinkSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import {
   countDiffLines,
+  extractBaseTree,
+  isArtifactPath,
   isNeutralisedPath,
+  isSafeTreePath,
   loadVerifyFacts,
   main,
   materialiseVerifyFacts,
   normalizeFactsBaseSha,
   parseArgs,
+  parseCatFileBatch,
+  parseLsTree,
   parseNameStatus,
   type VerifyFacts,
 } from './factory-verify-facts.js'
@@ -74,6 +83,10 @@ function makeRepo(): { repo: string; baseSha: string } {
   writeFile(repo, 'AGENTS.md', 'target instructions\n')
   writeFile(repo, 'CLAUDE.md', 'target claude instructions\n')
   writeFile(repo, 'docs/AGENTS.md', 'nested target instructions\n')
+  writeFile(repo, 'AGENTS.local.md', 'target local instructions\n')
+  writeFile(repo, 'CLAUDE.local.md', 'target local claude instructions\n')
+  writeFile(repo, 'pkg/CLAUDE.md', 'nested claude instructions\n')
+  writeFile(repo, 'pkg/AGENTS.local.md', 'nested local instructions\n')
   commitAll(repo, 'base')
   return { repo, baseSha: gitIn(repo, 'rev-parse', 'HEAD').trim() }
 }
@@ -90,7 +103,17 @@ function installCleanFilter(repo: string, marker: string): string {
 
 /** 把 neutralised 路徑移出 target（workflow 的 agent 之前步驟在做的事）。 */
 function moveNeutralisedAside(repo: string): void {
-  for (const rel of ['.dsh', '.agents', 'AGENTS.md', 'CLAUDE.md', 'docs/AGENTS.md']) {
+  for (const rel of [
+    '.dsh',
+    '.agents',
+    'AGENTS.md',
+    'CLAUDE.md',
+    'AGENTS.local.md',
+    'CLAUDE.local.md',
+    'docs/AGENTS.md',
+    'pkg/CLAUDE.md',
+    'pkg/AGENTS.local.md',
+  ]) {
     rmSync(join(repo, rel), { recursive: true, force: true })
   }
 }
@@ -104,13 +127,27 @@ function stubPath(stubName: string, body: string): { bin: string; restore: () =>
   return { bin, restore: () => (process.env.PATH = originalPath) }
 }
 
+/** 只讓某個 git 子命令失敗，其餘照常轉給真正的 git（維持 base 擷取可運作）。 */
+function stubGitFailingOn(subcommand: string): { bin: string; restore: () => void } {
+  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
+  return stubPath(
+    'git',
+    [
+      'for arg in "$@"; do',
+      `  if [ "$arg" = "${subcommand}" ]; then echo "stubbed ${subcommand} failure" >&2; exit 1; fi`,
+      'done',
+      `exec '${realGit}' "$@"`,
+    ].join('\n'),
+  )
+}
+
 function pathWithoutGit(): () => void {
   const bin = tempDir('factory-facts-empty-bin-')
   process.env.PATH = bin
   return () => (process.env.PATH = originalPath)
 }
 
-function report(changedPaths: string[], changedLines: number): string {
+function report(changedPaths: string[], changedLines: number, assertionDelta = 2): string {
   const dir = tempDir('factory-facts-report-')
   const path = join(dir, 'report.json')
   writeFileSync(
@@ -120,7 +157,7 @@ function report(changedPaths: string[], changedLines: number): string {
       invocation: { exitCode: 0, stdout: 'DONE', stderr: '' },
       changedPaths,
       changedLines,
-      assertionDelta: 2,
+      assertionDelta,
     }),
   )
   return path
@@ -230,7 +267,7 @@ describe('R25：clean repo 事實不受 target 的 git 設定影響', () => {
     expect(existsSync(marker)).toBe(false)
   })
 
-  it('R20：agent 的 `git replace <base> HEAD` 不得讓 base archive 變成 agent 的樹', async () => {
+  it('R20：agent 的 `git replace <base> HEAD` 不得讓 base 擷取變成 agent 的樹', async () => {
     const { repo, baseSha } = makeRepo()
     process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
     writeFile(repo, 'src/app.ts', 'export const answer = 42\nexport const replaced = true\n')
@@ -239,7 +276,7 @@ describe('R25：clean repo 事實不受 target 的 git 設定影響', () => {
     gitIn(repo, 'replace', baseSha, agentHead)
     const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
     const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
-    // replace 若生效，base archive 會等於 agent 的樹 → src/app.ts 的變更消失。
+    // replace 若生效，base 擷取會等於 agent 的樹 → src/app.ts 的變更消失。
     expect(facts.changed).toContainEqual({ path: 'src/app.ts', status: 'M' })
     expect(facts.linesAdded).toBe(1)
   })
@@ -340,12 +377,47 @@ describe('R25：facts 輸入的 fail closed 與純函式', () => {
     expect(() => normalizeFactsBaseSha('a'.repeat(39))).toThrow(/40-hex/)
   })
 
-  it('isNeutralisedPath：任何 segment 的 .dsh／.agents 與 AGENTS.md／CLAUDE.md', () => {
-    for (const p of ['.dsh/skills/x/SKILL.md', '.agents/x', 'nested/.dsh/x', 'nested/AGENTS.md', 'CLAUDE.md']) {
+  it('isNeutralisedPath：任何 segment 的 .dsh／.agents 與四個 instruction 檔名', () => {
+    for (const p of [
+      '.dsh/skills/x/SKILL.md',
+      '.agents/x',
+      'nested/.dsh/x',
+      'nested/AGENTS.md',
+      'CLAUDE.md',
+      'AGENTS.local.md',
+      'nested/CLAUDE.local.md',
+      'pkg/AGENTS.local.md',
+    ]) {
       expect(isNeutralisedPath(p), p).toBe(true)
     }
     expect(isNeutralisedPath('src/app.ts')).toBe(false)
     expect(isNeutralisedPath('docs/agents.md')).toBe(false)
+    expect(isNeutralisedPath('docs/AGENTS.md.bak')).toBe(false)
+  })
+
+  it('isArtifactPath：文件化的建置／產物目錄在任何深度；`.lake/build` 前綴', () => {
+    for (const p of [
+      'node_modules/pkg/index.js',
+      'web/node_modules/pkg/index.js',
+      '.venv/lib/python3.12/site.py',
+      'venv/bin/python',
+      'src/__pycache__/x.pyc',
+      '.pytest_cache/v/cache/nodeids',
+      '.mypy_cache/3.12/x.json',
+      '.ruff_cache/0.1/x',
+      '.gradle/caches/x',
+      'coverage/lcov.info',
+      'dist/app.js',
+      'build/out.js',
+      'target/debug/app',
+      'specs/lean/.lake/build/lib/olean/Spec.olean',
+      'nested/.lake/build/x',
+    ]) {
+      expect(isArtifactPath(p), p).toBe(true)
+    }
+    for (const p of ['src/coverage.ts', 'src/build.ts', 'docs/dist.md', 'specs/lean/.lake/packages/x', 'targets/x']) {
+      expect(isArtifactPath(p), p).toBe(false)
+    }
   })
 
   it('parseNameStatus：A/M/D/T、空輸入、未知狀態、缺 path', () => {
@@ -438,6 +510,50 @@ describe('R25：facts 輸入的 fail closed 與純函式', () => {
     }
   })
 
+  it('isSafeTreePath：拒絕空／絕對／NUL／空 segment／.／..／.git（含大小寫）', () => {
+    expect(isSafeTreePath('src/app.ts')).toBe(true)
+    expect(isSafeTreePath('a b/c\td')).toBe(true)
+    for (const unsafe of ['', '/abs', 'a\0b', 'a//b', './a', 'a/../b', '.git/x', 'nested/.GIT/x']) {
+      expect(isSafeTreePath(unsafe), unsafe).toBe(false)
+    }
+  })
+
+  it('parseLsTree：mode／type／oid／path（含空白與 TAB 之後的 path）、空輸入、格式錯誤、不安全 path', () => {
+    const oid = 'a'.repeat(40)
+    expect(parseLsTree(Buffer.from(''))).toEqual([])
+    expect(parseLsTree(Buffer.from(`100644 blob ${oid}\tdir/a b.ts\0`))).toEqual([
+      { mode: '100644', type: 'blob', oid, path: 'dir/a b.ts' },
+    ])
+    expect(parseLsTree(Buffer.from(`160000 commit ${oid}\tvendor/lib\0`))).toEqual([
+      { mode: '160000', type: 'commit', oid, path: 'vendor/lib' },
+    ])
+    expect(() => parseLsTree(Buffer.from(`100644 blob ${oid} no-tab`))).toThrow(/TAB/)
+    expect(() => parseLsTree(Buffer.from(`nope\ta`))).toThrow(/格式不符/)
+    expect(() => parseLsTree(Buffer.from(`100644 blob ${oid}\t../escape`))).toThrow(/不安全/)
+  })
+
+  it('parseCatFileBatch：二進位內容依 size 切、missing、格式錯誤、長度不足', () => {
+    const a = 'a'.repeat(40)
+    const b = 'b'.repeat(40)
+    const content = Buffer.from('line1\nline2\0binary', 'utf8')
+    const output = Buffer.concat([
+      Buffer.from(`${a} blob ${content.length}\n`),
+      content,
+      Buffer.from('\n'),
+      Buffer.from(`${b} blob 0\n\n`),
+    ])
+    expect(parseCatFileBatch(output, [a, b]).get(a)).toEqual(content)
+    expect(parseCatFileBatch(output, [a, b]).get(b)).toEqual(Buffer.alloc(0))
+    expect(() => parseCatFileBatch(Buffer.from(''), [a])).toThrow(/缺 header/)
+    expect(() => parseCatFileBatch(Buffer.from(`${a} missing\n`), [a])).toThrow(/找不到/)
+    expect(() => parseCatFileBatch(Buffer.from(`${a} commit 1\nx\n`), [a])).toThrow(/格式不符/)
+    expect(() => parseCatFileBatch(Buffer.from(`${b} blob 1\nx\n`), [a])).toThrow(/格式不符/)
+    expect(() => parseCatFileBatch(Buffer.from(`${a} blob nope\nx\n`), [a])).toThrow(/格式不符/)
+    expect(() => parseCatFileBatch(Buffer.from(`${a} blob 2\nx`), [a])).toThrow(/長度不符/)
+    // 內容長度夠但缺少結尾 LF（下一個 header 不存在）
+    expect(() => parseCatFileBatch(Buffer.from(`${a} blob 1\nx`), [a])).toThrow(/長度不符/)
+  })
+
   it('materialise：RUNNER_TEMP 未設定或空白 → fail closed', async () => {
     const { repo, baseSha } = makeRepo()
     const out = join(tempDir('factory-facts-out-'), 'facts.json')
@@ -459,25 +575,25 @@ describe('R25：facts 輸入的 fail closed 與純函式', () => {
     expect(() => materialiseVerifyFacts({ targetDir: file, baseSha, outFile: out })).toThrow(/不是目錄/)
     expect(() =>
       materialiseVerifyFacts({ targetDir: repo, baseSha: 'f'.repeat(40), outFile: out }),
-    ).toThrow(/git archive/)
+    ).toThrow(/git ls-tree/)
     // out 的父路徑是檔案 → 寫入失敗
     expect(() =>
       materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: join(file, 'facts.json') }),
     ).toThrow(/--out/)
   })
 
-  it('materialise：git 無法執行／tar 無法執行／rsync 非零 → fail closed', async () => {
+  it('materialise：git 無法執行／git cat-file 失敗／rsync 非零 → fail closed', async () => {
     const { repo, baseSha } = makeRepo()
     process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
     const out = join(tempDir('factory-facts-out-'), 'facts.json')
 
     const restoreGit = pathWithoutGit()
-    expect(() => materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })).toThrow(/git archive/)
+    expect(() => materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })).toThrow(/git ls-tree/)
     restoreGit()
 
-    const tarStub = stubPath('tar', 'exit 1')
-    expect(() => materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })).toThrow(/tar/)
-    tarStub.restore()
+    const catFileStub = stubGitFailingOn('cat-file')
+    expect(() => materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })).toThrow(/cat-file/)
+    catFileStub.restore()
 
     const rsyncStub = stubPath('rsync', 'exit 1')
     expect(() => materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })).toThrow(/rsync/)
@@ -491,5 +607,296 @@ describe('R25：facts 輸入的 fail closed 與純函式', () => {
     const facts = await main(['--target', repo, '--base-sha', baseSha, '--out', out])
     expect(facts.baseSha).toBe(baseSha)
     expect(loadVerifyFacts(out)).toEqual(facts)
+  })
+})
+
+
+/** 檔案樹快照（只比較檔案與 symlink；空目錄不影響 git 事實）。 */
+interface TreeSnapshot {
+  kind: 'file' | 'symlink'
+  executable: boolean
+  content: string
+}
+
+function snapshotTree(root: string): Record<string, TreeSnapshot> {
+  const out: Record<string, TreeSnapshot> = {}
+  const walk = (dir: string, relDir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const rel = relDir === '' ? entry.name : `${relDir}/${entry.name}`
+      const abs = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        walk(abs, rel)
+      } else if (entry.isSymbolicLink()) {
+        out[rel] = { kind: 'symlink', executable: false, content: readlinkSync(abs) }
+      } else {
+        out[rel] = {
+          kind: 'file',
+          executable: (lstatSync(abs).mode & 0o111) !== 0,
+          content: readFileSync(abs, 'utf8'),
+        }
+      }
+    }
+  }
+  walk(root, '')
+  return out
+}
+
+/** 以 `git archive | tar -x` 取得舊機制的 base 樹（僅測試對照組）。 */
+function archiveBaseTree(repo: string, baseSha: string, outDir: string): void {
+  const archive = execFileSync('git', ['-C', repo, 'archive', baseSha], {
+    maxBuffer: 512 * 1024 * 1024,
+  })
+  execFileSync('tar', ['-x', '-C', outDir], { input: archive })
+}
+
+const changedPathsOf = (facts: VerifyFacts): string[] => facts.changed.map((entry) => entry.path)
+
+describe('R26 (a)：base 擷取不經 git archive（attribute-free）', () => {
+  it('export-ignore 不得隱藏 agent 的刪除；facts 回報刪除檔與 assertion 淨減，crosscheck red 工作流', async () => {
+    const repo = tempDir('factory-facts-export-ignore-')
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    writeFile(
+      repo,
+      'test/old.test.ts',
+      "it('a', () => { expect(1).toBe(1) })\nit('b', () => { expect(2).toBe(2) })\nit('c', () => { expect(3).toBe(3) })\n",
+    )
+    writeFile(repo, '.github/workflows/ci.yml', 'on: push\njobs: {}\n')
+    commitAll(repo, 'base')
+    const baseSha = gitIn(repo, 'rev-parse', 'HEAD').trim()
+
+    // agent：刪掉 3 條斷言的測試與 workflow，再用 agent 可寫的 info/attributes 遮住
+    rmSync(join(repo, 'test/old.test.ts'))
+    rmSync(join(repo, '.github/workflows/ci.yml'))
+    writeFileSync(
+      join(repo, '.git/info/attributes'),
+      'test/old.test.ts export-ignore\n.github/workflows/ci.yml export-ignore\n',
+    )
+
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+
+    expect([...facts.changed].sort((a, b) => (a.path < b.path ? -1 : 1))).toEqual([
+      { path: '.github/workflows/ci.yml', status: 'D' },
+      { path: 'test/old.test.ts', status: 'D' },
+    ])
+    expect(facts.assertionDelta).toBe(-3)
+
+    const reportPath = report(['.github/workflows/ci.yml', 'test/old.test.ts'], facts.linesAdded + facts.linesDeleted)
+    const result = crosscheckMain(
+      ['12', reportPath, '--target', repo, '--verify-only', '--base-sha', baseSha, '--facts', out],
+      () => {
+        throw new Error('no git')
+      },
+    )
+    expect(result.actual.assertionDelta).toBe(-3)
+    const kinds = result.mismatches.map((m) => m.kind)
+    expect(kinds).toContain('verify-scope')
+    expect(kinds).toContain('assertion-delta-understated')
+    expect(result.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('.github/workflows/ci.yml')
+    expect(result.ok).toBe(false)
+  })
+
+  it('export-subst 不得把 base 內容換成 agent 的內容；改動仍以真實 M 回報', async () => {
+    const repo = tempDir('factory-facts-export-subst-')
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    writeFile(repo, 'version.txt', 'version=$Format:%H$\n')
+    commitAll(repo, 'base')
+    const baseSha = gitIn(repo, 'rev-parse', 'HEAD').trim()
+
+    // agent 把內容改成 base SHA：archive 的 export-subst 也會換成同一個值（舊機制會靜默）
+    writeFileSync(join(repo, 'version.txt'), `version=${baseSha}\n`)
+    writeFileSync(join(repo, '.git/info/attributes'), 'version.txt export-subst\n')
+
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+
+    expect(facts.changed).toEqual([{ path: 'version.txt', status: 'M' }])
+    expect(facts.linesAdded).toBe(1)
+    expect(facts.linesDeleted).toBe(1)
+  })
+
+  it('無攻擊的 repo：擷取樹與 git archive 解出的樹逐檔相同（含 100755 與 symlink）', () => {
+    const repo = tempDir('factory-facts-benign-')
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    writeFile(repo, 'README.md', '# fixture\n')
+    writeFile(repo, 'src/nested/app.ts', 'export const answer = 42\n')
+    writeFile(repo, 'bin/tool.sh', '#!/bin/sh\necho hi\n')
+    chmodSync(join(repo, 'bin/tool.sh'), 0o755)
+    // 同內容的兩個 blob（同 oid）：擷取要為每個 path 各寫一份，不能只寫一次
+    writeFile(repo, 'dup-a.txt', 'same blob\n')
+    writeFile(repo, 'dup-b.txt', 'same blob\n')
+    execFileSync('ln', ['-s', 'README.md', join(repo, 'link.md')])
+    commitAll(repo, 'base')
+    const baseSha = gitIn(repo, 'rev-parse', 'HEAD').trim()
+
+    const extracted = tempDir('factory-facts-extracted-')
+    extractBaseTree(repo, baseSha, extracted)
+    const archived = tempDir('factory-facts-archived-')
+    archiveBaseTree(repo, baseSha, archived)
+
+    expect(snapshotTree(extracted)).toEqual(snapshotTree(archived))
+  })
+
+  it('gitlink（mode 160000）跳過並留 warning，不寫入、不讓 facts 失敗', () => {
+    const repo = tempDir('factory-facts-gitlink-')
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    gitIn(repo, 'update-index', '--add', '--cacheinfo', `160000,${'a'.repeat(40)},vendor/lib`)
+    gitIn(repo, '-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'base')
+    const baseSha = gitIn(repo, 'rev-parse', 'HEAD').trim()
+
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const chunks: string[] = []
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      chunks.push(String(chunk))
+      return true
+    })
+    try {
+      const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+      expect(facts.changed).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
+    expect(chunks.join('')).toContain('vendor/lib')
+    expect(chunks.join('')).toContain('skip')
+  })
+})
+
+describe('R26 (b)：建置／產物目錄不進事實，但已 commit 的產物仍可 diff', () => {
+  const ARTIFACT_FILES = [
+    'node_modules/pkg/index.js',
+    'coverage/lcov.info',
+    'dist/bundle.js',
+    'build/out.js',
+    'target/debug/app',
+    '.venv/lib/python3.12/site.py',
+    'venv/bin/python',
+    'src/__pycache__/x.pyc',
+    '.pytest_cache/v/cache/nodeids',
+    '.mypy_cache/3.12/x.json',
+    '.ruff_cache/0.1/x',
+    '.gradle/caches/x',
+    'specs/lean/.lake/build/lib/olean/Spec.olean',
+    'nested/.lake/build/foo.olean',
+  ]
+
+  it('JS target：npm install／coverage／建置目錄全部排除，facts 只剩交付的測試', async () => {
+    const { repo, baseSha } = makeRepo()
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    moveNeutralisedAside(repo)
+    writeFile(repo, 'test/new.test.ts', "it('new', () => { expect(1).toBe(1) })\n")
+    for (const rel of ARTIFACT_FILES) writeFile(repo, rel, 'generated artifact\n')
+
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+
+    expect(facts.changed).toEqual([{ path: 'test/new.test.ts', status: 'A' }])
+    expect(facts.linesAdded).toBe(1)
+  })
+
+  it('Lean target：`.lake/build` 不產生額外條目，交付的 specs 檔仍是 A', async () => {
+    const { repo, baseSha } = makeRepo()
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    moveNeutralisedAside(repo)
+    writeFile(repo, 'specs/lean/Spec.lean', 'theorem triv : True := trivial\n')
+    writeFile(repo, 'specs/lean/.lake/build/lib/olean/Spec.olean', 'binary build output\n')
+
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+
+    expect(facts.changed).toEqual([{ path: 'specs/lean/Spec.lean', status: 'A' }])
+  })
+
+  it('已 commit 的 dist/app.js 被 agent 修改 → 仍回報 M；同目錄的未追蹤產物被排除', async () => {
+    const repo = tempDir('factory-facts-dist-')
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    writeFile(repo, 'dist/app.js', 'console.log("v1")\n')
+    writeFile(repo, 'dist/keep.txt', 'keep\n')
+    writeFile(repo, 'package.json', '{}\n')
+    commitAll(repo, 'base')
+    const baseSha = gitIn(repo, 'rev-parse', 'HEAD').trim()
+
+    writeFileSync(join(repo, 'dist/app.js'), 'console.log("v2")\n')
+    writeFileSync(join(repo, 'dist/generated.js'), 'build output\n')
+
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+
+    expect(facts.changed).toEqual([{ path: 'dist/app.js', status: 'M' }])
+    expect(facts.linesAdded).toBe(1)
+    expect(facts.linesDeleted).toBe(1)
+  })
+})
+
+describe('R26 (c)／(d)：instruction 檔案的完整 neutralisation 與新檔 scope 規則', () => {
+  it('base 內的 AGENTS.local.md／CLAUDE.local.md／nested 指令檔移到一旁後不進事實（無刪除）', async () => {
+    const { repo, baseSha } = makeRepo()
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    moveNeutralisedAside(repo)
+
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+    expect(facts.changed).toEqual([])
+  })
+
+  it('neutralised 檔案被原封不動搬回 → 不進事實；內容被改寫 → A（含 symlink）', async () => {
+    const { repo, baseSha } = makeRepo()
+    moveNeutralisedAside(repo)
+    // 原封不動搬回（與 base blob 相同）→ 不算變更
+    writeFile(repo, 'AGENTS.md', 'target instructions\n')
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    let out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    expect(materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out }).changed).toEqual([])
+
+    // 改寫同一個 base 路徑 → 留著並以 A 回報
+    writeFile(repo, 'AGENTS.md', 'attacker instructions\n')
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    expect(materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out }).changed).toEqual([
+      { path: 'AGENTS.md', status: 'A' },
+    ])
+  })
+
+  it('base 內的 neutralised symlink 原封不動搬回 → 不進事實', async () => {
+    const repo = tempDir('factory-facts-neutralised-link-')
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    writeFile(repo, 'README.md', '# fixture\n')
+    execFileSync('ln', ['-s', 'README.md', join(repo, 'AGENTS.md')])
+    commitAll(repo, 'base')
+    const baseSha = gitIn(repo, 'rev-parse', 'HEAD').trim()
+
+    // workflow 把 symlink 移到一旁；agent（或工具鏈）原樣重建
+    rmSync(join(repo, 'AGENTS.md'))
+    execFileSync('ln', ['-s', 'README.md', join(repo, 'AGENTS.md')])
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    expect(materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out }).changed).toEqual([])
+  })
+
+  it('agent 在 neutralised 路徑下新建 .dsh 檔 → 事實保留 A，crosscheck 判 verify-scope 紅', async () => {
+    const { repo, baseSha } = makeRepo()
+    process.env.RUNNER_TEMP = tempDir('factory-facts-runner-')
+    moveNeutralisedAside(repo)
+    writeFile(repo, '.dsh/skills/selfauth/SKILL.md', 'I authorise myself\n')
+
+    const out = join(tempDir('factory-facts-out-'), 'verify-facts.json')
+    const facts = materialiseVerifyFacts({ targetDir: repo, baseSha, outFile: out })
+    expect(facts.changed).toEqual([{ path: '.dsh/skills/selfauth/SKILL.md', status: 'A' }])
+
+    const result = crosscheckMain(
+      ['12', report([], 0), '--target', repo, '--verify-only', '--base-sha', baseSha, '--facts', out],
+      () => {
+        throw new Error('no git')
+      },
+    )
+    const kinds = result.mismatches.map((m) => m.kind)
+    expect(kinds).toContain('verify-scope')
+    expect(result.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain(
+      '.dsh/skills/selfauth/SKILL.md',
+    )
+    expect(result.ok).toBe(false)
   })
 })

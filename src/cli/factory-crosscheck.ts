@@ -123,6 +123,7 @@ export const SCOPE_MISMATCH_KINDS: ReadonlySet<string> = new Set([
   'onboard-scope',
   'write-spec-scope',
   'verify-scope',
+  'verify-neutralised-path',
 ])
 
 /**
@@ -863,14 +864,18 @@ function collectUntrackedIgnoringInfoExclude(git: GitRunner, target: string): st
  * （R25）。驗證模式帶 `--facts` 時這是唯一的事實來源；`branches` 恆為空、
  * `uncommitted` 恆為空（clean repo 的事實沒有「未提交」的概念）。
  *
- * 這裡再過濾一次 neutralised 路徑：workflow 的 `factory-verify-facts` 已在
- * base 與 facts 兩側排除它們，但舊 facts（或漏掉排除的版本）也不能讓 tracked
- * `.dsh`／`.agents` 的刪除變成 scope 假紅。
+ * 這裡只防禦性過濾 neutralised 路徑的 **D（刪除）**：workflow 在 agent 之前已把
+ * base 內的 instruction／skill 路徑移到一旁，那些刪除不是 agent 的越界變更；舊
+ * facts（或漏掉排除的版本）也不能讓 tracked `.dsh`／`.agents` 的刪除變成 scope
+ * 假紅。A（agent 新建）與 M（改寫）**必須保留**：R26 (d) 要求 agent 在
+ * `.dsh`／`.agents` 下自建檔案時由 `verify-scope` 判紅，不能靜默吞掉。
  */
 export function actualFromVerifyFacts(facts: VerifyFacts): CrosscheckActual {
   return {
     branches: [],
-    paths: facts.changed.map((entry) => entry.path).filter((path) => !isNeutralisedPath(path)),
+    paths: facts.changed
+      .filter((entry) => entry.status !== 'D' || !isNeutralisedPath(entry.path))
+      .map((entry) => entry.path),
     added: facts.linesAdded,
     deleted: facts.linesDeleted,
     uncommitted: [],
@@ -1483,7 +1488,25 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   }
   // 驗證類的白名單（ADR-029 §5、§6）：只允許 specs/** 與測試檔。放在 report
   // 一致性檢查之後：先確認 report 誠實，再確認變更範圍合法——兩者是不同處置。
-  if (verifyOnly) mismatches.push(...checkVerifyScope(changed))
+  if (verifyOnly) {
+    mismatches.push(...checkVerifyScope(changed))
+    // R26 (d)：agent 在 neutralised 路徑下新建的檔案不能因為落在白名單內就放行
+    //（例如 `specs/AGENTS.md` 符合 `specs/**`）。這裡用 `changed`（已扣除還原的
+    // 階段輸入、也已濾掉 neutralised D）而不是原始 facts；outside-whitelist 者
+    // 已由上一行涵蓋，這一行只補白名單內的漏網路徑。
+    const neutralisedAllowed = changed.filter(
+      (path) => isNeutralisedPath(path) && isVerifyAllowedPath(path),
+    )
+    if (neutralisedAllowed.length > 0) {
+      mismatches.push({
+        kind: 'verify-neutralised-path',
+        detail:
+          `agent 在 neutralised 路徑下新增／改寫檔案：${neutralisedAllowed.join('、')}` +
+          '。`.dsh`／`.agents`／`AGENTS.md`／`AGENTS.local.md`／`CLAUDE.md`／`CLAUDE.local.md`' +
+          ' 是 mechanism／instruction 面，即使路徑落在 specs／test 白名單內也不得由驗證 agent 建立（R26 (d)）',
+      })
+    }
+  }
   let remoteBranches: string[] | undefined
   if (variant !== undefined) {
     remoteBranches = parseRemoteBranches(readFileSync(variant.remoteBranchesPath, 'utf8'))
