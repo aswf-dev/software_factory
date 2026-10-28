@@ -27,6 +27,13 @@
  * 以 manifest 的 sha256 對磁碟重算，被改動或刪除的還原輸入反而是 agent 的違規
  * 變更，記為 `restored-input-modified`（R15）——這讓「還原輸入唯讀」成為機械規則。
  *
+ * **diff 基準必須不可變**（`--base-sha`，R19／C2）：R2 允許驗證 agent 在本地
+ * commit，而 agent 就站在 base 分支上——commit 一前進，`git diff <base>` 就變空：
+ * 合規 agent 被判 no-trace／reported-not-in-diff 假紅，越界 agent 則整批變更消失
+ * （白名單被繞過）。workflow 在 agent 之前把 HEAD 寫進 target 外的
+ * `.factory/base-sha`，本 CLI 以 `--base-sha <40-hex>` 使用該 commit 並**忽略
+ * 分支名**；形狀不合或解析不到 commit 一律 fail-loud，不默默退回分支名。
+ *
  * 有意不做的檢查：changedLines 的數值精確比對（agent 的計數口徑可能不同，
  * 會誤傷）；PR 是否真的推送（需網路，且 factory-rescore 已在 PR 層獨立重計分）。
  */
@@ -114,7 +121,7 @@ export { VERIFY_ALLOWED_GLOBS }
 /**
  * 驗證類的變更範圍檢查；由 main 在 `--verify-only` 時呼叫（路徑已排除 .factory/**）。
  *
- * `dot: true` 的細節見 `isVerifyAllowedPath`。
+ * dot segment 只在 specs/** 內放行、`.github` 一律拒絕；細節見 `isVerifyAllowedPath`。
  */
 export function checkVerifyScope(changedPaths: readonly string[]): CrosscheckMismatch[] {
   const outside = changedPaths.filter((p) => !isVerifyAllowedPath(p))
@@ -826,6 +833,9 @@ function collectUntrackedPaths(git: GitRunner, statusOutput: string, target: str
  *
  * `branches` 恆為空陣列：驗證模式沒有變體分支，變體隔離檢查不適用。
  * `uncommitted` 仍照實回報供診斷，但驗證模式不把它當 mismatch（main 判定）。
+ *
+ * `base` 通常是分支名；R19 後 main 會傳入 `--base-sha` 解析出的不可變 commit，
+ * 兩者對 `git diff` 而言都只是 ref——本函式不區分，也不得退回分支名。
  */
 export function collectVerifyDiff(
   git: GitRunner,
@@ -948,7 +958,7 @@ function isRestoredManifestPath(p: string): boolean {
   // 建置快取可重建、也不是還原端的輸入（factory-verify-encrypt 不打包）——同一個
   // predicate，兩端不得漂移（R14、R15）。
   if (isLakeBuildArtifact(p)) return false
-  return isVerifyAllowedPath(p) || p.startsWith('specs/')
+  return isVerifyAllowedPath(p)
 }
 
 /**
@@ -1049,11 +1059,45 @@ export interface VariantArgs {
   remoteBranchesPath: string
 }
 
+/** `--base-sha` 的格式（R19）：完整 40 位 hex commit；分支名／簡短 SHA 一律拒絕。 */
+const BASE_SHA_HEX = /^[0-9a-f]{40}$/i
+
+/**
+ * 驗證 `--base-sha` 的形狀並正規化為小寫。刻意只收完整 40 位 hex：簡短 SHA 的
+ * 解析規則取決於 repo 狀態（歧義時會變），不是「不可變 commit」。
+ */
+export function parseBaseSha(value: string): string {
+  const sha = value.trim().toLowerCase()
+  if (!BASE_SHA_HEX.test(sha)) {
+    throw new CliError(
+      `--base-sha 必須是完整的 40-hex commit（40 位十六進位；收到「${value}」）——` +
+        '驗證模式的 diff 基準是 agent 啟動前的 HEAD，不是可移動的分支名（R19）',
+    )
+  }
+  return sha
+}
+
+/**
+ * 確認 `--base-sha` 在此 repo 解析得到 commit。解析不到就 fail-loud：默默退回
+ * 分支名會讓 C2 的假紅／白名單繞過原樣重現，而且沒有任何訊號。
+ */
+export function resolveBaseSha(git: GitRunner, target: string, sha: string): string {
+  try {
+    const resolved = git(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], target).trim()
+    if (resolved !== '') return resolved
+  } catch {
+    // 落到下方統一的 CliError：不把 git 的 stderr 當成使用者訊息
+  }
+  throw new CliError(
+    `--base-sha ${sha} 在此 repo 解析不到 commit——拒絕以可移動的分支名替代（R19，fail closed）`,
+  )
+}
+
 /**
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
  *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only] [--verify-only]
- *  [--restored-manifest <file>]
+ *  [--base-sha <40-hex>] [--restored-manifest <file>]
  *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
  *   [--source-snapshot <file>]] [--variant <a|b> --remote-branches <file>]`。
  */
@@ -1066,6 +1110,8 @@ export function parseArgs(argv: string[]): {
   onboardOnly: boolean
   pbtAuditOnly: boolean
   verifyOnly: boolean
+  /** agent 啟動前的 HEAD（R19）；存在時取代 `--base` 的分支名，只在 --verify-only 下有效。 */
+  baseSha?: string | undefined
   /** `factory-verify-input` 的還原清單（只在 --verify-only 下有效）。 */
   restoredManifestPath?: string | undefined
   requirementAnchors: string[]
@@ -1082,6 +1128,7 @@ export function parseArgs(argv: string[]): {
   let onboardOnly = false
   let pbtAuditOnly = false
   let verifyOnly = false
+  let baseSha: string | undefined
   let restoredManifestPath: string | undefined
   let requirementAnchors: string[] = []
   let specPhase: string | undefined
@@ -1113,6 +1160,12 @@ export function parseArgs(argv: string[]): {
       pbtAuditOnly = true
     } else if (arg === '--verify-only') {
       verifyOnly = true
+    } else if (arg === '--base-sha') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) {
+        throw new CliError('--base-sha requires a full 40-hex commit SHA')
+      }
+      baseSha = parseBaseSha(v)
     } else if (arg === '--restored-manifest') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) throw new CliError('--restored-manifest requires a path')
@@ -1168,6 +1221,11 @@ export function parseArgs(argv: string[]): {
   if (restoredManifestPath !== undefined && !verifyOnly) {
     throw new CliError('--restored-manifest 只適用於 --verify-only（驗證模式的階段輸入還原）')
   }
+  // 不可變 diff 基準同理：非驗證模式的事實來源是 factory/<issue>-* 分支，
+  // 帶了 --base-sha 等於兩套基準並存——寧可紅燈，也不要讓其中一套靜默失效。
+  if (baseSha !== undefined && !verifyOnly) {
+    throw new CliError('--base-sha 只適用於 --verify-only（不可變 diff 基準是驗證模式的事實來源，R19）')
+  }
   const issueNumber = Number(positional[0])
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new CliError(`issueNumber must be a positive integer, got ${positional[0] ?? '(missing)'}`)
@@ -1207,6 +1265,7 @@ export function parseArgs(argv: string[]): {
     onboardOnly,
     pbtAuditOnly,
     verifyOnly,
+    baseSha,
     restoredManifestPath,
     requirementAnchors,
     writeSpec,
@@ -1270,6 +1329,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     onboardOnly,
     pbtAuditOnly,
     verifyOnly,
+    baseSha,
     restoredManifestPath,
     requirementAnchors,
     writeSpec,
@@ -1278,8 +1338,16 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   const report = loadReport(reportPath)
   // 驗證類沒有分支（R2：本地 commit 可以、push 不行），事實來源改成工作區
   // 相對 base 的 diff；其餘模式維持 factory/<issue>-* 分支的三點 diff。
+  // R19／C2：`--base-sha` 存在時以該不可變 commit 為基準，`--base` 的分支名
+  // 完全不參與（agent 的本地 commit 會推進本地 base 分支）。
   let actual = verifyOnly
-    ? collectVerifyDiff(git, { base: paths.base, target: paths.target })
+    ? collectVerifyDiff(git, {
+        base:
+          baseSha === undefined
+            ? paths.base
+            : resolveBaseSha(git, paths.target, baseSha),
+        target: paths.target,
+      })
     : collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
   // R13／R15：階段輸入是前一階段還原到工作區的檔案（tracked 檔案被覆寫時進 git
   // diff，新檔則是 untracked），不是本次 agent 的交付。只有還原後**沒有被動過**

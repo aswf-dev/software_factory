@@ -23,6 +23,23 @@ describe('docs/34-verify-runbook.md', () => {
     for (const glob of VERIFY_ALLOWED_GLOBS) expect(doc).toContain(glob)
   })
 
+  it('C1：dot segment 只在 specs/** 放寬、.github 一律拒絕，且四個繞過路徑寫進手冊', () => {
+    expect(doc).toContain('只在 **`specs/**` 內**放寬')
+    expect(doc).toContain('.github/workflows/evil.test.yml')
+    expect(doc).toContain('.github/tests/x.ts')
+    expect(doc).toContain('.github/test/x.ts')
+    expect(doc).toContain('.github/factory/foo_test.go')
+    expect(doc).toContain('任何含 `.github` segment 的路徑也一律拒絕')
+  })
+
+  it('C2／I2／I3：不可變 base、機制模板、唯讀 token 都有說明', () => {
+    expect(doc).toContain('--base-sha')
+    expect(doc).toContain('.factory/base-sha')
+    expect(doc).toContain('task-template-verify-*.txt')
+    expect(doc).toContain('metadata `read`')
+    expect(doc).toContain('target/.dsh')
+  })
+
   it('四個 task type 都有 dispatch 說明；lean 帶 verify_phase', () => {
     for (const t of VERIFY_TASK_TYPES) expect(doc).toContain(t)
     expect(doc).toContain('-f verify_phase=statements')

@@ -267,10 +267,28 @@ specs/**
 **/test/**
 ```
 
-`dot: true`，所以 `specs/lean/.gitignore`、`specs/lean/.lake/**` 合規；`specs/` 以外的
-隱藏路徑（`.github/**`、根目錄 `.gitignore`）仍越界。未列出的測試慣例（例如
-`__tests__/` 下不含 `.test.` 的輔助檔、`*_spec.rb`）會被判 `verify-scope` 越界——目標 repo
-的測試命名須落在上面五個 glob 內。
+`dot` 只在 **`specs/**` 內**放寬，所以 `specs/lean/.gitignore`、`specs/lean/.lake/**` 合規。
+`specs/` 以外的任何 `.`-開頭 segment 一律越界（即使路徑符合測試 glob 的字面形狀：
+`.github/workflows/evil.test.yml`、`.github/tests/x.ts`、`.github/test/x.ts`、
+`.github/factory/foo_test.go` 全部拒絕）；任何含 `.github` segment 的路徑也一律拒絕。
+未列出的測試慣例（例如 `__tests__/` 下不含 `.test.` 的輔助檔、`*_spec.rb`）會被判
+`verify-scope` 越界——目標 repo 的測試命名須落在上面五個 glob 內。
+
+**不可變 diff 基準**（`--base-sha`，R19）：驗證 agent 可以在本地 `git commit`，而它就在
+base 分支上；對分支名 `git diff <base>` 會在 commit 後變成空集合。workflow 在 agent
+之前把 `git -C target rev-parse HEAD` 寫到 **`$GITHUB_WORKSPACE/.factory/base-sha`**
+（`target/` 外，agent sandbox 寫不到），crosscheck 與 encrypt 皆以 `--base-sha <40-hex>`
+使用該 commit 並忽略分支名；檔案缺失或 SHA 解析不到時 fail closed。
+
+**agent 的 token**（I3）：驗證模式另 mint 一個唯讀 installation token
+（contents／issues／metadata `read`），只有它寫進 `target/.factory/run/gh-token` 與
+`target/.git/config`；寫入權限的 token 只留在 workflow 自己的留言／終態／crosscheck／
+scoreboard 步驟。`Verify app token write access` 探針在驗證模式整個跳過。
+
+**task template 與 skills**（I2）：驗證模式**一律**用機制 repo 的
+`.github/factory/task-template-verify-*.txt`；目標 repo 的同名模板不讀（否則受測者可以
+授權自己 push／開 PR／寫發現）。agent 之前另把 `target/.dsh` 整棵移到 `$RUNNER_TEMP`
+（不還原），避免 DSH rank-100 的 workspace skills 蓋掉 `$HOME/.dsh/skills` 的機制技能。
 
 **Lean 工具鏈**（ADR-029 §7）：`leanprover/lean4:v4.35.0`，只用 core。以下步驟只在
 `agent-verify-lean` 執行，依序：

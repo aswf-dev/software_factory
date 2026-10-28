@@ -192,6 +192,8 @@ const BASE_VALUES: Record<string, string> = {
   'steps.specphase.outputs.phase': '',
   'steps.specphase.outputs.spec_name': '',
   'steps.agent.outputs.inner_timeout': 'false',
+  // C2／R19：pre-agent 不可變 diff 基準（step output 經 env 傳入）
+  'steps.basesha.outputs.sha': 'a'.repeat(40),
 }
 
 let dirs: string[] = []
@@ -226,6 +228,8 @@ function runStep(
   mkdirSync(join(dir, '.factory'))
   mkdirSync(join(dir, 'target/.factory/run'), { recursive: true })
   mkdirSync(join(dir, 'cli'))
+  // C2／R19：workflow 的 pre-agent 步驟會寫這份檔；crosscheck 在驗證模式要求它存在
+  writeFileSync(join(dir, '.factory/base-sha'), 'a'.repeat(40))
   for (const [base, { stdout, code }] of Object.entries(cli)) {
     writeFileSync(join(dir, 'cli', `${base}.out`), stdout)
     writeFileSync(join(dir, 'cli', `${base}.code`), String(code))

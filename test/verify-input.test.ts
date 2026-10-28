@@ -316,6 +316,10 @@ describe('restoreVerifyInput：整份拒絕（fail closed，不寫任何檔）',
     await expectRejected([line('package.json', '{}')], /白名單/)
   })
 
+  it('C1：`specs/.github/**`（含 .github segment）→ 拒絕，specs 前綴不能繞過白名單', async () => {
+    await expectRejected([line('specs/.github/workflows/x.test.yml', 'on: push')], /白名單/)
+  })
+
   it('符合測試 glob 但落在 `.git`／`.factory` 下 → 拒絕（版本庫與 run 目錄不可由輸入寫入）', async () => {
     await expectRejected([line('.git/test/x', 'x')], /\.git/)
     await expectRejected([line('specs/.git/config', '[core]')], /\.git/)

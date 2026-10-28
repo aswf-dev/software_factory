@@ -164,6 +164,17 @@ describe('encryptVerifyBundle：age 往返與 bundle 範圍', () => {
     expect(result.files).toEqual(['src/app.test.ts'])
   })
 
+  it('C1：specs/.github/** 不進 bundle（.github segment 一律拒絕），其餘 specs 照常', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    writeFixture(target, 'specs/.github/workflows/x.test.yml', 'on: push')
+    writeFixture(target, 'specs/quint/model.qnt', 'module M {}')
+
+    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient })
+
+    expect(result.files).toEqual(['specs/quint/model.qnt'])
+  })
+
   it('target/.factory/run 不存在時仍可打包 specs（不因缺目錄而丟掉整包）', async () => {
     const target = makeTarget()
     const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
@@ -528,5 +539,81 @@ describe('CLI：parseArgs／main', () => {
     expect(existsSync(outFile)).toBe(true)
     // 空 recipient：main 也必須失敗（workflow 缺 secret 時 shell 會先擋，這裡是第二道）
     await expect(main(['--target', target, '--out', outFile, '--recipient', ''])).rejects.toThrow(/recipient/)
+  })
+})
+
+/**
+ * C2（final whole-branch review）：bundle 的「agent 改動」必須以 agent 啟動前的
+ * 不可變 commit 為基準。`origin/<base>` 仍可能被 agent 的本地 commit 推進嗎？不會，
+ * 但本地 base 分支會——encrypt 原本只找 origin／本地分支名，兩者都可能不存在於
+ * 驗證模式的 checkout（agent 在本地 commit 後 `HEAD` 前進，diff 就變空）。
+ * 修法（R19）：workflow 傳入 agent 前的 HEAD（`--base-sha`）。
+ */
+describe('encryptVerifyBundle：不可變 diff 基準 --base-sha（R19／C2）', () => {
+  it('以 agent 啟動前的 commit 為基準：已 commit 的測試檔仍進 bundle；不傳時重現空 diff', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'test/baseline.test.ts', 'old body')
+    commitAll(target, 'base')
+    const preAgent = git(target, 'rev-parse', 'HEAD').trim()
+    // agent 在 base 分支上本地 commit（R2 允許），HEAD 因此前進
+    writeFixture(target, 'test/committed.test.ts', 'new body')
+    commitAll(target, 'agent commit on base branch')
+
+    const withSha = await encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: preAgent })
+    expect(withSha.files).toEqual(['test/committed.test.ts'])
+
+    const withoutSha = await encryptVerifyBundle({
+      targetDir: target,
+      outFile: join(tempDir('factory-verify-out-'), 'bundle.age'),
+      recipient,
+    })
+    expect(withoutSha.files).toEqual([])
+  })
+
+  it('baseSha 不是 40-hex → CliError，且不寫任何輸出檔（fail closed）', async () => {
+    const target = makeTarget()
+    writeFixture(target, 'test/committed.test.ts', 'new body')
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+
+    await expect(encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: 'abc123' })).rejects.toThrow(
+      /40-hex/,
+    )
+    expect(existsSync(outFile)).toBe(false)
+  })
+
+  it('baseSha 解析不到 commit → CliError，且不寫任何輸出檔', async () => {
+    const target = makeTarget()
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'test/baseline.test.ts', 'old body')
+    commitAll(target, 'base')
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+
+    await expect(
+      encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: 'f'.repeat(40) }),
+    ).rejects.toThrow(/base-sha/)
+    expect(existsSync(outFile)).toBe(false)
+  })
+
+  it('非 git 工作區帶 baseSha → fail closed（不得默默退回掃描全部白名單）', async () => {
+    const target = makeTarget()
+    writeFixture(target, 'test/committed.test.ts', 'new body')
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+
+    await expect(
+      encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: 'a'.repeat(40) }),
+    ).rejects.toThrow(/base-sha/)
+    expect(existsSync(outFile)).toBe(false)
+  })
+
+  it('parseArgs：--base-sha 選填、需有值；main 接到 encryptVerifyBundle', async () => {
+    expect(
+      parseArgs(['--target', 't', '--out', '/tmp/x.age', '--recipient', 'age1abc', '--base-sha', 'A'.repeat(40)]),
+    ).toMatchObject({ baseSha: 'a'.repeat(40) })
+    expect(parseArgs(['--target', 't', '--out', '/tmp/x.age', '--recipient', 'age1abc']).baseSha).toBeUndefined()
+    expect(() =>
+      parseArgs(['--target', 't', '--out', '/tmp/x.age', '--recipient', 'age1abc', '--base-sha', '--target', 't']),
+    ).toThrow(/base-sha/)
   })
 })

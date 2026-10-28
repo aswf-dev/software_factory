@@ -505,10 +505,11 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       'agent-verify-lean',
       'agent-verify-tests',
     ])
-    // 檔名慣例：task-template-<type>.txt（type 無 agent- 前綴）——
-    // 路由必須剝除前綴，否則專屬模板永遠拼不出檔名（2026-08-21 實測抓到的
-    // 既有 bug：PR #101 後 4 型全部靜默 fallback 到通用模板）。
-    expect(w).toContain('task-template-${TASK_TYPE#agent-}.txt')
+    // 檔案選擇集中在 factory-task-template（I2）：驗證模式一律機制模板，非驗證
+    // 模式維持 target → 機制 → 通用的既有偏好。檔名剝除 agent- 前綴的規則由
+    // src/cli/factory-task-template.test.ts 釘住，workflow 只負責傳入 task type。
+    expect(w).toContain('dist/cli/factory-task-template.js')
+    expect(w).toContain('--task-type "$TASK_TYPE"')
     for (const t of options.filter((o) => o !== 'auto')) {
       const file = `task-template-${t.replace(/^agent-/, '')}.txt`
       expect(read(`.github/factory/${file}`)).toContain('<ISSUE>')
@@ -910,7 +911,7 @@ describe('Phase 2 資產釘選（Phase 2 T7）', () => {
   it('factory-run.yml 含 task_type 路由與 repo input', () => {
     const c = read('.github/workflows/factory-run.yml')
     expect(c).toContain('task_type')
-    expect(c).toContain('task-template-${TASK_TYPE#agent-}')
+    expect(c).toContain('dist/cli/factory-task-template.js')
     expect(c).toContain('inputs.repo')
   })
   it('factory-workflow skill 含任務型別分支與 --draft 禁令', () => {
@@ -2519,9 +2520,13 @@ describe('Backstage dispatch 以登入者 OAuth token 執行（不依賴 PAT）'
 // 共用，未收窄的 installation token 會連同交給 agent（factory-run 的
 // target/.factory/run/gh-token 與 Run factory agent 的 GH_TOKEN），讓 agent 可在
 // 機制 repo 自我派工、刪除 run 紀錄。故每一處 mint 都必須明列權限且 actions 僅 read。
+//
+// ADR-029 §5（I3）：驗證模式另 mint 一個**唯讀** agent token（contents/issues/
+// metadata read）。它刻意沒有 pull-requests／actions 權限——那正是「agent 不會
+// push／開 PR」的機械保證，不是漏寫。
 describe('App token 一律收窄（agent 不得取得 actions:write）', () => {
   const { load } = require('js-yaml') as typeof import('js-yaml')
-  type Step = { uses?: string; with?: Record<string, string> }
+  type Step = { id?: string; uses?: string; with?: Record<string, string>; if?: string }
   const mints = readdirSync(join(ROOT, '.github/workflows'))
     .filter((f) => f.endsWith('.yml'))
     .flatMap((f) => {
@@ -2529,21 +2534,40 @@ describe('App token 一律收窄（agent 不得取得 actions:write）', () => {
       return Object.values(wf.jobs)
         .flatMap((j) => j.steps ?? [])
         .filter((s) => s.uses?.startsWith('actions/create-github-app-token@'))
-        .map((s) => ({ file: f, with: s.with ?? {} }))
+        .map((s) => ({ file: f, id: s.id, readOnly: s.with?.['permission-contents'] === 'read', with: s.with ?? {} }))
     })
+  /** 寫入權限的 mint（既有全部）；唯讀 agent token 另以專屬測試釘住。 */
+  const writeMints = mints.filter((m) => m.with['permission-contents'] === 'write')
 
-  it('至少找到 4 處 mint（factory-run／onboard／rescore／run-cleanup）', () => {
-    expect(mints.length).toBeGreaterThanOrEqual(4)
+  it('至少找到 4 處寫入 mint（factory-run／onboard／rescore／run-cleanup）＋唯讀 agent token', () => {
+    expect(writeMints.length).toBeGreaterThanOrEqual(4)
+    expect(mints.filter((m) => m.readOnly).length).toBeGreaterThanOrEqual(1)
   })
 
   // 明列才是保護所在：遺漏任何一項，token 就繼承 App 安裝的全部權限。
   // 值可以比 write 更窄（factory-stage-finalize 只需要 pull-requests: read，ADR-022）。
-  it.each(['contents', 'issues', 'pull-requests'])('每處明列 permission-%s（write 或更窄的 read）', (p) => {
+  it.each(['contents', 'issues'])('每處明列 permission-%s（write 或 read）', (p) => {
     for (const m of mints) expect(['write', 'read'], `${m.file}`).toContain(m.with[`permission-${p}`])
   })
 
-  it('每處 permission-actions 皆為 read', () => {
-    for (const m of mints) expect(m.with['permission-actions'], `${m.file}`).toBe('read')
+  it('寫入 mint 明列 pull-requests（read 或 write）', () => {
+    for (const m of writeMints) expect(['write', 'read'], `${m.file}`).toContain(m.with['permission-pull-requests'])
+  })
+
+  it('驗證模式的 agent token 只有 contents／issues／metadata read（沒有 PR／actions）', () => {
+    const token = mints.find((m) => m.file === 'factory-run.yml' && m.id === 'agent-token')
+    expect(token, 'factory-run.yml 缺少 id: agent-token').toBeDefined()
+    expect(token!.with).toMatchObject({
+      'permission-contents': 'read',
+      'permission-issues': 'read',
+      'permission-metadata': 'read',
+    })
+    expect(token!.with['permission-pull-requests']).toBeUndefined()
+    expect(token!.with['permission-actions']).toBeUndefined()
+  })
+
+  it('寫入 mint 的 permission-actions 皆為 read', () => {
+    for (const m of writeMints) expect(m.with['permission-actions'], `${m.file}`).toBe('read')
   })
 })
 
@@ -2657,7 +2681,7 @@ describe('驗證模式的 workflow 閘控（ADR-029 §5、§6）', () => {
 
   it('VARIANT_HEADER 對驗證類整段替換：不建／不推分支、不開 PR、不寫 Issue、可本地 commit', () => {
     const run = byName(runSteps(), 'Run factory agent').run!
-    const marker = 'if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then'
+    const marker = 'if [ "$VERIFY_MODE" = "true" ]; then'
     const start = run.indexOf(marker)
     expect(start, '找不到驗證模式的 header 覆寫').toBeGreaterThanOrEqual(0)
     const end = run.indexOf('ATTEMPT_TIMEOUT="$REMAINING_SEC"', start)

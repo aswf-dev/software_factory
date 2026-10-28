@@ -12,7 +12,8 @@
  * 這是把外部輸入寫進 agent 工作區的唯一入口，所以規則是 allowlist、整份 fail closed：
  *   - 只接受 `kind: "target"`；任何 `mechanism` 行 → 整份拒絕（ruling R7：分流只看
  *     kind，不看路徑長相；階段輸入不該含機制檔，出現就代表產生端錯了或被動過）；
- *   - path 必須通過 `isVerifyAllowedPath`（驗證類白名單）或位於 `specs/**`；
+ *   - path 必須通過 `isVerifyAllowedPath`（驗證類白名單；specs/** 亦由它放行，
+ *     因此 `specs/.github/**` 這種含 `.github` segment 的路徑同樣被拒）；
  *   - 絕對路徑、反斜線、NUL、空／`.`／`..` segment、`.git` segment、`.factory/**`
  *     （run 目錄與 token 所在）、解析後落在 target 外 → 拒絕；
  *   - specs 樹內任何 `.lake/build/` 路徑（加密端不打包的建置快取）→ 拒絕，兩端一致；
@@ -202,7 +203,7 @@ function validatePath(path: string, lineNo: number): void {
       `${where}：path 位於 .lake/build（可重建的建置快取）——加密端不打包，還原端也拒絕（ADR-029 §5）`,
     )
   }
-  if (!(isVerifyAllowedPath(path) || path.startsWith('specs/'))) {
+  if (!isVerifyAllowedPath(path)) {
     throw new CliError(`${where}：path 不在驗證白名單內（只收 specs/** 與測試檔）`)
   }
 }

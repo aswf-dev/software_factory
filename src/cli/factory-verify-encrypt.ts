@@ -42,10 +42,16 @@
  * 若 target 不是 git repo（單元測試、非 git 目標），無法得知「改動」，
  * 退回掃描全部白名單檔案——bundle 本身是密文，寧可多帶也不讓下一階段缺檔。
  *
+ * **不可變基準**（`--base-sha`，R19／C2）：分支名終究是可移動的——agent 依 R2
+ * 可以本地 commit，`origin/<base>` 在驗證模式的 checkout 也不一定存在。workflow
+ * 在 agent 之前把 HEAD 寫進 target 外的 `.factory/base-sha`，本 CLI 以
+ * `--base-sha <40-hex>` 使用該 commit；形狀不合或解析不到一律 fail closed。
+ *
  * CLI（workflow 呼叫）：
  *   node dist/cli/factory-verify-encrypt.js \
  *     --target target --out .factory/verify-bundle.age \
- *     --recipient "$VERIFY_AGE_PUBLIC_KEY" --mechanism-dir .factory
+ *     --recipient "$VERIFY_AGE_PUBLIC_KEY" --mechanism-dir .factory \
+ *     --base-sha "$VERIFY_BASE_SHA"
  */
 import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
@@ -89,6 +95,11 @@ export interface EncryptVerifyBundleOptions {
   recipient: string
   /** 機制檔所在目錄（workflow 中是 `$GITHUB_WORKSPACE/.factory`）；省略時不帶機制檔。 */
   mechanismDir?: string
+  /**
+   * agent 啟動前的 HEAD（R19）：已知時以這個不可變 commit 為 diff 基準，
+   * 完全忽略 base-branch 檔與分支名。非 40-hex 或解析不到 commit → fail closed。
+   */
+  baseSha?: string | undefined
 }
 
 export interface EncryptVerifyBundleResult {
@@ -110,7 +121,9 @@ function isBundlePath(rel: string): boolean {
   if (rel === GH_TOKEN_PATH) return false
   if (isLakeBuildArtifact(rel)) return false
   if (rel.startsWith('.factory/')) return rel.startsWith(`${RUN_DIR}/`)
-  return rel.startsWith(`${SPECS_DIR}/`) || isVerifyAllowedPath(rel)
+  // specs/** 也由同一個 predicate 放行（C1：`.github` segment 一律拒絕，
+  // 所以不能再以 `specs/` 前綴繞過白名單）。
+  return isVerifyAllowedPath(rel)
 }
 
 /**
@@ -194,6 +207,32 @@ function resolveBaseRef(targetDir: string, base: string): string | null {
   return null
 }
 
+/** `--base-sha` 的格式（R19）：完整 40 位 hex；分支名／簡短 SHA 一律拒絕。 */
+const BASE_SHA_HEX = /^[0-9a-f]{40}$/i
+
+/** 驗證並正規化 `--base-sha`；格式不合即 fail closed（不得退回分支名）。 */
+export function normalizeBaseSha(value: string): string {
+  const sha = value.trim().toLowerCase()
+  if (!BASE_SHA_HEX.test(sha)) {
+    throw new CliError(
+      `--base-sha 必須是完整的 40-hex commit（40 位十六進位；收到「${value}」）——` +
+        'bundle 的「agent 改動」必須以 agent 啟動前的 HEAD 為基準（R19）',
+    )
+  }
+  return sha
+}
+
+/** 確認 `--base-sha` 解析得到 commit；不是 git 工作區或不存在 → fail closed。 */
+function resolveBaseSha(targetDir: string, sha: string): string {
+  const resolved = tryGit(targetDir, ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`])
+  if (resolved === null || resolved.trim() === '') {
+    throw new CliError(
+      `--base-sha ${sha} 在此 repo 解析不到 commit——拒絕以分支名或 HEAD 替代（R19，fail closed）`,
+    )
+  }
+  return resolved.trim()
+}
+
 /**
  * agent 改動／新增的路徑（含本地 commit 與未追蹤檔）。
  *
@@ -201,11 +240,21 @@ function resolveBaseRef(targetDir: string, base: string): string | null {
  * - 空 repo（尚無 HEAD）→ null（同上）。
  * - 其餘 → `git diff <base>` ∪ `git ls-files --others`；`--diff-filter=ACMR`
  *   排除刪除，`-z` 避免檔名含空白／引號時被 git 加引號而比對失敗。
+ *
+ * `baseSha` 有值時（R19／C2）先驗形狀與可解析性，再以該 commit 為唯一基準：
+ * base-branch 檔與 `origin/<base>` 都不參與。不是 git 工作區卻帶了 baseSha
+ * → fail closed（無法驗證「不可變」的主張，不默默退回掃描全部）。
  */
-function changedPaths(targetDir: string): Set<string> | null {
+function changedPaths(targetDir: string, baseSha?: string): Set<string> | null {
+  const resolvedBaseSha = baseSha === undefined ? undefined : resolveBaseSha(targetDir, normalizeBaseSha(baseSha))
   if (!isGitWorkTree(targetDir)) return null
-  const base = readBaseBranch(targetDir)
-  const baseRef = base === undefined ? null : resolveBaseRef(targetDir, base)
+  let baseRef: string | null
+  if (resolvedBaseSha !== undefined) {
+    baseRef = resolvedBaseSha
+  } else {
+    const base = readBaseBranch(targetDir)
+    baseRef = base === undefined ? null : resolveBaseRef(targetDir, base)
+  }
   const diff = tryGit(targetDir, ['diff', '--name-only', '--diff-filter=ACMR', '-z', baseRef ?? 'HEAD'])
   if (diff === null) return null
   const paths = new Set<string>(splitNul(diff))
@@ -251,7 +300,7 @@ function isScannableRoot(targetDir: string, rel: string): boolean {
  * 直接跳過（git 事實與檔案系統之間可能有 race），但其他 I/O 錯誤會往外拋——
  * 打包不完整比 abort 更危險（下一階段會拿到缺檔的規格）。
  */
-function collectBundlePaths(targetDir: string): string[] {
+function collectBundlePaths(targetDir: string, baseSha?: string): string[] {
   const files = new Set<string>()
   const add = (rel: string): void => {
     if (!isBundlePath(rel)) return
@@ -262,7 +311,7 @@ function collectBundlePaths(targetDir: string): string[] {
     if (!isScannableRoot(targetDir, root)) continue
     for (const rel of walkFiles(targetDir, root, neverSkip)) add(rel)
   }
-  for (const rel of changedPaths(targetDir) ?? collectAllBundlePaths(targetDir)) add(rel)
+  for (const rel of changedPaths(targetDir, baseSha) ?? collectAllBundlePaths(targetDir)) add(rel)
   return [...files].sort()
 }
 
@@ -336,7 +385,9 @@ export async function encryptVerifyBundle(
 ): Promise<EncryptVerifyBundleResult> {
   const key = validateRecipient(opts.recipient)
   const targetDir = resolveTargetDir(opts.targetDir)
-  const files = collectBundlePaths(targetDir)
+  // R19：先驗 base-sha（形狀＋可解析性）才掃描；任何寫入都還沒發生，失敗即不產出。
+  const baseSha = opts.baseSha === undefined ? undefined : normalizeBaseSha(opts.baseSha)
+  const files = collectBundlePaths(targetDir, baseSha)
   const mechanism = collectMechanismEntries(opts.mechanismDir)
   const targetEntries = files.map((rel): BundleEntry => ({ kind: 'target', path: rel, abs: join(targetDir, rel) }))
   const payload = serializeBundle([...targetEntries, ...mechanism])
@@ -354,6 +405,7 @@ const FLAGS = {
   '--out': 'outFile',
   '--recipient': 'recipient',
   '--mechanism-dir': 'mechanismDir',
+  '--base-sha': 'baseSha',
 } as const satisfies Record<string, keyof EncryptVerifyBundleOptions>
 
 /**
@@ -371,13 +423,18 @@ export function parseArgs(argv: string[]): EncryptVerifyBundleOptions {
     // 目標與輸出空白＝危險的預設（cwd 可能是機制 repo 本身）；recipient 例外，
     // 交由 validateRecipient 給出 fail-closed 的說明。
     if (key !== 'recipient' && value.trim() === '') throw new CliError(`${arg} must not be empty`)
-    values[key] = value
+    // `--base-sha` 在此正規化（大小寫）但格式驗證留給加密層：錯誤訊息要說明
+    // fail-closed 語意，且必須在掃描／寫入之前發生。
+    values[key] = key === 'baseSha' ? value.trim().toLowerCase() : value
   }
-  const { targetDir, outFile, recipient, mechanismDir } = values
+  const { targetDir, outFile, recipient, mechanismDir, baseSha } = values
   if (targetDir === undefined) throw new CliError('--target is required')
   if (outFile === undefined) throw new CliError('--out is required')
   if (recipient === undefined) throw new CliError('--recipient is required')
-  return mechanismDir === undefined ? { targetDir, outFile, recipient } : { targetDir, outFile, recipient, mechanismDir }
+  const parsed: EncryptVerifyBundleOptions = { targetDir, outFile, recipient }
+  if (mechanismDir !== undefined) parsed.mechanismDir = mechanismDir
+  if (baseSha !== undefined) parsed.baseSha = baseSha
+  return parsed
 }
 
 export async function main(argv: string[]): Promise<EncryptVerifyBundleResult> {

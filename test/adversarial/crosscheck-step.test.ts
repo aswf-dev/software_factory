@@ -48,6 +48,8 @@ function crosscheckValues(overrides: Record<string, string>): Record<string, str
     'inputs.verify_phase': 'statements',
     'github.server_url': 'https://github.com',
     'github.repository': 'aswf-dev/software_factory',
+    // C2／R19：agent 之前寫入的不可變 base commit（step output 經 env 傳入）
+    'steps.basesha.outputs.sha': 'a'.repeat(40),
     ...overrides,
   }
 }
@@ -107,6 +109,7 @@ function runStep(
   lsRemote: string | null = '',
   /** 覆寫 `${{ }}` 的值（例如驗證模式）。 */
   overrides: Record<string, string> = {},
+  opts: { baseShaFile?: boolean } = {},
 ): StepResult {
   const dir = mkdtempSync(join(tmpdir(), 'crosscheck-step-'))
   dirs.push(dir)
@@ -114,6 +117,8 @@ function runStep(
   mkdirSync(bin)
   mkdirSync(join(dir, '.factory'))
   mkdirSync(join(dir, 'target/.factory/run'), { recursive: true })
+  // C2／R19：workflow 的 pre-agent 步驟會寫這份檔；step 在驗證模式要求它存在
+  if (opts.baseShaFile !== false) writeFileSync(join(dir, '.factory/base-sha'), 'a'.repeat(40))
   writeFileSync(join(dir, 'cc.stdout'), crosscheck.stdout)
   writeFileSync(join(dir, 'cc.stderr'), crosscheck.stderr)
   const stub = (name: string, body: string) => {
@@ -275,11 +280,22 @@ describe('crosscheck step：N-version 變體隔離', () => {
     })
     expect(r.status, r.log).toBe(0)
     expect(r.nodeArgs).toContain('--verify-only')
+    // C2／R19：以 agent 啟動前的不可變 commit 為基準，不是可移動的 base 分支
+    expect(r.nodeArgs).toContain(`--base-sha ${'a'.repeat(40)}`)
     expect(r.nodeArgs).not.toContain('--variant')
     // 沒還原階段輸入 → 不帶 manifest
     expect(r.nodeArgs).not.toContain('--restored-manifest')
     // 驗證分支不呼叫 git ls-remote（stub 對非預期呼叫 exit 99，status 0 即證明）
     expect(r.remoteBranches).toBeUndefined()
+  })
+
+  it('驗證模式缺 .factory/base-sha → fail closed（不呼叫 crosscheck、不退回分支名）', () => {
+    const r = runStep({ stdout: '', stderr: '', code: 0 }, '', { 'steps.verifymode.outputs.verify': 'true' }, {
+      baseShaFile: false,
+    })
+    expect(r.status, r.log).not.toBe(0)
+    expect(r.nodeArgs).toBe('')
+    expect(r.log).toContain('缺 pre-agent base commit')
   })
 
   it('階段輸入步驟成功 → 帶 --restored-manifest；未執行 → 不帶（R13）', () => {

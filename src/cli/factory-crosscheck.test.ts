@@ -1574,6 +1574,34 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       for (const p of outside) expect(findings[0]?.detail).toContain(p)
     })
 
+    it('C1：`.github` 下符合測試命名慣例的路徑仍一律拒絕（dot segment 只在 specs/** 內放寬）', () => {
+      // 這些路徑全部符合「測試檔」glob 的字面形狀。dot:true 套用到所有 glob 時，
+      // 它們會通過白名單——等於讓驗證 agent 改寫 CI 設定/工作流程（C1）。
+      const outside = [
+        '.github/workflows/evil.test.yml',
+        '.github/tests/x.ts',
+        '.github/test/x.ts',
+        '.github/factory/foo_test.go',
+      ]
+      const findings = checkVerifyScope(outside)
+      expect(findings).toHaveLength(1)
+      expect(findings[0]?.kind).toBe('verify-scope')
+      for (const p of outside) expect(findings[0]?.detail).toContain(p)
+    })
+
+    it('C1：specs 外的 dot segment 一律拒絕，即使路徑符合測試 glob', () => {
+      const outside = ['src/.hidden/x.test.ts', 'tests/.cache/y_test.go', 'pkg/.config/test/z.ts']
+      const findings = checkVerifyScope(outside)
+      expect(findings).toHaveLength(1)
+      for (const p of outside) expect(findings[0]?.detail).toContain(p)
+    })
+
+    it('C1：specs 樹內的 dot segment 仍是合規產出（lean skill 的 .gitignore）', () => {
+      for (const p of ['specs/lean/.gitignore', 'specs/lean/.lake/build/x.olean', 'specs/.hidden/model.qnt']) {
+        expect(checkVerifyScope([p]), p).toEqual([])
+      }
+    })
+
     it('越界：產品程式碼、設定、依賴、文件、CI 設定一律拒絕並列出路徑', () => {
       const outside = ['src/util/format.ts', 'package.json', 'package-lock.json', '.github/workflows/test.yml', 'docs/x.md', 'catalog-info.yaml']
       const findings = checkVerifyScope(outside)
@@ -2096,6 +2124,8 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
         JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md', sha256: 'abc' }] }),
         JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md', sha256: good.sha256.toUpperCase() }] }),
         JSON.stringify({ restored: [{ path: 'src/app.ts', sha256: good.sha256 }] }),
+        // C1：`.github` segment 一律拒絕，連 specs 樹內也一樣（機制資產）
+        JSON.stringify({ restored: [{ path: 'specs/.github/workflows/x.yml', sha256: good.sha256 }] }),
         JSON.stringify({ restored: [{ path: '../escape.md', sha256: good.sha256 }] }),
         JSON.stringify({ restored: [{ path: '/etc/passwd', sha256: good.sha256 }] }),
       ]) {
@@ -2211,5 +2241,134 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
         /requires a path/,
       )
     })
+  })
+})
+
+/**
+ * C2（final whole-branch review）：驗證模式的 diff 基準必須是「agent 啟動前」的
+ * 不可變 commit。
+ *
+ * `git diff <base>` 的 `<base>` 是本地分支名；驗證 agent 依 R2 可以本地 commit，
+ * commit 一前進 `<base>`（agent 就在該分支上），diff 立刻變空：
+ *   - 合規 agent 的交付消失 → no-trace／reported-not-in-diff 假紅；
+ *   - 越界 agent 的變更消失 → 白名單完全繞過（假綠）。
+ * 修法（R19）：workflow 在 agent 之前把 HEAD 寫到 target 外的 `.factory/base-sha`，
+ * 兩個 CLI 以 `--base-sha <40-hex>` 使用該 commit，忽略分支名。
+ */
+describe('驗證模式的不可變 diff 基準（--base-sha，R19／C2）', () => {
+  const repos: string[] = []
+  let reportPath: string
+
+  const gitIn = (repo: string, ...args: string[]): string =>
+    execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  const commit = (repo: string, message: string): void => {
+    gitIn(repo, 'add', '-A')
+    gitIn(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', message)
+  }
+  const write = (repo: string, rel: string, content: string): void => {
+    const abs = join(repo, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, content)
+  }
+  const newRepo = (): string => {
+    const repo = mkdtempSync(join(tmpdir(), 'crosscheck-base-sha-'))
+    repos.push(repo)
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    write(repo, 'README.md', '# fixture\n')
+    commit(repo, 'base')
+    return repo
+  }
+  const report = (partial: Record<string, unknown>): string => {
+    writeFileSync(reportPath, makeReport({ requirements: undefined, ...partial }))
+    return reportPath
+  }
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-base-sha-report-'))
+    repos.push(dir)
+    reportPath = join(dir, 'report.json')
+  })
+  afterAll(() => {
+    for (const repo of repos.splice(0)) rmSync(repo, { recursive: true, force: true })
+  })
+
+  it('--base-sha 看到 agent 在 base 分支上的 commit；不傳時重現空 diff（假紅）', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'test/x.test.ts', 'it("x", () => {})\n')
+    commit(repo, 'agent commit on base branch')
+
+    const withSha = main([
+      '12',
+      report({ changedPaths: ['specs/quint/model.qnt', 'test/x.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      // 分支名刻意不存在：--base-sha 存在時必須忽略分支名（R19）
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+    expect(withSha.actual.paths.sort()).toEqual(['specs/quint/model.qnt', 'test/x.test.ts'])
+    expect(withSha.mismatches).toEqual([])
+    expect(withSha.ok).toBe(true)
+
+    const withoutSha = main([
+      '12',
+      report({ changedPaths: ['specs/quint/model.qnt', 'test/x.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      '--base',
+      'HEAD',
+      '--verify-only',
+    ])
+    expect(withoutSha.actual.paths).toEqual([])
+    expect(withoutSha.ok).toBe(false)
+    expect(withoutSha.mismatches.map((m) => m.kind)).toContain('no-trace')
+  })
+
+  it('--base-sha 讓已 commit 的越界變更現形 → verify-scope（不傳時被 commit 藏住）', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'src/app.ts', 'export const answer = 42\n')
+    commit(repo, 'agent commit: out-of-scope source change')
+    const reportPathForScope = report({ changedPaths: ['src/app.ts'], changedLines: 1 })
+
+    const withSha = main([
+      '12',
+      reportPathForScope,
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+    expect(withSha.ok).toBe(false)
+    expect(withSha.mismatches.map((m) => m.kind)).toContain('verify-scope')
+    expect(withSha.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+
+    const withoutSha = main(['12', reportPathForScope, '--target', repo, '--base', 'HEAD', '--verify-only'])
+    expect(withoutSha.actual.paths).toEqual([])
+    expect(withoutSha.mismatches.map((m) => m.kind)).toContain('no-trace')
+  })
+
+  it('--base-sha 需為 40-hex、只適用於 --verify-only、且必須解析得到 commit', () => {
+    const sha = 'a'.repeat(40)
+    expect(parseArgs(['12', 'r.json', '--verify-only', '--base-sha', sha]).baseSha).toBe(sha)
+    expect(parseArgs(['12', 'r.json', '--verify-only']).baseSha).toBeUndefined()
+    expect(() => parseArgs(['12', 'r.json', '--base-sha', sha])).toThrow(/--verify-only/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--base-sha'])).toThrow(/--base-sha/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--base-sha', 'abc123'])).toThrow(/40-hex/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--base-sha', 'g'.repeat(40)])).toThrow(/40-hex/)
+    // 合法形狀但不存在於 repo：main 必須 fail-loud，不得默默退回分支名
+    const repo = newRepo()
+    writeFileSync(reportPath, makeReport({ changedPaths: [], changedLines: 0, requirements: undefined }))
+    expect(() =>
+      main(['12', reportPath, '--target', repo, '--verify-only', '--base-sha', 'f'.repeat(40)]),
+    ).toThrow(/base-sha/)
   })
 })

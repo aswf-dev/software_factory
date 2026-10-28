@@ -390,6 +390,9 @@ jobs:
           VARIANT: ${{ matrix.variant }}
           # task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換（review M4）
           STAGE: ${{ steps.tasktype.outputs.value }}
+          # ADR-029 §5（I1）：驗證模式的公開 log 只能印合規 boolean 與缺欄位名；
+          # 完整格式卡留在 .factory/issue-check.txt（只進加密 bundle）。
+          VERIFY_MODE: ${{ steps.verifymode.outputs.verify }}
         run: |
           mkdir -p .factory
           # --risk-paths 讀目標 repo（target/ 已於前一步 checkout）：事前風險路徑
@@ -398,6 +401,7 @@ jobs:
           # --catalog／--target-root（ADR-018 §4、§5）：agent-write-spec 的使用門檻
           #（H 規則或 quint-spec 標註）與規格來源存在性，只有在這裡拿得到目標 repo
           # 的設定與檔案樹，故在 dispatch 時強制判定；機制 repo 的 issues 事件只做提示。
+          # --summary-out（I1）：機器可讀摘要 { ok, missing }，不含 Issue 內容。
           node dist/cli/factory-issue-check.js \
             "${{ inputs.issue_number }}" \
             --tiers config/dsh/model-tiers.yaml \
@@ -405,8 +409,19 @@ jobs:
             --risk-paths target/.github/factory/risk-paths.yml \
             --catalog target/catalog-info.yaml \
             --target-root target \
+            --summary-out .factory/issue-check-summary.json \
             > .factory/issue-check.txt 2>&1 || true
-          cat .factory/issue-check.txt
+          # ADR-029 §5（I1）：格式卡引用 Issue 條目、風險路徑與複雜度判據。驗證模式
+          # 只印合規 boolean 與缺欄位 **id**（固定列舉值），卡片內容只進加密 bundle。
+          if [ "$VERIFY_MODE" = "true" ]; then
+            if [ -s .factory/issue-check-summary.json ]; then
+              echo "issue format: ok=$(jq -r .ok .factory/issue-check-summary.json) missing=$(jq -r '(.missing // []) | join(",")' .factory/issue-check-summary.json)"
+            else
+              echo "issue format: unavailable（factory-issue-check 未產出摘要）"
+            fi
+          else
+            cat .factory/issue-check.txt
+          fi
           # N-version 時兩個變體都會執行本步，但同一張單的格式卡貼一次就夠
           #（2026-10-13 沙箱實測：同一則逐字相同的卡片連續貼了兩次）。
           # 兩個變體都仍會因不合規而紅燈——留言與否不影響停派判定。
@@ -415,7 +430,7 @@ jobs:
           # 風險路徑與複雜度判據——驗證模式不貼它，只在不合規時貼一行無內容狀態
           # （factory-verify-status：階段＋結果字＋run URL）。合規時不留言。
           if [ "$VARIANT" = "a" ]; then
-            if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
+            if [ "$VERIFY_MODE" = "true" ]; then
               if grep -q '格式不合規' .factory/issue-check.txt; then
                 STATUS_JSON=$(node dist/cli/factory-verify-status.js \
                   --stage "$STAGE" --phase "${{ inputs.verify_phase }}" \
@@ -475,9 +490,32 @@ jobs:
       # runner 暫存、1 小時有效），由 factory-workflow skill 指示 agent 讀取。
       # 同檔也寫 base_branch 與 repo：agent 的 env 被 DSH 剝離，工作目錄
       # 又是目標 repo——這兩個值以檔案傳遞（skill 指示讀取）。
+      #
+      # ADR-029 §5（I3，final whole-branch review）：驗證類 agent 的「不 push、
+      # 不開 PR、不寫發現」先前只是 prompt 約束——它拿到的是與 workflow 相同的
+      # contents/issues/pull-requests **寫入** token。現在驗證模式另外 mint 一個
+      # 唯讀 installation token（contents/issues/metadata read），只有它會寫進
+      # target/.factory/run/gh-token 與 target/.git/config；寫入 token 留在
+      # workflow-only 步驟（留言、終態、crosscheck、push-event）。mint 必須在
+      # guard（verifymode）之後：`if:` 讀的是那一步的 output。
+      - name: Mint read-only agent token (verify mode)
+        id: agent-token
+        if: steps.verifymode.outputs.verify == 'true'
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
+          # 唯讀：agent 需要讀 repo 與 Issue（階段輸入、回報），不需要任何寫入。
+          permission-contents: read
+          permission-issues: read
+          permission-metadata: read
+
       - name: Write agent run env (token / base / repo)
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # 驗證模式：唯讀 agent token；其餘模式：既有寫入 token（行為不變）。
+          GH_TOKEN: ${{ steps.verifymode.outputs.verify == 'true' && steps.agent-token.outputs.token || steps.app-token.outputs.token }}
         run: |
           mkdir -p target/.factory/run
           printf '%s' "$GH_TOKEN" > target/.factory/run/gh-token
@@ -540,7 +578,10 @@ jobs:
       # 診斷：checkout 的 extraheader 可能位於 env 層（GIT_CONFIG_* env vars，
       # 優先級高於 file config，git config --unset-all 清不掉）——故探針以
       # command-line config（-c，優先級最高）強制清空 extraheader 再 push。
+      # ADR-029 §5（I3）：驗證模式跳過整個探針——那裡的 agent 拿的是唯讀 token，
+      # 探針用的寫入 token 根本不該出現在目標 repo 的 git config/remote。
       - name: Verify app token write access (target repo)
+        if: steps.verifymode.outputs.verify != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -748,6 +789,9 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ inputs.repo }}
+          # ADR-029 §5（I1）：驗證模式只印 tier id，不印 model.json——後者含
+          # Issue 文字衍生的 evidence（風險關鍵字、複雜度判據）。
+          VERIFY_MODE: ${{ steps.verifymode.outputs.verify }}
         run: |
           mkdir -p .factory
           gh issue view "${{ inputs.issue_number }}" --json body > .factory/issue.json
@@ -768,8 +812,14 @@ jobs:
             --tier "${{ inputs.model_tier }}" \
             --provider "${{ inputs.model_provider }}" \
             > .factory/model.json
-          cat .factory/model.json
-          echo "model tier selected: $(jq -r .tier .factory/model.json) ($(jq -r .complexitySource .factory/model.json))"
+          # ADR-029 §5（I1）：驗證模式的公開 log 只印 tier id（固定列舉值）；
+          # model.json 的 evidence 由 Issue 文字衍生，只能進加密 bundle。
+          if [ "$VERIFY_MODE" = "true" ]; then
+            echo "model tier selected: $(jq -r .tier .factory/model.json)"
+          else
+            cat .factory/model.json
+            echo "model tier selected: $(jq -r .tier .factory/model.json) ($(jq -r .complexitySource .factory/model.json))"
+          fi
           # 雙模型競賽（N-version matrix）：chain 只含兩個 dual 模型——本變體的在前、
           # 另一變體的在後（provider 層失敗時 fallback 到對方模型；比對卡片會標示坍縮）。
           # **不接回 tier 原本的 fallback 鏈**：那條鏈在 high／critical 是 sonnet／opus，
@@ -1001,6 +1051,50 @@ jobs:
           fi
           gh stack --version
 
+      # ADR-029 §5（I2b，final whole-branch review）：DSH 的技能探索 rank 100 是
+      # 「workspace 的 .dsh/skills」。驗證模式的工作目錄就是目標 repo，目標 repo
+      # 只要放一份 target/.dsh/skills/<name>/SKILL.md，就能蓋掉 $HOME/.dsh/skills
+      # （rank 400）的機制技能——包含停手規則與「不 push／不寫發現」的 SOP。
+      # 因此在 agent 之前把它整棵移到 $RUNNER_TEMP（不還原；agent 之後任何步驟都
+      # 不搬回來）。非驗證模式不執行：那裡 .dsh/skills 是 agent 的合法產出。
+      - name: Neutralize target workspace skills (verify only)
+        if: steps.verifymode.outputs.verify == 'true'
+        run: |
+          set -euo pipefail
+          TARGET_DOT_DSH="$GITHUB_WORKSPACE/target/.dsh"
+          if [ -e "$TARGET_DOT_DSH" ] || [ -L "$TARGET_DOT_DSH" ]; then
+            DEST="${RUNNER_TEMP:?}/target-dsh-${GITHUB_RUN_ID:-run}"
+            rm -rf "$DEST"
+            mv "$TARGET_DOT_DSH" "$DEST"
+            echo "target .dsh moved aside (verify mode): DSH rank-100 workspace skills cannot shadow \$HOME/.dsh/skills"
+          else
+            echo "target .dsh absent (verify mode)"
+          fi
+
+      # ADR-029 §5（I2b 續）：agent 之後不得把 target/.dsh 搬回——否則本步只是
+      # 把問題延後到下一次探索。刻意沒有 restore 步驟。
+
+      # C2／R19（final whole-branch review）：驗證模式的 crosscheck 與 encrypt
+      # 需要「agent 啟動前」的 diff 基準。R2 允許 agent 在本地 commit，而 agent
+      # 就站在 base 分支上——commit 一前進，`git diff <base>` 就變空（合規者假紅、
+      # 越界者白名單被繞過）。此處把 HEAD 寫到 $GITHUB_WORKSPACE/.factory/base-sha：
+      # 在 target/ 之外，agent 的 sandbox root 是 target/，寫不到這份檔案；後續
+      # 步驟以 step output 傳 content（不把 `${{ }}` 內嵌進 run script）。
+      - name: Record immutable diff base (verify only)
+        id: basesha
+        if: steps.verifymode.outputs.verify == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/.factory"
+          SHA=$(git -C "$GITHUB_WORKSPACE/target" rev-parse HEAD)
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::無法取得合法的 base commit SHA（git rev-parse HEAD 回傳「${SHA}」）——驗證模式拒絕以可移動的分支名計算 diff（R19，fail closed）"
+            exit 1
+          fi
+          printf '%s' "$SHA" > "$GITHUB_WORKSPACE/.factory/base-sha"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "immutable diff base recorded (verify mode): ${SHA:0:12}"
+
       - name: Run factory agent
         id: agent
         if: success()
@@ -1008,13 +1102,15 @@ jobs:
         # 且逾時 = process 被砍、agent 來不及寫 report（34735315950 實證）。
         timeout-minutes: ${{ fromJSON(steps.agent-timeout.outputs.step_timeout_minutes) }}
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.verifymode.outputs.verify == 'true' && steps.agent-token.outputs.token || steps.app-token.outputs.token }}
           # 多 provider 金鑰：全部以 env 傳入（DSH 在 sandbox 外讀取），
           # 由 model_provider 選擇使用哪一個；未設定的會 MISSING_CREDENTIAL。
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
           TASK_TYPE: ${{ steps.tasktype.outputs.value }}
+          # 驗證模式（C2／I1／I2）：模板一律機制端、log 只印固定列舉值。
+          VERIFY_MODE: ${{ steps.verifymode.outputs.verify }}
           # git 身分以 env 固定：env 優先於 git config，agent 改寫 user.name/email
           # 也蓋不掉（曾自創 factory-agent，被 GitHub 歸屬到同名陌生帳號）。
           # DSH 只 scrub /KEY|PASSWORD|SECRET|TOKEN/i 與 DSH_*，這四個會傳進 agent。
@@ -1160,23 +1256,30 @@ jobs:
               ATTEMPT=$((ATTEMPT + 1))
               LAST_PROVIDER="$P"
               echo "trying model routing: $P/$MODEL${EFFORT:+ (effort=$EFFORT)} (attempt=$ATTEMPT, remaining=${REMAINING_SEC}s)"
-              # 依 task_type 選模板（優先目標 repo 的模板，fallback 到機制 repo）
-              # 檔名慣例為 task-template-<type>.txt（type 無 agent- 前綴，
-              # docs/09 §3 2.1）；TASK_TYPE 帶 agent- 前綴，故剝除後再拼檔名。
-              TEMPLATE=".github/factory/task-template-${TASK_TYPE#agent-}.txt"
-              [ -f "$TEMPLATE" ] || TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template-${TASK_TYPE#agent-}.txt"
-              if [ ! -f "$TEMPLATE" ]; then
+              # 依 task_type 選模板（I2，final whole-branch review）：驗證模式**一律**
+              # 機制 repo 的 `.github/factory/task-template-verify-*.txt`（目標 repo 的
+              # 覆寫模板不讀——受測者不得決定自己的行為準則）；非驗證模式維持既有偏好
+              # （target 覆寫 → 機制專屬 → 通用）。選擇邏輯集中在 factory-task-template。
+              TEMPLATE_JSON=$(node "$GITHUB_WORKSPACE/dist/cli/factory-task-template.js" \
+                --workspace "$GITHUB_WORKSPACE" --cwd . \
+                --task-type "$TASK_TYPE" --verify "$VERIFY_MODE")
+              TEMPLATE_RC=$?
+              if [ "$TEMPLATE_RC" -ne 0 ]; then
+                echo "::error::無法解析 task template（factory-task-template exit ${TEMPLATE_RC}）——拒絕在模板不明確的情況下啟動 agent"
+                exit 1
+              fi
+              TEMPLATE=$(printf '%s' "$TEMPLATE_JSON" | jq -r .template)
+              if [ "$(printf '%s' "$TEMPLATE_JSON" | jq -r .fallback)" = "true" ]; then
                 # 每種 task_type 應各有專屬模板（factory-assets 對抗性測試釘住）；
                 # 走到這裡表示漂移（缺檔或新增 task_type 未建檔）——fail-loud：
                 # 警告不可靜默，讓維護者看到降級。
                 echo "::warning::No dedicated task-template for task_type=${TASK_TYPE}; falling back to generic task-template.txt"
-                TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template.txt"
               fi
               echo "task template: $TEMPLATE"
               # N-version 變體身分（fubon-tradingbot#713）：兩個變體收到同一份模板，
               # 若 prompt 不說明自己是哪個變體，先交付的變體的 PR 在另一方看來就是
               # 「先前 run 已交付」，後者會依重跑指引丟棄自己的成果。以前置段落注入，
-              # 而不是改模板：目標 repo 的覆寫模板（L815 優先）也必須帶到這段。
+              # 而不是改模板：目標 repo 的覆寫模板（非驗證模式）也必須帶到這段。
               # 分支前綴由 crosscheck --variant 機械驗證（Step 4），此處只是告知。
               VARIANT_ID="${{ matrix.variant }}"
               VARIANT_PREFIX="factory/${{ inputs.issue_number }}-${VARIANT_ID}-"
@@ -1193,14 +1296,14 @@ jobs:
               # ADR-029 §5（Task 1 審查 R2）：驗證類 agent 不建分支、不 push、不開 PR，
               # 產出只進加密 artifact。上面兩段 header 假設 agent 會建 PR，對驗證類是
               # 錯誤指令——必須**整段替換**，不是附加。variant 語意保留（仍說明是哪個
-              # 變體在跑），但不給分支前綴任務；白名單與停手規則以 task template 為準。
-              if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
+              # 變體在跑），但不給分支前綴任務；白名單與停手規則以機制端 template 為準。
+              if [ "$VERIFY_MODE" = "true" ]; then
                 VARIANT_HEADER="【形式化驗證（ADR-029 §5）：你是變體 ${VARIANT_ID}】本工作項是驗證流程的一個階段，產出只留在目標 repo 工作區與加密 artifact，由機制端（aswf.dev）取回；分支與 PR 由機制端處理，不是你。
           - **不得**建立或推送任何分支（包括 \`${VARIANT_PREFIX}\`），**不得**執行 \`git push\`，**不得**以 \`gh pr create\` 開 PR。
           - **不得**把發現寫進 Issue、Issue 留言或任何公開位置（Issue body 只寫範圍與階段）；發現只留在 task template 指定的產出檔與 report.json。
-          - 產出留在工作區；可以 \`git commit\` 到**本地**（不 push），crosscheck 以工作區相對 base 的 diff 比對白名單。
+          - 產出留在工作區；可以 \`git commit\` 到**本地**（不 push），crosscheck 以 agent 啟動前的不可變 base commit 比對白名單。
           - variant 代號 ${VARIANT_ID} 只用於區分平行執行；本模式沒有變體分支，不要建立它。
-          - 寫入白名單與停手規則以 task template 為準；本 header 與模板衝突時，以模板為準。
+          - 寫入白名單與停手規則以**機制端**的 task template 為準；目標 repo 的模板覆寫在本模式不生效，本 header 與模板衝突時，以 header（不建分支／不 push／不開 PR／不寫發現）為準。
           "
               fi
               # 單次嘗試上限：剩餘預算與（首次）總預算的較小值。逾時訊號先 TERM
@@ -1260,8 +1363,15 @@ jobs:
                 --stderr .factory/run/stderr.txt --tier "${TIER:-unknown}" < /dev/null) \
                 || CLASSIFY='{"outcome":"agent-error","fallback":false}'
               STOP_REASON=$(printf '%s' "$CLASSIFY" | jq -r '.outcome')
-              ERROR_LINE=$(printf '%s' "$CLASSIFY" | jq -r '.errorLine // "(stderr 沒有 dsh 錯誤行)"')
-              echo "::warning::provider=${P}/${MODEL} 失敗（${STOP_REASON}）：${ERROR_LINE}"
+              # ADR-029 §5（I1）：ERROR_LINE 取自 DSH stderr——那是目標 repo 的
+              # reasoning／工具輸出，可能含 Issue 或程式碼內容。驗證模式的公開 log
+              # 只印止原因與 attempt 序號；完整錯誤行只留在 stderr.txt（加密 bundle）。
+              if [ "$VERIFY_MODE" = "true" ]; then
+                echo "::warning::provider=${P}/${MODEL} 失敗（${STOP_REASON}），attempt=${ATTEMPT}"
+              else
+                ERROR_LINE=$(printf '%s' "$CLASSIFY" | jq -r '.errorLine // "(stderr 沒有 dsh 錯誤行)"')
+                echo "::warning::provider=${P}/${MODEL} 失敗（${STOP_REASON}）：${ERROR_LINE}"
+              fi
               if [ "$(printf '%s' "$CLASSIFY" | jq -r '.fallback')" = "true" ]; then
                 continue
               fi
@@ -1438,6 +1548,11 @@ jobs:
           STAGE: ${{ steps.tasktype.outputs.value }}
           # 階段輸入步驟是否實際執行（R13）：只有它成功才會有還原清單可扣除。
           VERIFY_INPUT_OUTCOME: ${{ steps.verifyinput.outcome }}
+          # C2／R19：驗證模式的 diff 基準是 agent 之前的不可變 commit。content 由
+          # step output 經 env 傳入（不以 `${{ }}` 內嵌進 run script）；檔案缺失即
+          # fail closed——分支名會隨 agent 的本地 commit 移動。
+          VERIFY_MODE: ${{ steps.verifymode.outputs.verify }}
+          VERIFY_BASE_SHA: ${{ steps.basesha.outputs.sha }}
         run: |
           set +e
           ANALYZE_FLAG=""
@@ -1502,8 +1617,16 @@ jobs:
           VERIFY_FLAG=""
           VARIANT_FLAG=""
           RESTORED_FLAG=""
-          if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
+          BASE_SHA_FLAG=""
+          if [ "$VERIFY_MODE" = "true" ]; then
             VERIFY_FLAG="--verify-only"
+            # C2／R19：沒有 pre-agent base commit 就 fail closed。退回 `--base`
+            # 的分支名會讓 agent 的本地 commit 把 diff 變空（合規假紅、越界假綠）。
+            if [ -z "${VERIFY_BASE_SHA:-}" ] || [ ! -s "$GITHUB_WORKSPACE/.factory/base-sha" ]; then
+              echo "::error::缺 pre-agent base commit（$GITHUB_WORKSPACE/.factory/base-sha）——拒絕以可移動的分支名計算 diff（R19，fail closed）"
+              exit 1
+            fi
+            BASE_SHA_FLAG="--base-sha $VERIFY_BASE_SHA"
             if [ "$VERIFY_INPUT_OUTCOME" = "success" ]; then
               # 還原的階段輸入不是 agent 的交付；交由 crosscheck 從實際 diff 扣除
               # 未動的檔案（存在且 sha256 相符），被改動／刪除則 fail-loud 為
@@ -1511,7 +1634,7 @@ jobs:
               RESTORED_FLAG="--restored-manifest .factory/verify-restored.json"
               echo "驗證模式：crosscheck 扣除階段輸入還原清單（R13）"
             fi
-            echo "驗證模式：crosscheck 以工作區 diff 比對 specs/** 與測試檔白名單（ADR-029 §5）"
+            echo "驗證模式：crosscheck 以 agent 啟動前的不可變 base commit 比對 specs/** 與測試檔白名單（ADR-029 §5、R19）"
           else
             if git -C target ls-remote --heads origin > .factory/ls-remote.txt; then
               awk '{ sub("^refs/heads/", "", $2); print $2 }' .factory/ls-remote.txt > .factory/remote-branches.txt
@@ -1524,11 +1647,10 @@ jobs:
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG $RESTORED_FLAG \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG $BASE_SHA_FLAG $RESTORED_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e
-          VERIFY_MODE="${{ steps.verifymode.outputs.verify }}"
           if [ "$VERIFY_MODE" = "true" ]; then
             # ADR-029 §5：Actions log 是公開的；crosscheck.json 帶 agent 改動的檔案清單，
             # 只進加密 bundle（kind=mechanism 的 crosscheck.json）。log 只印計數。
@@ -1874,10 +1996,18 @@ jobs:
         if: always() && steps.verifymode.outcome == 'success' && steps.verifymode.outputs.verify == 'true' && (steps.agent.outcome == 'success' || steps.agent.outcome == 'failure')
         env:
           VERIFY_AGE_PUBLIC_KEY: ${{ secrets.VERIFY_AGE_PUBLIC_KEY }}
+          # C2／R19：與 crosscheck 相同的不可變 diff 基準（agent 啟動前的 HEAD）。
+          VERIFY_BASE_SHA: ${{ steps.basesha.outputs.sha }}
         run: |
           set -euo pipefail
           if [ -z "${VERIFY_AGE_PUBLIC_KEY:-}" ]; then
             echo "::error::VERIFY_AGE_PUBLIC_KEY 未設定——驗證模式只允許 age 密文 artifact，缺公鑰時停止（fail closed，不回退明文上傳）"
+            exit 1
+          fi
+          # C2／R19：缺 pre-agent base commit 就 fail closed——分支名會被 agent 的
+          # 本地 commit 推進，bundle 會漏掉已 commit 的測試檔（下一階段缺檔）。
+          if [ -z "${VERIFY_BASE_SHA:-}" ] || [ ! -s "$GITHUB_WORKSPACE/.factory/base-sha" ]; then
+            echo "::error::缺 pre-agent base commit（$GITHUB_WORKSPACE/.factory/base-sha）——拒絕以可移動的分支名計算 bundle 範圍（R19，fail closed）"
             exit 1
           fi
           # 檔案清單屬 metadata，仍可能透露測試命名／分析方向；stdout 不進 log。
@@ -1885,7 +2015,8 @@ jobs:
             --target "$GITHUB_WORKSPACE/target" \
             --out "$GITHUB_WORKSPACE/.factory/verify-bundle.age" \
             --recipient "$VERIFY_AGE_PUBLIC_KEY" \
-            --mechanism-dir "$GITHUB_WORKSPACE/.factory" > /dev/null
+            --mechanism-dir "$GITHUB_WORKSPACE/.factory" \
+            --base-sha "$VERIFY_BASE_SHA" > /dev/null
           echo "::notice::驗證模式產出已加密為 .factory/verify-bundle.age（只上傳密文）"
 
       # 診斷：agent 的 stdout/stderr/report 上傳成 artifact（失敗也要，否則無從查）
