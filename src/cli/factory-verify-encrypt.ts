@@ -49,7 +49,11 @@
  * 在 agent 之前把 HEAD 寫進 target 外的 `.factory/base-sha`，本 CLI 以
  * `--base-sha <40-hex>` 使用該 commit；形狀不合或解析不到一律 fail closed。
  * 所有 git 子行程另經 `git-safe`（`GIT_NO_REPLACE_OBJECTS=1`、global／system config
- * 指向 `/dev/null`）：agent 的 `git replace` 不得讓 diff 變空（N1）。
+ * 指向 `/dev/null`、worktree 以絕對路徑釘住、`--no-pager --no-ext-diff --no-textconv
+ * --text` 與 repo-local config 的安全覆寫）：agent 的 `git replace` 不得讓 diff
+ * 變空，repo-local `core.worktree`／`core.fsmonitor`／textconv 也不得改變事實（N1、N4）。
+ * 未追蹤檔刻意用 `--exclude-per-directory=.gitignore` 而非 `--exclude-standard`：
+ * 後者會讀 agent 可寫的 `.git/info/exclude`，一行 `*` 就能讓新測試檔從 bundle 消失。
  *
  * CLI（workflow 呼叫）：
  *   node dist/cli/factory-verify-encrypt.js \
@@ -272,7 +276,12 @@ function changedPaths(targetDir: string, baseSha?: string): Set<string> | null {
   const diff = tryGit(targetDir, ['diff', '--name-only', '--diff-filter=ACMR', '-z', baseRef ?? 'HEAD'])
   if (diff === null) return null
   const paths = new Set<string>(splitNul(diff))
-  for (const path of splitNul(runGit(targetDir, ['ls-files', '--others', '--exclude-standard', '-z']))) {
+  // 不用 `--exclude-standard`：它會讀 agent 可寫的 `.git/info/exclude`（及 global
+  // ignore），`*` 一行就能讓新測試檔從 bundle 消失（N4）。`.gitignore` 是 tracked
+  // 檔、改動本身會出現在 diff，仍照常套用。
+  for (const path of splitNul(
+    runGit(targetDir, ['ls-files', '--others', '--exclude-per-directory=.gitignore', '-z']),
+  )) {
     paths.add(path)
   }
   return paths

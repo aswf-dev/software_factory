@@ -777,3 +777,72 @@ describe('N3：issue-check.txt 不進加密 bundle（決策）', () => {
     expect([...VERIFY_MECHANISM_FILES]).not.toContain('issue-check.txt')
   })
 })
+
+/**
+ * N4（fourth fix wave）：repo-local exclude 不得讓未追蹤的 agent 交付從 bundle 消失。
+ *
+ * `changedPaths` 以 `git ls-files --others` 取未追蹤檔。`--exclude-standard` 會套用
+ * `.git/info/exclude`（agent 可寫）與 global ignore 的預設路徑
+ * （`$XDG_CONFIG_HOME/git/ignore`）：一行 `*` 就讓新測試檔從 bundle 消失，下一階段
+ * 解密後缺檔——這是「密文完整」與「bundle 完整」的差異，沒有第二次訊號。
+ * `specs/**` 走目錄掃描、本來就會進 bundle，所以真正有鑑別力的是白名單測試檔。
+ */
+describe('N4：repo-local exclude 不得讓未追蹤交付從 bundle 消失', () => {
+  it('.git/info/exclude＝*：未追蹤的 specs 與測試檔仍必須進 bundle', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'test/baseline.test.ts', 'old body')
+    commitAll(target, 'base')
+    const preAgent = git(target, 'rev-parse', 'HEAD').trim()
+    writeFixture(target, '.git/info/exclude', '*\n')
+    writeFixture(target, 'specs/quint/model.qnt', 'module Model {}\n')
+    writeFixture(target, 'test/agent-untracked.test.ts', 'expect(1).toBe(1)\n')
+
+    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: preAgent })
+
+    expect(result.files).toEqual(['specs/quint/model.qnt', 'test/agent-untracked.test.ts'])
+    const lines = await decryptBundle(outFile, identity)
+    expect(lines.map((line) => line.path)).toEqual(['specs/quint/model.qnt', 'test/agent-untracked.test.ts'])
+  })
+
+  it('$XDG_CONFIG_HOME/git/ignore＝*：未追蹤測試檔仍必須進 bundle', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'test/baseline.test.ts', 'old body')
+    commitAll(target, 'base')
+    const preAgent = git(target, 'rev-parse', 'HEAD').trim()
+    const xdg = tempDir('factory-verify-hostile-xdg-')
+    writeFixture(xdg, 'git/ignore', '*\n')
+    writeFixture(target, 'test/agent-untracked.test.ts', 'expect(1).toBe(1)\n')
+    const savedXdg = process.env.XDG_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = xdg
+    try {
+      const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: preAgent })
+      expect(result.files).toEqual(['test/agent-untracked.test.ts'])
+    } finally {
+      if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = savedXdg
+    }
+  })
+
+  it('containment：沒有敵意設定的正常 repo，bundle 結果與硬化前一致', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'test/baseline.test.ts', 'old body')
+    commitAll(target, 'base')
+    const preAgent = git(target, 'rev-parse', 'HEAD').trim()
+    writeFixture(target, 'test/agent-untracked.test.ts', 'expect(1).toBe(1)\n')
+
+    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: preAgent })
+
+    expect(result.files).toEqual(['test/agent-untracked.test.ts'])
+    const lines = await decryptBundle(outFile, identity)
+    expect(lines.map((line) => line.path)).toEqual(['test/agent-untracked.test.ts'])
+    expect(lines.map((line) => Buffer.from(line.b64, 'base64').toString('utf8'))).toEqual([
+      'expect(1).toBe(1)\n',
+    ])
+  })
+})

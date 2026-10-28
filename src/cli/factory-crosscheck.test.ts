@@ -6,7 +6,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -1527,7 +1527,7 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       shortStat?: string
       unifiedDiff?: string
       status?: string
-      /** `git ls-files --others --exclude-standard -- <dir>`：目錄項的後備展開。 */
+      /** `git ls-files --others --exclude-per-directory=.gitignore …`：未追蹤檔清單。 */
       otherFiles?: string
     },
     calls: string[][] = [],
@@ -1718,7 +1718,13 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
         ),
         { base: 'main', target: 'target' },
       )
-      expect(calls).toContainEqual(['ls-files', '--others', '--exclude-standard', '--', 'specs/newdir'])
+      expect(calls).toContainEqual([
+        'ls-files',
+        '--others',
+        '--exclude-per-directory=.gitignore',
+        '--',
+        'specs/newdir',
+      ])
       expect(actual.paths).toEqual(['specs/newdir/a.qnt', 'specs/newdir/b.qnt'])
     })
 
@@ -2513,5 +2519,218 @@ describe('N1：git replace refs 不得改寫 --base-sha 的事實', () => {
       if (savedHome === undefined) delete process.env.HOME
       else process.env.HOME = savedHome
     }
+  })
+})
+
+/**
+ * N4（fourth fix wave）：repo-local 的 git 檔案面不得改變驗證事實。
+ *
+ * N1 只關掉 global／system config、pager 與 external diff。agent 在 target/ 內有
+ * shell，因此還能寫 `.git/config`、`.git/info/attributes`、`.git/info/exclude` 與
+ * 工作區 `.gitattributes`，而 crosscheck 在 agent **之後**才跑（它的步驟握有 WRITE
+ * App token）：任何一個 repo-local 設定只要能在事實收集時執行程式碼，就等於把 token
+ * 交給 agent。五個實證攻擊（各自一個測試）：
+ *
+ *   1. `diff.<driver>.textconv`＋`.git/info/attributes` → `git diff --unified=0` 執行
+ *      agent 的 script（`--no-ext-diff` 擋不到 textconv）。
+ *   2. `core.fsmonitor` → `git status` 執行 agent 的 script。
+ *   3. `core.worktree=/tmp/fake` → diff 比對假的樹，真實越界變更消失（白名單被繞過）。
+ *   4. `.git/info/exclude`（或 global ignore）＝`*` → 未追蹤交付從 status／ls-files 消失。
+ *   5. `.gitattributes` 的 `* -diff` → diff 說「Binary files differ」，
+ *      assertion 淨減被算成 0（`assertion-delta-understated` 被繞過）。
+ *
+ * 最後一個測試是 containment：沒有敵意設定的正常 repo，事實輸出必須與硬化前相同。
+ */
+describe('N4：repo-local git config／attributes／exclude 不得改變驗證事實', () => {
+  const repos: string[] = []
+  let reportPath: string
+
+  const gitIn = (repo: string, ...args: string[]): string =>
+    execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  const commit = (repo: string, message: string): void => {
+    gitIn(repo, 'add', '-A')
+    gitIn(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', message)
+  }
+  const write = (root: string, rel: string, content: string): void => {
+    const abs = join(root, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, content)
+  }
+  const newRepo = (): string => {
+    const repo = mkdtempSync(join(tmpdir(), 'crosscheck-repo-config-'))
+    repos.push(repo)
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    write(repo, 'README.md', '# fixture\n')
+    commit(repo, 'base')
+    return repo
+  }
+  const head = (repo: string): string => gitIn(repo, 'rev-parse', 'HEAD').trim()
+  const report = (partial: Record<string, unknown>): string => {
+    writeFileSync(reportPath, makeReport({ requirements: undefined, ...partial }))
+    return reportPath
+  }
+  /** 敵意 script：先寫 marker（證明它真的被執行），再跑 body。 */
+  const hostileScript = (name: string, body: string): { path: string; marker: string } => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-hostile-script-'))
+    repos.push(dir)
+    const path = join(dir, `${name}.sh`)
+    const marker = join(dir, `${name}.marker`)
+    writeFileSync(path, `#!/bin/sh\nprintf ran > '${marker}'\n${body}\n`)
+    chmodSync(path, 0o755)
+    return { path, marker }
+  }
+  const verifyArgs = (
+    repo: string,
+    baseSha: string,
+    changedPaths: string[],
+    changedLines: number,
+    extra: Record<string, unknown> = {},
+  ): string[] => [
+    '12',
+    report({ changedPaths, changedLines, ...extra }),
+    '--target',
+    repo,
+    // 分支名刻意不存在：--base-sha 存在時必須忽略它（R19）
+    '--base',
+    'does-not-exist',
+    '--verify-only',
+    '--base-sha',
+    baseSha,
+  ]
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-repo-config-report-'))
+    repos.push(dir)
+    reportPath = join(dir, 'report.json')
+  })
+  afterAll(() => {
+    for (const repo of repos.splice(0)) rmSync(repo, { recursive: true, force: true })
+  })
+
+  it('diff.<driver>.textconv＋.git/info/attributes：agent 的 script 不得被 diff 執行', () => {
+    const repo = newRepo()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    commit(repo, 'base model')
+    const preAgent = head(repo)
+    const evil = hostileScript('textconv', "printf 'converted\\n'")
+    write(repo, '.git/info/attributes', 'specs/quint/model.qnt diff=evil\n')
+    gitIn(repo, 'config', 'diff.evil.textconv', evil.path)
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n// agent tweak\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['specs/quint/model.qnt'], 1))
+
+    // 攻擊成立時 marker 會被建立：script 在 crosscheck 的 diff 期間執行過（可讀 GH_TOKEN）。
+    expect(existsSync(evil.marker)).toBe(false)
+    expect(out.actual.paths).toContain('specs/quint/model.qnt')
+  })
+
+  it('core.fsmonitor：agent 的 script 不得被 git status 執行', () => {
+    const repo = newRepo()
+    const preAgent = head(repo)
+    const evil = hostileScript('fsmonitor', 'exit 0')
+    gitIn(repo, 'config', 'core.fsmonitor', evil.path)
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['specs/quint/model.qnt'], 1))
+
+    expect(existsSync(evil.marker)).toBe(false)
+    expect(out.actual.paths).toContain('specs/quint/model.qnt')
+  })
+
+  it('core.worktree=/tmp/fake：diff 不得改看假工作樹而藏住 src/app.ts', () => {
+    const repo = newRepo()
+    write(repo, 'src/app.ts', 'export const answer = 1\n')
+    commit(repo, 'base app')
+    const preAgent = head(repo)
+    // 假工作樹保有 base 版的 src/app.ts：core.worktree 生效時 diff 會是空的。
+    const fake = mkdtempSync(join(tmpdir(), 'crosscheck-fake-worktree-'))
+    repos.push(fake)
+    write(fake, 'src/app.ts', 'export const answer = 1\n')
+    gitIn(repo, 'config', 'core.worktree', fake)
+    write(repo, 'src/app.ts', 'export const answer = 2\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['src/app.ts'], 1))
+
+    expect(out.actual.paths).toContain('src/app.ts')
+    expect(out.mismatches.map((m) => m.kind)).toContain('verify-scope')
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+  })
+
+  it('.git/info/exclude＝*：未追蹤的 specs/quint/model.qnt 仍必須現形', () => {
+    const repo = newRepo()
+    const preAgent = head(repo)
+    write(repo, '.git/info/exclude', '*\n')
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['specs/quint/model.qnt'], 1))
+
+    expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('$XDG_CONFIG_HOME/git/ignore（global ignore 預設路徑）＝*：未追蹤交付仍必須現形', () => {
+    const repo = newRepo()
+    const preAgent = head(repo)
+    const xdg = mkdtempSync(join(tmpdir(), 'crosscheck-hostile-xdg-'))
+    repos.push(xdg)
+    write(xdg, 'git/ignore', '*\n')
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    const savedXdg = process.env.XDG_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = xdg
+    try {
+      const out = main(verifyArgs(repo, preAgent, ['specs/quint/model.qnt'], 1))
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.mismatches).toEqual([])
+    } finally {
+      if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = savedXdg
+    }
+  })
+
+  it('.gitattributes 的 `* -diff`：assertion 淨減仍必須被實算（不得變成 Binary files）', () => {
+    const repo = newRepo()
+    write(repo, 'test/x.test.ts', 'expect(1).toBe(1)\nexpect(2).toBe(2)\nexpect(3).toBe(3)\n')
+    write(repo, '.gitattributes', '* -diff\n')
+    commit(repo, 'base with -diff attributes')
+    const preAgent = head(repo)
+    write(repo, 'test/x.test.ts', 'expect(1).toBe(1)\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['test/x.test.ts'], 2, { assertionDelta: 0 }))
+
+    // 真實 delta 是 -2（3 條斷言 → 1 條）；0 是「Binary files differ」的假象。
+    expect(out.actual.assertionDelta).toBeLessThan(0)
+    expect(out.mismatches.map((m) => m.kind)).toContain('assertion-delta-understated')
+  })
+
+  it('containment：沒有敵意設定的正常 repo，事實輸出與硬化前相同', () => {
+    const repo = newRepo()
+    const preAgent = head(repo)
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'test/agent.test.ts', 'expect(1).toBe(1)\nexpect(2).toBe(2)\n')
+    commit(repo, 'agent commit')
+    write(repo, 'specs/quint/untracked.qnt', 'module Untracked {}\n')
+
+    const out = main(
+      verifyArgs(
+        repo,
+        preAgent,
+        ['specs/quint/model.qnt', 'specs/quint/untracked.qnt', 'test/agent.test.ts'],
+        3,
+      ),
+    )
+
+    expect(out.actual.paths.sort()).toEqual([
+      'specs/quint/model.qnt',
+      'specs/quint/untracked.qnt',
+      'test/agent.test.ts',
+    ])
+    expect(out.actual.added).toBe(3)
+    expect(out.actual.deleted).toBe(0)
+    expect(out.actual.assertionDelta).toBe(2)
+    expect(out.actual.uncommitted).toEqual(['specs/quint/untracked.qnt'])
+    expect(out.actual.branches).toEqual([])
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
   })
 })

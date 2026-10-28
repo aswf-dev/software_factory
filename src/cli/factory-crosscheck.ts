@@ -34,8 +34,12 @@
  * `.factory/base-sha`，本 CLI 以 `--base-sha <40-hex>` 使用該 commit 並**忽略
  * 分支名**；形狀不合或解析不到 commit 一律 fail-loud，不默默退回分支名。
  * 所有 git 子行程另經 `git-safe` 執行（`GIT_NO_REPLACE_OBJECTS=1`、global／system
- * config 指向 `/dev/null`、`--no-pager --no-ext-diff`）：agent 以 `git replace`
- * 或惡意 config 偽造 diff 一律無效（N1）。
+ * config 指向 `/dev/null`、worktree 以絕對路徑釘住、`--no-pager --no-ext-diff
+ * --no-textconv --text`、`core.fsmonitor=false`、excludes／attributes 指向
+ * `/dev/null`）：agent 以 `git replace`、repo-local config（textconv、fsmonitor、
+ * 假 worktree）或 `.git/info/exclude`／`-diff` 屬性偽造 diff、`git status` 一律
+ * 無效（N1、N4）。`git status` 仍會套用 `.git/info/exclude`，未追蹤交付另由
+ * `collectUntrackedIgnoringInfoExclude` 補上（見 collectVerifyDiff）。
  *
  * 有意不做的檢查：changedLines 的數值精確比對（agent 的計數口徑可能不同，
  * 會誤傷）；PR 是否真的推送（需網路，且 factory-rescore 已在 PR 層獨立重計分）。
@@ -805,8 +809,9 @@ function unquoteGitPath(raw: string): string {
  *
  * `--untracked-files=all` 讓 git 把新目錄逐檔列出（預設收成單一 `?? specs/`）；
  * 但巢狀 git repo 等情況仍可能只給目錄項。此時以
- * `git ls-files --others --exclude-standard -- <dir>` 展開；展開仍為空就保留
- * 目錄項，不靜默丟掉一棵真實存在的未追蹤樹。
+ * `git ls-files --others --exclude-per-directory=.gitignore -- <dir>` 展開；展開仍為空
+ * 就保留目錄項，不靜默丟掉一棵真實存在的未追蹤樹。
+ * 刻意不用 `--exclude-standard`：那會套用 agent 可寫的 `.git/info/exclude`（N4）。
  */
 function collectUntrackedPaths(git: GitRunner, statusOutput: string, target: string): string[] {
   const out: string[] = []
@@ -817,7 +822,7 @@ function collectUntrackedPaths(git: GitRunner, statusOutput: string, target: str
     }
     const dir = p.replace(/\/+$/, '')
     const listed = parseDiffNameOnly(
-      git(['ls-files', '--others', '--exclude-standard', '--', dir], target),
+      git(['ls-files', '--others', '--exclude-per-directory=.gitignore', '--', dir], target),
     )
       .map(unquoteGitPath)
       .map(normalizePath)
@@ -825,6 +830,25 @@ function collectUntrackedPaths(git: GitRunner, statusOutput: string, target: str
     else out.push(...listed)
   }
   return out
+}
+
+/**
+ * 未追蹤檔的權威清單（**不讀** `.git/info/exclude`／global ignore）。
+ *
+ * `git status --untracked-files=all` 與 `git ls-files --others --exclude-standard`
+ * 都套用 `.git/info/exclude`——那是 agent 可寫的檔案面（`target/.git/info/exclude`），
+ * 一行 `*` 就能讓整批新產出從事實清單消失；global ignore 的預設路徑
+ * （`$XDG_CONFIG_HOME/git/ignore`）同理。
+ * `--exclude-per-directory=.gitignore` 只讀版本庫自己的 `.gitignore`（tracked 檔，
+ * 改動本身就會出現在 diff 裡），保留正常 ignore 語意、關掉這個繞道。
+ */
+function collectUntrackedIgnoringInfoExclude(git: GitRunner, target: string): string[] {
+  return parseDiffNameOnly(
+    git(['ls-files', '--others', '--exclude-per-directory=.gitignore'], target),
+  )
+    .map(unquoteGitPath)
+    .map(normalizePath)
+    .filter((p) => p.length > 0)
 }
 
 /**
@@ -858,6 +882,11 @@ export function collectVerifyDiff(
     // 已提交／已暫存的檔案也會出現在 status（`A `），但只有 `??` 會被
     // parseUntrackedPaths 取用；diff 與 untracked 理論上不重疊，仍去重避免
     // 同一路徑在 report 比對與白名單檢查中出現兩次。
+    if (!paths.includes(p)) paths.push(p)
+  }
+  // status 會套用 `.git/info/exclude`（agent 可寫）：未追蹤交付可能整批被藏住。
+  // 這條清單不讀它，補回 status 看不到的檔案（N4）。
+  for (const p of collectUntrackedIgnoringInfoExclude(git, target)) {
     if (!paths.includes(p)) paths.push(p)
   }
   return {
