@@ -33,11 +33,13 @@
  * （白名單被繞過）。workflow 在 agent 之前把 HEAD 寫進 target 外的
  * `.factory/base-sha`，本 CLI 以 `--base-sha <40-hex>` 使用該 commit 並**忽略
  * 分支名**；形狀不合或解析不到 commit 一律 fail-loud，不默默退回分支名。
+ * 所有 git 子行程另經 `git-safe` 執行（`GIT_NO_REPLACE_OBJECTS=1`、global／system
+ * config 指向 `/dev/null`、`--no-pager --no-ext-diff`）：agent 以 `git replace`
+ * 或惡意 config 偽造 diff 一律無效（N1）。
  *
  * 有意不做的檢查：changedLines 的數值精確比對（agent 的計數口徑可能不同，
  * 會誤傷）；PR 是否真的推送（需網路，且 factory-rescore 已在 PR 層獨立重計分）。
  */
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -56,6 +58,7 @@ import {
 } from '../write-spec/scope.js'
 import { checkPbtAuditScope, checkPbtOutsideAudit } from '../pbt-audit/scope.js'
 import { isLakeBuildArtifact } from './factory-verify-encrypt.js'
+import { execGit } from './git-safe.js'
 import { ReportSchema } from './factory-judge.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, formatCliError } from './run-cli.js'
@@ -339,11 +342,12 @@ export interface CrosscheckOutput {
 /** git 命令注入點（測試以 fake 取代）；cwd 為目標 repo checkout。 */
 export type GitRunner = (args: string[], cwd?: string) => string
 
-/* v8 ignore start -- 真實 git 二進位的薄包裝：單元測試一律注入 fake runner */
-export const realGit: GitRunner = (args, cwd) => {
-  return execFileSync('git', args, { encoding: 'utf8', cwd })
-}
-/* v8 ignore stop */
+/**
+ * 真實 git 的薄包裝：所有子行程都經 `git-safe`（N1：關閉 replace refs、
+ * 隔離 global/system config）。測試以 fake runner 取代；真實 git 的
+ * replace／惡意 config 行為由 `factory-crosscheck.test.ts` 的 N1 測試涵蓋。
+ */
+export const realGit: GitRunner = (args, cwd) => execGit(args, { cwd })
 
 /** 把 `git for-each-ref --format=%(refname:short)` 的輸出切成分支名清單。 */
 export function parseForEachRefOutput(output: string): string[] {

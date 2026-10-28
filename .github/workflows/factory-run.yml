@@ -212,6 +212,10 @@ jobs:
           ref: ${{ inputs.base_branch }}
           path: target
           token: ${{ steps.app-token.outputs.token }}
+          # N2：write App token 不得經 checkout 的 credentials 檔留在
+          # $RUNNER_TEMP（agent sandbox 可讀）。push 認證改由下面
+          # 「Configure agent git auth」以 gh-token 設定 remote URL。
+          persist-credentials: false
 
       # Quint evaluator 與 Apalache 快取（~/.quint）——write-spec 的集中驗證（ADR-018 §7）
       # 會用到；並行 run 直接下載會撞 GitHub rate limit（#234），做法同 quint-verify.yml。
@@ -391,7 +395,8 @@ jobs:
           # task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換（review M4）
           STAGE: ${{ steps.tasktype.outputs.value }}
           # ADR-029 §5（I1）：驗證模式的公開 log 只能印合規 boolean 與缺欄位名；
-          # 完整格式卡留在 .factory/issue-check.txt（只進加密 bundle）。
+          # 完整格式卡留在 runner 上的 .factory/issue-check.txt（N3：不進 artifact，
+          # 也不在加密 bundle 的機制檔清單內；bundle 維持最小）。
           VERIFY_MODE: ${{ steps.verifymode.outputs.verify }}
         run: |
           mkdir -p .factory
@@ -412,7 +417,8 @@ jobs:
             --summary-out .factory/issue-check-summary.json \
             > .factory/issue-check.txt 2>&1 || true
           # ADR-029 §5（I1）：格式卡引用 Issue 條目、風險路徑與複雜度判據。驗證模式
-          # 只印合規 boolean 與缺欄位 **id**（固定列舉值），卡片內容只進加密 bundle。
+          # 只印合規 boolean 與缺欄位 **id**（固定列舉值）；卡片留在 runner 上的
+          # .factory/issue-check.txt（不進 artifact／bundle，N3）。
           if [ "$VERIFY_MODE" = "true" ]; then
             if [ -s .factory/issue-check-summary.json ]; then
               echo "issue format: ok=$(jq -r .ok .factory/issue-check-summary.json) missing=$(jq -r '(.missing // []) | join(",")' .factory/issue-check-summary.json)"
@@ -538,11 +544,25 @@ jobs:
           grep -qxF '.factory/' .git/info/exclude || printf '\n.factory/\n' >> .git/info/exclude
           echo "target .git/info/exclude ignores .factory/"
 
+      # N2（third fix wave）：checkout 的憑證檔不得留給 agent。
+      # actions/checkout 預設 persist-credentials: true，把 token 寫進
+      # $RUNNER_TEMP/git-credentials-*.config，再以 includeIf 引入；下面的 auth
+      # 步驟只清 includeIf 與改 remote URL，檔案本身仍留在 agent sandbox 可讀的
+      # $RUNNER_TEMP。target checkout 已關閉 persist-credentials；這裡再清一次
+      # 所有 checkout 的憑證檔（機制 repo 的 GITHUB_TOKEN 也在同一目錄），對
+      # **所有任務類型**都執行。清理後才由下一步設定 remote URL，非驗證模式的
+      # push 仍以 gh-token 認證。
+      - name: Remove checkout credential files
+        run: |
+          rm -f "${RUNNER_TEMP:?}"/git-credentials-*
+          echo "checkout credential files removed from RUNNER_TEMP"
+
       # git push 的認證（在 target/ 目標 repo checkout 內）：checkout action 把
       # `http.https://github.com/.extraheader`（AUTHORIZATION: basic GITHUB_TOKEN）
       # 寫在**獨立 credentials 檔**，經 `includeIf.gitdir:<path>/.git.path` 引入——
       # git config --unset-all 只清直接項目、清不掉 includeIf 引入的檔。故必須移除
       # includeIf 項目，再以 URL 內嵌 App token 認證（本機實測：App token 可 push）。
+      # N2：remote URL 設定在憑證檔清理**之後**，非驗證 push 不依賴 checkout 憑證。
       - name: Configure agent git auth (target repo)
         run: |
           cd target

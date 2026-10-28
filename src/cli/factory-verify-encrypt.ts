@@ -48,6 +48,8 @@
  * 可以本地 commit，`origin/<base>` 在驗證模式的 checkout 也不一定存在。workflow
  * 在 agent 之前把 HEAD 寫進 target 外的 `.factory/base-sha`，本 CLI 以
  * `--base-sha <40-hex>` 使用該 commit；形狀不合或解析不到一律 fail closed。
+ * 所有 git 子行程另經 `git-safe`（`GIT_NO_REPLACE_OBJECTS=1`、global／system config
+ * 指向 `/dev/null`）：agent 的 `git replace` 不得讓 diff 變空（N1）。
  *
  * CLI（workflow 呼叫）：
  *   node dist/cli/factory-verify-encrypt.js \
@@ -55,12 +57,12 @@
  *     --recipient "$VERIFY_AGE_PUBLIC_KEY" --mechanism-dir .factory \
  *     --base-sha "$VERIFY_BASE_SHA"
  */
-import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import type { Stats } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { Encrypter } from 'age-encryption'
 import { isVerifyAllowedPath } from '../pipeline/verify-scope.js'
+import { execGit } from './git-safe.js'
 import { isMainModule } from './is-main-module.js'
 import { CliError, runCliAsync } from './run-cli.js'
 
@@ -172,8 +174,10 @@ function collectAllBundlePaths(root: string): string[] {
 }
 
 function runGit(targetDir: string, args: string[]): string {
-  return execFileSync('git', ['-C', targetDir, ...args], {
-    encoding: 'utf8',
+  // 所有 git 子行程都經 git-safe（N1）：agent 的 `git replace` 不得把 base 換成
+  // 別的樹（bundle 會漏掉已 commit 的測試檔），global config 也不得注入 external diff。
+  return execGit(args, {
+    cwd: targetDir,
     stdio: ['ignore', 'pipe', 'ignore'],
   })
 }

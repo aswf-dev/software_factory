@@ -2372,3 +2372,146 @@ describe('驗證模式的不可變 diff 基準（--base-sha，R19／C2）', () =
     ).toThrow(/base-sha/)
   })
 })
+
+/**
+ * N1（third fix wave）：`--base-sha` 不得被 `git replace` 改寫。
+ *
+ * `git diff` 預設會套用 `refs/replace/*`：agent 在 target/ 內執行
+ * `git replace <base-sha> <fake-commit>` 之後，crosscheck 看到的是「fake 基準 vs
+ * HEAD」的 diff——真正的越界變更（例如 src/app.ts）可以整批消失，白名單形同被繞過。
+ * 修法：兩個 CLI 的**所有** git 子行程都經同一個 helper，helper 強制
+ * `GIT_NO_REPLACE_OBJECTS=1`（並以 /dev/null 隔離 global／system config）。
+ */
+describe('N1：git replace refs 不得改寫 --base-sha 的事實', () => {
+  const repos: string[] = []
+  let reportPath: string
+
+  const gitIn = (repo: string, ...args: string[]): string =>
+    execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  const commit = (repo: string, message: string): void => {
+    gitIn(repo, 'add', '-A')
+    gitIn(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', message)
+  }
+  const write = (repo: string, rel: string, content: string): void => {
+    const abs = join(repo, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, content)
+  }
+  const newRepo = (): string => {
+    const repo = mkdtempSync(join(tmpdir(), 'crosscheck-replace-'))
+    repos.push(repo)
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    write(repo, 'README.md', '# fixture\n')
+    commit(repo, 'base')
+    return repo
+  }
+  const report = (partial: Record<string, unknown>): string => {
+    writeFileSync(reportPath, makeReport({ requirements: undefined, ...partial }))
+    return reportPath
+  }
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-replace-report-'))
+    repos.push(dir)
+    reportPath = join(dir, 'report.json')
+  })
+  afterAll(() => {
+    for (const repo of repos.splice(0)) rmSync(repo, { recursive: true, force: true })
+  })
+
+  it('fake base tree（含 src/app.ts、缺 agent 測試檔）→ 真實變更仍現形，src 越界照樣被擋', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'src/app.ts', 'export const answer = 42\n')
+    write(repo, 'test/agent.test.ts', 'it("agent", () => {})\n')
+    commit(repo, 'agent changes')
+    // fake base = 真實 HEAD 的樹再拿掉 agent 的測試檔。套用 replace 後，diff 只剩
+    // 測試檔——src/app.ts 看起來「本來就有」，正是繞過白名單的攻擊。
+    gitIn(repo, 'checkout', '-q', '-b', 'fake-base', 'HEAD')
+    rmSync(join(repo, 'test/agent.test.ts'))
+    commit(repo, 'fake base tree')
+    const fake = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    gitIn(repo, 'checkout', '-q', 'main')
+    gitIn(repo, 'replace', preAgent, fake)
+
+    const out = main([
+      '12',
+      report({
+        changedPaths: ['specs/quint/model.qnt', 'src/app.ts', 'test/agent.test.ts'],
+        changedLines: 3,
+      }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+
+    expect(out.actual.paths.sort()).toEqual(['specs/quint/model.qnt', 'src/app.ts', 'test/agent.test.ts'])
+    expect(out.mismatches.map((m) => m.kind)).toContain('verify-scope')
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+  })
+
+  it('git replace <base> HEAD → diff 不得變空（否則已 commit 的合規交付被判 no-trace）', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'test/agent.test.ts', 'it("agent", () => {})\n')
+    commit(repo, 'agent commit on base branch')
+    gitIn(repo, 'replace', preAgent, 'HEAD')
+
+    const out = main([
+      '12',
+      report({ changedPaths: ['specs/quint/model.qnt', 'test/agent.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+
+    expect(out.actual.paths.sort()).toEqual(['specs/quint/model.qnt', 'test/agent.test.ts'])
+    expect(out.mismatches.map((m) => m.kind)).not.toContain('no-trace')
+  })
+
+  it('global core.pager／diff.external 不得改變輸出（temp HOME）', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'test/agent.test.ts', 'it("agent", () => {})\nexpect(1).toBe(1)\n')
+    commit(repo, 'agent test')
+    const argv = [
+      '12',
+      report({ changedPaths: ['test/agent.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ]
+    const clean = main(argv)
+
+    const home = mkdtempSync(join(tmpdir(), 'crosscheck-hostile-home-'))
+    repos.push(home)
+    writeFileSync(
+      join(home, '.gitconfig'),
+      '[core]\n\tpager = /bin/false\n[diff]\n\texternal = /bin/false\n',
+    )
+    const savedHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      const hostile = main(argv)
+      expect(hostile.actual).toEqual(clean.actual)
+      expect(hostile).toEqual(clean)
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME
+      else process.env.HOME = savedHome
+    }
+  })
+})

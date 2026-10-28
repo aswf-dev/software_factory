@@ -709,3 +709,71 @@ describe('encryptVerifyBundle：不可變 diff 基準 --base-sha（R19／C2）',
     ).toThrow(/base-sha/)
   })
 })
+
+/**
+ * N1（third fix wave）：`git replace` 不得讓 bundle 漏掉 agent 的真實交付。
+ *
+ * 驗證 agent 在 target/ 內執行 `git replace <base> HEAD` 之後，`git diff <base>`
+ * 會變空——bundle 只剩 run／specs 目錄，已 commit 的測試檔全部消失。修法：所有
+ * git 子行程經同一個 helper，強制 `GIT_NO_REPLACE_OBJECTS=1`。
+ */
+describe('N1：git replace refs 不得讓 bundle 漏掉真實交付', () => {
+  it('git replace <base> HEAD → bundle 仍包含真實 commit 的測試檔（不得變空）', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'test/baseline.test.ts', 'old body')
+    commitAll(target, 'base')
+    const preAgent = git(target, 'rev-parse', 'HEAD').trim()
+    writeFixture(target, 'test/committed.test.ts', 'new body')
+    commitAll(target, 'agent commit on base branch')
+    git(target, 'replace', preAgent, 'HEAD')
+
+    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: preAgent })
+
+    expect(result.files).toEqual(['test/committed.test.ts'])
+    const lines = await decryptBundle(outFile, identity)
+    expect(lines.map((line) => line.path)).toEqual(['test/committed.test.ts'])
+  })
+
+  it('global core.pager／diff.external 不得改變 bundle 內容（temp HOME）', async () => {
+    const target = makeTarget()
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    git(target, 'init', '-q', '-b', 'main')
+    writeFixture(target, 'test/baseline.test.ts', 'old body')
+    commitAll(target, 'base')
+    const preAgent = git(target, 'rev-parse', 'HEAD').trim()
+    writeFixture(target, 'test/committed.test.ts', 'new body')
+    commitAll(target, 'agent commit on base branch')
+
+    const clean = await encryptVerifyBundle({
+      targetDir: target,
+      outFile: join(tempDir('factory-verify-out-'), 'clean.age'),
+      recipient,
+      baseSha: preAgent,
+    })
+
+    const home = tempDir('factory-verify-hostile-home-')
+    writeFileSync(join(home, '.gitconfig'), '[core]\n\tpager = /bin/false\n[diff]\n\texternal = /bin/false\n')
+    const savedHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      const hostile = await encryptVerifyBundle({ targetDir: target, outFile, recipient, baseSha: preAgent })
+      expect(hostile.files).toEqual(clean.files)
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME
+      else process.env.HOME = savedHome
+    }
+  })
+})
+
+/**
+ * N3（third fix wave）：`.factory/issue-check.txt` 是 Issue 衍生的格式卡，只留在
+ * runner 上——不進明文 artifact，也不進加密 bundle。決策是**維持 bundle 最小**
+ * （不改 `VERIFY_MECHANISM_FILES`），workflow 與本報告的敘述以此為準。
+ */
+describe('N3：issue-check.txt 不進加密 bundle（決策）', () => {
+  it('VERIFY_MECHANISM_FILES 不含 issue-check.txt', () => {
+    expect([...VERIFY_MECHANISM_FILES]).not.toContain('issue-check.txt')
+  })
+})
