@@ -11,7 +11,10 @@
  *   （使用者 specs 的編譯產物不得跨 run／跨 repo 共享）。restore 在安裝前、save 在
  *   安裝與版本檢查後、**agent 之前**——agent 跑完後的 `~/.elan` 不寫回快取（I1/R8）；
  * - 目標 repo 的 `specs/lean/lean-toolchain` 若存在必須釘在同一版本（M3）；
- * - Quint 快取在驗證模式不得於 agent 之後存檔（M1）。
+ * - Quint 快取在驗證模式不得於 agent 之後存檔（M1）；
+ * - 兩個 `actions/cache/save` 都是 best-effort（I6）：條件以 `success()` 開頭、
+ *   `continue-on-error: true`，Lean 另要求安裝步驟成功且 `~/.elan/bin/lean` 存在——
+ *   安裝失敗或只裝了一半不得存檔，存檔失敗也不得讓 run 變紅。
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -32,6 +35,7 @@ interface Step {
   run?: string
   uses?: string
   env?: Record<string, string>
+  'continue-on-error'?: boolean
   with?: { path?: string; key?: string; 'restore-keys'?: string }
 }
 
@@ -54,9 +58,42 @@ const pathsOf = (s: Step): string[] =>
 
 const RESTORE = 'Restore Lean toolchain cache (elan)'
 const INSTALL = 'Install Lean toolchain (elan)'
+const INSTALL_ID = 'leaninstall'
+const CHECK = 'Check Lean toolchain complete (verify only)'
 const SAVE = 'Save Lean toolchain cache (elan)'
 const PIN = 'Check target lean-toolchain pin'
 const LEAN_KEY = 'lean-elan-${{ runner.os }}-leanprover/lean4:v4.35.0'
+
+/** 以最小求值器解讀 step 的 `if:`（只支援本 workflow 用到的形狀），證明失敗時真的不存檔。 */
+interface EvalContext {
+  success: boolean
+  steps: Record<string, Record<string, string>>
+}
+
+function evalCondition(expr: string, ctx: EvalContext): boolean {
+  return expr.split(' && ').every((atom) => {
+    const text = atom.trim()
+    if (text === 'success()') return ctx.success
+    const m = text.match(/^steps\.([\w-]+)\.(outputs\.[\w-]+|outcome) (==|!=) '(.*)'$/)
+    if (m === null) throw new Error(`unsupported condition atom: ${text}`)
+    const id = m[1] as string
+    const field = m[2] as string
+    const expected = m[4] as string
+    return m[3] === '==' ? ctx.steps[id]?.[field] === expected : ctx.steps[id]?.[field] !== expected
+  })
+}
+
+/** 一個「全部成功、cache miss」的 Lean save 情境；個別測試再覆寫成失敗。 */
+const leanSaveContext = (): EvalContext => ({
+  success: true,
+  steps: {
+    verifymode: { 'outputs.verify': 'true' },
+    tasktype: { 'outputs.value': 'agent-verify-lean' },
+    leancache: { 'outputs.cache-hit': 'false' },
+    leaninstall: { outcome: 'success' },
+    leancheck: { outcome: 'success' },
+  },
+})
 
 /** 既有 actions/cache 的 major（test.yml／quint-verify.yml 仍用合併版 actions/cache）。 */
 const cacheMajor = (): string => {
@@ -92,32 +129,43 @@ const stub = (path: string, body: string) => {
 }
 
 describe('Lean 工具鏈步驟：只在驗證模式的 agent-verify-lean', () => {
-  it('restore／install／pin check 以 verify ∧ agent-verify-lean 閘控；save 另加 cache miss', () => {
+  it('restore／install／pin check 以 verify ∧ agent-verify-lean 閘控；save 另加 miss 與安裝成功', () => {
     expect(step(RESTORE).if).toBe(GATE)
     expect(step(INSTALL).if).toBe(GATE)
     expect(step(PIN).if).toBe(GATE)
-    expect(step(SAVE).if).toBe(`${GATE} && steps.leancache.outputs.cache-hit != 'true'`)
+    const save = step(SAVE)
+    expect(save.if?.startsWith('success() && '), 'success() 必須是第一個條件').toBe(true)
+    expect(save.if).toContain(GATE)
+    expect(save.if).toContain("steps.leancache.outputs.cache-hit != 'true'")
+    expect(save.if).toContain(`steps.${INSTALL_ID}.outcome == 'success'`)
+    expect(save.if).toContain('steps.leancheck.outcome == \'success\'')
   })
 
-  it('順序：guard 與 target checkout 之後；restore → install → save 相鄰，全在 agent 之前', () => {
+  it('順序：guard 與 target checkout 之後；restore → install → check → save 相鄰，全在 agent 之前', () => {
     const guard = idxId('verifymode')
     const checkout = idx('Checkout target repo')
     const agent = idxId('agent')
     expect(step(RESTORE).id).toBe('leancache')
+    expect(step(INSTALL).id).toBe(INSTALL_ID)
+    expect(step(CHECK).id).toBe('leancheck')
     expect(idx(RESTORE)).toBeGreaterThan(guard)
     expect(idx(RESTORE)).toBeGreaterThan(checkout)
     expect(idx(INSTALL)).toBe(idx(RESTORE) + 1)
-    expect(idx(SAVE)).toBe(idx(INSTALL) + 1)
+    expect(idx(CHECK)).toBe(idx(INSTALL) + 1)
+    expect(idx(SAVE)).toBe(idx(CHECK) + 1)
     expect(idx(SAVE)).toBeLessThan(agent)
     expect(idx(PIN)).toBeGreaterThan(checkout)
     expect(idx(PIN)).toBeLessThan(agent)
   })
 
-  it('除了 restore／install／save，workflow 沒有其他地方安裝、呼叫或快取 elan', () => {
-    const others = steps().filter((s) => ![RESTORE, INSTALL, SAVE].includes(s.name ?? ''))
+  it('除了 restore／install／check／save，workflow 沒有其他地方安裝、呼叫或快取 elan', () => {
+    const others = steps().filter((s) => ![RESTORE, INSTALL, CHECK, SAVE].includes(s.name ?? ''))
     for (const s of others) {
       expect(`${s.run ?? ''}${s.with?.path ?? ''}`, s.name).not.toMatch(/elan/i)
     }
+    // 新增的 check 只讀取既有安裝，不下載、不執行 elan-init、不碰快取。
+    const checkRun = step(CHECK).run ?? ''
+    expect(checkRun).not.toMatch(/curl|elan-init|actions\/cache/)
   })
 })
 
@@ -282,13 +330,15 @@ describe('Quint 快取：驗證模式不在 agent 之後存檔（M1）', () => {
     expect(idx(QRESTORE)).toBeLessThan(idx('Install and build'))
   })
 
-  it('save：同 path／key，只在「確定非驗證模式」且非精確命中時執行（無 always／||）', () => {
+  it('save：同 path／key，只在「確定非驗證模式」且非精確命中時執行（success() 開頭、無 always／||）', () => {
     const s = step(QSAVE)
     expect(s.uses).toBe(`actions/cache/save@${cacheMajor()}`)
     expect(pathsOf(s)).toEqual(['~/.quint'])
     expect(s.with?.key).toBe(step(QRESTORE).with?.key)
     // == 'false' 而非 != 'true'：guard 沒產出（空字串）時也不存
-    expect(s.if).toBe("steps.verifymode.outputs.verify == 'false' && steps.quintcache.outputs.cache-hit != 'true'")
+    expect(s.if).toBe(
+      "success() && steps.verifymode.outputs.verify == 'false' && steps.quintcache.outputs.cache-hit != 'true'",
+    )
   })
 
   it('非驗證模式仍在 agent 與 write-spec 集中驗證（~/.quint 的實際寫入者）之後存檔', () => {
@@ -305,6 +355,93 @@ describe('Quint 快取：驗證模式不在 agent 之後存檔（M1）', () => {
       expect(s.if ?? '', s.name).toContain("steps.verifymode.outputs.verify == 'false'")
       expect(s.if ?? '', s.name).not.toMatch(/\|\||always\(\)|failure\(\)/)
     }
+  })
+})
+
+describe('I6：快取存檔是 best-effort，且不得從失敗／部分安裝存檔', () => {
+  const LEAN_SAVE = (): Step => step(SAVE)
+  const QUINT_SAVE = (): Step => step('Save Quint toolchain')
+
+  it('兩個 save 都以 success() 為第一個條件，並帶 continue-on-error: true', () => {
+    for (const s of [LEAN_SAVE(), QUINT_SAVE()]) {
+      expect(s.if?.startsWith('success() && '), `${s.name}: success() 必須是第一個條件`).toBe(true)
+      expect(s['continue-on-error'], `${s.name}: cache save 不得讓 run 失敗`).toBe(true)
+      expect(s.if ?? '', s.name).not.toMatch(/always\(\)|failure\(\)|cancelled\(\)|\|\|/)
+    }
+  })
+
+  it('Lean save 要求安裝步驟成功；安裝失敗 → 條件為 false（不存檔）', () => {
+    const expr = LEAN_SAVE().if ?? ''
+    expect(expr).toContain(`steps.${INSTALL_ID}.outcome == 'success'`)
+    const ctx = leanSaveContext()
+    ctx.steps[INSTALL_ID] = { outcome: 'failure' }
+    expect(evalCondition(expr, ctx)).toBe(false)
+  })
+
+  it('Lean save 要求完整性檢查成功；檢查失敗 → 條件為 false（不存部分 elan）', () => {
+    const expr = LEAN_SAVE().if ?? ''
+    expect(expr).toContain("steps.leancheck.outcome == 'success'")
+    const ctx = leanSaveContext()
+    ctx.steps.leancheck = { outcome: 'failure' }
+    expect(evalCondition(expr, ctx)).toBe(false)
+  })
+
+  it('Lean save 在其他前置不成立時也不執行（cache hit／非驗證／前面步驟失敗）', () => {
+    const expr = LEAN_SAVE().if ?? ''
+    const hit = leanSaveContext()
+    hit.steps.leancache = { 'outputs.cache-hit': 'true' }
+    expect(evalCondition(expr, hit)).toBe(false)
+
+    const nonVerify = leanSaveContext()
+    nonVerify.steps.verifymode = { 'outputs.verify': 'false' }
+    expect(evalCondition(expr, nonVerify)).toBe(false)
+
+    const earlierFailure = leanSaveContext()
+    earlierFailure.success = false
+    expect(evalCondition(expr, earlierFailure)).toBe(false)
+
+    // happy path：全部成立才存
+    expect(evalCondition(expr, leanSaveContext())).toBe(true)
+  })
+
+  it('完整性檢查步驟只檢查 ~/.elan/bin/lean：部分安裝 → 非零；完整 → 零（失敗只跳過存檔）', () => {
+    const s = step(CHECK)
+    expect(s['continue-on-error'], '檢查失敗只跳過 save，不得讓 run 失敗').toBe(true)
+    expect(s.if ?? '').toContain(`steps.${INSTALL_ID}.outcome == 'success'`)
+    expect(s.run ?? '').toContain('$HOME/.elan/bin/lean')
+
+    const partial = exec(s.run ?? '', {}, (dir) => {
+      mkdirSync(join(dir, '.elan/bin'), { recursive: true })
+      stub(join(dir, '.elan/bin/elan'), 'echo "elan 4.2.4"')
+    })
+    expect(partial.status, partial.log).not.toBe(0)
+
+    const complete = exec(s.run ?? '', {}, (dir) => {
+      mkdirSync(join(dir, '.elan/bin'), { recursive: true })
+      stub(join(dir, '.elan/bin/lean'), 'echo "Lean (version 4.35.0, x86_64-unknown-linux-gnu, Release)"')
+    })
+    expect(complete.status, complete.log).toBe(0)
+  })
+
+  it('Quint save 驗證失敗條件：success() 為 false 或非確定非驗證 → 不存檔', () => {
+    const expr = QUINT_SAVE().if ?? ''
+    const base: EvalContext = {
+      success: true,
+      steps: {
+        verifymode: { 'outputs.verify': 'false' },
+        quintcache: { 'outputs.cache-hit': 'false' },
+      },
+    }
+    expect(evalCondition(expr, base)).toBe(true)
+
+    const failed = { ...base, success: false }
+    expect(evalCondition(expr, failed)).toBe(false)
+
+    const verify = { ...base, steps: { ...base.steps, verifymode: { 'outputs.verify': 'true' } } }
+    expect(evalCondition(expr, verify)).toBe(false)
+
+    const empty = { ...base, steps: { ...base.steps, verifymode: { 'outputs.verify': '' } } }
+    expect(evalCondition(expr, empty)).toBe(false)
   })
 })
 

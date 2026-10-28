@@ -17,8 +17,10 @@
  *
  * 另外，`--mechanism-dir`（workflow 傳 `$GITHUB_WORKSPACE/.factory`）下的機制檔
  * （`VERIFY_MECHANISM_FILES`：issue body、crosscheck 檔案清單、model 等）以
- * `kind: "mechanism"`＋**裸檔名**進 bundle。它們含目標內容，驗證模式**不再明文上傳**；
- * 明文 artifact 只剩 bundle 與無內容診斷（steps.json／session-diag.json）。
+ * `kind: "mechanism"`＋**裸檔名**進 bundle。`issue.json`／`crosscheck.json` 含目標
+ * 內容；`model.json`／`verify-mode.json` 只有 tier／旗標（不含目標內容），仍一併
+ * 隨 bundle 走（Worker 需要）。驗證模式**不再明文上傳**這些機制檔；明文 artifact
+ * 只剩 bundle 與無內容診斷（steps.json／session-diag.json）。
  *
  * 來源只由 `kind` 欄位決定（ruling R7），不靠路徑前綴：前綴慣例要求每個讀取端都
  * 正確實作同一條字串規則，任何一端寫錯就會把機制檔當成 target 檔還原（或反之）。
@@ -69,9 +71,11 @@ const SPECS_DIR = 'specs'
 /** App installation token；1 小時內有效，絕不進 90 天保存的 artifact。 */
 const GH_TOKEN_PATH = `${RUN_DIR}/gh-token`
 /**
- * 進 bundle 的機制檔（相對 mechanism dir）：Worker 需要的 run metadata，含目標內容故只走密文。
- * 不在清單內的（scoreboard-event／pr-bodies／舊的 verify-bundle.age…）一律不帶；
- * steps.json／session-diag.json 無內容、走明文 artifact，也不重複放進來。
+ * 進 bundle 的機制檔（相對 mechanism dir）：Worker 需要的 run metadata。
+ * `issue.json`／`crosscheck.json` 含目標內容（Issue body、檔案清單），故只走密文；
+ * `model.json`／`verify-mode.json` 本身只有 tier／旗標（不含目標內容），仍一併隨
+ * bundle 走。不在清單內的（scoreboard-event／pr-bodies／舊的 verify-bundle.age…）
+ * 一律不帶；steps.json／session-diag.json 無內容、走明文 artifact，也不重複放進來。
  */
 export const VERIFY_MECHANISM_FILES = [
   'crosscheck.err',
@@ -143,7 +147,13 @@ export function isLakeBuildArtifact(rel: string): boolean {
  * 子項的 symlink 不跟隨（避免把 target 外的路徑打包進來），其他特殊檔一律略過。
  */
 function walkFiles(root: string, relDir: string, skipDir: (rel: string) => boolean): string[] {
-  const entries = readdirSync(join(root, relDir), { withFileTypes: true })
+  let entries
+  try {
+    entries = readdirSync(join(root, relDir), { withFileTypes: true })
+  } catch (error) {
+    /* v8 ignore next -- relDir='' 只可能是 target 根在 readdir 前消失的 race；標籤用 target 而非空字串 */
+    throw fsFailure('列出', relDir === '' ? 'target' : relDir, error)
+  }
   const files: string[] = []
   for (const entry of entries) {
     const rel = relDir === '' ? entry.name : `${relDir}/${entry.name}`
@@ -266,13 +276,23 @@ function changedPaths(targetDir: string, baseSha?: string): Set<string> | null {
 
 const neverSkip = (): boolean => false
 
+/**
+ * 檔案系統錯誤只帶相對路徑與 errno code（公開 run log 不揭露 workspace 絕對路徑；
+ * Node 的 ENOENT／EACCES 訊息會把絕對 target 路徑整串印出來）。與
+ * `factory-verify-input` 的 fsFailure 同語意，兩支 CLI 的還原／打包錯誤都不得轉述
+ * 底層訊息。
+ */
+function fsFailure(action: string, rel: string, error: unknown): CliError {
+  return new CliError(`${action} ${rel} 時發生檔案系統錯誤（${String((error as NodeJS.ErrnoException).code)}）`)
+}
+
 /** `lstat`，只有 ENOENT 回 null（路徑不存在）；其他錯誤（ENOTDIR、EACCES…）往外拋。 */
-function lstatIfExists(abs: string): Stats | null {
+function lstatIfExists(abs: string, rel: string): Stats | null {
   try {
     return lstatSync(abs)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw error
+    throw fsFailure('檢查', rel, error)
   }
 }
 
@@ -283,12 +303,22 @@ function lstatIfExists(abs: string): Stats | null {
  */
 function isScannableRoot(targetDir: string, rel: string): boolean {
   const abs = join(targetDir, rel)
-  const stats = lstatIfExists(abs)
+  const stats = lstatIfExists(abs, rel)
   if (stats === null) return false
   if (stats.isSymbolicLink()) {
     throw new CliError(`${rel} 是 symlink：驗證 bundle 不跟隨根目錄的 symlink（ADR-029 §5，fail closed）`)
   }
-  if (realpathSync(abs) !== join(realpathSync(targetDir), rel)) {
+  /* v8 ignore start -- lstat 已成功；realpath 只因 TOCTOU（並行刪除／換 link）失敗，無法穩定重現，仍須去識別化 */
+  let resolvedAbs: string
+  let resolvedTarget: string
+  try {
+    resolvedAbs = realpathSync(abs)
+    resolvedTarget = realpathSync(targetDir)
+  } catch (error) {
+    throw fsFailure('解析', rel, error)
+  }
+  /* v8 ignore stop */
+  if (resolvedAbs !== join(resolvedTarget, rel)) {
     throw new CliError(`${rel} 經 symlink 解析到 target 外：驗證 bundle 拒絕打包（ADR-029 §5，fail closed）`)
   }
   return true
@@ -304,7 +334,7 @@ function collectBundlePaths(targetDir: string, baseSha?: string): string[] {
   const files = new Set<string>()
   const add = (rel: string): void => {
     if (!isBundlePath(rel)) return
-    if (lstatIfExists(join(targetDir, rel))?.isFile() !== true) return
+    if (lstatIfExists(join(targetDir, rel), rel)?.isFile() !== true) return
     files.add(rel)
   }
   for (const root of [RUN_DIR, SPECS_DIR]) {
@@ -333,7 +363,7 @@ function collectMechanismEntries(mechanismDir: string | undefined): BundleEntry[
   const entries: BundleEntry[] = []
   for (const name of VERIFY_MECHANISM_FILES) {
     const abs = join(dir, name)
-    const stats = lstatIfExists(abs)
+    const stats = lstatIfExists(abs, name)
     if (stats === null) continue
     if (!stats.isFile()) {
       throw new CliError(`機制檔 ${name} 不是一般檔案（symlink？）：拒絕打包（ADR-029 §5，fail closed）`)
@@ -343,11 +373,22 @@ function collectMechanismEntries(mechanismDir: string | undefined): BundleEntry[
   return entries
 }
 
-/** 把檔案讀成 JSON lines 明文（記憶體組完才加密，不落任何明文側檔）。 */
+/**
+ * 把檔案讀成 JSON lines 明文（記憶體組完才加密，不落任何明文側檔）。
+ *
+ * 讀檔失敗（列出與讀取之間的 race，或權限不足）→ CliError 只帶 bundle 內的相對
+ * 路徑與 errno；Node 的原始訊息會印出 runner 上的絕對 target 路徑。
+ */
 function serializeBundle(entries: readonly BundleEntry[]): Buffer {
-  const lines = entries.map(({ kind, path, abs }) =>
-    JSON.stringify({ kind, path, b64: readFileSync(abs).toString('base64') }),
-  )
+  const lines = entries.map(({ kind, path, abs }) => {
+    let bytes: Buffer
+    try {
+      bytes = readFileSync(abs)
+    } catch (error) {
+      throw fsFailure('讀取', path, error)
+    }
+    return JSON.stringify({ kind, path, b64: bytes.toString('base64') })
+  })
   return Buffer.from(lines.map((line) => `${line}\n`).join(''), 'utf8')
 }
 
@@ -368,9 +409,10 @@ function resolveTargetDir(targetDir: string): string {
   try {
     stats = statSync(target)
   } catch {
-    throw new CliError(`target 目錄不存在：${targetDir}`)
+    // 不轉述底層訊息，也不回印傳入路徑：workflow 傳的是絕對路徑，run log 是公開的。
+    throw new CliError('target 目錄不存在（fail closed）')
   }
-  if (!stats.isDirectory()) throw new CliError(`target 不是目錄：${targetDir}`)
+  if (!stats.isDirectory()) throw new CliError('target 不是目錄（fail closed）')
   return target
 }
 

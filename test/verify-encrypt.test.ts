@@ -13,13 +13,24 @@
  *   5. 根目錄（specs、.factory/run）是 symlink 或解析到 target 外 → 拋錯。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Decrypter, generateX25519Identity, identityToRecipient } from 'age-encryption'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import * as encryptModule from '../src/cli/factory-verify-encrypt.js'
 import { VERIFY_MECHANISM_FILES, encryptVerifyBundle, main, parseArgs } from '../src/cli/factory-verify-encrypt.js'
+import { CliError, formatCliError } from '../src/cli/run-cli.js'
 import { isVerifyAllowedPath } from '../src/pipeline/verify-scope.js'
 
 interface BundleLine {
@@ -487,6 +498,87 @@ describe('encryptVerifyBundle：只打包 agent 改動的測試檔（git 事實�
     const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient })
 
     expect(result.files).toEqual(['test/new.test.ts'])
+  })
+})
+
+describe('I7：檔案系統錯誤只帶相對路徑與 errno（公開 log 不得出現絕對 target 路徑）', () => {
+  const isRoot = process.getuid?.() === 0
+
+  /** 執行加密並要求以 CliError 失敗。 */
+  async function failureOf(target: string, outFile: string): Promise<Error> {
+    const error = await encryptVerifyBundle({ targetDir: target, outFile, recipient }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(CliError)
+    return error as Error
+  }
+
+  it('無法列舉的 specs 子目錄 → 訊息含相對路徑與 EACCES，不含絕對 target 路徑', async () => {
+    // root 不受目錄權限限制，這個情境無法重現（CI 與本機都以一般使用者執行）。
+    if (isRoot) return
+    const target = makeTarget()
+    writeFixture(target, 'specs/locked/secret.lean', 'secret')
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    chmodSync(join(target, 'specs/locked'), 0o000)
+    try {
+      const error = await failureOf(target, outFile)
+      expect(error.message).toContain('specs/locked')
+      expect(error.message).toMatch(/EACCES/)
+      expect(error.message).not.toContain(target)
+      expect(formatCliError(error)).not.toContain(target)
+    } finally {
+      chmodSync(join(target, 'specs/locked'), 0o700)
+    }
+    expect(existsSync(outFile)).toBe(false)
+  })
+
+  it('列出後才發現不可讀的檔案（readFile EACCES）→ 只帶相對路徑與 errno', async () => {
+    if (isRoot) return
+    const target = makeTarget()
+    writeFixture(target, 'specs/lean/RULES.md', 'private rules')
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    chmodSync(join(target, 'specs/lean/RULES.md'), 0o000)
+    try {
+      const error = await failureOf(target, outFile)
+      expect(error.message).toContain('specs/lean/RULES.md')
+      expect(error.message).toMatch(/EACCES/)
+      expect(error.message).not.toContain(target)
+      expect(formatCliError(error)).not.toContain(target)
+    } finally {
+      chmodSync(join(target, 'specs/lean/RULES.md'), 0o600)
+    }
+    expect(existsSync(outFile)).toBe(false)
+  })
+
+  it('同樣的檔案可讀時照常打包（既有的 happy path 不變）', async () => {
+    const target = makeTarget()
+    writeFixture(target, 'specs/lean/RULES.md', 'private rules')
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+
+    const result = await encryptVerifyBundle({ targetDir: target, outFile, recipient })
+
+    expect(result.files).toEqual(['specs/lean/RULES.md'])
+    const lines = await decryptBundle(outFile, identity)
+    expect(lines.map((line) => [line.kind, line.path, Buffer.from(line.b64, 'base64').toString('utf8')])).toEqual([
+      ['target', 'specs/lean/RULES.md', 'private rules'],
+    ])
+  })
+
+  it('初始化錯誤（target 不存在／不是目錄）也不轉述傳入的絕對路徑', async () => {
+    const outFile = join(tempDir('factory-verify-out-'), 'bundle.age')
+    const missing = join(tmpdir(), `factory-missing-target-${process.pid}`)
+    const missingError = await encryptVerifyBundle({ targetDir: missing, outFile, recipient }).catch(
+      (e: unknown) => e,
+    )
+    expect(missingError).toBeInstanceOf(CliError)
+    expect((missingError as Error).message).not.toContain(missing)
+
+    const fileAsTarget = join(tempDir('factory-verify-file-'), 'not-a-dir')
+    writeFileSync(fileAsTarget, 'x')
+    const fileError = await encryptVerifyBundle({ targetDir: fileAsTarget, outFile, recipient }).catch(
+      (e: unknown) => e,
+    )
+    expect(fileError).toBeInstanceOf(CliError)
+    expect((fileError as Error).message).not.toContain(fileAsTarget)
+    expect(existsSync(outFile)).toBe(false)
   })
 })
 

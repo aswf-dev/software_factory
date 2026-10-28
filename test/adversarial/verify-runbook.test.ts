@@ -90,4 +90,39 @@ describe('docs/34-verify-runbook.md', () => {
     expect(doc).toContain('--restored-manifest')
     expect(doc).toContain('.lake/build/')
   })
+
+  it('I4：§7.3 階段交接已實作（指向 §3.3），不再自稱 Task 6 待辦', () => {
+    expect(doc).not.toContain('Task 6 會加入')
+    expect(doc).not.toContain('不會交接')
+    const s73 = doc.slice(doc.indexOf('## 7. 已知限制'), doc.indexOf('\n4. **'))
+    expect(s73).toContain('verify_input_url')
+    expect(s73).toContain('--restored-manifest')
+    expect(s73).toContain('factory-verify-input')
+    expect(s73).toContain('§3.3')
+  })
+
+  it('I4：§7.4 不再把 Issue 當成「本就公開」，並說明驗證模式印出／不印什麼', () => {
+    expect(doc).not.toContain('本就公開')
+    expect(doc).toContain('目標 repo 若是 private')
+    expect(doc).toMatch(/run log 是公開的/)
+    // 驗證模式的 log 範圍（I1）：只印固定列舉值，不印格式卡／model.json／agent stderr
+    const s74 = doc.slice(doc.indexOf('\n4. **公開 log'), doc.indexOf('\n5. **G2'))
+    expect(s74).toContain('格式檢查只印')
+    expect(s74).toContain('model.json')
+    expect(s74).toMatch(/不印/)
+  })
+
+  it('I4：§7.6 說明 matrix 部分失敗可能讓 verify output 為空、仍可能補通用 needs-human', () => {
+    const s76 = doc.slice(doc.indexOf('\n6. **compare job'))
+    expect(s76).toContain('matrix 部分失敗')
+    expect(s76).toMatch(/output.*空|空.*output/)
+    expect(s76).toContain('通用 needs-human')
+  })
+
+  it('I6：快取存檔是 best-effort，失敗不得讓 run 失敗（Lean 與 Quint 都寫明）', () => {
+    expect(doc.match(/best-effort/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(doc).toContain('不得讓 run 失敗')
+    expect(doc).toContain('continue-on-error')
+    expect(doc).toContain('~/.elan/bin/lean')
+  })
 })

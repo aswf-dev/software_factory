@@ -303,9 +303,13 @@ scoreboard 步驟。`Verify app token write access` 探針在驗證模式整個�
    `~/.elan/bin/elan` 存在且 `elan --version` 自報為 `ELAN_VERSION`，不符即 fail closed
    （不默默改走下載）。之後 `~/.elan/bin` 經 `$GITHUB_PATH` 交給 agent，並檢查
    `lean --version` 含 `version 4.35.0`。
-4. `Save Lean toolchain cache (elan)`：只在 miss 時、緊接安裝之後、**agent 之前**存
-   `~/.elan`。agent 有 shell，跑完後的 `~/.elan` 不寫回（下一個 run 會執行它）；也因此
-   不用合併版 `actions/cache`（它的 post-job save 在 agent 之後）。
+4. `Check Lean toolchain complete (verify only)`：只檢查 `~/.elan/bin/lean` 存在且可
+   執行（部分安裝不得進快取）。此步失敗只跳過存檔，**不讓 run 失敗**。
+5. `Save Lean toolchain cache (elan)`：只在 miss、安裝成功且上一步檢查通過時、**agent
+   之前**存 `~/.elan`。agent 有 shell，跑完後的 `~/.elan` 不寫回（下一個 run 會執行它）；
+   也因此不用合併版 `actions/cache`（它的 post-job save 在 agent 之後）。存檔是
+   **best-effort**：條件以 `success()` 開頭、另加 `continue-on-error: true`；並行 run
+   共用固定 key 的存檔衝突只留 warning，**不得讓 run 失敗**。
 
 `target/` 底下**一律不快取**（`.lake/build`、`.lake/packages` 都不）：key 對所有目標 repo
 相同，快取 target 產物等於把 A repo 的產物（olean 帶定理名與敘述）還原到 B repo 的
@@ -315,7 +319,8 @@ runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的�
 
 **Quint 快取**：`Restore Quint toolchain` 在所有模式無條件還原 `~/.quint`；
 `Save Quint toolchain` 只在 `verify == 'false'` 時執行——驗證模式**永不存檔**（guard 沒有
-輸出時也不存）。
+輸出時也不存）。存檔同樣是 **best-effort**（`success()` 開頭＋`continue-on-error: true`）：
+失敗只留 warning，**不得讓 run 失敗**（對非驗證 task，快取只是優化）。
 
 **已知殘留**：`actions/setup-node` 的 `cache: pnpm`（pnpm store，key 依機制 repo 的
 `pnpm-lock.yaml`）仍是合併版快取，post-job save 在 agent 之後執行，所有模式（含驗證模式）
@@ -338,13 +343,21 @@ runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的�
    機械阻止需在驗證模式不把寫入憑證交給 agent，留待後續。
 2. **G3 未被機械強制**：`verify_phase=proofs` 只是 dispatch input，工廠不檢查 statements
    是否已經 G3 簽核；順序由 aswf.dev 的 BPMN 保證。
-3. **階段之間沒有交接（Task 6）**：V2 的每個階段都從目標 repo 預設分支的 checkout 開始，
-   看不到上一階段 bundle 的內容。Task 6 會加入 `verify_input_bundle` input 與解包 CLI；
-   在那之前，③／④ 需要的 `RULES.md`／Quint 模型必須已在目標 repo 的預設分支上。
-4. **公開 log 仍有少量 Issue 衍生內容**：`Check issue format` 會把格式卡 `cat` 進 log，
-   `Select model tier` 會 `cat .factory/model.json`（含 Issue 文字的複雜度判據）。這些只來自
-   Issue body（本就公開且只寫範圍），不含 agent 產出；crosscheck 在驗證模式只印計數與
-   列舉標題。
+3. **階段交接是「帶入」而非自動延續**（§3.3）：每個階段仍從目標 repo 預設分支的
+   checkout 開始；上一階段的 `specs/**` 由 aswf.dev 以 runner 公鑰加密成 bundle，
+   dispatch 時以 `verify_input_url` 帶入，`factory-verify-input` 在 agent 之前還原
+   （只收 `kind: "target"`；路徑或 symlink 檢查任一不合即整份拒絕、不寫任何檔）。
+   crosscheck 另以 `--restored-manifest .factory/verify-restored.json` 扣除還原輸入：
+   只有存在且 sha256 仍相符的路徑會被當成「不是 agent 的改動」；被改動或刪除會變成
+   `restored-input-modified`。沒帶 `verify_input_url` 的 run 不會自動取得上一階段
+   產出——③／④ 需要的 `RULES.md`／Quint 模型仍須先進目標 repo 的預設分支。
+4. **公開 log 仍可能有 Issue 衍生內容（僅非驗證模式）**：非驗證模式的
+   `Check issue format` 會把格式卡 `cat` 進 log，`Select model tier` 會 `cat
+   .factory/model.json`（含 Issue 文字衍生的複雜度判據）。驗證模式已收斂：格式檢查只印
+   `ok`／缺少的 DoD id，模型只印 tier id，agent 失敗只印 provider／stop reason／attempt；
+   **不印**格式卡、`model.json`、issue body 或 agent stderr。注意：目標 repo 若是 private，
+   Issue 本身不公開，但機制 repo 的 run log 是公開的——「Issue 不公開」不是把內容寫進
+   log 的理由；這些內容也不含 agent 產出，crosscheck 在驗證模式只印計數與列舉標題。
 5. **G2（`factory-run-cleanup.yml`）一定會補一則通用 needs-human**：Factory Run 結論為
    failure／cancelled／timed_out，且 jobs API 中 `Run factory agent` 不是 skipped（已進入
    agent）時，cleanup 查 Issue 有沒有 `<!-- factory:terminal run=<id> -->`；沒有就先貼
@@ -359,5 +372,9 @@ runner——跨租戶外洩；而公開 repo 的 Actions cache 對同 repo 的�
    - agent 之前就停下（guard、格式檢查、lean-toolchain pin）：cleanup 不處理。
 
    cleanup 由 `workflow_run` 觸發，只有它位於機制 repo 的預設分支（main）時才生效。
-6. **compare job 的驗證判定**：取 run job 的 matrix output；若 run job 在 guard 之前就失敗，
-   output 為空，compare 走一般路徑——此時沒有變體啟動 agent，不會寫終態。
+6. **compare job 的驗證判定在 matrix 部分失敗時可能失準**：取 run job 的 matrix
+   output；若 run job 在 guard 之前就失敗，output 為空，compare 走一般路徑——此時
+   沒有變體啟動 agent，不會寫終態。但 matrix 部分失敗（例如一個變體失敗、job output
+   沒有寫出）也可能讓 `verify` 為空：`needs.run.outputs.verify != 'true'` 成立，compare
+   仍以「非驗證」處理並補一則通用 needs-human，即使另一個變體其實已進入 agent。判讀時
+   以 run 的 jobs 清單與 cleanup 留言交叉確認，不要把「沒有終態」當成「沒啟動」。

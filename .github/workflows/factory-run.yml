@@ -987,6 +987,7 @@ jobs:
       # 快取命中時沒有經過 SHA-256（review M2）：改驗 elan 自報版本＝ELAN_VERSION，
       # 不符或 binary 不存在即 fail closed（不默默改走下載，避免掩蓋壞掉的快取）。
       - name: Install Lean toolchain (elan)
+        id: leaninstall
         if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean'
         env:
           LEAN_TOOLCHAIN: leanprover/lean4:v4.35.0
@@ -1026,8 +1027,27 @@ jobs:
           "$HOME/.elan/bin/elan" default "$LEAN_TOOLCHAIN"
           "$HOME/.elan/bin/lean" --version | tee /dev/stderr | grep -F "version 4.35.0"
 
+      # 快取存檔是 best-effort（review I6）：條件以 `success()` 開頭，另加
+      # `continue-on-error: true`。並行 run 共用同一組固定 key，存檔衝突只該留下
+      # warning——快取是優化，不得讓 run（對 Quint 是每個非驗證 task）變紅。
+      # 另加一個只檢查 `~/.elan/bin/lean` 存在的小步驟：安裝失敗或只裝了一半
+      # （例如 elan 有了、toolchain 沒裝完）時只跳過存檔，不讓 run 失敗；save 的
+      # 條件同時要求 install（含最後的 `lean --version`）與此檢查成功。
+      - name: Check Lean toolchain complete (verify only)
+        id: leancheck
+        if: success() && steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean' && steps.leancache.outputs.cache-hit != 'true' && steps.leaninstall.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [ ! -x "$HOME/.elan/bin/lean" ]; then
+            echo "::warning::~/.elan/bin/lean 不存在——不安裝完成就不存 Lean 快取（部分 ~/.elan 不得進快取）"
+            exit 1
+          fi
+          echo "Lean toolchain complete: $("$HOME/.elan/bin/lean" --version | head -n 1)"
+
       - name: Save Lean toolchain cache (elan)
-        if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean' && steps.leancache.outputs.cache-hit != 'true'
+        if: success() && steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean' && steps.leancache.outputs.cache-hit != 'true' && steps.leaninstall.outcome == 'success' && steps.leancheck.outcome == 'success'
+        continue-on-error: true
         uses: actions/cache/save@v6
         with:
           path: ~/.elan
@@ -1785,8 +1805,11 @@ jobs:
       # 是空目錄（且 key 精確命中後就再也不會更新），非驗證模式就失去快取。故 save 留在
       # 這裡、行為等同原本的 post-job save（成功才存、精確命中不存），但以
       # `verify == 'false'` 排除驗證模式：guard 沒產出（空字串）時也不存，fail closed。
+      # 存檔是 best-effort（review I6）：`success()` 開頭＋`continue-on-error: true`，
+      # 固定 key 的存檔衝突只留 warning——快取失敗不得讓每個非驗證 task 變紅。
       - name: Save Quint toolchain
-        if: steps.verifymode.outputs.verify == 'false' && steps.quintcache.outputs.cache-hit != 'true'
+        if: success() && steps.verifymode.outputs.verify == 'false' && steps.quintcache.outputs.cache-hit != 'true'
+        continue-on-error: true
         uses: actions/cache/save@v6
         with:
           path: ~/.quint
@@ -1978,10 +2001,10 @@ jobs:
           jq -r '.sessions[] | "session: models=\(.models|join(",")) steps=\(.steps) calls=\(.toolCalls) results=\(.toolResults) noResult=\(.callsWithoutResult) resultAfterNextStep=\(.resultAfterNextStep) orphan=\(.orphanResults) errors=\(.errorResults) phantomArgs=\(.phantomInArgs)@\(.firstPhantomInArgsStep // "-") phantomResults=\(.phantomInResults)@\(.firstPhantomInResultsStep // "-")"' \
             "$GITHUB_WORKSPACE/.factory/session-diag.json"
 
-      # ADR-029 §5：驗證類的產出（run／specs／agent 改動的測試檔）與含目標內容的
-      # 機制 JSON（issue／crosscheck／model…，--mechanism-dir）在公開 runner 上以
-      # age 公鑰加密，**只上傳密文**。公鑰來自 repo secret VERIFY_AGE_PUBLIC_KEY，
-      # 私鑰只存在 aswf.dev Worker。
+      # ADR-029 §5：驗證類的產出（run／specs／agent 改動的測試檔）與機制 JSON
+      # （issue／crosscheck 含目標內容；model／verify-mode 只有 tier／旗標；
+      # --mechanism-dir）在公開 runner 上以 age 公鑰加密，**只上傳密文**。公鑰來自
+      # repo secret VERIFY_AGE_PUBLIC_KEY，私鑰只存在 aswf.dev Worker。
       #
       # Fail closed：secret 缺失時本步驟直接失敗，後續兩個上傳步驟都不會執行
       # ——絕不 fallback 明文上傳（Review Focus 2）。加密失敗亦然：只有
@@ -2054,8 +2077,9 @@ jobs:
 
       # 驗證模式的唯一 artifact：age 密文＋兩份無內容診斷——steps.json（各步驟
       # outcome 字串）與 session-diag.json（factory-session-diag 只輸出計數／長度／
-      # 工具名）。issue／crosscheck／model／verify-mode 等機制 JSON 含目標內容（Issue
-      # body、檔案清單），只在 bundle 內（kind=mechanism 行）；**不含** target/**。
+      # 工具名）。機制 JSON 只在 bundle 內（kind=mechanism 行）：issue／crosscheck 含
+      # 目標內容（Issue body、檔案清單）；model／verify-mode 只有 tier／旗標（不含目標
+      # 內容），仍隨 bundle 走。**不含** target/**。
       # 條件要求加密步驟成功：缺 secret 或加密失敗時不上傳任何東西。
       - name: Upload encrypted verify artifacts
         if: always() && steps.verifymode.outputs.verify == 'true' && steps.verify-encrypt.outcome == 'success'
