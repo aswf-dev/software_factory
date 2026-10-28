@@ -4,17 +4,21 @@
  * 涵蓋：git 輸出解析（for-each-ref / diff --name-only / --shortstat / --porcelain）、
  * report 與實際 diff 的雙向比較、參數解析、以及 main 的編排（fake git runner）。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { CliError } from './run-cli.js'
 import {
   adviseAssertionDelta,
   categorizeMismatch,
+  checkVerifyScope,
   crosscheckHeadline,
   collectActualDiff,
   collectReportedPaths,
+  collectVerifyDiff,
   compareReportToActual,
   compareRequirementIds,
   detectUnreportedTrigger,
@@ -26,12 +30,14 @@ import {
   parseForEachRefOutput,
   parseShortStat,
   parseStatusPorcelain,
+  parseUntrackedPaths,
   collectDeletedPaths,
   checkVariantIsolation,
   parseRemoteBranches,
   REUSE_DOWNGRADED_KINDS,
   validateReuseClaim,
   variantPrefix,
+  VERIFY_ALLOWED_GLOBS,
   type CrosscheckActual,
   type GitRunner,
 } from './factory-crosscheck.js'
@@ -696,7 +702,7 @@ describe('compareRequirementIds（REQ id 錨定，advisory）', () => {
 })
 
 describe('parseArgs', () => {
-  it('預設值：base=software-factory、target=target、三個僅產出模式皆 false', () => {
+  it('預設值：base=software-factory、target=target、四個僅產出模式皆 false', () => {
     expect(parseArgs(['12', 'report.json'])).toEqual({
       issueNumber: 12,
       reportPath: 'report.json',
@@ -705,6 +711,7 @@ describe('parseArgs', () => {
       proposeSkillOnly: false,
       onboardOnly: false,
       pbtAuditOnly: false,
+      verifyOnly: false,
       requirementAnchors: [],
     })
   })
@@ -718,6 +725,7 @@ describe('parseArgs', () => {
       proposeSkillOnly: false,
       onboardOnly: false,
       pbtAuditOnly: false,
+      verifyOnly: false,
       requirementAnchors: [],
     })
   })
@@ -1202,6 +1210,7 @@ describe('categorizeMismatch／crosscheckHeadline：政策違規與報告不一�
     'propose-skill-scope',
     'onboard-scope',
     'write-spec-scope',
+    'verify-neutralised-path',
   ])('%s → scope（變更超出任務類型允許的範圍）', (kind) => {
     expect(categorizeMismatch(kind)).toBe('scope')
   })
@@ -1502,5 +1511,1464 @@ describe('沿用既有交付的合法路徑（reusedExistingPr；fubon-tradingbo
       writeFileSync(reportPath, makeReport({ changedPaths: [], reusedExistingPr: 0 }))
       expect(() => main(['12', reportPath, '--target', 'target'], fakeGit({}))).toThrow(CliError)
     })
+  })
+})
+
+/**
+ * 驗證模式（ADR-029 §5、§6）：agent 不建分支、不 push、不開 PR，所以 crosscheck
+ * 不能再找 `factory/<issue>-*` 分支——事實來源改成「工作區（含本地 commit）相對
+ * base 的 diff」，並套用 specs／測試檔白名單。R2 裁決：本地 commit 允許，未提交
+ * 變更也不再是 mismatch（兩者都以同一份 diff 呈現）。
+ */
+describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', () => {
+  /** 只認得驗證模式四種 git 呼叫的 fake；呼叫到分支相關命令即 throw。 */
+  function verifyGit(
+    script: {
+      diffNameOnly?: string
+      shortStat?: string
+      unifiedDiff?: string
+      status?: string
+      /** `git ls-files --others --exclude-per-directory=.gitignore …`：未追蹤檔清單。 */
+      otherFiles?: string
+    },
+    calls: string[][] = [],
+  ): GitRunner {
+    return (args) => {
+      calls.push(args)
+      if (args[0] === 'diff') {
+        // R24：verify 事實必須關掉 rename 偵測。預設 -M 對 100% 改名只列新路徑，
+        // 被刪掉的產品檔就從 verify-scope 白名單逃出去。
+        if (!args.includes('--no-renames')) throw new Error('verify diff must pass --no-renames')
+        if (args[1] === '--name-only') return script.diffNameOnly ?? ''
+        if (args[1] === '--shortstat') return script.shortStat ?? ''
+        if (args[1] === '--unified=0') return script.unifiedDiff ?? ''
+        throw new Error(`unexpected git diff flag: ${args[1]}`)
+      }
+      if (args[0] === 'status') return script.status ?? ''
+      if (args[0] === 'ls-files') return script.otherFiles ?? ''
+      throw new Error(`驗證模式不該呼叫：git ${args.join(' ')}`)
+    }
+  }
+
+  describe('checkVerifyScope', () => {
+    it('白名單：specs/** 與五種測試檔命名皆允許', () => {
+      const allowed = [
+        'specs/quint/model.qnt',
+        'specs/lean/Specs/Proofs.lean',
+        'specs/lean/lean-toolchain',
+        'src/util/format.test.ts',
+        'service/foo_test.go',
+        'pkg/tests/integration.py',
+        'pkg/test/unit.js',
+      ]
+      for (const p of allowed) expect(checkVerifyScope([p]), p).toEqual([])
+    })
+
+    it('dot segments 在 specs/** 內合法：lean skill 的 .gitignore 與 .lake/ 不得被判越界', () => {
+      const allowed = [
+        'specs/lean/.gitignore',
+        'specs/lean/.lake/build/x.olean',
+        'specs/.hidden/model.qnt',
+      ]
+      for (const p of allowed) expect(checkVerifyScope([p]), p).toEqual([])
+    })
+
+    it('隱藏路徑仍受白名單限制：specs 外的 dot 路徑一律拒絕', () => {
+      const outside = ['.github/foo', '.github/workflows/x.yml', '.gitignore']
+      const findings = checkVerifyScope(outside)
+      expect(findings).toHaveLength(1)
+      expect(findings[0]?.kind).toBe('verify-scope')
+      for (const p of outside) expect(findings[0]?.detail).toContain(p)
+    })
+
+    it('C1：`.github` 下符合測試命名慣例的路徑仍一律拒絕（dot segment 只在 specs/** 內放寬）', () => {
+      // 這些路徑全部符合「測試檔」glob 的字面形狀。dot:true 套用到所有 glob 時，
+      // 它們會通過白名單——等於讓驗證 agent 改寫 CI 設定/工作流程（C1）。
+      const outside = [
+        '.github/workflows/evil.test.yml',
+        '.github/tests/x.ts',
+        '.github/test/x.ts',
+        '.github/factory/foo_test.go',
+      ]
+      const findings = checkVerifyScope(outside)
+      expect(findings).toHaveLength(1)
+      expect(findings[0]?.kind).toBe('verify-scope')
+      for (const p of outside) expect(findings[0]?.detail).toContain(p)
+    })
+
+    it('C1：specs 外的 dot segment 一律拒絕，即使路徑符合測試 glob', () => {
+      const outside = ['src/.hidden/x.test.ts', 'tests/.cache/y_test.go', 'pkg/.config/test/z.ts']
+      const findings = checkVerifyScope(outside)
+      expect(findings).toHaveLength(1)
+      for (const p of outside) expect(findings[0]?.detail).toContain(p)
+    })
+
+    it('C1：specs 樹內的 dot segment 仍是合規產出（lean skill 的 .gitignore）', () => {
+      for (const p of ['specs/lean/.gitignore', 'specs/lean/.lake/build/x.olean', 'specs/.hidden/model.qnt']) {
+        expect(checkVerifyScope([p]), p).toEqual([])
+      }
+    })
+
+    it('越界：產品程式碼、設定、依賴、文件、CI 設定一律拒絕並列出路徑', () => {
+      const outside = ['src/util/format.ts', 'package.json', 'package-lock.json', '.github/workflows/test.yml', 'docs/x.md', 'catalog-info.yaml']
+      const findings = checkVerifyScope(outside)
+      expect(findings).toHaveLength(1)
+      expect(findings[0]?.kind).toBe('verify-scope')
+      for (const p of outside) expect(findings[0]?.detail).toContain(p)
+      expect(findings[0]?.detail).toContain('specs/**')
+    })
+
+    it('空清單 → 無 finding（沒有變更就沒有越界）', () => {
+      expect(checkVerifyScope([])).toEqual([])
+    })
+
+    it('白名單常數即 ADR-029 修訂版列出的五個 glob（改動要經 ADR）', () => {
+      expect([...VERIFY_ALLOWED_GLOBS]).toEqual([
+        'specs/**',
+        '**/*.test.*',
+        '**/*_test.go',
+        '**/tests/**',
+        '**/test/**',
+      ])
+    })
+
+    it('歸類為 scope：越界要改規則／改工單，不是查 agent 的回報', () => {
+      expect(categorizeMismatch('verify-scope')).toBe('scope')
+    })
+  })
+
+  describe('parseUntrackedPaths', () => {
+    it('只取 `??` 的未追蹤檔，正規化 ./，忽略已修改／已暫存', () => {
+      expect(parseUntrackedPaths(' M src/a.ts\n?? specs/quint/model.qnt\nA  specs/lean/A.lean\n?? ./test/x.test.ts\n\n')).toEqual([
+        'specs/quint/model.qnt',
+        'test/x.test.ts',
+      ])
+      expect(parseUntrackedPaths('')).toEqual([])
+      // 正規化後為空的路徑（`?? ./`）不進清單，避免下游拿空字串去比對
+      expect(parseUntrackedPaths('?? ./\n')).toEqual([])
+    })
+    it('解開 git C-style 引號：空白、引號、控制字元與非 ASCII 路徑不得被截斷或連引號回報', () => {
+      expect(
+        parseUntrackedPaths(
+          '?? "specs/a b.qnt"\n?? "specs/quote\\"x.qnt"\n?? "specs/tab\\there.qnt"\n?? "specs/caf\\303\\251.qnt"\n',
+        ),
+      ).toEqual(['specs/a b.qnt', 'specs/quote"x.qnt', 'specs/tab\there.qnt', 'specs/café.qnt'])
+      // 不完整的引號（沒有收尾）維持原樣，不誤吞路徑
+      expect(parseUntrackedPaths('?? "specs/unterminated.qnt\n')).toEqual(['"specs/unterminated.qnt'])
+      // 未知跳脫（git 目前不會產生）保留反斜線，不靜默吞掉字元
+      expect(parseUntrackedPaths('?? "specs/odd\\;name.qnt"\n')).toEqual(['specs/odd\\;name.qnt'])
+    })
+  })
+
+  describe('collectVerifyDiff', () => {
+    it('以 `git diff <base>`（不是 base...branch）取事實；untracked 一併算交付', () => {
+      const calls: string[][] = []
+      const actual = collectVerifyDiff(
+        verifyGit(
+          {
+            diffNameOnly: 'specs/quint/model.qnt\ntest/x.test.ts\n',
+            shortStat: ' 2 files changed, 12 insertions(+), 3 deletions(-)',
+            unifiedDiff: [
+              'diff --git a/test/x.test.ts b/test/x.test.ts',
+              '--- a/test/x.test.ts',
+              '+++ b/test/x.test.ts',
+              '@@ -1,0 +1,1 @@',
+              '+expect(a).toBe(1)',
+              '',
+            ].join('\n'),
+            status: '?? specs/lean/Specs/Proofs.lean\n M test/x.test.ts\n',
+          },
+          calls,
+        ),
+        { base: 'main', target: 'target' },
+      )
+      expect(calls).toContainEqual(['diff', '--name-only', '--no-renames', 'main'])
+      expect(calls).toContainEqual(['diff', '--shortstat', '--no-renames', 'main'])
+      expect(calls).toContainEqual(['diff', '--unified=0', '--no-renames', 'main'])
+      expect(actual.branches).toEqual([])
+      expect(actual.paths).toEqual(['specs/quint/model.qnt', 'test/x.test.ts', 'specs/lean/Specs/Proofs.lean'])
+      expect(actual.added).toBe(12)
+      expect(actual.deleted).toBe(3)
+      expect(actual.uncommitted).toEqual(['specs/lean/Specs/Proofs.lean', 'test/x.test.ts'])
+      expect(actual.assertionDelta).toBe(1)
+    })
+
+    it('收集時帶 --untracked-files=all：整個新目錄逐檔列出，不收成 ?? specs/', () => {
+      const calls: string[][] = []
+      const actual = collectVerifyDiff(
+        verifyGit(
+          {
+            status:
+              '?? specs/quint/model.qnt\n?? specs/quint/aux.qnt\n?? specs/lean/.gitignore\n',
+          },
+          calls,
+        ),
+        { base: 'main', target: 'target' },
+      )
+      expect(calls).toContainEqual(['status', '--porcelain', '--untracked-files=all'])
+      expect(actual.paths).toEqual([
+        'specs/quint/model.qnt',
+        'specs/quint/aux.qnt',
+        'specs/lean/.gitignore',
+      ])
+    })
+
+    it('git 仍回目錄項（如巢狀 repo）→ 以 ls-files 逐目錄展開', () => {
+      const calls: string[][] = []
+      const actual = collectVerifyDiff(
+        verifyGit(
+          {
+            status: '?? specs/newdir/\n',
+            otherFiles: 'specs/newdir/a.qnt\nspecs/newdir/b.qnt\n',
+          },
+          calls,
+        ),
+        { base: 'main', target: 'target' },
+      )
+      expect(calls).toContainEqual([
+        'ls-files',
+        '--others',
+        '--exclude-per-directory=.gitignore',
+        '--',
+        'specs/newdir',
+      ])
+      expect(actual.paths).toEqual(['specs/newdir/a.qnt', 'specs/newdir/b.qnt'])
+    })
+
+    it('目錄展開為空 → 保留目錄項，不靜默丟掉變更', () => {
+      const actual = collectVerifyDiff(
+        verifyGit({ status: '?? specs/empty/\n', otherFiles: '' }),
+        { base: 'main', target: 'target' },
+      )
+      expect(actual.paths).toEqual(['specs/empty/'])
+    })
+
+    it('沒有變更 → 全空', () => {
+      expect(collectVerifyDiff(verifyGit({}), { base: 'main', target: 'target' })).toEqual({
+        branches: [],
+        paths: [],
+        added: 0,
+        deleted: 0,
+        uncommitted: [],
+        assertionDelta: 0,
+      })
+    })
+
+    it('untracked 與 diff 的重複路徑只算一次（不讓白名單／報告比對看到兩份）', () => {
+      const actual = collectVerifyDiff(
+        verifyGit({ diffNameOnly: 'specs/x.qnt\n', status: '?? specs/x.qnt\n' }),
+        { base: 'main', target: 'target' },
+      )
+      expect(actual.paths).toEqual(['specs/x.qnt'])
+    })
+  })
+
+  describe('--verify-only 的 main 編排', () => {
+    let dir: string
+    let reportPath: string
+    /** 還原 fixture 的獨立根目錄：各測試互不汙染，afterAll 一次清掉。 */
+    const restoredRoots: string[] = []
+
+    beforeAll(() => {
+      dir = mkdtempSync(join(tmpdir(), 'crosscheck-verify-'))
+      reportPath = join(dir, 'report.json')
+    })
+    afterAll(() => {
+      rmSync(dir, { recursive: true, force: true })
+      for (const root of restoredRoots) rmSync(root, { recursive: true, force: true })
+    })
+
+    /** manifest 記錄的是還原位元組的 sha256（hex、小寫），crosscheck 以磁碟重算比對。 */
+    const sha256 = (bytes: string | Uint8Array): string =>
+      createHash('sha256').update(bytes).digest('hex')
+
+    /**
+     * 建立「`factory-verify-input` 已還原」的狀態：檔案寫進獨立 `target/`，manifest
+     * 依還原端格式記錄每個檔案的實際 sha256（依 path 排序）。
+     */
+    function restoredFixture(files: Record<string, string>): { target: string; manifest: string } {
+      const root = mkdtempSync(join(tmpdir(), 'crosscheck-restored-'))
+      restoredRoots.push(root)
+      const target = join(root, 'target')
+      const entries = Object.entries(files)
+        .map(([path, content]) => {
+          const abs = join(target, path)
+          mkdirSync(dirname(abs), { recursive: true })
+          writeFileSync(abs, content)
+          return { path, sha256: sha256(content) }
+        })
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+      const manifest = join(root, 'restored.json')
+      writeFileSync(manifest, JSON.stringify({ restored: entries }))
+      return { target, manifest }
+    }
+
+    it('白名單內變更 → ok=true；未提交變更不再是 mismatch（R2）', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only'],
+        verifyGit({
+          diffNameOnly: 'specs/quint/model.qnt\n',
+          shortStat: ' 1 file changed, 5 insertions(+)',
+          status: ' M specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.ok).toBe(true)
+      expect(out.mismatches).toEqual([])
+    })
+
+    it('agent 未 commit 的新檔（untracked）也算交付，不誤判 no-trace', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 10, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only'],
+        verifyGit({ status: '?? specs/quint/model.qnt\n' }),
+      )
+      expect(out.ok).toBe(true)
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+    })
+
+    it('整棵未追蹤的新目錄：兩個檔案逐檔列出並與 report 的 changedPaths 對上（--untracked-files=all）', () => {
+      const repo = mkdtempSync(join(tmpdir(), 'crosscheck-verify-repo-'))
+      try {
+        execFileSync('git', ['init', '-q'], { cwd: repo })
+        execFileSync(
+          'git',
+          ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '--allow-empty', '-qm', 'base'],
+          { cwd: repo },
+        )
+        mkdirSync(join(repo, 'specs', 'quint'), { recursive: true })
+        writeFileSync(join(repo, 'specs', 'quint', 'model.qnt'), 'module Model {}\n')
+        writeFileSync(join(repo, 'specs', 'quint', 'aux.qnt'), 'module Aux {}\n')
+        writeFileSync(
+          reportPath,
+          makeReport({
+            changedPaths: ['specs/quint/model.qnt', 'specs/quint/aux.qnt'],
+            changedLines: 2,
+            requirements: undefined,
+          }),
+        )
+        const out = main(['12', reportPath, '--target', repo, '--base', 'HEAD', '--verify-only'])
+        expect(out.actual.paths).toEqual(['specs/quint/aux.qnt', 'specs/quint/model.qnt'])
+        expect(out.mismatches).toEqual([])
+        expect(out.ok).toBe(true)
+      } finally {
+        rmSync(repo, { recursive: true, force: true })
+      }
+    })
+
+    it('越界變更 → verify-scope（scope、fail-loud），不是 consistency', () => {
+      writeFileSync(reportPath, makeReport({ changedPaths: ['src/a.ts'], changedLines: 30 }))
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only'],
+        verifyGit({ diffNameOnly: 'src/a.ts\n', shortStat: ' 1 file changed, 30 insertions(+)' }),
+      )
+      expect(out.ok).toBe(false)
+      expect(out.mismatches.map((m) => m.kind)).toEqual(['verify-scope'])
+      expect(out.mismatches[0]?.category).toBe('scope')
+      expect(out.headline).toContain('變更超出任務類型允許的範圍')
+    })
+
+    it('requirements 不是驗證階段的必要欄位（G8 只適用開發型工單）', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only'],
+        verifyGit({ diffNameOnly: 'specs/quint/model.qnt\n', shortStat: ' 1 file changed, 5 insertions(+)\n' }),
+      )
+      expect(out.ok).toBe(true)
+      expect(out.mismatches.some((m) => m.kind.startsWith('requirements-'))).toBe(false)
+    })
+
+    it('--restored-manifest：未動的還原輸入（tracked 與 untracked）不算 agent 交付，扣除後與 report 一致', () => {
+      const { target, manifest } = restoredFixture({
+        'specs/quint/RULES.md': '# RULES\n',
+        'specs/quint/TRIAGE.md': '# TRIAGE\n',
+      })
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest],
+        verifyGit({
+          diffNameOnly: 'specs/quint/RULES.md\nspecs/quint/model.qnt\n',
+          shortStat: ' 2 files changed, 8 insertions(+)',
+          status: '?? specs/quint/TRIAGE.md\n?? specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.actual.uncommitted).toEqual(['specs/quint/model.qnt'])
+      expect(out.mismatches).toEqual([])
+      expect(out.ok).toBe(true)
+    })
+
+    it('--restored-manifest：還原端白名單內的測試檔也可扣除（manifest 與還原端同一套路徑規則）', () => {
+      const { target, manifest } = restoredFixture({ 'test/unit.test.ts': 'it("x", () => {})\n' })
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest],
+        verifyGit({
+          diffNameOnly: 'test/unit.test.ts\nspecs/quint/model.qnt\n',
+          shortStat: ' 2 files changed, 6 insertions(+)',
+          status: ' M test/unit.test.ts\n',
+        }),
+      )
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.actual.uncommitted).toEqual([])
+      expect(out.ok).toBe(true)
+    })
+
+    it('--restored-manifest：空的 restored 清單 → 不扣除任何路徑（與沒帶旗標相同）', () => {
+      const manifestPath = join(dir, 'restored-empty.json')
+      writeFileSync(manifestPath, JSON.stringify({ restored: [] }))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+        verifyGit({
+          diffNameOnly: 'specs/quint/model.qnt\n',
+          shortStat: ' 1 file changed, 5 insertions(+)',
+          status: '?? specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.ok).toBe(true)
+    })
+
+    it('--restored-manifest：agent 改動還原輸入 → restored-input-modified（hard），且不從 diff 扣除', () => {
+      const { target, manifest } = restoredFixture({
+        'specs/quint/RULES.md': '# RULES\n',
+        'specs/quint/TRIAGE.md': '# TRIAGE\n',
+      })
+      // agent 改掉上一階段確認過的 RULES.md（唯讀輸入）
+      writeFileSync(join(target, 'specs/quint/RULES.md'), '# RULES\n\n- 放寬：餘額可為負\n')
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 2, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest],
+        verifyGit({
+          diffNameOnly: 'specs/quint/RULES.md\nspecs/quint/model.qnt\n',
+          shortStat: ' 2 files changed, 3 insertions(+)',
+          status: ' M specs/quint/RULES.md\n?? specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.ok).toBe(false)
+      expect(out.mismatches.map((m) => m.kind)).toEqual(['diff-not-reported', 'restored-input-modified'])
+      const modified = out.mismatches[1]
+      expect(modified?.detail).toContain('specs/quint/RULES.md')
+      expect(modified?.detail).toMatch(/修改/)
+      expect(modified?.category).toBe('consistency')
+      // 被改的還原輸入仍算 agent 的變更（雙重訊號：diff-not-reported ＋ restored-input-modified）
+      const unreported = out.mismatches[0]
+      expect(unreported?.detail).toContain('specs/quint/RULES.md')
+      expect(unreported?.detail).not.toContain('specs/quint/TRIAGE.md')
+      expect(out.actual.paths).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
+      expect(out.actual.uncommitted).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
+    })
+
+    it('--restored-manifest：agent 刪除還原輸入 → restored-input-modified（hard）', () => {
+      const { target, manifest } = restoredFixture({
+        'specs/quint/RULES.md': '# RULES\n',
+        'specs/quint/TRIAGE.md': '# TRIAGE\n',
+      })
+      rmSync(join(target, 'specs/quint/TRIAGE.md'))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 1, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest],
+        verifyGit({
+          diffNameOnly: 'specs/quint/TRIAGE.md\nspecs/quint/model.qnt\n',
+          shortStat: ' 2 files changed, 2 insertions(+), 3 deletions(-)',
+          status: ' D specs/quint/TRIAGE.md\n?? specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.ok).toBe(false)
+      const modified = out.mismatches.find((m) => m.kind === 'restored-input-modified')
+      expect(modified?.detail).toContain('specs/quint/TRIAGE.md')
+      expect(modified?.detail).toMatch(/不存在|無法讀取/)
+      // 未動的 RULES.md 照常扣除；被刪的那個留在 diff 裡
+      expect(out.actual.paths).toEqual(['specs/quint/TRIAGE.md', 'specs/quint/model.qnt'])
+    })
+
+    it('--restored-manifest：manifest 的 sha256 不被信任——一律以磁碟重算，偽造雜湊 → mismatch', () => {
+      const { target } = restoredFixture({ 'specs/quint/RULES.md': '# RULES\n' })
+      writeFileSync(join(target, 'specs/quint/RULES.md'), '# tampered\n')
+      const forged = join(dir, 'restored-forged.json')
+      writeFileSync(
+        forged,
+        JSON.stringify({
+          restored: [{ path: 'specs/quint/RULES.md', sha256: sha256('# forged claim\n') }],
+        }),
+      )
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 1, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', forged],
+        verifyGit({
+          diffNameOnly: 'specs/quint/RULES.md\nspecs/quint/model.qnt\n',
+          shortStat: ' 2 files changed, 2 insertions(+)',
+        }),
+      )
+      expect(out.ok).toBe(false)
+      expect(out.mismatches.map((m) => m.kind)).toContain('restored-input-modified')
+      expect(out.mismatches.find((m) => m.kind === 'restored-input-modified')?.detail).toContain(
+        'specs/quint/RULES.md',
+      )
+      // 沒有扣除：manifest 的數值不是「這個檔案沒被動」的證據
+      expect(out.actual.paths).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
+    })
+
+    it('--restored-manifest：重複路徑 → CliError', () => {
+      const entry = { path: 'specs/quint/RULES.md', sha256: sha256('# RULES\n') }
+      const manifestPath = join(dir, 'restored-dup.json')
+      // 兩筆同路徑（雜湊相同或不同都一樣）：扣除結果取決於處理順序，拒絕
+      writeFileSync(manifestPath, JSON.stringify({ restored: [entry, { ...entry, sha256: sha256('other') }] }))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      expect(() =>
+        main(
+          ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+          verifyGit({}),
+        ),
+      ).toThrow(/重複路徑/)
+    })
+
+    it('--restored-manifest：舊版 {restored:[string]} 形狀被明確拒絕（不自動升級）', () => {
+      const manifestPath = join(dir, 'restored-legacy.json')
+      writeFileSync(manifestPath, JSON.stringify({ restored: ['specs/quint/RULES.md'] }))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const run = (): unknown =>
+        main(
+          ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+          verifyGit({}),
+        )
+      expect(run).toThrow(CliError)
+      expect(run).toThrow(/舊版/)
+      expect(run).toThrow(/sha256/)
+      expect(run).toThrow(/restored-manifest/)
+    })
+
+    it('--restored-manifest：PBT 測試檔與 .lake/build 不得列為還原輸入（不得遮蔽 pbt-outside-audit／建置產物）', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const manifestPath = join(dir, 'restored-scope.json')
+      const run = (payload: unknown): unknown => {
+        writeFileSync(manifestPath, JSON.stringify(payload))
+        return main(
+          ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+          verifyGit({}),
+        )
+      }
+      for (const p of [
+        'test/ledger.pbt.test.ts',
+        'specs/quint/ledger.pbt.test.ts',
+        'src/ledger.pbt.test.ts',
+        'specs/lean/.lake/build/Ledger.olean',
+        'specs/quint/.lake/build/trace.itf.json',
+        'specs/lean/.lake/build/sub/x.olean',
+      ]) {
+        expect(() => run({ restored: [{ path: p, sha256: sha256('x') }] }), p).toThrow(/還原白名單/)
+      }
+      // 對照：普通測試檔與 specs 檔（非 PBT、非 .lake/build）仍是合法的還原輸入
+      const { target, manifest } = restoredFixture({
+        'test/ledger.test.ts': 'it("x", () => {})\n',
+        'specs/quint/model.qnt': 'module M {}\n',
+      })
+      expect(() =>
+        main(['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest], verifyGit({})),
+      ).not.toThrow()
+    })
+
+    it('--restored-manifest：檔案不存在、非 JSON、形狀錯或含白名單外路徑 → hard error（不靜默忽略）', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const path = join(dir, 'restored-bad.json')
+      const run = (): ReturnType<typeof main> =>
+        main(['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', path], verifyGit({}))
+      const good = { path: 'specs/quint/RULES.md', sha256: sha256('# RULES\n') }
+
+      expect(() =>
+        main(['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', join(dir, 'nope.json')], verifyGit({})),
+      ).toThrow(/restored-manifest/)
+      for (const bad of [
+        'not json',
+        'null',
+        '42',
+        '"x"',
+        '[]',
+        '{}',
+        '{"restored":"specs/quint/RULES.md"}',
+        '{"restored":{}}',
+        JSON.stringify({ restored: [null] }),
+        JSON.stringify({ restored: [42] }),
+        JSON.stringify({ restored: [['specs/quint/RULES.md']] }),
+        JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md' }] }),
+        JSON.stringify({ restored: [{ sha256: good.sha256 }] }),
+        JSON.stringify({ restored: [{ path: 42, sha256: good.sha256 }] }),
+        JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md', sha256: 42 }] }),
+        JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md', sha256: 'abc' }] }),
+        JSON.stringify({ restored: [{ path: 'specs/quint/RULES.md', sha256: good.sha256.toUpperCase() }] }),
+        JSON.stringify({ restored: [{ path: 'src/app.ts', sha256: good.sha256 }] }),
+        // C1：`.github` segment 一律拒絕，連 specs 樹內也一樣（機制資產）
+        JSON.stringify({ restored: [{ path: 'specs/.github/workflows/x.yml', sha256: good.sha256 }] }),
+        JSON.stringify({ restored: [{ path: '../escape.md', sha256: good.sha256 }] }),
+        JSON.stringify({ restored: [{ path: '/etc/passwd', sha256: good.sha256 }] }),
+      ]) {
+        writeFileSync(path, bad)
+        expect(() => run(), bad).toThrow(/restored-manifest/)
+      }
+      // 路徑字串本身不合還原端規則：空、反斜線、NUL、空／. segment、.git
+      for (const p of ['', 'specs\\x', 'specs/a\0b', 'specs//x', 'specs/./x', 'specs/.git/x']) {
+        const payload = JSON.stringify({ restored: [{ path: p, sha256: good.sha256 }] })
+        writeFileSync(path, payload)
+        expect(() => run(), payload).toThrow(/restored-manifest/)
+      }
+    })
+
+    it('R13 整合：還原的 RULES.md／TRIAGE.md 不算未回報變更；不帶旗標時重現 diff-not-reported 假紅', () => {
+      const repo = mkdtempSync(join(tmpdir(), 'crosscheck-verify-restored-'))
+      try {
+        execFileSync('git', ['init', '-q'], { cwd: repo })
+        execFileSync(
+          'git',
+          ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '--allow-empty', '-qm', 'base'],
+          { cwd: repo },
+        )
+        mkdirSync(join(repo, 'specs', 'quint'), { recursive: true })
+        // factory-verify-input 還原的階段輸入（未追蹤檔）
+        writeFileSync(join(repo, 'specs', 'quint', 'RULES.md'), '# RULES\n')
+        writeFileSync(join(repo, 'specs', 'quint', 'TRIAGE.md'), '# TRIAGE\n')
+        // agent 的交付
+        writeFileSync(join(repo, 'specs', 'quint', 'model.qnt'), 'module Model {}\n')
+        const manifest = join(dir, 'restored-integration.json')
+        writeFileSync(
+          manifest,
+          JSON.stringify({
+            restored: [
+              { path: 'specs/quint/RULES.md', sha256: sha256('# RULES\n') },
+              { path: 'specs/quint/TRIAGE.md', sha256: sha256('# TRIAGE\n') },
+            ],
+          }),
+        )
+        writeFileSync(
+          reportPath,
+          makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 1, requirements: undefined }),
+        )
+
+        const withFlag = main([
+          '12',
+          reportPath,
+          '--target',
+          repo,
+          '--base',
+          'HEAD',
+          '--verify-only',
+          '--restored-manifest',
+          manifest,
+        ])
+        expect(withFlag.ok).toBe(true)
+        expect(withFlag.actual.paths).toEqual(['specs/quint/model.qnt'])
+
+        const withoutFlag = main(['12', reportPath, '--target', repo, '--base', 'HEAD', '--verify-only'])
+        expect(withoutFlag.ok).toBe(false)
+        const mismatch = withoutFlag.mismatches.find((m) => m.kind === 'diff-not-reported')
+        expect(mismatch).toBeDefined()
+        expect(mismatch?.detail).toContain('specs/quint/RULES.md')
+        expect(mismatch?.detail).toContain('specs/quint/TRIAGE.md')
+        expect(mismatch?.detail).not.toContain('model.qnt')
+
+        // 唯讀規則（R15）：agent 改動還原輸入後，同一份 manifest 不再扣除它
+        writeFileSync(join(repo, 'specs/quint/RULES.md'), '# RULES（被 agent 改寫）\n')
+        const tampered = main([
+          '12',
+          reportPath,
+          '--target',
+          repo,
+          '--base',
+          'HEAD',
+          '--verify-only',
+          '--restored-manifest',
+          manifest,
+        ])
+        expect(tampered.ok).toBe(false)
+        expect(tampered.mismatches.map((m) => m.kind)).toContain('restored-input-modified')
+        expect(
+          tampered.mismatches.find((m) => m.kind === 'restored-input-modified')?.detail,
+        ).toContain('specs/quint/RULES.md')
+        // 未動的 TRIAGE.md 仍被扣除
+        expect(tampered.actual.paths).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
+      } finally {
+        rmSync(repo, { recursive: true, force: true })
+      }
+    })
+
+    it('--verify-only 與其他僅產出模式／--variant 併用 → CliError（兩套規則不可同時生效）', () => {
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--analyze-only'])).toThrow(/不可同時指定/)
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--write-spec-phase', 'invariants'])).toThrow(
+        /不可同時指定/,
+      )
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--variant', 'a', '--remote-branches', 'rb.txt'])).toThrow(
+        /--variant/,
+      )
+      // 只給 --remote-branches（沒有 --variant）也一樣：驗證模式沒有分支事實來源
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--remote-branches', 'rb.txt'])).toThrow(/--variant/)
+    })
+
+    it('--restored-manifest：需有值、且只適用於 --verify-only', () => {
+      expect(
+        parseArgs(['12', 'r.json', '--verify-only', '--restored-manifest', '.factory/verify-restored.json'])
+          .restoredManifestPath,
+      ).toBe('.factory/verify-restored.json')
+      expect(parseArgs(['12', 'r.json', '--verify-only']).restoredManifestPath).toBeUndefined()
+      expect(() => parseArgs(['12', 'r.json', '--restored-manifest', 'm.json'])).toThrow(/--verify-only/)
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--restored-manifest'])).toThrow(/requires a path/)
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--restored-manifest', '--base', 'main'])).toThrow(
+        /requires a path/,
+      )
+    })
+  })
+})
+
+/**
+ * C2（final whole-branch review）：驗證模式的 diff 基準必須是「agent 啟動前」的
+ * 不可變 commit。
+ *
+ * `git diff <base>` 的 `<base>` 是本地分支名；驗證 agent 依 R2 可以本地 commit，
+ * commit 一前進 `<base>`（agent 就在該分支上），diff 立刻變空：
+ *   - 合規 agent 的交付消失 → no-trace／reported-not-in-diff 假紅；
+ *   - 越界 agent 的變更消失 → 白名單完全繞過（假綠）。
+ * 修法（R19）：workflow 在 agent 之前把 HEAD 寫到 target 外的 `.factory/base-sha`，
+ * 兩個 CLI 以 `--base-sha <40-hex>` 使用該 commit，忽略分支名。
+ */
+describe('驗證模式的不可變 diff 基準（--base-sha，R19／C2）', () => {
+  const repos: string[] = []
+  let reportPath: string
+
+  const gitIn = (repo: string, ...args: string[]): string =>
+    execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  const commit = (repo: string, message: string): void => {
+    gitIn(repo, 'add', '-A')
+    gitIn(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', message)
+  }
+  const write = (repo: string, rel: string, content: string): void => {
+    const abs = join(repo, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, content)
+  }
+  const newRepo = (): string => {
+    const repo = mkdtempSync(join(tmpdir(), 'crosscheck-base-sha-'))
+    repos.push(repo)
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    write(repo, 'README.md', '# fixture\n')
+    commit(repo, 'base')
+    return repo
+  }
+  const report = (partial: Record<string, unknown>): string => {
+    writeFileSync(reportPath, makeReport({ requirements: undefined, ...partial }))
+    return reportPath
+  }
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-base-sha-report-'))
+    repos.push(dir)
+    reportPath = join(dir, 'report.json')
+  })
+  afterAll(() => {
+    for (const repo of repos.splice(0)) rmSync(repo, { recursive: true, force: true })
+  })
+
+  it('--base-sha 看到 agent 在 base 分支上的 commit；不傳時重現空 diff（假紅）', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'test/x.test.ts', 'it("x", () => {})\n')
+    commit(repo, 'agent commit on base branch')
+
+    const withSha = main([
+      '12',
+      report({ changedPaths: ['specs/quint/model.qnt', 'test/x.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      // 分支名刻意不存在：--base-sha 存在時必須忽略分支名（R19）
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+    expect(withSha.actual.paths.sort()).toEqual(['specs/quint/model.qnt', 'test/x.test.ts'])
+    expect(withSha.mismatches).toEqual([])
+    expect(withSha.ok).toBe(true)
+
+    const withoutSha = main([
+      '12',
+      report({ changedPaths: ['specs/quint/model.qnt', 'test/x.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      '--base',
+      'HEAD',
+      '--verify-only',
+    ])
+    expect(withoutSha.actual.paths).toEqual([])
+    expect(withoutSha.ok).toBe(false)
+    expect(withoutSha.mismatches.map((m) => m.kind)).toContain('no-trace')
+  })
+
+  it('--base-sha 讓已 commit 的越界變更現形 → verify-scope（不傳時被 commit 藏住）', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'src/app.ts', 'export const answer = 42\n')
+    commit(repo, 'agent commit: out-of-scope source change')
+    const reportPathForScope = report({ changedPaths: ['src/app.ts'], changedLines: 1 })
+
+    const withSha = main([
+      '12',
+      reportPathForScope,
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+    expect(withSha.ok).toBe(false)
+    expect(withSha.mismatches.map((m) => m.kind)).toContain('verify-scope')
+    expect(withSha.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+
+    const withoutSha = main(['12', reportPathForScope, '--target', repo, '--base', 'HEAD', '--verify-only'])
+    expect(withoutSha.actual.paths).toEqual([])
+    expect(withoutSha.mismatches.map((m) => m.kind)).toContain('no-trace')
+  })
+
+  it('R24：`git mv` 後 commit——被刪的 src/app.ts 仍在 git 事實裡並被判越界（rename 偵測不得只列新路徑）', () => {
+    const repo = newRepo()
+    write(repo, 'src/app.ts', 'export const answer = 42\n')
+    commit(repo, 'base source file')
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    // 100% 改名：git 預設 rename 偵測顯示成單一 R100，`--name-only` 只列新路徑。
+    mkdirSync(join(repo, 'test'), { recursive: true })
+    gitIn(repo, 'mv', 'src/app.ts', 'test/app.test.ts')
+    commit(repo, 'agent rename')
+
+    const out = main([
+      '12',
+      report({ changedPaths: ['test/app.test.ts'], changedLines: 1 }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+
+    // 新測試檔是 agent 的交付，必須留在事實裡（report 比對與 bundle 都靠它）；
+    // 被改名的產品檔則必須以刪除現形，否則 verify-scope 白名單被繞過。
+    expect(out.actual.paths).toEqual(['src/app.ts', 'test/app.test.ts'])
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+    expect(out.ok).toBe(false)
+  })
+
+  it('R24 containment：沒有改名的 repo，事實與白名單結果不變（--no-renames 不改變一般 diff）', () => {
+    const repo = newRepo()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'test/existing.test.ts', 'it("x", () => {})\n')
+    commit(repo, 'base fixtures')
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\nmodule Aux {}\n')
+    write(repo, 'test/new.test.ts', 'it("y", () => {})\n')
+    commit(repo, 'agent changes')
+
+    const out = main([
+      '12',
+      report({ changedPaths: ['specs/quint/model.qnt', 'test/new.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+
+    expect(out.actual).toEqual({
+      branches: [],
+      paths: ['specs/quint/model.qnt', 'test/new.test.ts'],
+      added: 2,
+      deleted: 0,
+      uncommitted: [],
+      assertionDelta: 0,
+    })
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('--base-sha 需為 40-hex、只適用於 --verify-only、且必須解析得到 commit', () => {
+    const sha = 'a'.repeat(40)
+    expect(parseArgs(['12', 'r.json', '--verify-only', '--base-sha', sha]).baseSha).toBe(sha)
+    expect(parseArgs(['12', 'r.json', '--verify-only']).baseSha).toBeUndefined()
+    expect(() => parseArgs(['12', 'r.json', '--base-sha', sha])).toThrow(/--verify-only/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--base-sha'])).toThrow(/--base-sha/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--base-sha', 'abc123'])).toThrow(/40-hex/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--base-sha', 'g'.repeat(40)])).toThrow(/40-hex/)
+    // 合法形狀但不存在於 repo：main 必須 fail-loud，不得默默退回分支名
+    const repo = newRepo()
+    writeFileSync(reportPath, makeReport({ changedPaths: [], changedLines: 0, requirements: undefined }))
+    expect(() =>
+      main(['12', reportPath, '--target', repo, '--verify-only', '--base-sha', 'f'.repeat(40)]),
+    ).toThrow(/base-sha/)
+  })
+})
+
+/**
+ * N1（third fix wave）：`--base-sha` 不得被 `git replace` 改寫。
+ *
+ * `git diff` 預設會套用 `refs/replace/*`：agent 在 target/ 內執行
+ * `git replace <base-sha> <fake-commit>` 之後，crosscheck 看到的是「fake 基準 vs
+ * HEAD」的 diff——真正的越界變更（例如 src/app.ts）可以整批消失，白名單形同被繞過。
+ * 修法：兩個 CLI 的**所有** git 子行程都經同一個 helper，helper 強制
+ * `GIT_NO_REPLACE_OBJECTS=1`（並以 /dev/null 隔離 global／system config）。
+ */
+describe('N1：git replace refs 不得改寫 --base-sha 的事實', () => {
+  const repos: string[] = []
+  let reportPath: string
+
+  const gitIn = (repo: string, ...args: string[]): string =>
+    execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  const commit = (repo: string, message: string): void => {
+    gitIn(repo, 'add', '-A')
+    gitIn(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', message)
+  }
+  const write = (repo: string, rel: string, content: string): void => {
+    const abs = join(repo, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, content)
+  }
+  const newRepo = (): string => {
+    const repo = mkdtempSync(join(tmpdir(), 'crosscheck-replace-'))
+    repos.push(repo)
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    write(repo, 'README.md', '# fixture\n')
+    commit(repo, 'base')
+    return repo
+  }
+  const report = (partial: Record<string, unknown>): string => {
+    writeFileSync(reportPath, makeReport({ requirements: undefined, ...partial }))
+    return reportPath
+  }
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-replace-report-'))
+    repos.push(dir)
+    reportPath = join(dir, 'report.json')
+  })
+  afterAll(() => {
+    for (const repo of repos.splice(0)) rmSync(repo, { recursive: true, force: true })
+  })
+
+  it('fake base tree（含 src/app.ts、缺 agent 測試檔）→ 真實變更仍現形，src 越界照樣被擋', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'src/app.ts', 'export const answer = 42\n')
+    write(repo, 'test/agent.test.ts', 'it("agent", () => {})\n')
+    commit(repo, 'agent changes')
+    // fake base = 真實 HEAD 的樹再拿掉 agent 的測試檔。套用 replace 後，diff 只剩
+    // 測試檔——src/app.ts 看起來「本來就有」，正是繞過白名單的攻擊。
+    gitIn(repo, 'checkout', '-q', '-b', 'fake-base', 'HEAD')
+    rmSync(join(repo, 'test/agent.test.ts'))
+    commit(repo, 'fake base tree')
+    const fake = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    gitIn(repo, 'checkout', '-q', 'main')
+    gitIn(repo, 'replace', preAgent, fake)
+
+    const out = main([
+      '12',
+      report({
+        changedPaths: ['specs/quint/model.qnt', 'src/app.ts', 'test/agent.test.ts'],
+        changedLines: 3,
+      }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+
+    expect(out.actual.paths.sort()).toEqual(['specs/quint/model.qnt', 'src/app.ts', 'test/agent.test.ts'])
+    expect(out.mismatches.map((m) => m.kind)).toContain('verify-scope')
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+  })
+
+  it('git replace <base> HEAD → diff 不得變空（否則已 commit 的合規交付被判 no-trace）', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'test/agent.test.ts', 'it("agent", () => {})\n')
+    commit(repo, 'agent commit on base branch')
+    gitIn(repo, 'replace', preAgent, 'HEAD')
+
+    const out = main([
+      '12',
+      report({ changedPaths: ['specs/quint/model.qnt', 'test/agent.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ])
+
+    expect(out.actual.paths.sort()).toEqual(['specs/quint/model.qnt', 'test/agent.test.ts'])
+    expect(out.mismatches.map((m) => m.kind)).not.toContain('no-trace')
+  })
+
+  it('global core.pager／diff.external 不得改變輸出（temp HOME）', () => {
+    const repo = newRepo()
+    const preAgent = gitIn(repo, 'rev-parse', 'HEAD').trim()
+    write(repo, 'test/agent.test.ts', 'it("agent", () => {})\nexpect(1).toBe(1)\n')
+    commit(repo, 'agent test')
+    const argv = [
+      '12',
+      report({ changedPaths: ['test/agent.test.ts'], changedLines: 2 }),
+      '--target',
+      repo,
+      '--base',
+      'does-not-exist',
+      '--verify-only',
+      '--base-sha',
+      preAgent,
+    ]
+    const clean = main(argv)
+
+    const home = mkdtempSync(join(tmpdir(), 'crosscheck-hostile-home-'))
+    repos.push(home)
+    writeFileSync(
+      join(home, '.gitconfig'),
+      '[core]\n\tpager = /bin/false\n[diff]\n\texternal = /bin/false\n',
+    )
+    const savedHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      const hostile = main(argv)
+      expect(hostile.actual).toEqual(clean.actual)
+      expect(hostile).toEqual(clean)
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME
+      else process.env.HOME = savedHome
+    }
+  })
+})
+
+/**
+ * N4（fourth fix wave）：repo-local 的 git 檔案面不得改變驗證事實。
+ *
+ * N1 只關掉 global／system config、pager 與 external diff。agent 在 target/ 內有
+ * shell，因此還能寫 `.git/config`、`.git/info/attributes`、`.git/info/exclude` 與
+ * 工作區 `.gitattributes`，而 crosscheck 在 agent **之後**才跑（它的步驟握有 WRITE
+ * App token）：任何一個 repo-local 設定只要能在事實收集時執行程式碼，就等於把 token
+ * 交給 agent。五個實證攻擊（各自一個測試）：
+ *
+ *   1. `diff.<driver>.textconv`＋`.git/info/attributes` → `git diff --unified=0` 執行
+ *      agent 的 script（`--no-ext-diff` 擋不到 textconv）。
+ *   2. `core.fsmonitor` → `git status` 執行 agent 的 script。
+ *   3. `core.worktree=/tmp/fake` → diff 比對假的樹，真實越界變更消失（白名單被繞過）。
+ *   4. `.git/info/exclude`（或 global ignore）＝`*` → 未追蹤交付從 status／ls-files 消失。
+ *   5. `.gitattributes` 的 `* -diff` → diff 說「Binary files differ」，
+ *      assertion 淨減被算成 0（`assertion-delta-understated` 被繞過）。
+ *
+ * 最後一個測試是 containment：沒有敵意設定的正常 repo，事實輸出必須與硬化前相同。
+ */
+describe('N4：repo-local git config／attributes／exclude 不得改變驗證事實', () => {
+  const repos: string[] = []
+  let reportPath: string
+
+  const gitIn = (repo: string, ...args: string[]): string =>
+    execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  const commit = (repo: string, message: string): void => {
+    gitIn(repo, 'add', '-A')
+    gitIn(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', message)
+  }
+  const write = (root: string, rel: string, content: string): void => {
+    const abs = join(root, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, content)
+  }
+  const newRepo = (): string => {
+    const repo = mkdtempSync(join(tmpdir(), 'crosscheck-repo-config-'))
+    repos.push(repo)
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    write(repo, 'README.md', '# fixture\n')
+    commit(repo, 'base')
+    return repo
+  }
+  const head = (repo: string): string => gitIn(repo, 'rev-parse', 'HEAD').trim()
+  const report = (partial: Record<string, unknown>): string => {
+    writeFileSync(reportPath, makeReport({ requirements: undefined, ...partial }))
+    return reportPath
+  }
+  /** 敵意 script：先寫 marker（證明它真的被執行），再跑 body。 */
+  const hostileScript = (name: string, body: string): { path: string; marker: string } => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-hostile-script-'))
+    repos.push(dir)
+    const path = join(dir, `${name}.sh`)
+    const marker = join(dir, `${name}.marker`)
+    writeFileSync(path, `#!/bin/sh\nprintf ran > '${marker}'\n${body}\n`)
+    chmodSync(path, 0o755)
+    return { path, marker }
+  }
+  const verifyArgs = (
+    repo: string,
+    baseSha: string,
+    changedPaths: string[],
+    changedLines: number,
+    extra: Record<string, unknown> = {},
+  ): string[] => [
+    '12',
+    report({ changedPaths, changedLines, ...extra }),
+    '--target',
+    repo,
+    // 分支名刻意不存在：--base-sha 存在時必須忽略它（R19）
+    '--base',
+    'does-not-exist',
+    '--verify-only',
+    '--base-sha',
+    baseSha,
+  ]
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-repo-config-report-'))
+    repos.push(dir)
+    reportPath = join(dir, 'report.json')
+  })
+  afterAll(() => {
+    for (const repo of repos.splice(0)) rmSync(repo, { recursive: true, force: true })
+  })
+
+  it('diff.<driver>.textconv＋.git/info/attributes：agent 的 script 不得被 diff 執行', () => {
+    const repo = newRepo()
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    commit(repo, 'base model')
+    const preAgent = head(repo)
+    const evil = hostileScript('textconv', "printf 'converted\\n'")
+    write(repo, '.git/info/attributes', 'specs/quint/model.qnt diff=evil\n')
+    gitIn(repo, 'config', 'diff.evil.textconv', evil.path)
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n// agent tweak\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['specs/quint/model.qnt'], 1))
+
+    // 攻擊成立時 marker 會被建立：script 在 crosscheck 的 diff 期間執行過（可讀 GH_TOKEN）。
+    expect(existsSync(evil.marker)).toBe(false)
+    expect(out.actual.paths).toContain('specs/quint/model.qnt')
+  })
+
+  it('core.fsmonitor：agent 的 script 不得被 git status 執行', () => {
+    const repo = newRepo()
+    const preAgent = head(repo)
+    const evil = hostileScript('fsmonitor', 'exit 0')
+    gitIn(repo, 'config', 'core.fsmonitor', evil.path)
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['specs/quint/model.qnt'], 1))
+
+    expect(existsSync(evil.marker)).toBe(false)
+    expect(out.actual.paths).toContain('specs/quint/model.qnt')
+  })
+
+  it('core.worktree=/tmp/fake：diff 不得改看假工作樹而藏住 src/app.ts', () => {
+    const repo = newRepo()
+    write(repo, 'src/app.ts', 'export const answer = 1\n')
+    commit(repo, 'base app')
+    const preAgent = head(repo)
+    // 假工作樹保有 base 版的 src/app.ts：core.worktree 生效時 diff 會是空的。
+    const fake = mkdtempSync(join(tmpdir(), 'crosscheck-fake-worktree-'))
+    repos.push(fake)
+    write(fake, 'src/app.ts', 'export const answer = 1\n')
+    gitIn(repo, 'config', 'core.worktree', fake)
+    write(repo, 'src/app.ts', 'export const answer = 2\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['src/app.ts'], 1))
+
+    expect(out.actual.paths).toContain('src/app.ts')
+    expect(out.mismatches.map((m) => m.kind)).toContain('verify-scope')
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+  })
+
+  it('.git/info/exclude＝*：未追蹤的 specs/quint/model.qnt 仍必須現形', () => {
+    const repo = newRepo()
+    const preAgent = head(repo)
+    write(repo, '.git/info/exclude', '*\n')
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['specs/quint/model.qnt'], 1))
+
+    expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('$XDG_CONFIG_HOME/git/ignore（global ignore 預設路徑）＝*：未追蹤交付仍必須現形', () => {
+    const repo = newRepo()
+    const preAgent = head(repo)
+    const xdg = mkdtempSync(join(tmpdir(), 'crosscheck-hostile-xdg-'))
+    repos.push(xdg)
+    write(xdg, 'git/ignore', '*\n')
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    const savedXdg = process.env.XDG_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = xdg
+    try {
+      const out = main(verifyArgs(repo, preAgent, ['specs/quint/model.qnt'], 1))
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.mismatches).toEqual([])
+    } finally {
+      if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = savedXdg
+    }
+  })
+
+  it('.gitattributes 的 `* -diff`：assertion 淨減仍必須被實算（不得變成 Binary files）', () => {
+    const repo = newRepo()
+    write(repo, 'test/x.test.ts', 'expect(1).toBe(1)\nexpect(2).toBe(2)\nexpect(3).toBe(3)\n')
+    write(repo, '.gitattributes', '* -diff\n')
+    commit(repo, 'base with -diff attributes')
+    const preAgent = head(repo)
+    write(repo, 'test/x.test.ts', 'expect(1).toBe(1)\n')
+
+    const out = main(verifyArgs(repo, preAgent, ['test/x.test.ts'], 2, { assertionDelta: 0 }))
+
+    // 真實 delta 是 -2（3 條斷言 → 1 條）；0 是「Binary files differ」的假象。
+    expect(out.actual.assertionDelta).toBeLessThan(0)
+    expect(out.mismatches.map((m) => m.kind)).toContain('assertion-delta-understated')
+  })
+
+  it('containment：沒有敵意設定的正常 repo，事實輸出與硬化前相同', () => {
+    const repo = newRepo()
+    const preAgent = head(repo)
+    write(repo, 'specs/quint/model.qnt', 'module Model {}\n')
+    write(repo, 'test/agent.test.ts', 'expect(1).toBe(1)\nexpect(2).toBe(2)\n')
+    commit(repo, 'agent commit')
+    write(repo, 'specs/quint/untracked.qnt', 'module Untracked {}\n')
+
+    const out = main(
+      verifyArgs(
+        repo,
+        preAgent,
+        ['specs/quint/model.qnt', 'specs/quint/untracked.qnt', 'test/agent.test.ts'],
+        3,
+      ),
+    )
+
+    expect(out.actual.paths.sort()).toEqual([
+      'specs/quint/model.qnt',
+      'specs/quint/untracked.qnt',
+      'test/agent.test.ts',
+    ])
+    expect(out.actual.added).toBe(3)
+    expect(out.actual.deleted).toBe(0)
+    expect(out.actual.assertionDelta).toBe(2)
+    expect(out.actual.uncommitted).toEqual(['specs/quint/untracked.qnt'])
+    expect(out.actual.branches).toEqual([])
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+})
+
+/**
+ * R25（wave 6）：verify 模式的 crosscheck 改吃 `factory-verify-facts` 產出的
+ * facts JSON，**不再對 agent 工作樹跑任何 git 命令**。target 的 clean filter／
+ * index flags／ignore 檔因此沒有執行或說謊的機會。
+ */
+describe('驗證模式的 facts JSON（--facts，R25）', () => {
+  const dirs: string[] = []
+  const sha = 'a'.repeat(40)
+
+  const factsFile = (partial: Record<string, unknown> = {}): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-facts-'))
+    dirs.push(dir)
+    const path = join(dir, 'verify-facts.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        baseSha: sha,
+        changed: [],
+        linesAdded: 0,
+        linesDeleted: 0,
+        assertionDelta: 0,
+        ...partial,
+      }),
+    )
+    return path
+  }
+
+  const reportFile = (partial: Record<string, unknown> = {}): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'crosscheck-facts-report-'))
+    dirs.push(dir)
+    const path = join(dir, 'report.json')
+    writeFileSync(path, makeReport({ requirements: undefined, ...partial }))
+    return path
+  }
+
+  const neverGit: GitRunner = () => {
+    throw new Error('帶 --facts 時不得呼叫 git（R25）')
+  }
+
+  afterAll(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('parseArgs：--facts 需有值、只適用於 --verify-only、且必須搭配 --base-sha', () => {
+    const facts = 'facts.json'
+    expect(parseArgs(['12', 'r.json', '--verify-only', '--base-sha', sha, '--facts', facts]).factsPath).toBe(facts)
+    expect(parseArgs(['12', 'r.json', '--verify-only']).factsPath).toBeUndefined()
+    expect(() => parseArgs(['12', 'r.json', '--facts', facts])).toThrow(/--verify-only/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--facts', facts])).toThrow(/--base-sha/)
+    expect(() => parseArgs(['12', 'r.json', '--verify-only', '--base-sha', sha, '--facts'])).toThrow(/requires/)
+    expect(() =>
+      parseArgs(['12', 'r.json', '--verify-only', '--base-sha', sha, '--facts', '--base', 'main']),
+    ).toThrow(/requires/)
+  })
+
+  it('main 只消費 facts，不呼叫 git；實際值＝facts 的 changed／行數／斷言', () => {
+    const facts = factsFile({
+      changed: [
+        { path: 'test/new.test.ts', status: 'A' },
+        { path: 'specs/quint/model.qnt', status: 'M' },
+      ],
+      linesAdded: 7,
+      linesDeleted: 2,
+      assertionDelta: 3,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['test/new.test.ts', 'specs/quint/model.qnt'], changedLines: 9 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.actual).toEqual({
+      branches: [],
+      paths: ['test/new.test.ts', 'specs/quint/model.qnt'],
+      added: 7,
+      deleted: 2,
+      uncommitted: [],
+      assertionDelta: 3,
+    })
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('status D 的越界刪除仍在事實裡（verify-scope 不得被吃掉）', () => {
+    const facts = factsFile({ changed: [{ path: 'src/app.ts', status: 'D' }], linesDeleted: 3 })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['src/app.ts'], changedLines: 3 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.actual.paths).toEqual(['src/app.ts'])
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain('src/app.ts')
+    expect(out.ok).toBe(false)
+  })
+
+  it('防禦性過濾 neutralised 路徑的「刪除」（舊 facts 的 tracked .dsh 刪除不得 red）', () => {
+    const facts = factsFile({
+      changed: [
+        { path: '.dsh/skills/x/SKILL.md', status: 'D' },
+        { path: '.agents/skills/x/SKILL.md', status: 'D' },
+        { path: 'AGENTS.md', status: 'D' },
+        { path: 'AGENTS.local.md', status: 'D' },
+        { path: 'nested/CLAUDE.local.md', status: 'D' },
+        { path: 'test/new.test.ts', status: 'A' },
+      ],
+      linesAdded: 1,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['test/new.test.ts'], changedLines: 1 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.actual.paths).toEqual(['test/new.test.ts'])
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('R26 (d)：neutralised 路徑的「新增」不是刪除——保留並判 verify-scope（不得靜默吞掉）', () => {
+    const facts = factsFile({
+      changed: [{ path: '.dsh/skills/selfauth/SKILL.md', status: 'A' }],
+      linesAdded: 2,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['.dsh/skills/selfauth/SKILL.md'], changedLines: 2 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.actual.paths).toEqual(['.dsh/skills/selfauth/SKILL.md'])
+    expect(out.ok).toBe(false)
+    expect(out.mismatches.find((m) => m.kind === 'verify-scope')?.detail).toContain(
+      '.dsh/skills/selfauth/SKILL.md',
+    )
+  })
+
+  it('R26 (d)：neutralised 路徑落在 specs 白名單內也不得放行（verify-neutralised-path）', () => {
+    const facts = factsFile({
+      changed: [{ path: 'specs/lean/AGENTS.md', status: 'A' }],
+      linesAdded: 1,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['specs/lean/AGENTS.md'], changedLines: 1 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    const finding = out.mismatches.find((m) => m.kind === 'verify-neutralised-path')
+    expect(finding?.category).toBe('scope')
+    expect(finding?.detail).toContain('specs/lean/AGENTS.md')
+    expect(out.ok).toBe(false)
+  })
+
+  it('R26 (d) 對照組：specs 內的正常新增仍是白名單允許（不誤紅）', () => {
+    const facts = factsFile({
+      changed: [{ path: 'specs/lean/Spec.lean', status: 'A' }],
+      linesAdded: 1,
+    })
+    const out = main(
+      ['12', reportFile({ changedPaths: ['specs/lean/Spec.lean'], changedLines: 1 }), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+      neverGit,
+    )
+    expect(out.mismatches).toEqual([])
+    expect(out.ok).toBe(true)
+  })
+
+  it('--base-sha 與 facts.baseSha 不一致 → CliError（不得默認其中一個）', () => {
+    const facts = factsFile({ baseSha: 'b'.repeat(40) })
+    expect(() =>
+      main(
+        ['12', reportFile(), '--target', 'target', '--verify-only', '--base-sha', sha, '--facts', facts],
+        neverGit,
+      ),
+    ).toThrow(/base-sha.*facts/i)
   })
 })

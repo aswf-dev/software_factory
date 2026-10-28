@@ -232,9 +232,12 @@ describe('nversion 開關（ADR-021）', () => {
     const c = workflow('factory-run.yml').jobs['compare']!.steps
     expect(c.find((s) => s.name === 'Download Variant B artifact')!.if).toBe('inputs.nversion')
     // 卡片與互指區塊額外要求「至少一個變體啟動了 agent」：前置閘門擋下的 run 若照貼，
-    // 會多出一張「兩個變體都沒有 PR」的卡片（2026-10-13 沙箱實測 #11）
+    // 會多出一張「兩個變體都沒有 PR」的卡片（2026-10-13 沙箱實測 #11）。
+    // ADR-029 §5：驗證類沒有 PR／終態，compare 的留言步驟一律跳過（Task 2）。
     for (const name of ['Generate comparison report and post comment', 'Link N-version sibling PRs']) {
-      expect(c.find((s) => s.name === name)!.if, name).toBe("always() && inputs.nversion && steps.terminal.outputs.write == 'true'")
+      expect(c.find((s) => s.name === name)!.if, name).toBe(
+        "always() && needs.run.outputs.verify != 'true' && inputs.nversion && steps.terminal.outputs.write == 'true'",
+      )
     }
   })
 })
@@ -308,7 +311,8 @@ describe('compare job 是 Issue 終態的唯一寫入者（ADR-021）', () => {
     expect(names.indexOf('Write terminal state')).toBeLessThan(names.indexOf('Generate comparison report and post comment'))
     expect(steps().find((s) => s.name === 'Generate comparison report and post comment')!['continue-on-error']).toBe(true)
     expect(names.at(-1)).toBe('Ensure terminal state (guard)')
-    expect(guard().if).toBe("always() && steps.terminal.outcome != 'success'")
+    // ADR-029 §5：驗證類沒有終態可寫，G1 也必須跳過（否則會補貼 needs-human）。
+    expect(guard().if).toBe("always() && needs.run.outputs.verify != 'true' && steps.terminal.outcome != 'success'")
   })
 
   it('對外揭露 write output：沒有變體啟動 agent 時為 false（卡片據此抑制）', () => {

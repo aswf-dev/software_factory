@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildCheckComment,
+  buildCheckSummary,
   buildPlanningHint,
   buildRequirementAnchorLines,
   buildRequirementAnchors,
@@ -277,6 +278,30 @@ describe('parseCheckArgs', () => {
   })
   it('未知參數 → CliError', () => {
     expect(() => parseCheckArgs(['12', 'extra'])).toThrow()
+  })
+
+  it('I1：--summary-out 選填（驗證模式只印合規 boolean 與缺欄位名）', () => {
+    expect(parseCheckArgs(['12', '--summary-out', '.factory/issue-check-summary.json']).paths.summaryOut).toBe(
+      '.factory/issue-check-summary.json',
+    )
+    expect(parseCheckArgs(['12']).paths.summaryOut).toBeUndefined()
+    expect(() => parseCheckArgs(['12', '--summary-out'])).toThrow()
+  })
+})
+
+/**
+ * I1：驗證模式的公開 log 不得帶 Issue 內容。格式卡的「缺欄位」段落本身只含欄位 id，
+ * 但卡片其餘段落引用 Issue 條目、風險路徑與複雜度判據；驗證模式只印這份摘要。
+ */
+describe('buildCheckSummary（I1）', () => {
+  it('只含合規 boolean 與缺欄位 id（不含卡片內容）', () => {
+    const result = checkIssue('### 任務類型\n\nagent-add-tests\n')
+    expect(result.ok).toBe(false)
+    expect(buildCheckSummary(result)).toEqual({ ok: false, missing: ['requirement', 'acceptance'] })
+  })
+
+  it('合規時 missing 為空', () => {
+    expect(buildCheckSummary(checkIssue(COMPLIANT))).toEqual({ ok: true, missing: [] })
   })
 })
 

@@ -23,7 +23,7 @@
  * 合規判定與計分邏輯。
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { load } from 'js-yaml'
 import { minimatch } from 'minimatch'
@@ -821,6 +821,20 @@ export function buildCheckComment(r: CheckResult, recommendation?: ModelRecommen
   return lines.join('\n')
 }
 
+/** 機器可讀的檢查摘要（I1）：只有合規 boolean 與缺欄位 id，沒有任何 Issue 內容。 */
+export interface CheckSummary {
+  ok: boolean
+  missing: RequiredField[]
+}
+
+/**
+ * 建構 `--summary-out` 的內容（I1）。驗證模式的公開 log 只能印這份摘要：
+ * 完整卡片含 Issue 條目、風險路徑與複雜度判據；缺欄位 id 本身是固定列舉值。
+ */
+export function buildCheckSummary(r: CheckResult): CheckSummary {
+  return { ok: r.ok, missing: [...r.missing] }
+}
+
 /** 路徑是否為既有的一般檔案（目錄或不存在皆為 false）。 */
 function isFile(path: string): boolean {
   try {
@@ -846,6 +860,11 @@ export interface IssueCheckPaths {
   catalogPath?: string | undefined
   /** 目標 repo 的 checkout 根目錄；未指定 → write-spec 規格來源存在性延後判定。 */
   targetRoot?: string | undefined
+  /**
+   * 機器可讀摘要輸出路徑（I1）：`{ ok, missing }`，不含卡片內容。驗證模式的
+   * 公開 log 只印這份摘要（合規 boolean ＋ 缺欄位 id），避免 Issue 內容進 log。
+   */
+  summaryOut?: string | undefined
 }
 
 const DEFAULT_TIERS_PATH = 'config/dsh/model-tiers.yaml'
@@ -867,6 +886,7 @@ export function parseCheckArgs(argv: string[]): { issueNumber: string; paths: Is
   let riskPathsPath: string | undefined
   let catalogPath: string | undefined
   let targetRoot: string | undefined
+  let summaryOut: string | undefined
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--tiers') {
@@ -879,6 +899,8 @@ export function parseCheckArgs(argv: string[]): { issueNumber: string; paths: Is
       catalogPath = requireValue(argv, ++i, '--catalog')
     } else if (arg === '--target-root') {
       targetRoot = requireValue(argv, ++i, '--target-root')
+    } else if (arg === '--summary-out') {
+      summaryOut = requireValue(argv, ++i, '--summary-out')
     } else if (issueNumber === undefined) {
       issueNumber = arg
     } else {
@@ -888,14 +910,14 @@ export function parseCheckArgs(argv: string[]): { issueNumber: string; paths: Is
   if (issueNumber === undefined) throw new CliError('issueNumber is required')
   return {
     issueNumber,
-    paths: { tiersPath, providersPath, riskPathsPath, catalogPath, targetRoot },
+    paths: { tiersPath, providersPath, riskPathsPath, catalogPath, targetRoot, summaryOut },
   }
 }
 
 export function main(
   argv: string[],
   gh: GhRunner = realGh,
-): { issueNumber: string; result: CheckResult; comment: string } {
+): { issueNumber: string; result: CheckResult; comment: string; summaryOut?: string | undefined } {
   const { issueNumber, paths } = parseCheckArgs(argv)
   const json = gh(['issue', 'view', issueNumber, '--json', 'body,title'])
   let body: string
@@ -938,14 +960,24 @@ export function main(
     // 由設定供給（非硬編碼）：critical tier 若未宣告則不輸出揭露行。
     criticalPrimary: tiers.critical?.primary,
   }
-  return { issueNumber, result, comment: buildCheckComment(result, recommendation) }
+  return {
+    issueNumber,
+    result,
+    comment: buildCheckComment(result, recommendation),
+    summaryOut: paths.summaryOut,
+  }
 }
 
 /* v8 ignore start -- 副作用區塊：僅在子行程直接執行時進入 */
 if (isMainModule(process.argv[1], import.meta.filename)) {
   try {
-    const { issueNumber, result, comment } = main(process.argv.slice(2))
+    const { issueNumber, result, comment, summaryOut } = main(process.argv.slice(2))
     process.stdout.write(comment + '\n')
+    // I1：驗證模式只讀這份摘要（合規 boolean ＋ 缺欄位 id），完整卡片留在檔案裡
+    // （只進加密 bundle／artifact，不進公開 log）。
+    if (summaryOut !== undefined) {
+      writeFileSync(summaryOut, `${JSON.stringify(buildCheckSummary(result))}\n`)
+    }
     // 不合規 → exit 1（workflow 可據此在 Issue 留言後停止，避免繼續流程）
     if (!result.ok) process.exitCode = 1
   } catch (err) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CliError, formatCliError, runCli, type CliIo } from './run-cli.js'
+import { CliError, formatCliError, runCli, runCliAsync, type CliIo } from './run-cli.js'
 
 function captureIo(): CliIo & { out: string[]; err: string[] } {
   const out: string[] = []
@@ -92,5 +92,56 @@ describe('runCli', () => {
       process.stderr.write = original
     }
     expect(written.join('')).toBe('error: boom\n')
+  })
+})
+
+describe('runCliAsync', () => {
+  it('等待 async 主體後才輸出 JSON（不得把 Promise 印成 {} 並 exit 0）', async () => {
+    const io = captureIo()
+    const code = await runCliAsync(async () => {
+      await Promise.resolve()
+      return { files: ['specs/a.qnt'] }
+    }, io)
+    expect(code).toBe(0)
+    expect(io.err).toEqual([])
+    expect(JSON.parse(io.out.join(''))).toEqual({ files: ['specs/a.qnt'] })
+  })
+
+  it('async 主體 reject → exit code 1 且只印單行錯誤', async () => {
+    const io = captureIo()
+    const code = await runCliAsync(async () => {
+      throw new CliError('recipient 不合法')
+    }, io)
+    expect(code).toBe(1)
+    expect(io.out).toEqual([])
+    expect(io.err.join('')).toBe('error: recipient 不合法\n')
+  })
+
+  it('預設 io 可用（成功走 process.stdout、失敗走 process.stderr）', async () => {
+    const out: string[] = []
+    const err: string[] = []
+    const originalOut = process.stdout.write.bind(process.stdout)
+    const originalErr = process.stderr.write.bind(process.stderr)
+    process.stdout.write = ((chunk: string) => {
+      out.push(String(chunk))
+      return true
+    }) as typeof process.stdout.write
+    process.stderr.write = ((chunk: string) => {
+      err.push(String(chunk))
+      return true
+    }) as typeof process.stderr.write
+    try {
+      expect(await runCliAsync(async () => ({ ok: true }))).toBe(0)
+      expect(
+        await runCliAsync(async () => {
+          throw new CliError('boom')
+        }),
+      ).toBe(1)
+    } finally {
+      process.stdout.write = originalOut
+      process.stderr.write = originalErr
+    }
+    expect(JSON.parse(out.join(''))).toEqual({ ok: true })
+    expect(err.join('')).toBe('error: boom\n')
   })
 })
