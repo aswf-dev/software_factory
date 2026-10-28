@@ -176,8 +176,12 @@ describe('Lean 版本與來源', () => {
     expect(run).toContain('--default-toolchain "$LEAN_TOOLCHAIN"')
     expect(run).toContain('elan" toolchain install "$LEAN_TOOLCHAIN"')
     expect(run).toContain('elan" default "$LEAN_TOOLCHAIN"')
-    // 版本實際生效：lean --version 必須是 4.35.0，否則 fail-loud
-    expect(run).toMatch(/lean" --version[^\n]*\|[^\n]*grep -F "version 4\.35\.0"/)
+    // 版本實際生效：lean --version 必須是 4.35.0，否則 fail-loud。
+    // 不得用 `tee /dev/stderr`：CI 的 stderr 是 pipe，`/dev/stderr` 可能開不起來（ENXIO），
+    // 會讓版本正確時誤紅。
+    expect(run).toContain('LEAN_REPORTED=$("$HOME/.elan/bin/lean" --version)')
+    expect(run).toContain('echo "$LEAN_REPORTED" | grep -F "version 4.35.0"')
+    expect(run).not.toContain('/dev/stderr')
   })
 
   it('workflow 全文不出現那個數學函式庫的名字（core only，ADR-029 §7）', () => {

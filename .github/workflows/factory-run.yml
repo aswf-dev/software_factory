@@ -1080,7 +1080,11 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
           "$HOME/.elan/bin/elan" toolchain install "$LEAN_TOOLCHAIN"
           "$HOME/.elan/bin/elan" default "$LEAN_TOOLCHAIN"
-          "$HOME/.elan/bin/lean" --version | tee /dev/stderr | grep -F "version 4.35.0"
+          # 不要用 tee 把版本同時導到 stderr 裝置檔：GitHub runner 的 stderr 是 pipe，
+          # 該裝置檔在部分環境（含 CI sandbox）開不起來（ENXIO），會讓步驟在版本正確時誤紅。
+          LEAN_REPORTED=$("$HOME/.elan/bin/lean" --version)
+          echo "$LEAN_REPORTED"
+          echo "$LEAN_REPORTED" | grep -F "version 4.35.0"
 
       # 快取存檔是 best-effort（review I6）：條件以 `success()` 開頭，另加
       # `continue-on-error: true`。並行 run 共用同一組固定 key，存檔衝突只該留下
