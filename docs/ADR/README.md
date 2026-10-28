@@ -42,12 +42,12 @@
 | [ADR-010](010-agent-team-tools-deferred.md) | 多 agent 團隊工具（dsh-agent-teams / workflow 工具）延後採用 | 已接受 | `05` §6.1、Q05-5 |
 | [ADR-011](011-model-tier-routing.md) | 依 Issue 複雜度分級路由 LLM 模型（model tier routing） | 已接受 | `04` §7、`06` §3.3、Q06-2 |
 | [ADR-012](012-guardrail-reference-architecture.md) | Guardrail 集中化架構（消除目標 repo 副本漂移） | 已接受 | `04` §3.2、`factory-issue-check.yml`、`factory-run.yml` |
-| [ADR-013](013-trunk-unification-software-factory.md) | factory trunk 統一——機制 repo 也採 software-factory 分支 | 已接受 | `09` §2.2、Q-P2-1、`factory-run.yml` |
+| [ADR-013](013-trunk-unification-software-factory.md) | factory trunk 統一——機制 repo 也採 software-factory 分支 | 已接受；`ADR-029` 修訂 | `09` §2.2、Q-P2-1、`factory-run.yml` |
 | [ADR-014](014-sdlc-tailoring.md) | SDLC 生命週期模型與裁適宣告 | 已接受 | `00` §2、SWEBOK Ch10 §2.8 |
 | [ADR-015](015-factory-scoreboard-platform.md) | Factory Scoreboard 管理平台（平台／Astro 前端／設計風格） | 已接受 | `22`、`26`、Q22-1～9 |
 | [ADR-016](016-agent-authored-skills-propose-only.md) | agent 撰寫技能——「產出」與「生效」分離 | 已接受 | `25`、`04` §3.2、`05` §1.1、`06` §4.3 |
 | [ADR-017](017-backstage-work-item-history.md) | Backstage 解凍擴大——工作項歷史唯讀查閱 | 已接受 | `ADR-009`、`03` §3.4 |
-| [ADR-018](018-intent-driven-write-spec.md) | `agent-write-spec` 改為規格書驅動——不變量出自意圖、模型出自程式碼 | 已接受（實作待後續 PR） | `ADR-008`、`21` §2.1、Q21-1／Q21-2 |
+| [ADR-018](018-intent-driven-write-spec.md) | `agent-write-spec` 改為規格書驅動——不變量出自意圖、模型出自程式碼 | 已接受（實作待後續 PR）；`ADR-029` 修訂 | `ADR-008`、`21` §2.1、Q21-1／Q21-2 |
 | [ADR-019](019-property-based-testing-hegel.md) | 目標 repo 的程式碼層驗證採 PBT（Hegel），以事後稽核工作項執行 | 已接受（實作中，2026-10-05 修訂） | `ADR-008`、`ADR-018` §1、`11`、`research/pbt-library-survey-2026-10`、`research/hegel-ts-pilot-fubon-2026-10` |
 | [ADR-020](020-sase-adoption.md) | SASE 方法論的採用範圍與不採用理由（ACE／AEE／LoopScript／CRP 不採用；BriefingScript 增量另開工項） | 已接受（N-version 一列由 ADR-021 取代） | `research/sase-adoption-analysis-2026-10-09`、`10` Q20-SASE-1～3 |
 | [ADR-021](021-nversion-parallel-pattern.md) | N-version 平行執行——追認與修正（可選開關、`compare` 為唯一終態寫入者、G1／G2 認終態標記、draft PR 由人選勝者）；附代理設計模式採用邊界 | 已接受 | `ADR-020`、`ADR-010`、`docs/24`、`docs/18`、`docs/26` §3 |
@@ -58,6 +58,7 @@
 | [ADR-026](026-project-owned-process-spec.md) | 系統流程 spec 歸專案所有（`factory/system.yaml`）；機制 repo 只保留納管名冊與規則，讀取時驗證；揭露 public 機制 repo 使租戶隔離失效（模板與快照可匿名讀取） | 已接受；檔案格式已被 `ADR-027` §9 取代 | `ADR-023` §1、`ADR-025`、`ADR-001` |
 | [ADR-027](027-bpmn-process-orchestration.md) | 以 BPMN 編排系統價值流——GitHub 管事實、Durable Object 管流程位置；人按送出才派工；工作項＝工廠擁有的子流程；HG 為 message catch、以本人身分在 GitHub 簽核；模板／系統／模組全部以 BPMN XML 為正本；process.yaml 只往前刪除 | 已接受 | `ADR-028`、`research/56-bpmn-orchestration`、`ADR-001`、`ADR-022`～`ADR-026` |
 | [ADR-028](028-bpmn-runtime-stack.md) | BPMN 執行技術選型——bpmnkit 全環境使用（編輯器／檢視器／linter／模擬／執行）、DO 以事件日誌為準、記憶體快取＋冷喚醒重播、Workers Paid、FEEL-only、與 Scoreboard 同 Worker、WebSocket Hibernation、PITR 備援、引擎升級重播閘門；附 PoC 驗收標準 | 已接受（PoC 驗收中） | `ADR-027`、`research/56-bpmn-orchestration`、`ADR-015` |
+| [ADR-029](029-formal-verification-service.md) | aswf.dev 形式化驗證服務——BPMN 串起 grill（G1）→ Quint（G2）→ Lean（G3）→ 反例測試（G4）；一般使用者到 G2、白名單到 G4；GitHub OAuth＋repo write 權限；公開 runner 以 age 加密 artifact、延後發佈且資安發現不公開；驗證專用接入 | 已接受（PoC 驗收中） | `ADR-027`、`ADR-028`、`ADR-018`、`ADR-013`、`ADR-001` |
 
 ## 何時該寫新的 ADR
 

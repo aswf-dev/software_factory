@@ -1,6 +1,7 @@
 # ADR-013：factory trunk 統一——機制 repo 也採 software-factory 分支
 
 - **狀態**：已接受
+- **修訂**：`ADR-029` §6（2026-10-27）——驗證專用 repo（`agent-verify-*`）豁免 `software-factory` trunk；其 PR 由 `factory.verify.publish` 對預設分支開出，永遠不自動合併。其他 task type 不變。
 - **日期**：2026-08-28
 - **決定者**：平台架構（人類直接指示：統一所有 repo 的做法，含 software_factory 自身）
 - **對應**：`09-roadmap.md` §2.2（Q-P2-1）、`10-open-questions.md` Q-P2-1、`factory-run.yml`（base_branch input 與 Guard）、`backstage/templates/*`（baseBranch 欄位）、`007-stacked-pr-workflow.md`、`ADR/003`
