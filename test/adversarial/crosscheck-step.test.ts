@@ -35,6 +35,8 @@ function crosscheckValues(overrides: Record<string, string>): Record<string, str
   return {
     'steps.tasktype.outputs.value': 'agent-fix-bug',
     'steps.verifymode.outputs.verify': 'false',
+    // 階段輸入步驟的 outcome；預設未執行（非驗證模式）
+    'steps.verifyinput.outcome': '',
     'inputs.issue_number': '670',
     'inputs.base_branch': 'software-factory',
     'github.run_id': '424242',
@@ -267,12 +269,33 @@ describe('crosscheck step：N-version 變體隔離', () => {
   })
 
   it('驗證模式：帶 --verify-only、不呼叫 ls-remote、不傳 --variant（ADR-029 §5）', () => {
-    const r = runStep({ stdout: ok, stderr: '', code: 0 }, '', { 'steps.verifymode.outputs.verify': 'true' })
+    const r = runStep({ stdout: ok, stderr: '', code: 0 }, '', {
+      'steps.verifymode.outputs.verify': 'true',
+      'steps.verifyinput.outcome': 'skipped',
+    })
     expect(r.status, r.log).toBe(0)
     expect(r.nodeArgs).toContain('--verify-only')
     expect(r.nodeArgs).not.toContain('--variant')
+    // 沒還原階段輸入 → 不帶 manifest
+    expect(r.nodeArgs).not.toContain('--restored-manifest')
     // 驗證分支不呼叫 git ls-remote（stub 對非預期呼叫 exit 99，status 0 即證明）
     expect(r.remoteBranches).toBeUndefined()
+  })
+
+  it('階段輸入步驟成功 → 帶 --restored-manifest；未執行 → 不帶（R13）', () => {
+    const ran = runStep({ stdout: ok, stderr: '', code: 0 }, '', {
+      'steps.verifymode.outputs.verify': 'true',
+      'steps.verifyinput.outcome': 'success',
+    })
+    expect(ran.status, ran.log).toBe(0)
+    expect(ran.nodeArgs).toContain('--restored-manifest .factory/verify-restored.json')
+
+    const skipped = runStep({ stdout: ok, stderr: '', code: 0 }, '', {
+      'steps.verifymode.outputs.verify': 'true',
+      'steps.verifyinput.outcome': 'skipped',
+    })
+    expect(skipped.status, skipped.log).toBe(0)
+    expect(skipped.nodeArgs).not.toContain('--restored-manifest')
   })
 })
 

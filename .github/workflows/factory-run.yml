@@ -264,7 +264,13 @@ jobs:
                 const { checkIssue } = await import("./dist/cli/factory-issue-check.js")
                 process.stdout.write(checkIssue(s).taskType ?? "")
               })')
-          echo "issue 宣告的任務類型: ${DECLARED:-（無法解析）}"
+          # 宣告值來自 Issue body（自由文字），可能含 workflow command 或換行；只印
+          # 布林值，原值只進 $GITHUB_OUTPUT（不是 log），且在 allowlist 之後才被使用。
+          if [ -n "$DECLARED" ]; then
+            echo "declared task type present: true"
+          else
+            echo "declared task type present: false"
+          fi
           if [ "$REQUESTED" = "auto" ]; then
             if [ -z "$DECLARED" ]; then
               echo "::error::task_type=auto 但 Issue #${{ inputs.issue_number }} 的任務類型欄位無法解析。請修正 Issue，或 dispatch 時顯式指定 task_type。"
@@ -274,10 +280,11 @@ jobs:
           else
             RESOLVED="$REQUESTED"
             if [ -n "$DECLARED" ] && [ "$DECLARED" != "$REQUESTED" ]; then
-              echo "::notice::dispatch 指定 task_type=${REQUESTED}，與 Issue 宣告的 $DECLARED 不同——以 dispatch 為準（人類覆寫）。"
+              echo "::notice::dispatch 指定的 task_type 與 Issue 宣告不同——以 dispatch 為準（人類覆寫；原值不進 log）。"
             fi
           fi
-          echo "resolved task_type: $RESOLVED"
+          # 不印 resolved 值（可能來自 Issue body）；allowlist 步驟通過後才由
+          # 後續步驟經 steps.tasktype.outputs.value 使用。
           echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
 
       # R12（ADR-029 §5 安全修補）：resolved task type 可以來自 Issue body（自由文字），
@@ -568,8 +575,10 @@ jobs:
       #     有大小與時間上限（--max-filesize 在伺服器未宣告長度時擋不住，故下載後再量一次）。
       #   - 私鑰只來自 repo secret VERIFY_RUNNER_AGE_IDENTITY（不是 Worker 的
       #     VERIFY_AGE_PRIVATE_KEY），以 env 名稱交給 CLI；URL 有值而 secret 缺漏 → fail closed。
-      #   - log 只印還原數量，不印路徑（run log 公開）。
+      #   - log 只印還原數量，不印路徑（run log 公開）；還原清單寫到
+      #     .factory/verify-restored.json（target 外，不進 bundle、不進 artifact）。
       - name: Restore verify stage input (age)
+        id: verifyinput
         if: steps.verifymode.outputs.verify == 'true' && inputs.verify_input_url != ''
         env:
           VERIFY_INPUT_URL: ${{ inputs.verify_input_url }}
@@ -578,8 +587,10 @@ jobs:
           set -euo pipefail
           MAX_BUNDLE_BYTES=20971520
           # host 必須逐字是 aswf.dev 且緊接 `/`（排除 userinfo、port、相似網域）；
-          # 其餘只允許 URL 安全字元（無空白、引號、反斜線、`#`、`$`、`@`）。
-          URL_RE='^https://aswf\.dev/[A-Za-z0-9._~%/?=&+-]*$'
+          # path/query 允許 RFC 3986 pchar 中的 `: , ; ! ' ( ) *`（合法 URL 字元，
+          # 不加白名單會誤擋 Worker 產生的簽章路徑）；仍拒絕空白、引號、反斜線、
+          # `#`（fragment）、`$` 與 `@`（shell／userinfo 混淆面）。
+          URL_RE="^https://aswf\.dev/[A-Za-z0-9._~%/?=&+:,;!()*'-]*\$"
           if ! [[ "$VERIFY_INPUT_URL" =~ $URL_RE ]]; then
             echo "::error::階段輸入 URL 必須是 https://aswf.dev/…（host 逐字比對、無 userinfo／port、無空白或 shell 字元）——拒絕下載（ADR-029 §5）"
             exit 1
@@ -600,8 +611,11 @@ jobs:
             echo "::error::階段輸入 bundle 超過 ${MAX_BUNDLE_BYTES} bytes——拒絕還原"
             exit 1
           fi
+          # manifest（.factory/verify-restored.json，target 外）記錄本次還原的檔案，
+          # 供 crosscheck 把它們從 agent 的實際 diff 扣除（R13）；只寫檔、不印路徑。
           RESULT=$(node dist/cli/factory-verify-input.js \
-            --bundle "$BUNDLE" --identity-env VERIFY_RUNNER_AGE_IDENTITY --target target)
+            --bundle "$BUNDLE" --identity-env VERIFY_RUNNER_AGE_IDENTITY --target target \
+            --manifest .factory/verify-restored.json)
           COUNT=$(printf '%s' "$RESULT" | jq -r '.restored | numbers')
           echo "verify stage input restored: ${COUNT} file(s)"
 
@@ -1421,6 +1435,8 @@ jobs:
           GH_REPO: ${{ inputs.repo }}
           # task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換（review M4）
           STAGE: ${{ steps.tasktype.outputs.value }}
+          # 階段輸入步驟是否實際執行（R13）：只有它成功才會有還原清單可扣除。
+          VERIFY_INPUT_OUTCOME: ${{ steps.verifyinput.outcome }}
         run: |
           set +e
           ANALYZE_FLAG=""
@@ -1484,8 +1500,15 @@ jobs:
           # specs／測試檔白名單。變體隔離只看分支，驗證模式不適用（不傳 --variant）。
           VERIFY_FLAG=""
           VARIANT_FLAG=""
+          RESTORED_FLAG=""
           if [ "${{ steps.verifymode.outputs.verify }}" = "true" ]; then
             VERIFY_FLAG="--verify-only"
+            if [ "$VERIFY_INPUT_OUTCOME" = "success" ]; then
+              # 還原的階段輸入不是 agent 的交付；交由 crosscheck 從實際 diff 扣除
+              # （檔案不存在／格式壞時 crosscheck 直接失敗，不靜默忽略）。
+              RESTORED_FLAG="--restored-manifest .factory/verify-restored.json"
+              echo "驗證模式：crosscheck 扣除階段輸入還原清單（R13）"
+            fi
             echo "驗證模式：crosscheck 以工作區 diff 比對 specs/** 與測試檔白名單（ADR-029 §5）"
           else
             if git -C target ls-remote --heads origin > .factory/ls-remote.txt; then
@@ -1499,7 +1522,7 @@ jobs:
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG $RESTORED_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e

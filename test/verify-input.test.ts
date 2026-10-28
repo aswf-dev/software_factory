@@ -13,13 +13,14 @@
  *   4. 合法 bundle 位元組不變地還原，已存在的檔案被覆寫；
  *   5. CLI 只印還原數量，不印路徑（run log 是公開的）。
  */
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { Encrypter, generateX25519Identity, identityToRecipient } from 'age-encryption'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { encryptVerifyBundle } from '../src/cli/factory-verify-encrypt.js'
+import { VERIFY_MECHANISM_FILES, encryptVerifyBundle } from '../src/cli/factory-verify-encrypt.js'
 import { main, parseArgs, restoreVerifyInput } from '../src/cli/factory-verify-input.js'
+import { CliError, formatCliError } from '../src/cli/run-cli.js'
 
 interface Line {
   kind?: unknown
@@ -148,13 +149,44 @@ describe('restoreVerifyInput：合法 bundle 位元組不變地還原', () => {
     }
   })
 
-  it('空 bundle（沒有任何行）→ 還原 0 個檔案', async () => {
+  it('空 bundle（沒有任何行）→ 拒絕（fail closed：階段 ≥2 不得在缺輸入下執行）', async () => {
     const target = tempDir('verify-input-target-')
     const encrypter = new Encrypter()
     encrypter.addRecipient(recipient)
     const bundle = await encrypter.encrypt('')
 
-    await expect(restoreVerifyInput({ bundle, identity, targetDir: target })).resolves.toEqual({ restored: [] })
+    await expect(restoreVerifyInput({ bundle, identity, targetDir: target })).rejects.toThrow(/沒有任何檔案/)
+    expect(readdirSync(target)).toEqual([])
+  })
+
+  it('只有空白行的 bundle 也算空 → 拒絕，不寫任何檔', async () => {
+    const target = tempDir('verify-input-target-')
+    const bundle = await encryptLines([])
+
+    await expect(restoreVerifyInput({ bundle, identity, targetDir: target })).rejects.toThrow(/沒有任何檔案/)
+    expect(readdirSync(target)).toEqual([])
+  })
+
+  it('把還原清單寫到 target 外的 manifest（排序後；不進 bundle）', async () => {
+    const target = tempDir('verify-input-target-')
+    const workspace = tempDir('verify-input-workspace-')
+    const manifestPath = join(workspace, '.factory', 'verify-restored.json')
+    // 既有 manifest 被覆寫（上一輪殘留），且父目錄已存在
+    mkdirSync(dirname(manifestPath), { recursive: true })
+    writeFileSync(manifestPath, '{"restored":["stale"]}\n')
+    const bundle = await encryptLines([
+      line('specs/quint/TRIAGE.md', TRIAGE),
+      line('specs/quint/RULES.md', RULES),
+    ])
+
+    const result = await restoreVerifyInput({ bundle, identity, targetDir: target, manifestPath })
+
+    expect(result.restored).toEqual(['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'])
+    expect(JSON.parse(readFileSync(manifestPath, 'utf8'))).toEqual({
+      restored: ['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'],
+    })
+    // manifest 是 workspace 的機制檔，不在加密 bundle 的機制檔清單內
+    expect(VERIFY_MECHANISM_FILES as readonly string[]).not.toContain('verify-restored.json')
   })
 
   it('target 內的既有目錄（非 symlink）照常寫入', async () => {
@@ -172,6 +204,47 @@ describe('restoreVerifyInput：合法 bundle 位元組不變地還原', () => {
 describe('restoreVerifyInput：整份拒絕（fail closed，不寫任何檔）', () => {
   /** 一份合法的開頭行：證明拒絕發生在任何寫入之前（不是「寫到壞行才停」）。 */
   const GOOD = line('specs/quint/RULES.md', RULES)
+
+  it('manifest 路徑落在 target 內 → 拒絕（不得把還原清單寫進 agent 工作區），且不寫任何檔', async () => {
+    const target = tempDir('verify-input-target-')
+    writeFixture(target, 'specs/quint/TRIAGE.md', 'existing triage')
+    const before = snapshot(target)
+    const bundle = await encryptLines([GOOD])
+
+    await expect(
+      restoreVerifyInput({
+        bundle,
+        identity,
+        targetDir: target,
+        manifestPath: join(target, '.factory', 'verify-restored.json'),
+      }),
+    ).rejects.toThrow(/target 外/)
+    expect(snapshot(target)).toEqual(before)
+    expect(existsSync(join(target, '.factory'))).toBe(false)
+  })
+
+  it('manifest 就是 target 本身 → 拒絕（不得把清單寫成 agent 工作區）', async () => {
+    const target = tempDir('verify-input-target-')
+    const bundle = await encryptLines([GOOD])
+    const before = snapshot(target)
+
+    await expect(
+      restoreVerifyInput({ bundle, identity, targetDir: target, manifestPath: target }),
+    ).rejects.toThrow(/target 外/)
+    expect(snapshot(target)).toEqual(before)
+  })
+
+  it('bundle 被拒時不寫 manifest（不留下「已還原」的假紀錄）', async () => {
+    const target = tempDir('verify-input-target-')
+    const workspace = tempDir('verify-input-workspace-')
+    const manifestPath = join(workspace, '.factory', 'verify-restored.json')
+    const bundle = await encryptLines([line('src/app.ts', 'x')])
+
+    await expect(
+      restoreVerifyInput({ bundle, identity, targetDir: target, manifestPath }),
+    ).rejects.toThrow(/白名單/)
+    expect(existsSync(manifestPath)).toBe(false)
+  })
 
   async function expectRejected(
     bad: readonly (Line | string)[],
@@ -225,6 +298,35 @@ describe('restoreVerifyInput：整份拒絕（fail closed，不寫任何檔）',
     await expectRejected([line('.git/test/x', 'x')], /\.git/)
     await expectRejected([line('specs/.git/config', '[core]')], /\.git/)
     await expectRejected([line('.factory/run/test/x', 'x')], /\.factory/)
+  })
+
+  it('`specs/**/.lake/build/**`（加密端不打包的建置快取）→ 拒絕，不只略過', async () => {
+    await expectRejected([line('specs/lean/.lake/build/Proofs.olean', 'cache')], /lake\/build|建置快取/)
+    await expectRejected([line('specs/lean/.lake/build/nested/deep.olean', 'cache')], /lake\/build|建置快取/)
+    await expectRejected([line('specs/lean/.lake/build', 'cache')], /lake\/build|建置快取/)
+  })
+
+  it('單一 segment 超過 NAME_MAX（255 bytes）→ 寫入前就拒絕', async () => {
+    await expectRejected([line(`specs/${'a'.repeat(256)}.qnt`, 'x')], /segment 過長/)
+    await expectRejected([line(`specs/中${'文'.repeat(85)}.qnt`, 'x')], /segment 過長/)
+  })
+
+  it('總路徑長度超過 PATH_MAX → 寫入前就拒絕', async () => {
+    const deep = `specs/${Array.from({ length: 400 }, (_, i) => `d${i}`).join('/')}/x.qnt`
+    expect(deep.length).toBeGreaterThan(1024)
+    await expectRejected([line(deep, 'x')], /過長/)
+  })
+
+  it('相對路徑合規、但含 target 的絕對路徑超過 PATH_MAX → 寫入前就拒絕', async () => {
+    const target = tempDir('verify-input-target-')
+    // 1000+ bytes 的相對路徑（<= 1024）＋ target 的絕對路徑必然超過上限
+    const longRel = `specs/${'aa/'.repeat(331)}x`
+    expect(Buffer.byteLength(longRel)).toBeLessThanOrEqual(1024)
+    expect(Buffer.byteLength(join(target, longRel))).toBeGreaterThan(1024)
+    const bundle = await encryptLines([line(longRel, 'x')])
+
+    await expect(restoreVerifyInput({ bundle, identity, targetDir: target })).rejects.toThrow(/過長/)
+    expect(readdirSync(target)).toEqual([])
   })
 
   it('空路徑、NUL、反斜線、空 segment（a//b）、`.` segment → 拒絕', async () => {
@@ -284,6 +386,16 @@ describe('restoreVerifyInput：整份拒絕（fail closed，不寫任何檔）',
     await expectRejected([{ kind: 'target', path: 42, b64: '' }], /path/)
   })
 
+  it('解密後不是 UTF-8（非法位元組）→ 拒絕、不寫檔', async () => {
+    const target = tempDir('verify-input-target-')
+    const encrypter = new Encrypter()
+    encrypter.addRecipient(recipient)
+    const bundle = await encrypter.encrypt(Uint8Array.from([0xff, 0xfe, 0x0a]))
+
+    await expect(restoreVerifyInput({ bundle, identity, targetDir: target })).rejects.toThrow(/UTF-8/)
+    expect(readdirSync(target)).toEqual([])
+  })
+
   it('私鑰不對或密文損毀 → 拒絕、不寫檔', async () => {
     const target = tempDir('verify-input-target-')
     const bundle = await encryptLines([GOOD])
@@ -294,6 +406,87 @@ describe('restoreVerifyInput：整份拒絕（fail closed，不寫任何檔）',
     corrupted[corrupted.length - 1] = (corrupted[corrupted.length - 1] ?? 0) ^ 0xff
     await expect(restoreVerifyInput({ bundle: corrupted, identity, targetDir: target })).rejects.toThrow(/解密/)
     expect(readdirSync(target)).toEqual([])
+  })
+
+  it('前綴正確但 checksum 錯的私鑰 → 錯誤訊息不含私鑰或其前 20 字元（run log 公開）', async () => {
+    const target = tempDir('verify-input-target-')
+    const bundle = await encryptLines([GOOD])
+    // 合法前綴、合法長度，但 bech32 checksum 錯：@scure/base 的原始錯誤會
+    // 插值整把私鑰（"Invalid checksum in AGE-SECRET-KEY-1…"），絕不可外流。
+    const badIdentity = `AGE-SECRET-KEY-1${'Q'.repeat(58)}`
+    expect(badIdentity.slice(0, 20)).toBe('AGE-SECRET-KEY-1QQQQ')
+
+    const error = await restoreVerifyInput({ bundle, identity: badIdentity, targetDir: target }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(CliError)
+    const message = (error as Error).message
+    const formatted = formatCliError(error)
+    for (const text of [message, formatted]) {
+      expect(text).not.toContain(badIdentity)
+      expect(text).not.toContain(badIdentity.slice(0, 20))
+      expect(text).not.toMatch(/checksum/i)
+      expect(text).toMatch(/解密失敗/)
+    }
+    expect(readdirSync(target)).toEqual([])
+  })
+
+  it('寫入時的檔案系統錯誤不帶絕對路徑（只指相對路徑）', async () => {
+    // root 不受目錄權限限制，這個情境無法重現（CI 與本機都以一般使用者執行）。
+    if (process.getuid?.() === 0) return
+    const target = tempDir('verify-input-target-')
+    const bundle = await encryptLines([GOOD])
+    chmodSync(target, 0o500)
+    try {
+      const error = await restoreVerifyInput({ bundle, identity, targetDir: target }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(CliError)
+      const message = (error as Error).message
+      expect(message).toContain('specs/quint/RULES.md')
+      expect(message).not.toContain(target)
+      expect(formatCliError(error)).not.toContain(target)
+    } finally {
+      chmodSync(target, 0o700)
+    }
+    expect(readdirSync(target)).toEqual([])
+  })
+
+  it('target 無法列舉（權限）→ 檔案狀態錯誤也只帶相對路徑', async () => {
+    if (process.getuid?.() === 0) return // root 不受目錄權限限制
+    const target = tempDir('verify-input-target-')
+    const bundle = await encryptLines([GOOD])
+    chmodSync(target, 0o000)
+    try {
+      const error = await restoreVerifyInput({ bundle, identity, targetDir: target }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(CliError)
+      expect((error as Error).message).toContain('specs')
+      expect((error as Error).message).not.toContain(target)
+      expect(formatCliError(error)).not.toContain(target)
+      expect((error as Error).message).toMatch(/EACCES/)
+    } finally {
+      chmodSync(target, 0o700)
+    }
+  })
+
+  it('manifest 寫不出來（workspace 唯讀）→ 拒絕、只帶 errno 不帶絕對路徑', async () => {
+    if (process.getuid?.() === 0) return
+    const target = tempDir('verify-input-target-')
+    const workspace = tempDir('verify-input-workspace-')
+    const manifestPath = join(workspace, '.factory', 'verify-restored.json')
+    const bundle = await encryptLines([GOOD])
+    chmodSync(workspace, 0o500)
+    try {
+      const error = await restoreVerifyInput({
+        bundle,
+        identity,
+        targetDir: target,
+        manifestPath,
+      }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(CliError)
+      expect((error as Error).message).toMatch(/還原清單/)
+      expect((error as Error).message).not.toContain(workspace)
+      expect(formatCliError(error)).not.toContain(workspace)
+    } finally {
+      chmodSync(workspace, 0o700)
+    }
   })
 
   it('identity 空白或不是 AGE-SECRET-KEY-1… → 拒絕（缺 secret 時 fail closed）', async () => {
@@ -317,11 +510,20 @@ describe('restoreVerifyInput：整份拒絕（fail closed，不寫任何檔）',
 })
 
 describe('CLI：parseArgs／main（只印數量）', () => {
-  it('--bundle／--identity-env／--target 映射', () => {
+  it('--bundle／--identity-env／--target 映射；--manifest 預設 .factory/verify-restored.json', () => {
     expect(parseArgs(['--target', 'target', '--bundle', 'b.age', '--identity-env', 'VERIFY_RUNNER_AGE_IDENTITY'])).toEqual({
       bundleFile: 'b.age',
       identityEnv: 'VERIFY_RUNNER_AGE_IDENTITY',
       targetDir: 'target',
+      manifestFile: '.factory/verify-restored.json',
+    })
+    expect(
+      parseArgs(['--target', 't', '--bundle', 'b', '--identity-env', 'X', '--manifest', 'ws/restored.json']),
+    ).toEqual({
+      bundleFile: 'b',
+      identityEnv: 'X',
+      targetDir: 't',
+      manifestFile: 'ws/restored.json',
     })
   })
 
@@ -334,20 +536,44 @@ describe('CLI：parseArgs／main（只印數量）', () => {
     expect(() => parseArgs(['--bundle', 'b', '--identity-env', 'X', '--target', 't', '--force', 'y'])).toThrow(
       /unknown argument/,
     )
+    expect(() => parseArgs(['--bundle', 'b', '--identity-env', 'X', '--target', 't', '--manifest'])).toThrow(
+      /requires a value/,
+    )
+    expect(() => parseArgs(['--bundle', 'b', '--identity-env', 'X', '--target', 't', '--manifest', ' '])).toThrow(
+      /must not be empty/,
+    )
   })
 
-  it('main 從具名 env 讀私鑰、只回傳還原數量（不回傳路徑，run log 公開）', async () => {
+  it('main 從具名 env 讀私鑰、只回傳還原數量（不回傳路徑，run log 公開），並寫出 manifest', async () => {
     const target = tempDir('verify-input-target-')
     const bundleFile = join(tempDir('verify-input-bundle-'), 'input.age')
+    const manifestFile = join(tempDir('verify-input-manifest-'), '.factory', 'verify-restored.json')
     writeFileSync(bundleFile, await encryptLines([line('specs/quint/RULES.md', RULES), line('specs/quint/TRIAGE.md', TRIAGE)]))
 
-    const result = await main(['--bundle', bundleFile, '--identity-env', 'TEST_RUNNER_IDENTITY', '--target', target], {
-      TEST_RUNNER_IDENTITY: identity,
-    })
+    const result = await main(
+      ['--bundle', bundleFile, '--identity-env', 'TEST_RUNNER_IDENTITY', '--target', target, '--manifest', manifestFile],
+      { TEST_RUNNER_IDENTITY: identity },
+    )
 
     expect(result).toEqual({ restored: 2 })
     expect(JSON.stringify(result)).not.toContain('RULES')
     expect(readFileSync(join(target, 'specs/quint/RULES.md'), 'utf8')).toBe(RULES)
+    expect(JSON.parse(readFileSync(manifestFile, 'utf8'))).toEqual({
+      restored: ['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'],
+    })
+  })
+
+  it('main：bundle 檔不存在 → 拒絕，錯誤訊息不帶絕對路徑', async () => {
+    const target = tempDir('verify-input-target-')
+    const missing = join(tempDir('verify-input-bundle-'), 'missing.age')
+    const error = await main(
+      ['--bundle', missing, '--identity-env', 'TEST_RUNNER_IDENTITY', '--target', target],
+      { TEST_RUNNER_IDENTITY: identity },
+    ).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(CliError)
+    expect(formatCliError(error)).not.toContain(missing)
+    expect((error as Error).message).toMatch(/bundle/)
   })
 
   it('main：具名 env 未設定或空白 → 拒絕（fail closed），不寫檔', async () => {

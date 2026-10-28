@@ -83,11 +83,11 @@ interface Run {
 }
 
 /**
- * 以 bash 執行 step 的 `run:`（step 的 `run:` 不得含任何 `${{ }}`，值全部經 env）。
+ * 以 bash 執行給定的 run script／step 的 `run:`。
  * stub `curl`：記下參數，寫出 `CURL_BYTES` 個位元組到 `-o` 目標，exit `CURL_CODE`。
  * stub `node`：記下參數，輸出 `NODE_STDOUT`，exit `NODE_CODE`。jq 用真的。
  */
-function runStep(step: Step, env: Record<string, string>): Run {
+function runScript(script: string, env: Record<string, string>): Run {
   const dir = mkdtempSync(join(tmpdir(), 'verify-input-steps-'))
   dirs.push(dir)
   const bin = join(dir, 'bin')
@@ -112,13 +112,16 @@ function runStep(step: Step, env: Record<string, string>): Run {
     'node',
     [
       'printf "%s\\n" "$@" > "$STUB_DIR/node-args.txt"',
+      // 扮演 `node -e '<script>'`（Resolve task_type 從 stdin 讀 Issue body）時必須
+      // 讀完 stdin，否則上游 gh 收到 SIGPIPE（pipefail 下整個 step 141）。
+      'if [ "$1" = "-e" ]; then cat >/dev/null; fi',
       'printf "%s\\n" "${NODE_STDOUT:-}"',
       'exit "${NODE_CODE:-0}"',
     ].join('\n'),
   )
-  const run = step.run ?? ''
-  expect(run, 'run: 內不得有 ${{ }}——值必須經 env 傳入').not.toMatch(/\$\{\{/)
-  const r = spawnSync('bash', ['-e', '-c', run], {
+  // Resolve task_type 步驟以 gh 讀 Issue body；其他步驟不呼叫它。
+  stub('gh', 'if [ "$1 $2" = "issue view" ]; then printf "%s\\n" "${STUB_ISSUE_BODY:-}"; exit 0; fi\nexit 1')
+  const r = spawnSync('bash', ['-e', '-c', script], {
     cwd: dir,
     encoding: 'utf8',
     env: {
@@ -127,12 +130,20 @@ function runStep(step: Step, env: Record<string, string>): Run {
       STUB_DIR: dir,
       RUNNER_TEMP: join(dir, 'runner-temp'),
       GITHUB_WORKSPACE: dir,
+      GITHUB_OUTPUT: join(dir, 'github-output.txt'),
       ...env,
     },
   })
   const lines = (file: string): string[] | undefined =>
     existsSync(join(dir, file)) ? readFileSync(join(dir, file), 'utf8').trimEnd().split('\n') : undefined
   return { status: r.status, log: `${r.stdout}${r.stderr}`, curlArgs: lines('curl-args.txt'), nodeArgs: lines('node-args.txt'), dir }
+}
+
+/** 執行一般 run step：run: 內不得有 `${{ }}`（值全部經 env）。 */
+function runStep(step: Step, env: Record<string, string>): Run {
+  const run = step.run ?? ''
+  expect(run, 'run: 內不得有 ${{ }}——值必須經 env 傳入').not.toMatch(/\$\{\{/)
+  return runScript(run, env)
 }
 
 const IDENTITY = 'AGE-SECRET-KEY-1TESTONLYNOTAREALKEYQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ'
@@ -225,10 +236,24 @@ describe('還原步驟：以 bash 實際執行（curl／node stub）', () => {
       'VERIFY_RUNNER_AGE_IDENTITY',
       '--target',
       'target',
+      '--manifest',
+      '.factory/verify-restored.json',
     ])
     expect(r.log).toContain('4')
     // 下載的密文在還原後刪除
     expect(existsSync(bundleArg)).toBe(false)
+  })
+
+  it.each([
+    ['colon／comma／semicolon', 'https://aswf.dev/api/verify/a:b,c;d.age'],
+    ['bang／括號／星號', 'https://aswf.dev/api/verify/a!b(c)d*e.age'],
+    ['apostrophe', "https://aswf.dev/api/verify/a'b.age"],
+    ['query 的 pchar', 'https://aswf.dev/input.age?group=a:b,c;d&sig=x!y(z)*w'],
+  ])('URL 合法（%s，RFC 3986 pchar）→ 下載並呼叫 CLI', (_, url) => {
+    const r = run({ VERIFY_INPUT_URL: url, NODE_STDOUT: '{"restored": 1}' })
+    expect(r.status, r.log).toBe(0)
+    expect(r.curlArgs).toContain(url)
+    expect(r.nodeArgs).toBeDefined()
   })
 
   it('log 只有還原數量：CLI 輸出多餘欄位（路徑）也不得印出', () => {
@@ -296,6 +321,37 @@ describe('還原步驟：以 bash 實際執行（curl／node stub）', () => {
     expect(r.status, r.log).not.toBe(0)
     // 失敗路徑也清掉下載的密文
     expect(existsSync(join(r.dir, 'runner-temp', 'verify-input.age'))).toBe(false)
+  })
+})
+
+describe('R12：Resolve task_type 不把原值印進 log', () => {
+  it('宣告存在只印 boolean；Issue 宣告與 resolved 的原值都不進 log', () => {
+    const script = (stepById('tasktype').run ?? '').replaceAll('${{ inputs.issue_number }}', '12')
+    expect(script).not.toMatch(/\$\{\{/)
+    const r = runScript(script, { NODE_STDOUT: 'agent-verify-quint', REQUESTED: 'auto' })
+    expect(r.status, r.log).toBe(0)
+    expect(r.log).toContain('declared task type present: true')
+    expect(r.log).not.toContain('agent-verify-quint')
+    expect(r.log).not.toContain('resolved task_type')
+    expect(r.log).not.toContain('宣告的任務類型')
+    expect(readFileSync(join(r.dir, 'github-output.txt'), 'utf8')).toBe('value=agent-verify-quint\n')
+  })
+
+  it('Issue 無法解析宣告時只印 false，resolved 用 dispatch 值（且不進 log）', () => {
+    const script = (stepById('tasktype').run ?? '').replaceAll('${{ inputs.issue_number }}', '12')
+    const r = runScript(script, { NODE_STDOUT: '', REQUESTED: 'agent-fix-bug' })
+    expect(r.status, r.log).toBe(0)
+    expect(r.log).toContain('declared task type present: false')
+    expect(r.log).not.toContain('agent-fix-bug')
+    expect(readFileSync(join(r.dir, 'github-output.txt'), 'utf8')).toBe('value=agent-fix-bug\n')
+  })
+})
+
+describe('R13：crosscheck 扣除還原的階段輸入', () => {
+  it('驗證模式：restore 步驟成功才帶 --restored-manifest', () => {
+    const step = stepById('crosscheck')
+    expect(step.env?.['VERIFY_INPUT_OUTCOME']).toBe('${{ steps.verifyinput.outcome }}')
+    expect(step.run).toContain('--restored-manifest .factory/verify-restored.json')
   })
 })
 

@@ -848,6 +848,65 @@ export function collectVerifyDiff(
   }
 }
 
+/**
+ * 讀 `factory-verify-input` 寫的還原清單（R13）。檔案不存在、非 JSON、形狀錯或
+ * 含非還原白名單路徑都是 hard error：靜默忽略會讓有還原輸入的 run 回到
+ * diff-not-reported 假紅，或讓壞掉的 manifest 悄悄失去扣除效果。
+ *
+ * 路徑也必須落在還原端允許的範圍（`specs/**` 或驗證白名單）：manifest 在 runner
+ * 工作區、agent 有寫入權限，若接受任意路徑，agent 就能把自己改的產品程式碼列進
+ * manifest，讓 crosscheck 與白名單檢查同時看不到它。
+ */
+function loadRestoredManifest(path: string): string[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    throw new CliError(`--restored-manifest (${path}) 無法讀取或不是合法 JSON`)
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new CliError(`--restored-manifest (${path}) 必須是 JSON 物件`)
+  }
+  const restored = (parsed as { restored?: unknown }).restored
+  if (!Array.isArray(restored) || !restored.every((p): p is string => typeof p === 'string')) {
+    throw new CliError(`--restored-manifest (${path}) 的 restored 必須是字串陣列`)
+  }
+  for (const p of restored) {
+    if (!isRestoredManifestPath(p)) {
+      throw new CliError(`--restored-manifest (${path}) 含不在還原白名單內的路徑（還原端只寫 specs/** 與測試檔）`)
+    }
+  }
+  return restored
+}
+
+/** manifest 的單一路徑是否可能是 `factory-verify-input` 還原的檔案。 */
+function isRestoredManifestPath(p: string): boolean {
+  if (p === '' || p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false
+  const segments = p.split('/')
+  if (
+    segments.some(
+      (segment) => segment === '' || segment === '.' || segment === '..' || segment.toLowerCase() === '.git',
+    )
+  ) {
+    return false
+  }
+  return isVerifyAllowedPath(p) || p.startsWith('specs/')
+}
+
+/**
+ * 把已還原的階段輸入從實際 diff 扣除（R13）。輸入不是 agent 的交付，不該被要求
+ * 出現在 report.changedPaths；白名單與變更行數檢查也不該把它算進去。
+ */
+function subtractRestoredPaths(actual: CrosscheckActual, restored: readonly string[]): CrosscheckActual {
+  if (restored.length === 0) return actual
+  const excluded = new Set(restored)
+  return {
+    ...actual,
+    paths: actual.paths.filter((p) => !excluded.has(p)),
+    uncommitted: actual.uncommitted.filter((p) => !excluded.has(p)),
+  }
+}
+
 /** 讀取並驗證 report.json（契約同 factory-judge，共用 ReportSchema）。 */
 function loadReport(reportPath: string) {
   const text = readFileSync(reportPath, 'utf8')
@@ -890,6 +949,7 @@ export interface VariantArgs {
  * 解析位置參數：
  * `<issueNumber> <reportPath> [--base <b>] [--target <t>] [--analyze-only]
  *  [--propose-skill-only] [--onboard-only] [--pbt-audit-only] [--verify-only]
+ *  [--restored-manifest <file>]
  *  [--write-spec-phase <invariants|model> --spec-name <name> --pr-bodies <json>
  *   [--source-snapshot <file>]] [--variant <a|b> --remote-branches <file>]`。
  */
@@ -902,6 +962,8 @@ export function parseArgs(argv: string[]): {
   onboardOnly: boolean
   pbtAuditOnly: boolean
   verifyOnly: boolean
+  /** `factory-verify-input` 的還原清單（只在 --verify-only 下有效）。 */
+  restoredManifestPath?: string | undefined
   requirementAnchors: string[]
   writeSpec?: WriteSpecArgs | undefined
   variant?: VariantArgs | undefined
@@ -916,6 +978,7 @@ export function parseArgs(argv: string[]): {
   let onboardOnly = false
   let pbtAuditOnly = false
   let verifyOnly = false
+  let restoredManifestPath: string | undefined
   let requirementAnchors: string[] = []
   let specPhase: string | undefined
   let specName: string | undefined
@@ -946,6 +1009,10 @@ export function parseArgs(argv: string[]): {
       pbtAuditOnly = true
     } else if (arg === '--verify-only') {
       verifyOnly = true
+    } else if (arg === '--restored-manifest') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new CliError('--restored-manifest requires a path')
+      restoredManifestPath = v
     } else if (arg === '--requirement-anchors') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) {
@@ -993,6 +1060,10 @@ export function parseArgs(argv: string[]): {
   if (verifyOnly && (variantId !== undefined || remoteBranchesPath !== undefined)) {
     throw new CliError('--verify-only 不可與 --variant／--remote-branches 同時指定（驗證類不建分支）')
   }
+  // 還原清單只有驗證模式會產生；其他模式帶了它等於接線錯誤，不可靜默忽略。
+  if (restoredManifestPath !== undefined && !verifyOnly) {
+    throw new CliError('--restored-manifest 只適用於 --verify-only（驗證模式的階段輸入還原）')
+  }
   const issueNumber = Number(positional[0])
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     throw new CliError(`issueNumber must be a positive integer, got ${positional[0] ?? '(missing)'}`)
@@ -1032,6 +1103,7 @@ export function parseArgs(argv: string[]): {
     onboardOnly,
     pbtAuditOnly,
     verifyOnly,
+    restoredManifestPath,
     requirementAnchors,
     writeSpec,
     variant,
@@ -1094,6 +1166,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     onboardOnly,
     pbtAuditOnly,
     verifyOnly,
+    restoredManifestPath,
     requirementAnchors,
     writeSpec,
     variant,
@@ -1101,9 +1174,15 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   const report = loadReport(reportPath)
   // 驗證類沒有分支（R2：本地 commit 可以、push 不行），事實來源改成工作區
   // 相對 base 的 diff；其餘模式維持 factory/<issue>-* 分支的三點 diff。
-  const actual = verifyOnly
+  let actual = verifyOnly
     ? collectVerifyDiff(git, { base: paths.base, target: paths.target })
     : collectActualDiff(git, { issueNumber, base: paths.base, target: paths.target })
+  // R13：階段輸入是前一階段還原到工作區的檔案（tracked 檔案被覆寫時進 git diff，
+  // 新檔則是 untracked），不是本次 agent 的交付。先扣除再比對，否則每個串接階段
+  // 都會被判 diff-not-reported。
+  if (restoredManifestPath !== undefined) {
+    actual = subtractRestoredPaths(actual, loadRestoredManifest(restoredManifestPath))
+  }
   const mismatches = compareReportToActual(
     report,
     actual,

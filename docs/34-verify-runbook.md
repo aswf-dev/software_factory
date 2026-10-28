@@ -150,8 +150,13 @@ gh workflow run factory-run.yml -R aswf-dev/software_factory \
 - 只在驗證模式還原；URL 必須是 `https://aswf.dev/…`（host 逐字比對，不接受 userinfo、
   port、子網域；不跟隨 redirect；上限 20 MB、120 秒）。
 - 還原由 `factory-verify-input` 執行：只收 `kind: "target"`、路徑在驗證白名單或
-  `specs/**` 內；任何 `mechanism` 行、絕對路徑、`..`、`.git`／`.factory`、經 symlink 的
-  寫入 → **整份拒絕、不寫任何檔**，run 停在 agent 之前。已存在的檔案被覆寫。
+  `specs/**` 內；任何 `mechanism` 行、絕對路徑、`..`、`.git`／`.factory`、
+  `specs/**/.lake/build/**`、經 symlink 的寫入 → **整份拒絕、不寫任何檔**，run 停在
+  agent 之前。空 bundle（零筆）同樣拒絕。已存在的檔案被覆寫。
+- 還原成功後另寫 `.factory/verify-restored.json`（`{ "restored": ["specs/...", …] }`，
+  排序）；檔案在 `target/` 外、不進加密 bundle、也不上傳 artifact。crosscheck 以
+  `--restored-manifest .factory/verify-restored.json` 把這些路徑從 agent 的實際 diff
+  扣除，否則每個串接階段都會被誤判 `diff-not-reported`。
 - run log 只印還原數量，不印路徑。
 
 ## 4. 產出：只有密文
@@ -179,6 +184,9 @@ bundle 的範圍：`target/.factory/run/**`（排除 `gh-token`）、`target/spe
 
 `kind: "target"` 的 `path` 相對 `target/`；`kind: "mechanism"` 的 `path` 是機制檔名
 （不帶任何前綴）。**來源只看 `kind`**，不要依路徑長相判斷。
+
+`.factory/verify-restored.json`（階段輸入的還原清單）與 `target/` 的 `.lake/build/`
+建置快取都**不在** bundle 內：前者是 runner 的工作檔，後者可由目標 repo 重建。
 
 ## 5. 本機解密與讀取
 
@@ -222,7 +230,7 @@ restore mechanism out-a/mechanism
 | 三軸計分（`Initial score`）、`Apply score labels` | 執行 | 跳過 |
 | `factory-stage prereqs`（ADR-022） | 執行 | 跳過（階段順序由 aswf.dev 的 G1–G4 決定） |
 | VARIANT_HEADER | 建 `factory/<N>-<v>-` 分支並開 PR | 整段替換：不建／不推分支、不開 PR、可本地 commit |
-| crosscheck | 分支前綴、變體隔離、REQ 錨定 | `--verify-only`：工作區相對 base 的 diff 對白名單 |
+| crosscheck | 分支前綴、變體隔離、REQ 錨定 | `--verify-only`：工作區相對 base 的 diff 對白名單；有階段輸入時加 `--restored-manifest .factory/verify-restored.json` 先扣除還原的輸入 |
 | `Judge terminal state`、PR 標題／draft 正規化 | 執行 | 跳過 |
 | compare job：終態、比對卡片、互指 PR、G1 守衛 | 執行 | 跳過 |
 | `Push event to scoreboard` | 執行 | 跳過（事件帶 skillGap 自由文字與檔案清單） |

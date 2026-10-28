@@ -1815,6 +1815,160 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       expect(out.mismatches.some((m) => m.kind.startsWith('requirements-'))).toBe(false)
     })
 
+    it('--restored-manifest：還原輸入（tracked 與 untracked）不算 agent 交付，扣除後與 report 一致', () => {
+      const manifestPath = join(dir, 'restored.json')
+      writeFileSync(
+        manifestPath,
+        JSON.stringify({ restored: ['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'] }),
+      )
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+        verifyGit({
+          diffNameOnly: 'specs/quint/RULES.md\nspecs/quint/model.qnt\n',
+          shortStat: ' 1 file changed, 5 insertions(+)',
+          status: '?? specs/quint/TRIAGE.md\n?? specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.actual.uncommitted).toEqual(['specs/quint/model.qnt'])
+      expect(out.mismatches).toEqual([])
+      expect(out.ok).toBe(true)
+    })
+
+    it('--restored-manifest：還原端白名單內的測試檔也可扣除（manifest 與還原端同一套路徑規則）', () => {
+      const manifestPath = join(dir, 'restored-test-file.json')
+      writeFileSync(manifestPath, JSON.stringify({ restored: ['test/unit.test.ts'] }))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+        verifyGit({
+          diffNameOnly: 'test/unit.test.ts\nspecs/quint/model.qnt\n',
+          shortStat: ' 1 file changed, 5 insertions(+)',
+        }),
+      )
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.ok).toBe(true)
+    })
+
+    it('--restored-manifest：空的 restored 清單 → 不扣除任何路徑（與沒帶旗標相同）', () => {
+      const manifestPath = join(dir, 'restored-empty.json')
+      writeFileSync(manifestPath, JSON.stringify({ restored: [] }))
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const out = main(
+        ['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', manifestPath],
+        verifyGit({
+          diffNameOnly: 'specs/quint/model.qnt\n',
+          shortStat: ' 1 file changed, 5 insertions(+)',
+          status: '?? specs/quint/model.qnt\n',
+        }),
+      )
+      expect(out.actual.paths).toEqual(['specs/quint/model.qnt'])
+      expect(out.ok).toBe(true)
+    })
+
+    it('--restored-manifest：檔案不存在、非 JSON、形狀錯或含白名單外路徑 → hard error（不靜默忽略）', () => {
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 5, requirements: undefined }),
+      )
+      const path = join(dir, 'restored-bad.json')
+      const run = (): ReturnType<typeof main> =>
+        main(['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', path], verifyGit({}))
+
+      expect(() =>
+        main(['12', reportPath, '--target', 'target', '--verify-only', '--restored-manifest', join(dir, 'nope.json')], verifyGit({})),
+      ).toThrow(/restored-manifest/)
+      for (const bad of [
+        'not json',
+        'null',
+        '42',
+        '"x"',
+        '[]',
+        '{"restored":"specs/quint/RULES.md"}',
+        '{"restored":[42]}',
+        '{"restored":["src/app.ts"]}',
+        '{"restored":["../escape.md"]}',
+        '{"restored":["/etc/passwd"]}',
+      ]) {
+        writeFileSync(path, bad)
+        expect(() => run(), bad).toThrow(/restored-manifest/)
+      }
+      // 路徑字串本身不合還原端規則：空、反斜線、NUL、空／. segment、.git
+      for (const restored of [
+        [''],
+        ['specs\\x'],
+        ['specs/a\0b'],
+        ['specs//x'],
+        ['specs/./x'],
+        ['specs/.git/x'],
+      ]) {
+        const payload = JSON.stringify({ restored })
+        writeFileSync(path, payload)
+        expect(() => run(), payload).toThrow(/restored-manifest/)
+      }
+    })
+
+    it('R13 整合：還原的 RULES.md／TRIAGE.md 不算未回報變更；不帶旗標時重現 diff-not-reported 假紅', () => {
+      const repo = mkdtempSync(join(tmpdir(), 'crosscheck-verify-restored-'))
+      try {
+        execFileSync('git', ['init', '-q'], { cwd: repo })
+        execFileSync(
+          'git',
+          ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '--allow-empty', '-qm', 'base'],
+          { cwd: repo },
+        )
+        mkdirSync(join(repo, 'specs', 'quint'), { recursive: true })
+        // factory-verify-input 還原的階段輸入（未追蹤檔）
+        writeFileSync(join(repo, 'specs', 'quint', 'RULES.md'), '# RULES\n')
+        writeFileSync(join(repo, 'specs', 'quint', 'TRIAGE.md'), '# TRIAGE\n')
+        // agent 的交付
+        writeFileSync(join(repo, 'specs', 'quint', 'model.qnt'), 'module Model {}\n')
+        const manifest = join(dir, 'restored-integration.json')
+        writeFileSync(
+          manifest,
+          JSON.stringify({ restored: ['specs/quint/RULES.md', 'specs/quint/TRIAGE.md'] }),
+        )
+        writeFileSync(
+          reportPath,
+          makeReport({ changedPaths: ['specs/quint/model.qnt'], changedLines: 1, requirements: undefined }),
+        )
+
+        const withFlag = main([
+          '12',
+          reportPath,
+          '--target',
+          repo,
+          '--base',
+          'HEAD',
+          '--verify-only',
+          '--restored-manifest',
+          manifest,
+        ])
+        expect(withFlag.ok).toBe(true)
+        expect(withFlag.actual.paths).toEqual(['specs/quint/model.qnt'])
+
+        const withoutFlag = main(['12', reportPath, '--target', repo, '--base', 'HEAD', '--verify-only'])
+        expect(withoutFlag.ok).toBe(false)
+        const mismatch = withoutFlag.mismatches.find((m) => m.kind === 'diff-not-reported')
+        expect(mismatch).toBeDefined()
+        expect(mismatch?.detail).toContain('specs/quint/RULES.md')
+        expect(mismatch?.detail).toContain('specs/quint/TRIAGE.md')
+        expect(mismatch?.detail).not.toContain('model.qnt')
+      } finally {
+        rmSync(repo, { recursive: true, force: true })
+      }
+    })
+
     it('--verify-only 與其他僅產出模式／--variant 併用 → CliError（兩套規則不可同時生效）', () => {
       expect(() => parseArgs(['12', 'r.json', '--verify-only', '--analyze-only'])).toThrow(/不可同時指定/)
       expect(() => parseArgs(['12', 'r.json', '--verify-only', '--write-spec-phase', 'invariants'])).toThrow(
@@ -1825,6 +1979,19 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       )
       // 只給 --remote-branches（沒有 --variant）也一樣：驗證模式沒有分支事實來源
       expect(() => parseArgs(['12', 'r.json', '--verify-only', '--remote-branches', 'rb.txt'])).toThrow(/--variant/)
+    })
+
+    it('--restored-manifest：需有值、且只適用於 --verify-only', () => {
+      expect(
+        parseArgs(['12', 'r.json', '--verify-only', '--restored-manifest', '.factory/verify-restored.json'])
+          .restoredManifestPath,
+      ).toBe('.factory/verify-restored.json')
+      expect(parseArgs(['12', 'r.json', '--verify-only']).restoredManifestPath).toBeUndefined()
+      expect(() => parseArgs(['12', 'r.json', '--restored-manifest', 'm.json'])).toThrow(/--verify-only/)
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--restored-manifest'])).toThrow(/requires a path/)
+      expect(() => parseArgs(['12', 'r.json', '--verify-only', '--restored-manifest', '--base', 'main'])).toThrow(
+        /requires a path/,
+      )
     })
   })
 })

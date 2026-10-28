@@ -113,8 +113,11 @@ function isBundlePath(rel: string): boolean {
   return rel.startsWith(`${SPECS_DIR}/`) || isVerifyAllowedPath(rel)
 }
 
-/** `specs/lean/.lake/build/**` 之類的建置快取：可重建、體積大、不是 agent 的交付。 */
-function isLakeBuildArtifact(rel: string): boolean {
+/**
+ * `specs/lean/.lake/build/**` 之類的建置快取：可重建、體積大、不是 agent 的交付。
+ * 還原端（`factory-verify-input`）也用這個 predicate 拒絕同一批路徑，兩端不得漂移。
+ */
+export function isLakeBuildArtifact(rel: string): boolean {
   const segments = rel.split('/')
   return segments.some((segment, i) => segment === '.lake' && segments[i + 1] === 'build')
 }

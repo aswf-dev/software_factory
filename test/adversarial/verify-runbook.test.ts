@@ -67,4 +67,10 @@ describe('docs/34-verify-runbook.md', () => {
     expect(doc).toContain('VERIFY_RUNNER_AGE_IDENTITY')
     expect(doc).toContain('factory-verify-input')
   })
+
+  it('階段輸入的還原清單（R13）與 crosscheck 旗標有說明，且明說不進 bundle', () => {
+    expect(doc).toContain('.factory/verify-restored.json')
+    expect(doc).toContain('--restored-manifest')
+    expect(doc).toContain('.lake/build/')
+  })
 })
