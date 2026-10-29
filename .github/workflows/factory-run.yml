@@ -1750,6 +1750,7 @@ jobs:
           # `--verify-only`——crosscheck 以工作區相對 base 的 diff 比對，並套用
           # specs／測試檔白名單。變體隔離只看分支，驗證模式不適用（不傳 --variant）。
           VERIFY_FLAG=""
+          PHASE_FLAG=""
           VARIANT_FLAG=""
           RESTORED_FLAG=""
           BASE_SHA_FLAG=""
@@ -1774,6 +1775,12 @@ jobs:
               # 未動的檔案（存在且 sha256 相符），被改動／刪除則 fail-loud 為
               # restored-input-modified（R13、R15；檔案不存在／格式壞時直接失敗）。
               RESTORED_FLAG="--restored-manifest .factory/verify-restored.json"
+              # Lean 的 proofs 階段要改寫 statements 階段的還原輸入（specs/lean/**，
+              # RULES.md 除外）；沒有這個旗標，合法的證明工作會被判成
+              # restored-input-modified（2026-10-29 run 40809048823）。
+              if [ -n "${{ inputs.verify_phase }}" ]; then
+                PHASE_FLAG="--verify-phase ${{ inputs.verify_phase }}"
+              fi
               echo "驗證模式：crosscheck 扣除階段輸入還原清單（R13）"
             fi
             echo "驗證模式：crosscheck 以 agent 啟動前的不可變 base commit 比對 specs/** 與測試檔白名單（ADR-029 §5、R19）"
@@ -1789,7 +1796,7 @@ jobs:
           node "$GITHUB_WORKSPACE/dist/cli/factory-crosscheck.js" \
             "${{ inputs.issue_number }}" \
             target/.factory/run/report.json \
-            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG $BASE_SHA_FLAG $RESTORED_FLAG $FACTS_FLAG \
+            --base "${{ inputs.base_branch }}" --target target $ANALYZE_FLAG $ANCHOR_FLAG $VARIANT_FLAG $VERIFY_FLAG $BASE_SHA_FLAG $RESTORED_FLAG $PHASE_FLAG $FACTS_FLAG \
             > .factory/crosscheck.json 2> .factory/crosscheck.err
           code=$?
           set -e
