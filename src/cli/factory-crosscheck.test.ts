@@ -1982,9 +1982,9 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
     })
 
     it('--verify-phase 缺值即 fail loud（不靜默忽略旗標）', () => {
-      expect(() => main(['12', reportPath, '--verify-only', '--verify-phase'], fakeGit())).toThrow(/--verify-phase/)
+      expect(() => main(['12', reportPath, '--verify-only', '--verify-phase'], fakeGit({}))).toThrow(/--verify-phase/)
       expect(() =>
-        main(['12', reportPath, '--verify-only', '--verify-phase', '--target', '.'], fakeGit()),
+        main(['12', reportPath, '--verify-only', '--verify-phase', '--target', '.'], fakeGit({})),
       ).toThrow(/--verify-phase/)
     })
 
