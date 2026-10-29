@@ -21,7 +21,7 @@
    - 以 skill 的 `scripts/verify-lean.sh --dir specs/lean --main Specs/Proofs.lean --audit Audit.lean --theorems headline-theorems.txt --baseline metrics-baseline.txt` 作為閘門；建置、守則掃描、axiom audit 全綠才算完成。
    - 定理敘述不得為了讓證明過關而弱化；必須變更 → 回到 G3，不得自行修改。
 6. **工具鏈（ADR-029 §7）**：`leanprover/lean4:v4.35.0`（寫在 `specs/lean/lean-toolchain`）；只用 Lean **core**、**不得安裝 Mathlib**。不得新增依賴；需要函式庫才能完成 → 停手交還人類。
-7. 產出：`specs/lean/` 下的模型、定理、證明、`RULES.md`、`MODEL-MAP.md`、`REPORT.md`（含閘門結果、牆鐘、未決事項），以及 `.factory/run/report.json`（`openQuestions` 必填；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答；`changedPaths` 只列白名單內的產出）。
+7. 產出：`specs/lean/` 下的模型、定理、證明、`RULES.md`、`MODEL-MAP.md`、`REPORT.md`（含閘門結果、牆鐘、未決事項），以及 `.factory/run/report.json`（`openQuestions` 必填；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答；`changedPaths` 只列**你這次真的改動**的白名單檔案——不得列出未修改的還原輸入，否則 crosscheck 會判 `reported-not-in-diff`）。
 8. **完成條件**：本次階段的產出齊備、閘門結果如實寫進 `REPORT.md`、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。`statements` 階段完成不等於驗證完成——report 必須明寫「尚未證明、待 G3」。
 9. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑證明、額外驗證或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
 
