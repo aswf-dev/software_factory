@@ -2330,6 +2330,16 @@ describe('write-spec 集中驗證接線（ADR-018 §7）', () => {
     // compare 只看到「沒有 judge.json」而無法說明原因
     expect(steps().find((s) => s.name === 'Record step outcomes')!.run).toContain('steps.specverify.outcome')
   })
+  it('steps.json 的 agent 以 exit_code 判定（崩潰不得記成 success）', () => {
+    // 2026-10-29：agent step 以 exit 0 結束（讓 crosscheck 能跑），steps.agent.outcome
+    // 因此恆為 success；崩潰的 agent 被記成 success，空 diff 被當成 stage-done。
+    const run = steps().find((s) => s.name === 'Record step outcomes')!.run!
+    expect(run).toContain('steps.agent.outputs.exit_code')
+    expect(run).toMatch(/AGENT_STATUS=failure/)
+    // 不得再直接以 step outcome 當 agent 結果。
+    expect(run).not.toContain('--arg agent "${{ steps.agent.outcome }}"')
+  })
+
   it('反例 ITF 只寫 traces/ 並推回分支；失敗時以非零結束（不貼終態標籤，ADR-021）', () => {
     const run = steps().find((s) => s.id === 'specverify')!.run!
     expect(run).toContain('git -C target add -A "specs/${SPEC}/traces"')

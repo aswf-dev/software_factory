@@ -2017,8 +2017,15 @@ jobs:
         if: always()
         run: |
           mkdir -p .factory
+          # agent 的 step 以 exit 0 結束（要讓 crosscheck 跑），所以 steps.agent.outcome
+          # 恆為 success——必須改看 agent 步驟自己回報的 exit_code。exit_code 缺席時
+          # fail closed 成 failure（2026-10-29：崩潰的 agent 被記成 success，空產出被
+          # 當成 stage-done，見 aswf-dev/software_factory#136）。
+          AGENT_RC="${{ steps.agent.outputs.exit_code }}"
+          if [ "${AGENT_RC:-}" = "0" ]; then AGENT_STATUS=success; else AGENT_STATUS=failure; fi
+          echo "agent step exit_code='${AGENT_RC:-<missing>}' → steps.json.agent=$AGENT_STATUS"
           jq -n \
-            --arg agent "${{ steps.agent.outcome }}" \
+            --arg agent "$AGENT_STATUS" \
             --arg crosscheck "${{ steps.crosscheck.outcome }}" \
             --arg specverify "${{ steps.specverify.outcome }}" \
             --arg judge "${{ steps.judge.outcome }}" \
