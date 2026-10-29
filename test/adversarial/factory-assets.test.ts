@@ -542,6 +542,10 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       const c = read(`.github/factory/task-template-verify-${stage}.txt`)
       const label = `task-template-verify-${stage}`
       expect(c, label).toContain('<ISSUE>')
+      // 2026-10-29：每一輪都是獨立 run，語言必須由 stage input 的 CONTEXT.md 固定，
+      // 模板要明確要求 agent 依它輸出，否則會出現「第一輪中文、第二輪英文」。
+      expect(c, label).toContain('MANDATORY')
+      expect(c, label).toContain('Output language')
       expect(c, label).toContain('<REPO>')
       expect(c, label).toContain('<BASE_BRANCH>')
       expect(c, label).toContain('寫入白名單')
