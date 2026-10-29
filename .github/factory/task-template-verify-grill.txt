@@ -1,23 +1,26 @@
 處理 GitHub Issue #<ISSUE>（repo: <REPO>，驗證基準分支: <BASE_BRANCH>）。
 
-1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules。
+1. **語言（MANDATORY）**：輸出語言一律依 `specs/quint/.user-content/CONTEXT.md` 的
+   `## Output language (MANDATORY)` 段落；那一輪與後續所有輪次的問題、摘要與報告都要用
+   同一個語言，即使 repo 的程式碼與文件是英文也一樣。不得中途切換語言。
+2. 先載入並遵循 .dsh/skills/ 中的 factory-workflow 與 factory-stop-rules。
    你是形式化驗證服務（ADR-029 §5）的 **grill（階段①）** agent：**唯讀分析**目標 repo，產出程式碼摘要、候選規則與第一輪問題，交給 G1 規則確認（aswf.dev 多輪表單）。
    本階段**不改任何程式碼、不定稿規則、不寫模型**。工作項屬驗證類：不做三軸計分、不檢查 factory-stage prereqs、永不自動合併。
    **輸出紀律（重要）**：設計/推導/思考過程**不要輸出到 stdout**——直接撰寫目標檔案；stdout 只用於簡短進度與最終摘要（產出路徑、openQuestions 摘要）。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
-2. **寫入白名單（硬規則）**：本次只允許新增或修改 `specs/quint/CODE-SUMMARY.md`（以及 CI 管的 `.factory/run/report.json`）。
+3. **寫入白名單（硬規則）**：本次只允許新增或修改 `specs/quint/CODE-SUMMARY.md`（以及 CI 管的 `.factory/run/report.json`）。
    不得修改 `src/**`（本階段沒有例外）、`.github/**`、`docs/**`、其他 `specs/**` 檔案、設定、依賴或任何既有檔案。CI 的 crosscheck 會逐檔檢查，越界即交還人類（needs-human）。需要白名單外的檔案才能完成 → 依 factory-stop-rules 停手，不要自行處理。
-3. **不得 push 分支、不得開 PR**（ADR-029 §5）；可以 **`git commit` 到本地**（**不得** `git push`）——crosscheck 以工作區相對 base 的 diff 比對白名單（R2 裁決）。驗證類 agent 的產出只進加密 artifact；PR 由機制端的 `factory.verify.publish` 在 G2 之後發佈。**不得**執行 `git push`、**不得**以 `gh pr create` 開 PR、**不得**在 Issue 留言或寫入任何發現（Issue body 只寫範圍與階段，發現會公開）。
+4. **不得 push 分支、不得開 PR**（ADR-029 §5）；可以 **`git commit` 到本地**（**不得** `git push`）——crosscheck 以工作區相對 base 的 diff 比對白名單（R2 裁決）。驗證類 agent 的產出只進加密 artifact；PR 由機制端的 `factory.verify.publish` 在 G2 之後發佈。**不得**執行 `git push`、**不得**以 `gh pr create` 開 PR、**不得**在 Issue 留言或寫入任何發現（Issue body 只寫範圍與階段，發現會公開）。
    完成訊號是 Issue 上的 `stage/done`，由機制端在取回產出後貼上——**你不得自行貼標籤**。
    本模板與 `factory-workflow`／`factory-pr-stacking` 中「建立分支、開 PR、在 Issue 回報 PR」的步驟衝突時，**一律以本模板為準**（ADR-029 §5）。
-4. 分析範圍以 Issue 宣告的「分析範圍 glob」為準；未指定時先提出建議範圍並在報告說明理由，不要擅自擴大或縮小。逐檔讀取，優先狀態機、協定、權限決策順序、時序／冪等、金額或數量守恆。
-5. `specs/quint/CODE-SUMMARY.md` 必須包含：
+5. 分析範圍以 Issue 宣告的「分析範圍 glob」為準；未指定時先提出建議範圍並在報告說明理由，不要擅自擴大或縮小。逐檔讀取，優先狀態機、協定、權限決策順序、時序／冪等、金額或數量守恆。
+6. `specs/quint/CODE-SUMMARY.md` 必須包含：
    - `## 分析範圍`：repo、glob、讀過的檔案；每個結論附 `file:line` 證據。
    - `## 元件與狀態`：對外入口、狀態變數、關鍵流程（用文字或簡圖）。
    - `## 候選規則`：每條標明 `confirmed`（有程式碼或文件證據）或 `candidate`（未確認）。**不得猜測規則**：沒有證據的一律標 `candidate`，並寫成第 6 點的問題。
    - `## 未確認問題`：G1 要問的每一題，附建議答案（讓使用者只需確認或修正）。
    - `## RULES.md 草稿`：僅供 G1 確認的候選版本，不是已確認規則。
-6. `.factory/run/report.json` 的 `openQuestions` **必填**：字串陣列（至少一條）；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答。`changedPaths` 只列 `specs/quint/CODE-SUMMARY.md`。
-7. **完成條件**：`specs/quint/CODE-SUMMARY.md` 與 `report.json` 齊備、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。規則疑義一律留在 `openQuestions`，不要默默挑一個解讀——G1 的誤解會被下游放大。
-8. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑分析、額外驗證、自我檢查或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
+7. `.factory/run/report.json` 的 `openQuestions` **必填**：字串陣列（至少一條）；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答。`changedPaths` 只列 `specs/quint/CODE-SUMMARY.md`。
+8. **完成條件**：`specs/quint/CODE-SUMMARY.md` 與 `report.json` 齊備、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。規則疑義一律留在 `openQuestions`，不要默默挑一個解讀——G1 的誤解會被下游放大。
+9. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑分析、額外驗證、自我檢查或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
 
 若觸發任何停手規則，依該規則處理後結束。

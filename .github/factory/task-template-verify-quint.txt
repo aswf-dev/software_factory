@@ -1,26 +1,29 @@
 處理 GitHub Issue #<ISSUE>（repo: <REPO>，驗證基準分支: <BASE_BRANCH>）。
 
-1. 先載入並遵循 .dsh/skills/ 中的 factory-workflow、factory-stop-rules，以及 **quint-modeling** 與 **quint-lang** 兩個 skill（本類型專屬）。
+1. **語言（MANDATORY）**：輸出語言一律依 `specs/quint/.user-content/CONTEXT.md` 的
+   `## Output language (MANDATORY)` 段落；問題、摘要與報告都要用該語言，
+   即使 repo 的程式碼與文件是英文也一樣。不得中途切換語言。
+2. 先載入並遵循 .dsh/skills/ 中的 factory-workflow、factory-stop-rules，以及 **quint-modeling** 與 **quint-lang** 兩個 skill（本類型專屬）。
    你是形式化驗證服務（ADR-029 §5）的 **quint（階段②）** agent：讀 G1 已確認的 `specs/quint/RULES.md`，寫 Quint 模型、實例與模擬測試，執行 `quint run` 收集反例的 ITF trace，交給 G2 分類。
    **`specs/quint/RULES.md` 是唯讀輸入**：它是 G1 由人確認過的規則，不得修改、不得擴大、不得依程式碼「修正」它。規則有缺口或歧義 → 寫進未決事項，不要自行補。
    工作項屬驗證類：不做三軸計分、不檢查 factory-stage prereqs、永不自動合併。
    **輸出紀律（重要）**：設計/推導/思考過程**不要輸出到 stdout**——直接撰寫目標檔案；stdout 只用於簡短進度與最終摘要。DSH 的 stdout 有輸出上限，過量輸出會導致執行中斷。
-2. **寫入白名單（硬規則）**：本次只允許新增或修改
+3. **寫入白名單（硬規則）**：本次只允許新增或修改
    `specs/quint/model.qnt`、`specs/quint/instances.qnt`、`specs/quint/test.qnt`、`specs/quint/REPORT.md`、`specs/quint/traces/**`（`quint run --out-itf` 產生），以及 CI 管的 `.factory/run/report.json`。
    不得修改 `src/**`、`.github/**`、`specs/quint/RULES.md`（唯讀）、`specs/quint/TRIAGE.md`（G2 人工填寫）、`docs/**`、設定、依賴或任何其他既有檔案。CI 的 crosscheck 會逐檔檢查，越界即交還人類（needs-human）；需要白名單外的檔案才能完成 → 依 factory-stop-rules 停手。
-3. **不得 push 分支、不得開 PR**（ADR-029 §5）；可以 **`git commit` 到本地**（**不得** `git push`）——crosscheck 以工作區相對 base 的 diff 比對白名單（R2 裁決）。驗證類 agent 的產出只進加密 artifact；PR 由機制端的 `factory.verify.publish` 在 G2 之後發佈。**不得**執行 `git push`、**不得**以 `gh pr create` 開 PR、**不得**在 Issue 留言或寫入任何發現（Issue body 只寫範圍與階段，發現會公開）。
+4. **不得 push 分支、不得開 PR**（ADR-029 §5）；可以 **`git commit` 到本地**（**不得** `git push`）——crosscheck 以工作區相對 base 的 diff 比對白名單（R2 裁決）。驗證類 agent 的產出只進加密 artifact；PR 由機制端的 `factory.verify.publish` 在 G2 之後發佈。**不得**執行 `git push`、**不得**以 `gh pr create` 開 PR、**不得**在 Issue 留言或寫入任何發現（Issue body 只寫範圍與階段，發現會公開）。
    完成訊號是 Issue 上的 `stage/done`，由機制端在取回產出後貼上——**你不得自行貼標籤**。
    本模板與 `factory-workflow`／`factory-pr-stacking` 中「建立分支、開 PR、在 Issue 回報 PR」的步驟衝突時，**一律以本模板為準**（ADR-029 §5）。
-4. 產出（`specs/quint/`）：
+5. 產出（`specs/quint/`）：
    - `specs/quint/model.qnt`：依 `RULES.md` 建模。每個設定常數附 `domain_justification` 註解：程式碼實際檢查的位置（`file:line`）或「程式未限制」；程式未限制時必須涵蓋邊界值，**不得**用程式本身沒有的 `assume`／`assert` 縮小範圍。
    - `specs/quint/instances.qnt`：每個實例一個模組；常數以具體值指定並在 `REPORT.md` 說明理由（不得用未宣告的假設縮小範圍）。
    - `specs/quint/test.qnt`：規則／不變量的情境 witness 與檢查；每條規則至少一個對應檢查，witness 要正面描述「規則要保護的情境確實發生」，不得寫成不變量的否定、也不得在初始狀態就成立。
    - `specs/quint/REPORT.md`：規則 → 不變量對照、每個實例與常數的理由、每條命令與牆鐘秒數、反例清單（一律標為**候選發現**，不是已確認缺陷）、未決事項。
    - `specs/quint/traces/*.itf.json`：每個反例一份，以 `quint run --out-itf` 產生；沒有反例就不建檔案。
-5. 執行規則：先以 `npx quint typecheck` 過型別檢查，再只執行 `quint run`；**不得執行 `quint verify`**（Apalache／Java 不在本階段工具鏈，ADR-029 §7）。
+6. 執行規則：先以 `npx quint typecheck` 過型別檢查，再只執行 `quint run`；**不得執行 `quint verify`**（Apalache／Java 不在本階段工具鏈，ADR-029 §7）。
    先用縮小規模（小常數、小 `--max-steps`）量測單次牆鐘再放大；同一條命令**最多重試 3 次**最佳化，仍超出 Issue 的牆鐘上限就停手交還人類（附已量測牆鐘、嘗試過的變體、降界需要什麼），**不得**無聲無限迭代。
-6. `.factory/run/report.json` 的 `openQuestions` **必填**（字串陣列；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答）。`changedPaths` 只列白名單內的產出。反例**不要**為了讓它消失而改模型，也不要修改 `src/**`。
-7. **完成條件**：上述產出齊備、型別檢查通過、`quint run` 結果與牆鐘如實寫進 `REPORT.md`、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。
-8. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑模型檢查、額外驗證或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
+7. `.factory/run/report.json` 的 `openQuestions` **必填**（字串陣列；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答）。`changedPaths` 只列白名單內的產出。反例**不要**為了讓它消失而改模型，也不要修改 `src/**`。
+8. **完成條件**：上述產出齊備、型別檢查通過、`quint run` 結果與牆鐘如實寫進 `REPORT.md`、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。
+9. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑模型檢查、額外驗證或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
 
 若觸發任何停手規則，依該規則處理後結束。
