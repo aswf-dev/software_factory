@@ -534,7 +534,9 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
         'quint verify',
       ],
       lean: ['verify_phase', 'statements', 'proofs', 'specs/lean/', 'sorry', 'Mathlib', 'v4.35.0'],
-      tests: ['todo', 'skip', '外部服務'],
+      // 2026-10-29 裁決：G2 判 real 的每個反例都必須有「實際會被執行」的重現測試，
+      // 不能只有 todo/skip（否則無法證明缺陷在真實程式上可重現）。
+      tests: ['todo', 'skip', '外部服務', '可執行重現', 'characterization'],
     }
     for (const [stage, needles] of Object.entries(perStage)) {
       const c = read(`.github/factory/task-template-verify-${stage}.txt`)
