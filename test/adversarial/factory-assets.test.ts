@@ -546,6 +546,11 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       // 模板要明確要求 agent 依它輸出，否則會出現「第一輪中文、第二輪英文」。
       expect(c, label).toContain('MANDATORY')
       expect(c, label).toContain('Output language')
+      // 2026-10-30：grill 要收斂問題（只問阻擋性問題，其餘寫 assumption）。
+      if (label.includes('grill')) {
+        expect(c, label).toContain('問題收斂')
+        expect(c, label).toContain('"none"')
+      }
       expect(c, label).toContain('<REPO>')
       expect(c, label).toContain('<BASE_BRANCH>')
       expect(c, label).toContain('寫入白名單')

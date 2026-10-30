@@ -16,11 +16,11 @@
 6. `specs/quint/CODE-SUMMARY.md` 必須包含：
    - `## 分析範圍`：repo、glob、讀過的檔案；每個結論附 `file:line` 證據。
    - `## 元件與狀態`：對外入口、狀態變數、關鍵流程（用文字或簡圖）。
-   - `## 候選規則`：每條標明 `confirmed`（有程式碼或文件證據）或 `candidate`（未確認）。**不得猜測規則**：沒有證據的一律標 `candidate`，並寫成第 6 點的問題。
-   - `## 未確認問題`：G1 要問的每一題，附建議答案（讓使用者只需確認或修正）。
-   - `## RULES.md 草稿`：僅供 G1 確認的候選版本，不是已確認規則。
-7. `.factory/run/report.json` 的 `openQuestions` **必填**：字串陣列（至少一條）；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答。`changedPaths` 只列 `specs/quint/CODE-SUMMARY.md`。
-8. **完成條件**：`specs/quint/CODE-SUMMARY.md` 與 `report.json` 齊備、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。規則疑義一律留在 `openQuestions`，不要默默挑一個解讀——G1 的誤解會被下游放大。
+   - `## 候選規則`：每條標明 `confirmed`（有程式碼或文件證據）、`candidate`（未確認、**會阻擋**建模）或 `assumption`（不阻擋建模、由 agent 暫定並說明理由）。**不得猜測規則**：沒有證據的一律標 `candidate` 或 `assumption`，並寫出理由。
+   - `## 未確認問題`：**只列會阻擋建模或簽核的問題**（會改變模型語義、規則邊界或安全不變量者），附建議答案（讓使用者只需確認或修正）。其餘一律寫成 `assumption`，不要問。
+   - `## RULES.md 草稿`：僅供 G1 確認的候選版本，不是已確認規則；`assumption` 條目要標明「預設採用，G1 可推翻」。
+7. **問題收斂（重要）**：`.factory/run/report.json` 的 `openQuestions` 只放**阻擋性問題**，沒有就寫 `{ "openQuestions": { "none": "<理由>" } }`——**不要為了問而問**，把非阻擋的疑點寫成 `assumption` 就在摘要裡。**最多兩輪**：第二輪只確認第一輪答案衍生的規則；除非語義會改變，不要開新問題。實測教訓：一直問新問題會讓使用者在 G1 無限循環（2026-10-30 連續 3 輪、24 題仍未收斂）。
+8. **完成條件**：`specs/quint/CODE-SUMMARY.md` 與 `report.json` 齊備、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。**阻擋性**疑義才留在 `openQuestions`，不要默默挑一個解讀——G1 的誤解會被下游放大；非阻擋疑點寫成 `assumption` 即可。
 9. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑分析、額外驗證、自我檢查或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
 
 若觸發任何停手規則，依該規則處理後結束。
