@@ -534,12 +534,23 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
         'quint verify',
       ],
       lean: ['verify_phase', 'statements', 'proofs', 'specs/lean/', 'sorry', 'Mathlib', 'v4.35.0'],
-      tests: ['todo', 'skip', '外部服務'],
+      // 2026-10-29 裁決：G2 判 real 的每個反例都必須有「實際會被執行」的重現測試，
+      // 不能只有 todo/skip（否則無法證明缺陷在真實程式上可重現）。
+      tests: ['todo', 'skip', '外部服務', '可執行重現', 'characterization'],
     }
     for (const [stage, needles] of Object.entries(perStage)) {
       const c = read(`.github/factory/task-template-verify-${stage}.txt`)
       const label = `task-template-verify-${stage}`
       expect(c, label).toContain('<ISSUE>')
+      // 2026-10-29：每一輪都是獨立 run，語言必須由 stage input 的 CONTEXT.md 固定，
+      // 模板要明確要求 agent 依它輸出，否則會出現「第一輪中文、第二輪英文」。
+      expect(c, label).toContain('MANDATORY')
+      expect(c, label).toContain('Output language')
+      // 2026-10-30：grill 要收斂問題（只問阻擋性問題，其餘寫 assumption）。
+      if (label.includes('grill')) {
+        expect(c, label).toContain('問題收斂')
+        expect(c, label).toContain('"none"')
+      }
       expect(c, label).toContain('<REPO>')
       expect(c, label).toContain('<BASE_BRANCH>')
       expect(c, label).toContain('寫入白名單')
@@ -2328,6 +2339,16 @@ describe('write-spec 集中驗證接線（ADR-018 §7）', () => {
     // compare 只看到「沒有 judge.json」而無法說明原因
     expect(steps().find((s) => s.name === 'Record step outcomes')!.run).toContain('steps.specverify.outcome')
   })
+  it('steps.json 的 agent 以 exit_code 判定（崩潰不得記成 success）', () => {
+    // 2026-10-29：agent step 以 exit 0 結束（讓 crosscheck 能跑），steps.agent.outcome
+    // 因此恆為 success；崩潰的 agent 被記成 success，空 diff 被當成 stage-done。
+    const run = steps().find((s) => s.name === 'Record step outcomes')!.run!
+    expect(run).toContain('steps.agent.outputs.exit_code')
+    expect(run).toMatch(/AGENT_STATUS=failure/)
+    // 不得再直接以 step outcome 當 agent 結果。
+    expect(run).not.toContain('--arg agent "${{ steps.agent.outcome }}"')
+  })
+
   it('反例 ITF 只寫 traces/ 並推回分支；失敗時以非零結束（不貼終態標籤，ADR-021）', () => {
     const run = steps().find((s) => s.id === 'specverify')!.run!
     expect(run).toContain('git -C target add -A "specs/${SPEC}/traces"')

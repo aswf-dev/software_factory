@@ -1981,6 +1981,76 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       expect(out.actual.uncommitted).toEqual(['specs/quint/RULES.md', 'specs/quint/model.qnt'])
     })
 
+    it('--verify-phase 缺值即 fail loud（不靜默忽略旗標）', () => {
+      expect(() => main(['12', reportPath, '--verify-only', '--verify-phase'], fakeGit({}))).toThrow(/--verify-phase/)
+      expect(() =>
+        main(['12', reportPath, '--verify-only', '--verify-phase', '--target', '.'], fakeGit({})),
+      ).toThrow(/--verify-phase/)
+    })
+
+    it('--verify-phase proofs：specs/lean 以外的還原輸入仍唯讀', () => {
+      const { target, manifest } = restoredFixture({ 'specs/quint/RULES.md': '# RULES\n' })
+      writeFileSync(join(target, 'specs/quint/RULES.md'), '# RULES\n\n- 放寬\n')
+      writeFileSync(reportPath, makeReport({ changedPaths: ['specs/quint/RULES.md'], changedLines: 1 }))
+      const out = main(
+        ['12', reportPath, '--target', target, '--verify-only', '--restored-manifest', manifest, '--verify-phase', 'proofs'],
+        verifyGit({
+          diffNameOnly: 'specs/quint/RULES.md\n',
+          shortStat: ' 1 file changed, 1 insertion(+)',
+          status: ' M specs/quint/RULES.md\n',
+        }),
+      )
+      expect(out.mismatches.map((m) => m.kind)).toContain('restored-input-modified')
+    })
+
+    it('--verify-phase proofs：specs/lean/** 的還原輸入可以改寫，RULES.md 仍唯讀', () => {
+      // 2026-10-29 真實 run 40809048823：Lean proofs 階段的工作就是改寫 statements 階段
+      // 還原回來的 Specs/Proofs.lean（把 sorry 補成證明），卻被「還原輸入唯讀」判成
+      // hard mismatch。proofs 階段因此允許 specs/lean/** 被改寫——但 RULES.md 是 G3
+      // 簽核過的規則轉錄，兩個階段都必須唯讀。
+      const restored = {
+        'specs/lean/Specs/Proofs.lean': 'theorem t : True := sorry\n',
+        'specs/lean/RULES.md': '# RULES\n',
+      }
+      const { target: proofsTarget, manifest: proofsManifest } = restoredFixture(restored)
+      writeFileSync(join(proofsTarget, 'specs/lean/Specs/Proofs.lean'), 'theorem t : True := trivial\n')
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/lean/Specs/Proofs.lean'], changedLines: 1, requirements: undefined }),
+      )
+      const proofs = main(
+        [
+          '12', reportPath, '--target', proofsTarget, '--verify-only',
+          '--restored-manifest', proofsManifest, '--verify-phase', 'proofs',
+        ],
+        verifyGit({
+          diffNameOnly: 'specs/lean/Specs/Proofs.lean\n',
+          shortStat: ' 1 file changed, 1 insertion(+), 1 deletion(-)',
+          status: ' M specs/lean/Specs/Proofs.lean\n',
+        }),
+      )
+      expect(proofs.mismatches.map((m) => m.kind)).toEqual([])
+      expect(proofs.ok).toBe(true)
+
+      // RULES.md 在 proofs 階段仍然唯讀。
+      const { target: rulesTarget, manifest: rulesManifest } = restoredFixture(restored)
+      writeFileSync(join(rulesTarget, 'specs/lean/Specs/Proofs.lean'), 'theorem t : True := trivial\n')
+      writeFileSync(join(rulesTarget, 'specs/lean/RULES.md'), '# RULES\n\n- 放寬\n')
+      const rules = main(
+        [
+          '12', reportPath, '--target', rulesTarget, '--verify-only',
+          '--restored-manifest', rulesManifest, '--verify-phase', 'proofs',
+        ],
+        verifyGit({
+          diffNameOnly: 'specs/lean/RULES.md\nspecs/lean/Specs/Proofs.lean\n',
+          shortStat: ' 2 files changed, 2 insertions(+), 1 deletion(-)',
+          status: ' M specs/lean/RULES.md\n M specs/lean/Specs/Proofs.lean\n',
+        }),
+      )
+      expect(rules.mismatches.map((m) => m.kind)).toContain('restored-input-modified')
+      expect(rules.mismatches[0]?.detail).toContain('specs/lean/RULES.md')
+    })
+
     it('--restored-manifest：agent 刪除還原輸入 → restored-input-modified（hard）', () => {
       const { target, manifest } = restoredFixture({
         'specs/quint/RULES.md': '# RULES\n',

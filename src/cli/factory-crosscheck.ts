@@ -1042,13 +1042,29 @@ function isRestoredManifestPath(p: string): boolean {
  * hard mismatch。manifest 裡的雜湊只是「還原當時」的紀錄，判斷一律以重算結果為
  * 準：偽造或過期的雜湊不會被當成「檔案沒被動」的證據。
  */
+/**
+ * Lean proofs 階段可以合法改寫的還原輸入：`specs/lean/**`，但 `RULES.md` 除外
+ * （那是 G3 簽核的規則轉錄，不是這一階段的交付）。
+ */
+function isLeanProofsDeliverable(path: string): boolean {
+  if (!path.startsWith('specs/lean/')) return false
+  return path !== 'specs/lean/RULES.md'
+}
+
 function verifyRestoredInputs(
   entries: readonly RestoredInput[],
   target: string,
+  verifyPhase: string | undefined,
 ): { unchanged: string[]; mismatches: CrosscheckMismatch[] } {
   const unchanged: string[] = []
   const mismatches: CrosscheckMismatch[] = []
   for (const { path: restoredPath, sha256 } of entries) {
+    // Lean proofs 階段的交付就是**改寫**上一階段（statements）還原回來的
+    // `specs/lean/**`：填 `sorry`、更新 MODEL-MAP／REPORT／AUDIT。把這些檔當唯讀
+    // 會讓合法的證明工作被判成 restored-input-modified（2026-10-29 真實 run
+    // 40809048823 就是這樣失敗）。`specs/lean/RULES.md` 例外：它是 G3 簽核過的
+    // 規則轉錄，兩個階段都必須唯讀。`specs/quint/**` 與其他輸入也維持唯讀。
+    if (verifyPhase === 'proofs' && isLeanProofsDeliverable(restoredPath)) continue
     let current: string
     try {
       current = createHash('sha256')
@@ -1186,6 +1202,8 @@ export function parseArgs(argv: string[]): {
   baseSha?: string | undefined
   /** `factory-verify-input` 的還原清單（只在 --verify-only 下有效）。 */
   restoredManifestPath?: string | undefined
+  /** Lean 的 statements／proofs；proofs 允許改寫 specs/lean/** 的還原輸入（RULES.md 除外）。 */
+  verifyPhase?: string | undefined
   /** `factory-verify-facts` 的輸出（只在 --verify-only 下有效）；存在時不得再對 target 跑 git。 */
   factsPath?: string | undefined
   requirementAnchors: string[]
@@ -1204,6 +1222,8 @@ export function parseArgs(argv: string[]): {
   let verifyOnly = false
   let baseSha: string | undefined
   let restoredManifestPath: string | undefined
+  /** Lean 的 statements／proofs 分流；proofs 允許改寫 specs/lean/** 的還原輸入。 */
+  let verifyPhase: string | undefined
   let factsPath: string | undefined
   let requirementAnchors: string[] = []
   let specPhase: string | undefined
@@ -1241,6 +1261,10 @@ export function parseArgs(argv: string[]): {
         throw new CliError('--base-sha requires a full 40-hex commit SHA')
       }
       baseSha = parseBaseSha(v)
+    } else if (arg === '--verify-phase') {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new CliError('--verify-phase requires statements|proofs')
+      verifyPhase = v
     } else if (arg === '--restored-manifest') {
       const v = argv[++i]
       if (v === undefined || v.startsWith('--')) throw new CliError('--restored-manifest requires a path')
@@ -1355,6 +1379,7 @@ export function parseArgs(argv: string[]): {
     verifyOnly,
     baseSha,
     restoredManifestPath,
+    verifyPhase,
     factsPath,
     requirementAnchors,
     writeSpec,
@@ -1420,6 +1445,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
     verifyOnly,
     baseSha,
     restoredManifestPath,
+    verifyPhase,
     factsPath,
     requirementAnchors,
     writeSpec,
@@ -1460,7 +1486,7 @@ export function main(argv: string[], git: GitRunner = realGit): CrosscheckOutput
   // diff 裡，另記為 restored-input-modified（hard，與 diff-not-reported 同級）。
   let restoredInputMismatches: CrosscheckMismatch[] = []
   if (restoredManifestPath !== undefined) {
-    const verified = verifyRestoredInputs(loadRestoredManifest(restoredManifestPath), paths.target)
+    const verified = verifyRestoredInputs(loadRestoredManifest(restoredManifestPath), paths.target, verifyPhase)
     actual = subtractRestoredPaths(actual, verified.unchanged)
     restoredInputMismatches = verified.mismatches
   }
