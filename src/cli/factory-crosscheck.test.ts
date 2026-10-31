@@ -2051,6 +2051,37 @@ describe('驗證模式的 crosscheck（--verify-only，ADR-029 §5、§6）', ()
       expect(rules.mismatches[0]?.detail).toContain('specs/lean/RULES.md')
     })
 
+    it('--verify-phase proofs：G3-SIGNOFF.md 是服務端寫入的簽核證據，改寫即 restored-input-modified', () => {
+      // 2026-10-31 獨立審查：agent 原本從「有 proofs 派工」推斷 G3 已簽核。現在 Worker 把
+      // 簽核者與時間寫進 specs/lean/G3-SIGNOFF.md；proofs 階段雖可改寫 specs/lean/**，
+      // 這個檔改了就等於偽造簽核，必須跟 RULES.md 一樣唯讀。
+      const { target, manifest } = restoredFixture({
+        'specs/lean/Specs/Proofs.lean': 'theorem t : True := sorry\n',
+        'specs/lean/G3-SIGNOFF.md': '# G3\n- 簽核者（actor）：philipz\n',
+      })
+      writeFileSync(join(target, 'specs/lean/Specs/Proofs.lean'), 'theorem t : True := trivial\n')
+      writeFileSync(join(target, 'specs/lean/G3-SIGNOFF.md'), '# G3\n- 簽核者（actor）：someone-else\n')
+      writeFileSync(
+        reportPath,
+        makeReport({ changedPaths: ['specs/lean/Specs/Proofs.lean'], changedLines: 1, requirements: undefined }),
+      )
+      const result = main(
+        [
+          '12', reportPath, '--target', target, '--verify-only',
+          '--restored-manifest', manifest, '--verify-phase', 'proofs',
+        ],
+        verifyGit({
+          diffNameOnly: 'specs/lean/G3-SIGNOFF.md\nspecs/lean/Specs/Proofs.lean\n',
+          shortStat: ' 2 files changed, 2 insertions(+), 2 deletions(-)',
+          status: ' M specs/lean/G3-SIGNOFF.md\n M specs/lean/Specs/Proofs.lean\n',
+        }),
+      )
+      expect(result.mismatches.map((m) => m.kind)).toContain('restored-input-modified')
+      expect(result.mismatches.find((m) => m.kind === 'restored-input-modified')?.detail).toContain(
+        'specs/lean/G3-SIGNOFF.md',
+      )
+    })
+
     it('--restored-manifest：agent 刪除還原輸入 → restored-input-modified（hard）', () => {
       const { target, manifest } = restoredFixture({
         'specs/quint/RULES.md': '# RULES\n',
