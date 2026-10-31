@@ -165,6 +165,22 @@ describe('#143 獨立審查 step：接線', () => {
     expect(record).toContain('review: $review')
   })
 
+  it('review 之後、重新 materialise facts 之前重算用量（獨立審查是第二個 session）', () => {
+    const usage = indexOf('Re-measure usage & cost (after review)')
+    expect(usage).toBeGreaterThan(indexOf(CHECK))
+    expect(usage).toBeLessThan(indexOf(REFACTS))
+    // 原本的量測在審查之前（索引更小），所以單靠它會少算 review session。
+    expect(indexOf('Measure usage & cost')).toBeLessThan(indexOf(RUN))
+
+    const step = byName('Re-measure usage & cost (after review)')
+    expect(step.if).toBe("always() && steps.reviewprep.outcome == 'success'")
+    // 覆寫同一個 usage.json（factory-usage 以整個 sessions root 重新聚合）。
+    expect(step.run).toContain('target/.factory/run/usage.json')
+    expect(step.run).toContain('--sessions-root "$HOME/.dsh/sessions"')
+    // 量測失敗不擋 run，但要留下可追的警告。
+    expect(step.run).toContain('::warning::重新量測用量失敗')
+  })
+
   it('審查結果檔 review.json 進密文 bundle 的機制檔清單', () => {
     expect(readFileSync(join(ROOT, 'src/cli/factory-verify-encrypt.ts'), 'utf8')).toContain("'review.json'")
   })
