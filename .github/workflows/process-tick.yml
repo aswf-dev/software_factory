@@ -45,7 +45,7 @@ jobs:
           head -c 2000 /tmp/tick.json || true
           echo
           case "$CODE" in
-            200) echo "::notice::process tick ok (HTTP $CODE)" ;;
-            403|500) echo "::error::process tick 被拒絕（HTTP $CODE）——檢查密鑰與 Worker secret"; exit 1 ;;
-            *) echo "::warning::process tick 回應 HTTP $CODE（可重試）" ;;
+            200) echo "::notice::process tick ok (HTTP ${CODE})" ;;
+            403|500) echo "::error::process tick 被拒絕（HTTP ${CODE}）——檢查密鑰與 Worker secret"; exit 1 ;;
+            *) echo "::warning::process tick 回應 HTTP ${CODE}（可重試）" ;;
           esac
