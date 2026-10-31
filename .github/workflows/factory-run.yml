@@ -2088,6 +2088,34 @@ jobs:
             *) echo "::error::specs/lean/REVIEW.md 缺少或沒有 Verdict 行——視為 FAIL"; exit 1 ;;
           esac
 
+      # #143：獨立審查是**第二個 DSH session**，而「Measure usage & cost」在它之前就跑完了
+      # （索引 45 早於審查的 49），所以只算到 proofs agent。這裡重算一次：factory-usage
+      # 以整個 sessions root 重新聚合，會同時包含 proofs 與 review 兩個 session，覆寫
+      # usage.json／usage.md，讓看板（/scoreboard/runs）的 Lean proofs 成本不再少算。
+      # 必須在重新 materialise facts 之前，bundle 才會帶到新的用量。
+      - name: Re-measure usage & cost (after review)
+        if: always() && steps.reviewprep.outcome == 'success'
+        continue-on-error: true
+        env:
+          TOKEN_BUDGET: ${{ inputs.token_budget }}
+        run: |
+          set +e
+          node "$GITHUB_WORKSPACE/dist/cli/factory-usage.js" \
+            --sessions-root "$HOME/.dsh/sessions" \
+            --pricing "$GITHUB_WORKSPACE/config/dsh/pricing.yaml" \
+            --usage-md "$GITHUB_WORKSPACE/target/.factory/run/usage.md" \
+            --report "$GITHUB_WORKSPACE/target/.factory/run/report.json" \
+            > "$GITHUB_WORKSPACE/target/.factory/run/usage.json"
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            echo "::warning::重新量測用量失敗（不擋 run）——Lean proofs 的成本只含 proofs agent，不含獨立審查 session"
+            exit 0
+          fi
+          # 公開 log 只印聚合數字（usage.json 無目標內容，但維持「log 只印去識別化值」的慣例）。
+          jq -r '"usage after review: tokens=\(.usage.totals.totalTokens) costUsd=\(.usage.totals.costUsd) sessions-included=proofs+review"' \
+            "$GITHUB_WORKSPACE/target/.factory/run/usage.json" || true
+
       # 審查新增了 specs/lean/REVIEW.md（也可能搬走了 instruction 檔）：encrypt 的 bundle 範圍
       # 來自 facts，所以重新 materialise 一次，讓 REVIEW.md 進密文 bundle。
       - name: Re-materialise verify facts (after review)
