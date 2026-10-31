@@ -160,8 +160,13 @@ jobs:
   publish:
     needs: [discover, snapshot]
     # 個別租戶失敗（snapshot 為 failure）仍要發佈其他系統；只有 discover 失敗或取消才停。
-    # 手動執行且 publish=false 時不發佈（排程執行沒有 inputs，inputs.publish 為 null → 照常發佈）。
-    if: ${{ !cancelled() && needs.discover.result == 'success' && inputs.publish != false }}
+    # 手動執行且 publish=false 時不發佈。
+    #
+    # 2026-10-31 事故：原本寫 `inputs.publish != false`，本意是「排程沒有 inputs 就照常發佈」，
+    # 但 GitHub 表示式把 null 與 false 視為相等（兩者都轉成 0），排程觸發時條件恆為 false
+    # → 從 10-23 起每日排程的 publish 全部被跳過，snapshot-latest 停在 10-22。改成先看
+    # 觸發方式：非手動（排程）一律發佈，手動才看 publish 輸入（布林值，不用字串比較）。
+    if: ${{ !cancelled() && needs.discover.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
