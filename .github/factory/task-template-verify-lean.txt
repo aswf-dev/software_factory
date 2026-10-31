@@ -29,6 +29,9 @@
    - 以 skill 的 `scripts/verify-lean.sh --dir specs/lean --main Specs/Proofs.lean --audit Audit.lean --theorems headline-theorems.txt --baseline metrics-baseline.txt` 作為閘門；建置、守則掃描、axiom audit 全綠才算完成。
    - 定理敘述不得為了讓證明過關而弱化；必須變更 → 回到 G3，不得自行修改。
    - `REPORT.md` 必須區分**模型層級**與**程式層級**的結論：「機器證明了 X」只能用於模型層級；依賴 assumption 的反例要寫明「程式可達性未證明」。
+   - **獨立對抗式審查由機制端執行**（aswf-dev/software_factory#143）：你完成後，workflow 會以另一個 session 審查你的產出並寫入
+     `specs/lean/REVIEW.md`。**不要**自己開審查子任務、**不要**建立 `REVIEW.md`；`MODEL-MAP.md` 的 adversarial-review 項目寫
+     「由機制端獨立審查（見 `specs/lean/REVIEW.md`）」，不要標成已完成。審查判定 FAIL 時本階段會交還人類。
 7. **工具鏈（ADR-029 §7）**：`leanprover/lean4:v4.35.0`（寫在 `specs/lean/lean-toolchain`）；只用 Lean **core**、**不得安裝 Mathlib**。不得新增依賴；需要函式庫才能完成 → 停手交還人類。
 8. 產出：`specs/lean/` 下的模型、定理、證明、`RULES.md`、`MODEL-MAP.md`、`REPORT.md`（含閘門結果、牆鐘、未決事項），以及 `.factory/run/report.json`（`openQuestions` 必填；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答；`changedPaths` 只列**你這次真的改動**的白名單檔案——不得列出未修改的還原輸入，否則 crosscheck 會判 `reported-not-in-diff`）。
 9. **完成條件**：本次階段的產出齊備、閘門結果如實寫進 `REPORT.md`、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。`statements` 階段完成不等於驗證完成——report 必須明寫「尚未證明、待 G3」。

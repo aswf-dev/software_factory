@@ -1493,6 +1493,9 @@ jobs:
           set -e
           echo "AGENT_END_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          # #143：獨立審查要優先用**不同**的 provider（skill Phase 3：different model
+          # preferred），所以記下產出本次交付的 provider（只有 provider 名稱，無內容）。
+          echo "provider=${LAST_PROVIDER:-}" >> "$GITHUB_OUTPUT"
           # fallback：agent 未寫 report 時依 exit code 補最小 report（cwd=target）。
           # A2：帶上決定性的止原因與 chain 歸因，讓 judge/scoreboard 不必從 log 猜。
           # dry_run 走 stub agent，不套用真實 run 的止原因語意（避免偽造歸因）。
@@ -1947,6 +1950,162 @@ jobs:
       # Step 5 — 執行後判定：重計分 + 停手規則（重用 runWorkItem 管線）。
       # report.json 在 target/.factory/run/（agent cwd=target）；catalog/risk-paths 讀目標 repo。
       # TOKEN_BUDGET 由 input 帶入（0 = 不設限），judge 讀 env（Q02-5 SR7 接線）。
+      # #143（選項 B）：Lean proofs 的**獨立對抗式審查**。原本由 proofs agent 在自己的
+      # 工作項內開子任務，會被逾時或 agent 自行放棄（run 40812198122：兩個審查子任務都
+      # 沒回報，改做 self-review，事後補做才抓到「反例依賴 timer 提前 250 ms」等問題）。
+      # 現在由機制端固定執行：proofs agent 與它的 crosscheck 都成功後，以**另一個 DSH
+      # session**（新 context、優先不同 provider）審查，結果寫進 specs/lean/REVIEW.md。
+      #
+      # 共用檔案系統的防護：(1) 再清一次 instruction 檔／skills（proofs agent 可能留字
+      # 給審查者）；(2) 審查前對整個 target 記 sha256 manifest（target 外），審查後逐檔
+      # 比對——REVIEW.md 以外的任何變更都判失敗；(3) 判定取 REVIEW.md 的 `Verdict:` 行，
+      # 缺少即 FAIL；(4) 審查 session 的 stdout／stderr 寫在 target 外。
+      - name: Prepare independent Lean review (verify only)
+        id: reviewprep
+        if: steps.verifymode.outputs.verify == 'true' && steps.tasktype.outputs.value == 'agent-verify-lean' && inputs.verify_phase == 'proofs' && inputs.dry_run != true && steps.agent.outputs.exit_code == '0' && steps.crosscheck.outcome == 'success'
+        run: |
+          set -euo pipefail
+          REVIEW_DIR="$GITHUB_WORKSPACE/.factory/review"
+          mkdir -p "$REVIEW_DIR"
+          AWAY="${RUNNER_TEMP:?}/away-review"
+          mkdir -p "$AWAY"
+          MOVED=0
+          # proofs agent 可能新建 AGENTS.md／.dsh 之類的檔案影響審查者：審查前再搬走一次。
+          # 這些從來不是合法交付（後續重新 materialise 的 facts 也不會帶它們）。
+          while IFS= read -r -d '' SRC; do
+            REL="${SRC#"$GITHUB_WORKSPACE/target/"}"
+            mkdir -p "$(dirname "$AWAY/$REL")"
+            rm -rf "${AWAY:?}/$REL"
+            mv "$SRC" "$AWAY/$REL"
+            MOVED=$((MOVED + 1))
+          done < <(find "$GITHUB_WORKSPACE/target" \( -name .git -prune \) -o \( \( -name .dsh -o -name .agents -o -name AGENTS.md -o -name AGENTS.local.md -o -name CLAUDE.md -o -name CLAUDE.local.md \) -prune -print0 \))
+          echo "review prep: moved aside ${MOVED} agent-instruction path(s)"
+          # 審查結果必須由審查者自己寫：proofs agent 若預先放了 REVIEW.md（模板禁止），先移走。
+          if [ -e "$GITHUB_WORKSPACE/target/specs/lean/REVIEW.md" ]; then
+            mv "$GITHUB_WORKSPACE/target/specs/lean/REVIEW.md" "$AWAY/REVIEW.md.from-proofs"
+            echo "::warning::proofs agent 留下了 specs/lean/REVIEW.md（模板禁止）——已移走，審查者必須自己寫"
+          fi
+          node "$GITHUB_WORKSPACE/dist/cli/factory-lean-review.js" snapshot \
+            --target "$GITHUB_WORKSPACE/target" --out "$REVIEW_DIR/manifest.json" > /dev/null
+          echo "review prep: workspace manifest recorded outside target"
+
+      - name: Run independent Lean review (verify only)
+        id: review
+        if: steps.reviewprep.outcome == 'success'
+        # 審查自己的預算：內層 40 分（timeout(1)），step 多 5 分給 flush。實測 proofs agent
+        # 約 12 分鐘、job 上限 185 分，空間充裕（PR 說明）。
+        timeout-minutes: 45
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+          PROOFS_PROVIDER: ${{ steps.agent.outputs.provider }}
+          GIT_AUTHOR_NAME: softwarefactory-bot[bot]
+          GIT_AUTHOR_EMAIL: softwarefactory-bot[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: softwarefactory-bot[bot]
+          GIT_COMMITTER_EMAIL: softwarefactory-bot[bot]@users.noreply.github.com
+        run: |
+          set +e
+          REVIEW_DIR="$GITHUB_WORKSPACE/.factory/review"
+          TIER=$(jq -r '.tier // ""' "$GITHUB_WORKSPACE/.factory/model.json")
+          # 驗證模式的 agent token 是唯讀的（R25）；審查者可以讀 Issue，不能寫任何東西。
+          AGENT_TOKEN_FILE="${RUNNER_TEMP:?}/agent-gh-token"
+          if [ -s "$AGENT_TOKEN_FILE" ]; then GH_TOKEN=$(cat "$AGENT_TOKEN_FILE"); export GH_TOKEN; fi
+          TEMPLATE="$GITHUB_WORKSPACE/.github/factory/task-template-verify-lean-review.txt"
+          # 不同 provider 優先：與證明者同一個模型容易一起漏看同一個問題。
+          CHAIN=$(jq -c --arg p "${PROOFS_PROVIDER:-}" \
+            '[.chain[] | select(.provider != $p)] + [.chain[] | select(.provider == $p)] | .[]' \
+            "$GITHUB_WORKSPACE/.factory/model.json")
+          REMAINING_SEC=2400
+          ATTEMPT=0
+          code=1
+          P=""
+          cd "$GITHUB_WORKSPACE/target"
+          while IFS= read -r ENTRY; do
+            [ -z "$ENTRY" ] && continue
+            [ "$REMAINING_SEC" -le 0 ] && break
+            P=$(printf '%s' "$ENTRY" | jq -r .provider)
+            MODEL=$(printf '%s' "$ENTRY" | jq -r .model)
+            EFFORT=$(printf '%s' "$ENTRY" | jq -r '.reasoningEffort // empty')
+            node "$GITHUB_WORKSPACE/dist/cli/factory-dsh-patch.js" \
+              --provider "$P" --model "$MODEL" ${EFFORT:+--effort "$EFFORT"} \
+              --providers "$GITHUB_WORKSPACE/config/dsh/settings.providers.yaml" \
+              --out "$REVIEW_DIR/model.patch.yml" > /dev/null
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "independent review: trying ${P} (attempt=${ATTEMPT}, proofs provider=${PROOFS_PROVIDER:-unknown})"
+            STARTED_AT=$(date +%s)
+            timeout --signal=TERM --kill-after=30s "$REMAINING_SEC" \
+              "$GITHUB_WORKSPACE/node_modules/.bin/dsh" --profile headless \
+              --patch "$GITHUB_WORKSPACE/config/dsh/factory-guardrail.patch.yml" \
+              --patch "$REVIEW_DIR/model.patch.yml" \
+              "$(sed -e "s/<ISSUE>/${{ inputs.issue_number }}/" \
+                     -e "s|<REPO>|${{ inputs.repo }}|" \
+                     -e "s|<BASE_BRANCH>|${{ inputs.base_branch }}|" "$TEMPLATE")" \
+              > "$REVIEW_DIR/stdout.txt" 2> "$REVIEW_DIR/stderr.txt"
+            code=$?
+            REMAINING_SEC=$((REMAINING_SEC - ($(date +%s) - STARTED_AT)))
+            # 驗證模式的公開 log 只印 provider 與 exit code（stderr 是目標內容的 reasoning）。
+            echo "independent review: provider=${P} exit=${code}"
+            [ "$code" -eq 0 ] && break
+            [ "$code" -eq 124 ] || [ "$code" -eq 137 ] && break
+            CLASSIFY=$(node "$GITHUB_WORKSPACE/dist/cli/factory-attempt-classify.js" \
+              --stderr "$REVIEW_DIR/stderr.txt" --tier "${TIER:-unknown}" < /dev/null) \
+              || CLASSIFY='{"fallback":false}'
+            [ "$(printf '%s' "$CLASSIFY" | jq -r '.fallback')" = "true" ] || break
+          done < <(printf '%s\n' "$CHAIN")
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "provider=${P}" >> "$GITHUB_OUTPUT"
+          # 本步一律 exit 0：結果由下一步（manifest 比對＋Verdict）判定，不靠 agent 自報。
+          exit 0
+
+      - name: Check independent Lean review (verify only)
+        id: reviewcheck
+        if: always() && steps.reviewprep.outcome == 'success'
+        env:
+          REVIEW_RC: ${{ steps.review.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          REVIEW_DIR="$GITHUB_WORKSPACE/.factory/review"
+          RESULT=$(node "$GITHUB_WORKSPACE/dist/cli/factory-lean-review.js" check \
+            --target "$GITHUB_WORKSPACE/target" --manifest "$REVIEW_DIR/manifest.json")
+          # 越界清單是 metadata：只進密文 bundle（mechanism file），不印進公開 log。
+          printf '%s\n' "$RESULT" > "$GITHUB_WORKSPACE/.factory/review.json"
+          SCOPE=$(printf '%s' "$RESULT" | jq -r .scopeOk)
+          VERDICT=$(printf '%s' "$RESULT" | jq -r '.review.verdict // "none"')
+          COUNT=$(printf '%s' "$RESULT" | jq -r '.violations | length')
+          echo "::notice::independent Lean review: verdict=${VERDICT} scope_ok=${SCOPE} out_of_scope_changes=${COUNT} exit=${REVIEW_RC:-missing}"
+          if [ "${REVIEW_RC:-}" != "0" ]; then
+            echo "::error::獨立審查 session 沒有正常結束（exit ${REVIEW_RC:-missing}）——審查判失敗"
+            exit 1
+          fi
+          if [ "$SCOPE" != "true" ]; then
+            echo "::error::審查者修改了 specs/lean/REVIEW.md 以外的 ${COUNT} 個檔案——審查判失敗"
+            exit 1
+          fi
+          case "$VERDICT" in
+            PASS|PASS-WITH-NITS) echo "independent review accepted: ${VERDICT}" ;;
+            FAIL) echo "::error::獨立審查判定 FAIL——本階段交還人類（見 specs/lean/REVIEW.md）"; exit 1 ;;
+            *) echo "::error::specs/lean/REVIEW.md 缺少或沒有 Verdict 行——視為 FAIL"; exit 1 ;;
+          esac
+
+      # 審查新增了 specs/lean/REVIEW.md（也可能搬走了 instruction 檔）：encrypt 的 bundle 範圍
+      # 來自 facts，所以重新 materialise 一次，讓 REVIEW.md 進密文 bundle。
+      - name: Re-materialise verify facts (after review)
+        if: always() && steps.reviewprep.outcome == 'success'
+        env:
+          VERIFY_BASE_SHA: ${{ steps.basesha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          rm -f "$GITHUB_WORKSPACE/.factory/verify-facts.json"
+          node "$GITHUB_WORKSPACE/dist/cli/factory-verify-facts.js" \
+            --target "$GITHUB_WORKSPACE/target" \
+            --base-sha "$VERIFY_BASE_SHA" \
+            --out "$GITHUB_WORKSPACE/.factory/verify-facts.json" > /dev/null
+          if [ ! -s "$GITHUB_WORKSPACE/.factory/verify-facts.json" ]; then
+            echo "::error::重新 materialise facts 失敗——encrypt 不得使用審查前的事實（R25，fail closed）"
+            exit 1
+          fi
+
       # crosscheck skipped（dry_run）或成功才放行 judge；crosscheck 失敗時其自身已貼
       # needs-human，judge 不該再基於（可能是假的）report 產出終點。
       #
@@ -2029,7 +2188,8 @@ jobs:
             --arg crosscheck "${{ steps.crosscheck.outcome }}" \
             --arg specverify "${{ steps.specverify.outcome }}" \
             --arg judge "${{ steps.judge.outcome }}" \
-            '{agent: $agent, crosscheck: $crosscheck, specverify: $specverify, judge: $judge}' \
+            --arg review "${{ steps.reviewcheck.outcome || 'skipped' }}" \
+            '{agent: $agent, crosscheck: $crosscheck, specverify: $specverify, judge: $judge, review: $review}' \
             > .factory/steps.json
           cat .factory/steps.json
 
