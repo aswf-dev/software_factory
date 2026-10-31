@@ -550,6 +550,10 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       if (label.includes('grill')) {
         expect(c, label).toContain('問題收斂')
         expect(c, label).toContain('"none"')
+        // #131：grill 直接寫 draft RULES.md（Worker 端預填改讀這個檔，不再依賴
+        // 從 CODE-SUMMARY 抽取的脆弱格式比對）。
+        expect(c, label).toContain('specs/quint/RULES.md')
+        expect(c, label).toContain('草稿')
       }
       expect(c, label).toContain('<REPO>')
       expect(c, label).toContain('<BASE_BRANCH>')
