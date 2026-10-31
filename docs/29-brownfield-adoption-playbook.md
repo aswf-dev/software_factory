@@ -378,6 +378,7 @@ flowchart LR
 
     subgraph P3["P3 安全網（依模組）"]
         direction TB
+        S7B["S7B 人類：確認模組清單<br/>（預填 S5 盤點結果，ADR-030）"]:::human
         S8(["S8 工單：agent-add-tests<br/>依 A2 清單，每模組／檔案 1 張"]):::wi
         D1{"揭露缺陷？"}:::dec
         S9(["S9 工單：agent-fix-bug<br/>每個缺陷 1 張"]):::wi
@@ -387,6 +388,7 @@ flowchart LR
         S10W["S10 人類：豁免單"]:::human
         HG5{{"HG5 Tech Lead<br/>確認候選發現／豁免"}}:::hg
         HG6c{{"HG6 出 P3（模組達 R2）"}}:::hg
+        S7B --> S8
         S8 --> D1
         D1 -- 是 --> S9 --> D2
         D1 -- 否 --> D2
@@ -418,6 +420,7 @@ flowchart LR
 | S5 | P1 | 架構、測試、相依、風險盤點 | **`agent-analyze`（A1、A2、A3、A4）各 × 1** | 4 份報告 PR 合併 | HG6 |
 | S6 | P2 | README＋架構總覽 | **`agent-write-docs` × 1** | 文件 PR 合併 | HG3 |
 | S7 | P2 | 核心模組業務規則文件 | 不開工單（人類撰寫，每核心模組 1 份） | 文件存在於 trunk | HG4、HG6 |
+| S7B | P3 | 確認模組清單（預填 S5 盤點結果，可增刪） | 不開工單（人類確認） | 完成後 `modules` 進 P3 變數 | — |
 | S8 | P3 | 補測試 | **`agent-add-tests` × A2 清單項數**（每張 1 模組或 1 檔案） | 模組達 R2 | HG3 |
 | S9 | P3 | 修復揭露的缺陷（含 S10 確認的候選發現） | **`agent-fix-bug` × 缺陷數** | 修前紅、修後綠 | HG3 |
 | S10 | P3 | 驗證閘門（每核心模組擇一） | **`agent-write-spec` × 1** 或 **`agent-pbt-audit` × 1** 或豁免單（不開工單） | §10.3 | HG5、HG6 |

@@ -104,6 +104,11 @@ export const StepSchema = z.object({
   /** false＝可省略（例：P4 的維護步驟）。預設為 true。 */
   required: z.boolean().optional(),
   gates: z.array(GateIdSchema).optional(),
+  /**
+   * 這個**人工**步驟完成時會寫入的流程變數（ADR-030 §3：S7B 確認模組清單後寫 `modules`，
+   * 後續「每模組一張」的步驟迭代它）。引擎不自己推斷清單，清單由人確認。
+   */
+  sets: z.string().min(1).optional(),
 })
 
 export const TemplateSchema = z.object({

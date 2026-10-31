@@ -90,8 +90,9 @@ describe('模板內容', () => {
     }
   })
 
-  it('必要步驟數量（總步驟數扣掉標記為非必要的維護步驟）：S 11、M 15、L 18', () => {
-    expect(requiredSteps(templateOf('S'))).toHaveLength(11)
+  it('必要步驟數量（總步驟數扣掉標記為非必要的維護步驟）：S 12、M 15、L 18', () => {
+    // S 在 2026-11-01 由 ADR-030 §3 新增 S7B「確認模組清單」（P3 開頭的人工確認）。
+    expect(requiredSteps(templateOf('S'))).toHaveLength(12)
     expect(requiredSteps(templateOf('M'))).toHaveLength(15)
     expect(requiredSteps(templateOf('L'))).toHaveLength(18)
   })
