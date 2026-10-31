@@ -1,0 +1,51 @@
+# S 流程的排程補漏（ADR-030 §5）。
+#
+# 為什麼是「排程呼叫 HTTP 端點」而不是 Worker `scheduled`：`@astrojs/cloudflare` 14 沒有
+# 排出排程 handler 的入口，硬改 entry 會讓部署後的 `fetch` 路徑變脆弱。這裡每 5 分鐘
+# 呼叫 aswf.dev 的 `/api/v1/process/tick`，用共用的密鑰保護。
+#
+# 沒有設 `PROCESS_TICK_SECRET` 時**跳過並留 notice**（不失敗）：新環境還沒設好之前，
+# 不該讓排程一直紅。
+name: Process Tick
+
+on:
+  schedule:
+    # 每 5 分鐘（GitHub 的最短間隔；實際可能延遲，補漏容忍這點）。
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: process-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Advance open process instances
+        env:
+          PROCESS_TICK_SECRET: ${{ secrets.PROCESS_TICK_SECRET }}
+          SCOREBOARD_URL: ${{ vars.SCOREBOARD_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PROCESS_TICK_SECRET:-}" ]; then
+            echo "::notice::PROCESS_TICK_SECRET 未設定——跳過排程補漏（ADR-030 §5）"
+            exit 0
+          fi
+          BASE="${SCOREBOARD_URL:-https://aswf.dev}"
+          CODE=$(curl -sS -o /tmp/tick.json -w '%{http_code}' \
+            -X POST "$BASE/api/v1/process/tick" \
+            -H "x-process-tick: $PROCESS_TICK_SECRET" \
+            -H 'content-type: application/json' \
+            --max-time 60) || CODE=000
+          # 回應只含實例 id 與停等點，不含使用者內容；印出來方便追。
+          head -c 2000 /tmp/tick.json || true
+          echo
+          case "$CODE" in
+            200) echo "::notice::process tick ok (HTTP $CODE)" ;;
+            403|500) echo "::error::process tick 被拒絕（HTTP $CODE）——檢查密鑰與 Worker secret"; exit 1 ;;
+            *) echo "::warning::process tick 回應 HTTP $CODE（可重試）" ;;
+          esac
