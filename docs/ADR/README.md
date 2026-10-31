@@ -58,6 +58,7 @@
 | [ADR-026](026-project-owned-process-spec.md) | 系統流程 spec 歸專案所有（`factory/system.yaml`）；機制 repo 只保留納管名冊與規則，讀取時驗證；揭露 public 機制 repo 使租戶隔離失效（模板與快照可匿名讀取） | 已接受；檔案格式已被 `ADR-027` §9 取代 | `ADR-023` §1、`ADR-025`、`ADR-001` |
 | [ADR-027](027-bpmn-process-orchestration.md) | 以 BPMN 編排系統價值流——GitHub 管事實、Durable Object 管流程位置；人按送出才派工；工作項＝工廠擁有的子流程；HG 為 message catch、以本人身分在 GitHub 簽核；模板／系統／模組全部以 BPMN XML 為正本；process.yaml 只往前刪除 | 已接受 | `ADR-028`、`research/56-bpmn-orchestration`、`ADR-001`、`ADR-022`～`ADR-026` |
 | [ADR-028](028-bpmn-runtime-stack.md) | BPMN 執行技術選型——bpmnkit 全環境使用（編輯器／檢視器／linter／模擬／執行）、DO 以事件日誌為準、記憶體快取＋冷喚醒重播、Workers Paid、FEEL-only、與 Scoreboard 同 Worker、WebSocket Hibernation、PITR 備援、引擎升級重播閘門；附 PoC 驗收標準 | 已接受（PoC 驗收中） | `ADR-027`、`research/56-bpmn-orchestration`、`ADR-015` |
+| [ADR-030](030-s-flow-bpmn-execution.md) | S 專案流程改由 BPMN 引擎執行——狀態以 D1 事件日誌為唯一事實、webhook＋排程推進、人工步驟與 HG 在 aswf.dev 簽核、顯示為伺服器端 SVG 的 BPMN 圖；`S.yaml` 為唯一來源（`S.json` 廢除）；worker bundle 自訂門檻 1→2 MiB | 已接受（依 §9 驗收） | `ADR-027`、`ADR-028`、`ADR-029`、`ADR-015`、`ADR-001`、`ADR-024` |
 | [ADR-029](029-formal-verification-service.md) | aswf.dev 形式化驗證服務——BPMN 串起 grill（G1）→ Quint（G2）→ Lean（G3）→ 反例測試（G4）；一般使用者到 G2、白名單到 G4；GitHub OAuth＋repo write 權限；公開 runner 以 age 加密 artifact、延後發佈且資安發現不公開；驗證專用接入 | 已接受（PoC 驗收中） | `ADR-027`、`ADR-028`、`ADR-018`、`ADR-013`、`ADR-001` |
 
 ## 何時該寫新的 ADR
