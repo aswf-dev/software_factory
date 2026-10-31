@@ -17,12 +17,18 @@
    本模板與 `factory-workflow`／`factory-pr-stacking` 中「建立分支、開 PR、在 Issue 回報 PR」的步驟衝突時，**一律以本模板為準**（ADR-029 §5）。
 5. **`statements` 階段**（必須先完成，才能進入 proofs）：
    - 依 `RULES.md` 建立 Lean 模型（核心決策與狀態轉移，不逐行搬實作）與定理敘述；證明 body 可用 `sorry`，但**定理敘述必須完整、可建置**。
-   - 每條 headline theorem 的完整敘述、規則 ID、來源 `file:line`、非空洞 witness 寫進 `MODEL-MAP.md` 的 statement snapshot；`RULES.md` 記錄 confirmed-by 與出處。
+   - 每條 headline theorem 的完整敘述、規則 ID、來源 `file:line`、非空洞 witness 寫進 `MODEL-MAP.md` 的 statement snapshot；`RULES.md` 記錄 confirmed-by 與出處。`RULES.md` 的 G3 sign-off 欄位寫「見 `specs/lean/G3-SIGNOFF.md`（服務端於 G3 簽核後寫入）」，**不要**寫 `<pending G3>` 這種之後無法更新的占位字（proofs 階段 `RULES.md` 唯讀）。
    - `lake build` 必須通過；在 `.factory/run/report.json` 標明 `awaiting G3 sign-off`。**`sorry` 只允許在本階段**，且不得當成完成。
-6. **`proofs` 階段**（本次以 `proofs` 派工即代表 G3 已簽核；若 `specs/lean/` 缺 statements 階段產出或 `MODEL-MAP.md` 沒有簽核紀錄，在 report 註明並停手）：
+   - **模型忠實度（硬規則，2026-10-31 獨立審查教訓）**：
+     - 反例（「as-is 會違反」）的 witness trace 必須在**貼近程式碼的約束**下可達：時序、延遲、排程等若程式有明確來源（例如 `setTimeout(deadline − now)`），模型必須用它約束對應的轉移（例如以 `openedAt` 限制 timer 最早觸發時間），不得只留一個寬鬆的 `now >= …`。
+     - 若刻意放寬（over-approximation，例如「假設 timer 可提前觸發」），必須在 `RULES.md`／`MODEL-MAP.md` 標成 **assumption**，寫出它對應的 G1 決定或 ENV 條目，並在 `REPORT.md` 明寫「這個反例**依賴此假設**，Lean 沒有證明程式能走到它」。
+     - **禁止**「模型比實際寬，所以在模型找到的反例實際上也會發生」這類推論——寬鬆模型的反例不代表較窄的真實系統有反例。
+     - witness 的每個 conjunct 都必須對真實程式成立；模型自加的抽象欄位（例如 Nat 型 `taskId` 計數器）不得出現在宣稱「對應真實 trace」的定理裡。
+6. **`proofs` 階段**（G3 簽核的**唯一證據**是服務端寫入的 `specs/lean/G3-SIGNOFF.md`（簽核者、時間、approved）；**不得**從「有 proofs 派工」推斷已簽核。檔案不存在、或 `specs/lean/` 缺 statements 階段產出 → 在 report 註明並停手。`G3-SIGNOFF.md` 與 `RULES.md` 都是唯讀還原輸入，不得修改；把 `G3-SIGNOFF.md` 的簽核者與時間記進 `MODEL-MAP.md` 的 Review log（`RULES.md` 的 sign-off 欄位維持指向該檔即可，不要改寫））：
    - **proofs 階段不得出現任何 `sorry`**，也不得引入新 axiom、bodyless `opaque`、`native_decide`、`unsafe`、`extern`、`@[implemented_by]`（lean-formal-verification 的 guardrail）。
    - 以 skill 的 `scripts/verify-lean.sh --dir specs/lean --main Specs/Proofs.lean --audit Audit.lean --theorems headline-theorems.txt --baseline metrics-baseline.txt` 作為閘門；建置、守則掃描、axiom audit 全綠才算完成。
    - 定理敘述不得為了讓證明過關而弱化；必須變更 → 回到 G3，不得自行修改。
+   - `REPORT.md` 必須區分**模型層級**與**程式層級**的結論：「機器證明了 X」只能用於模型層級；依賴 assumption 的反例要寫明「程式可達性未證明」。
 7. **工具鏈（ADR-029 §7）**：`leanprover/lean4:v4.35.0`（寫在 `specs/lean/lean-toolchain`）；只用 Lean **core**、**不得安裝 Mathlib**。不得新增依賴；需要函式庫才能完成 → 停手交還人類。
 8. 產出：`specs/lean/` 下的模型、定理、證明、`RULES.md`、`MODEL-MAP.md`、`REPORT.md`（含閘門結果、牆鐘、未決事項），以及 `.factory/run/report.json`（`openQuestions` 必填；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答；`changedPaths` 只列**你這次真的改動**的白名單檔案——不得列出未修改的還原輸入，否則 crosscheck 會判 `reported-not-in-diff`）。
 9. **完成條件**：本次階段的產出齊備、閘門結果如實寫進 `REPORT.md`、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。`statements` 階段完成不等於驗證完成——report 必須明寫「尚未證明、待 G3」。

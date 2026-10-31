@@ -547,6 +547,14 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
       expect(c, label).toContain('MANDATORY')
       expect(c, label).toContain('Output language')
       // 2026-10-30：grill 要收斂問題（只問阻擋性問題，其餘寫 assumption）。
+      if (label.includes('lean')) {
+        // 2026-10-31 獨立審查：反例路徑要貼近程式碼、放寬要標 assumption、禁止
+        // 「模型較寬 ⇒ 真實也會壞」；G3 簽核的唯一證據是服務端寫入的檔案。
+        expect(c, label).toContain('模型忠實度')
+        expect(c, label).toContain('assumption')
+        expect(c, label).toContain('specs/lean/G3-SIGNOFF.md')
+        expect(c, label).toContain('不得**從「有 proofs 派工」推斷')
+      }
       if (label.includes('grill')) {
         expect(c, label).toContain('問題收斂')
         expect(c, label).toContain('"none"')

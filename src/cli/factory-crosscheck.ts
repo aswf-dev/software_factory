@@ -1046,9 +1046,16 @@ function isRestoredManifestPath(p: string): boolean {
  * Lean proofs 階段可以合法改寫的還原輸入：`specs/lean/**`，但 `RULES.md` 除外
  * （那是 G3 簽核的規則轉錄，不是這一階段的交付）。
  */
+/**
+ * proofs 階段也必須唯讀的 `specs/lean/**` 還原輸入：
+ * - `RULES.md`：G3 簽核過的規則轉錄
+ * - `G3-SIGNOFF.md`：服務端寫入的 G3 簽核證據（簽核者、時間）；agent 改寫它就等於偽造簽核
+ */
+const LEAN_PROOFS_READ_ONLY = new Set(['specs/lean/RULES.md', 'specs/lean/G3-SIGNOFF.md'])
+
 function isLeanProofsDeliverable(path: string): boolean {
   if (!path.startsWith('specs/lean/')) return false
-  return path !== 'specs/lean/RULES.md'
+  return !LEAN_PROOFS_READ_ONLY.has(path)
 }
 
 function verifyRestoredInputs(
