@@ -58,6 +58,14 @@ steps:
     action: 撰寫核心模組業務規則
     kind: human
     gates: [HG4, HG6]
+  # ADR-030 §3（Q11=b）：模組清單要到 S5 盤點後才知道，所以在 P3 開頭由人確認一次，
+  # 之後 S8／S10 的「每模組一張」都迭代這份清單。表單由 aswf.dev 預填 S5 的盤點結果；
+  # 完成時把 `modules` 寫進 P3 的變數（引擎不自己推斷清單）。
+  - id: S7B
+    phase: P3
+    action: 確認模組清單（預填 S5 盤點結果）
+    kind: human
+    sets: modules
   - id: S8
     phase: P3
     action: 依 A2 清單補測試（每模組／檔案 1 張）

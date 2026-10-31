@@ -102,6 +102,13 @@
             ]
           },
           {
+            "id": "S7B",
+            "phase": "P3",
+            "action": "確認模組清單（預填 S5 盤點結果）",
+            "kind": "human",
+            "sets": "modules"
+          },
+          {
             "id": "S8",
             "phase": "P3",
             "action": "依 A2 清單補測試（每模組／檔案 1 張）",
