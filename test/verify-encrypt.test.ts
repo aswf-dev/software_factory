@@ -335,6 +335,7 @@ describe('encryptVerifyBundle：機制 JSON 只以密文進 bundle（kind: mecha
       'issue.json',
       'judge.json',
       'model.json',
+      'review.json',
       'verify-mode.json',
     ])
     // 機制檔名本身不是 target 的白名單路徑（不會與 target 行重名而誤導讀者）

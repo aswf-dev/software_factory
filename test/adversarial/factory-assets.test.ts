@@ -2382,11 +2382,19 @@ describe('write-spec 集中驗證接線（ADR-018 §7）', () => {
  */
 describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標）', () => {
   const workflow = read('.github/workflows/factory-run.yml')
-  const agentStep = workflow.slice(workflow.indexOf('name: Run factory agent'))
-  const rules = [...agentStep.matchAll(/-e "s(.)(<[A-Z_]+>)\1[^"]*?\1(g?)"/g)].map((m) => ({
-    token: m[2] as string,
-    global: m[3] === 'g',
-  }))
+  /** 只取某一個 step 的 run script（到下一個 `- name:` 為止）。 */
+  const stepText = (name: string): string => {
+    const start = workflow.indexOf(`name: ${name}`)
+    const next = workflow.indexOf('\n      - name: ', start + 1)
+    return workflow.slice(start, next === -1 ? undefined : next)
+  }
+  const sedRules = (text: string) =>
+    [...text.matchAll(/-e "s(.)(<[A-Z_]+>)\1[^"]*?\1(g?)"/g)].map((m) => ({
+      token: m[2] as string,
+      global: m[3] === 'g',
+    }))
+  const agentStep = stepText('Run factory agent')
+  const rules = sedRules(agentStep)
   const render = (text: string): string =>
     text
       .split('\n')
@@ -2408,6 +2416,18 @@ describe('任務模板佔位字替換完整（依 workflow 實際的 sed 旗標�
       '<VARIANT>',
       '<VERIFY_PHASE>',
     ])
+  })
+  it('#143：獨立審查 step 自己替換 review 模板的佔位字，且 review 模板只用這三個', () => {
+    const review = stepText('Run independent Lean review (verify only)')
+    const reviewRules = sedRules(review)
+    expect(reviewRules.map((r) => r.token).sort()).toEqual(['<BASE_BRANCH>', '<ISSUE>', '<REPO>'])
+    expect(review).toContain('task-template-verify-lean-review.txt')
+    const template = read('.github/factory/task-template-verify-lean-review.txt')
+    const rendered = template
+      .split('\n')
+      .map((line) => reviewRules.reduce((l, r) => (r.global ? l.split(r.token).join('X') : l.replace(r.token, 'X')), line))
+      .join('\n')
+    expect(rendered.match(/<(ISSUE|REPO|BASE_BRANCH|SPEC_PHASE|SPEC_NAME|VARIANT|VERIFY_PHASE)>/g)).toBeNull()
   })
   it('每個任務模板替換後都沒有殘留佔位字', () => {
     const dir = join(ROOT, '.github/factory')

@@ -90,6 +90,9 @@ export const VERIFY_MECHANISM_FILES = [
   'issue.json',
   'judge.json',
   'model.json',
+  // #143：Lean proofs 的獨立審查結果（scopeOk、越界檔案清單、verdict）。越界清單屬
+  // metadata（只走密文），Worker 用它在狀態頁說明審查為何不通過。
+  'review.json',
   'verify-mode.json',
 ] as const
 /** bundle 每一行的來源（ruling R7）：讀取端只依此分流，不看路徑長相。 */
