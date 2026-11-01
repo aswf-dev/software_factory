@@ -2786,3 +2786,34 @@ describe('驗證模式的 workflow 閘控（ADR-029 §5、§6）', () => {
     )
   })
 })
+
+/**
+ * ADR-030 §3：納管（`agent-onboard`）階段目標 repo 還沒有 catalog／risk-paths——
+ * 那正是這個階段的產出。judge 若硬要讀它們，納管永遠停在 needs-human（V4 實跑兩次）。
+ * 契約：缺檔時只能用「中性佔位」判終態，而且**僅限** agent-onboard；其他型別缺檔一律 fail。
+ */
+describe('納管階段判終態的 bootstrap 佔位（ADR-030 §3）', () => {
+  const judge = () => {
+    const yaml = require('js-yaml') as typeof import('js-yaml')
+    const workflow = yaml.load(readFileSync(join(ROOT, '.github/workflows/factory-run.yml'), 'utf8')) as {
+      jobs: { run: { steps: { name?: string; run?: string }[] } }
+    }
+    return workflow.jobs.run.steps.find((step) => step.name === 'Judge terminal state')?.run ?? ''
+  }
+
+  it('缺 catalog／risk-paths 時建立中性佔位（三軸未標註、沒有硬規則）', () => {
+    const run = judge()
+    expect(run).toContain('.factory/bootstrap/catalog-info.yaml')
+    expect(run).toContain('hard_rules: {}')
+    // 佔位只在缺檔時用；有檔就照原路徑
+    expect(run).toContain('if [ ! -f "$CATALOG" ] || [ ! -f "$RISK" ]')
+    expect(run).toContain('CATALOG=target/catalog-info.yaml')
+  })
+
+  it('只有 agent-onboard 可以用佔位，其他型別缺檔一律失敗', () => {
+    const run = judge()
+    expect(run).toContain('[ "$TASK_TYPE" != "agent-onboard" ]')
+    expect(run).toContain('不得用佔位值判終態')
+    expect(run).toContain('exit 1')
+  })
+})
