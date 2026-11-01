@@ -366,11 +366,12 @@ describe('R12：task type 解析後立即 allowlist 驗證', () => {
     expect(step.run ?? '').not.toMatch(/\$\{\{/)
   })
 
-  it('allowlist 恰好是 workflow choice 清單的 12 個 task type（不含 auto）', () => {
+  it('allowlist 恰好是 workflow choice 清單的 13 個 task type（不含 auto）', () => {
     const run = stepByName(ALLOWLIST_STEP).run ?? ''
     const pattern = run.match(/case "\$TASK_TYPE" in\s*\n\s*([a-z|-]+)\)/)?.[1]
     expect(pattern).toBeDefined()
-    expect(knownTaskTypes()).toHaveLength(12)
+    // 2026-11-01：新增 agent-onboard（S 流程的納管提案要能直接用型別派工）。
+    expect(knownTaskTypes()).toHaveLength(13)
     expect(new Set(pattern?.split('|'))).toEqual(new Set(knownTaskTypes()))
   })
 
