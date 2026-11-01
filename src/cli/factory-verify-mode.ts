@@ -59,12 +59,17 @@ export function decideVerifyMode(input: VerifyModeInput): VerifyModeDecision {
 
   if (!isVerifyTaskType(taskType)) {
     const baseBranchAllowed = baseBranch !== 'main'
+    // ADR-030 §3：`agent-onboard` 是**納管本身**——它的產出就是 catalog-info.yaml 與
+    // risk-paths.yml。若也要求「先有這些檔才准跑」，P0 的 S2 永遠過不了（V4 實跑：
+    // Initial score 找不到 target/catalog-info.yaml 直接失敗）。所以它是唯一豁免
+    // 前置設定的工作型別；計分（factory-score）與階段前置檢查都跳過。
+    const bootstrap = taskType === 'agent-onboard'
     return {
       verify: false,
       baseBranchAllowed,
-      requiresCatalog: true,
-      requiresRiskPaths: true,
-      requiresStagePrereqs: true,
+      requiresCatalog: !bootstrap,
+      requiresRiskPaths: !bootstrap,
+      requiresStagePrereqs: !bootstrap,
       error: baseBranchAllowed
         ? null
         : `base_branch 不得為 main（ADR-013／Q-P2-1：所有 repo 的 main 絕不觸碰，factory trunk 一律 ${VERIFY_LEGACY_BASE_BRANCH}），` +
