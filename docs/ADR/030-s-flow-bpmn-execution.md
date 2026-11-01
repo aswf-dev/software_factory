@@ -1,6 +1,6 @@
 # ADR-030：S 專案流程改由 BPMN 引擎執行——狀態以 D1 事件日誌為唯一事實
 
-- **狀態**：已接受（2026-11-01，使用者經 grilling 逐題裁決 Q1–Q25 並確認共識摘要；實作依 §9 驗收）
+- **狀態**：已接受且已驗收（2026-11-01 grilling 逐題裁決 Q1–Q25；V1–V4 全部上線，實跑報告見 factory-scoreboard `docs/research/59-s-flow-acceptance.md`）
 - **日期**：2026-11-01
 - **決定者**：使用者
 - **修訂**：`ADR-015`（Worker bundle 自訂門檻 1 MiB → 2 MiB）、`ADR-028` §4（執行平面先以 D1 落地，DO 的搬遷條件見 §7）
@@ -96,6 +96,8 @@
 | **V2** | 通用執行層：D1 表（實例／journal／effect 認領）、runtime 服務、webhook 推進、排程推進、bundle 門檻調整 |
 | **V3** | 頁面：BPMN 圖元件（階段總覽＋展開）、營運者啟動頁、人工步驟與 HG 簽核頁、流程頁換成 BPMN 圖 |
 | **V4** | 在 `agent-playground/pottery` 從 P0 跑到 P4，產出驗收報告 |
+
+**驗收結果（2026-11-01）**：實例 `347eb9ed`（`agent-playground/pottery`）從 P0 跑到 P4，狀態 `completed`、journal 65 條。逐條證據與「實跑抓到的 9 個缺陷」見 factory-scoreboard 的 `docs/research/59-s-flow-acceptance.md`。七條標準中六條有正面證據；第 4 條（排程補漏）機制就緒但未做斷線演練，第 1 條的 S10 兩個工單由人結案（格式缺陷修正前建立），缺口都列在報告 §4。
 
 驗收標準（比照 `ADR-029` §9）：
 
