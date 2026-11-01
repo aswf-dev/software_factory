@@ -46,6 +46,7 @@ spec:
             - agent-write-docs
             - agent-write-spec
             - agent-analyze
+            - agent-onboard
             - agent-propose-skill
             - agent-pbt-audit
             - agent-verify-grill
@@ -131,7 +132,7 @@ spec:
               required: [specName, specSource]
             - properties:
                 taskType:
-                  enum: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze, agent-propose-skill, agent-pbt-audit, agent-verify-grill, agent-verify-quint, agent-verify-lean, agent-verify-tests]
+                  enum: [agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-analyze, agent-onboard, agent-propose-skill, agent-pbt-audit, agent-verify-grill, agent-verify-quint, agent-verify-lean, agent-verify-tests]
   steps:
     - id: create-issue
       name: 建立 GitHub Issue

@@ -15,6 +15,7 @@ body:
         - agent-write-docs
         - agent-write-spec
         - agent-analyze
+        - agent-onboard
         - agent-propose-skill
         - agent-pbt-audit
         - agent-verify-grill
