@@ -25,7 +25,7 @@ on:
         description: 任務類型（決定 task-template 與 skill 分支）；auto = 以 Issue 宣告為準
         required: false
         type: choice
-        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-write-spec, agent-analyze, agent-propose-skill, agent-pbt-audit, agent-verify-grill, agent-verify-quint, agent-verify-lean, agent-verify-tests]
+        options: [auto, agent-add-tests, agent-fix-bug, agent-update-deps, agent-write-docs, agent-write-spec, agent-analyze, agent-onboard, agent-propose-skill, agent-pbt-audit, agent-verify-grill, agent-verify-quint, agent-verify-lean, agent-verify-tests]
         default: auto
       verify_phase:
         description: 驗證 Lean 階段（僅 agent-verify-lean）：statements＝先寫定理敘述（可留 sorry）待 G3 簽核；proofs＝G3 後證明（零 sorry，不得切換）
@@ -302,7 +302,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$TASK_TYPE" in
-            agent-add-tests|agent-fix-bug|agent-update-deps|agent-write-docs|agent-write-spec|agent-analyze|agent-propose-skill|agent-pbt-audit|agent-verify-grill|agent-verify-quint|agent-verify-lean|agent-verify-tests)
+            agent-add-tests|agent-fix-bug|agent-update-deps|agent-write-docs|agent-write-spec|agent-analyze|agent-onboard|agent-propose-skill|agent-pbt-audit|agent-verify-grill|agent-verify-quint|agent-verify-lean|agent-verify-tests)
               echo "task_type allowlisted" ;;
             *)
               echo "::error::resolved task_type 不在已知清單內（R12）——停止派工；請修正 Issue 的任務類型欄位或顯式指定 task_type"
