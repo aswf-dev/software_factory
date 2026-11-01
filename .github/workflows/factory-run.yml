@@ -2148,11 +2148,31 @@ jobs:
           # R12：task type 經 env 進 shell，不在 run 內以 ${{ }} 文字替換
           TASK_TYPE: ${{ steps.tasktype.outputs.value }}
         run: |
+          # ADR-030 §3：`agent-onboard`（納管）階段目標 repo 本來就還沒有
+          # `catalog-info.yaml` 與 risk-paths.yml——那些正是這個階段的產出。要求「先有
+          # catalog 才判得出終態」會讓納管永遠停在 needs-human（V4 實跑：兩個變體都掛在
+          # Judge terminal state）。因此缺檔時用**中性佔位**（三軸未標註、沒有硬規則）
+          # 判終態：計分不成立，但 terminal 仍能判定「有 PR 可審查」。
+          CATALOG=target/catalog-info.yaml
+          RISK=target/.github/factory/risk-paths.yml
+          if [ ! -f "$CATALOG" ] || [ ! -f "$RISK" ]; then
+            mkdir -p .factory/bootstrap
+            printf 'apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: bootstrap\nspec:\n  type: service\n  lifecycle: production\n  owner: unknown\n' \
+              > .factory/bootstrap/catalog-info.yaml
+            printf 'hard_rules: {}\n' > .factory/bootstrap/risk-paths.yml
+            if [ "$TASK_TYPE" != "agent-onboard" ]; then
+              echo "::error::缺少 catalog-info.yaml 或 risk-paths.yml，但 task type ${TASK_TYPE} 不是 agent-onboard（納管）——不得用佔位值判終態"
+              exit 1
+            fi
+            echo "::notice::納管階段：目標 repo 尚無 catalog／risk-paths，使用中性佔位值判終態"
+            CATALOG=.factory/bootstrap/catalog-info.yaml
+            RISK=.factory/bootstrap/risk-paths.yml
+          fi
           # --task-type：write-spec 一律不自動合併（ADR-018 護欄②，計分之後套用）
           node dist/cli/factory-judge.js \
             target/.factory/run/report.json \
-            target/catalog-info.yaml \
-            target/.github/factory/risk-paths.yml \
+            "$CATALOG" \
+            "$RISK" \
             --task-type "$TASK_TYPE" \
             > .factory/judge.json
           cat .factory/judge.json
