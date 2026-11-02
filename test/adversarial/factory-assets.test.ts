@@ -1562,17 +1562,17 @@ describe('模型分級路由契約（docs/ADR/011）', () => {
     })['llm-pi-ai'].providers,
   )
 
-  it('用戶模型優先序：low/medium/high=qwen3.8-flash（high 自 2026-10-11 起）、critical=opus-5-5', () => {
-    expect(tiers.low.primary.provider).toBe('qwen')
-    expect(tiers.low.primary.model).toBe('qwen3.8-flash')
-    expect(tiers.medium.primary.provider).toBe('qwen')
-    expect(tiers.medium.primary.model).toBe('qwen3.8-flash')
-    // 原預設 deepseek-v4-flash 退居 low/medium fallback（跨 provider failover，Q04-8）；
-    // 2026-09-11 起該 deepseek fallback 為 v4.1-flash。
-    expect(tiers.low.fallback.map((e) => e.model)).toContain('deepseek-flash')
-    expect(tiers.medium.fallback.map((e) => e.model)).toContain('deepseek-flash')
-    expect(tiers.high.primary.provider).toBe('qwen')
-    expect(tiers.high.primary.model).toBe('qwen3.8-flash')
+  it('用戶模型優先序：low/medium/high=deepseek-flash（2026-11-02 起）、critical=opus-5-5', () => {
+    expect(tiers.low.primary.provider).toBe('deepseek')
+    expect(tiers.low.primary.model).toBe('deepseek-flash')
+    expect(tiers.medium.primary.provider).toBe('deepseek')
+    expect(tiers.medium.primary.model).toBe('deepseek-flash')
+    // 原預設 qwen3.8-flash 退居 fallback（跨 provider failover，Q04-8）。
+    expect(tiers.low.fallback.map((e) => e.model)).toContain('qwen3.8-flash')
+    expect(tiers.medium.fallback.map((e) => e.model)).toContain('qwen3.8-flash')
+    expect(tiers.high.primary.provider).toBe('deepseek')
+    expect(tiers.high.primary.model).toBe('deepseek-flash')
+    expect(tiers.high.fallback.map((e) => e.model)).toEqual(['claude-sonnet-5-5', 'qwen3.8-flash'])
     expect(tiers.critical).toBeDefined() // critical tier 必備（最高 tier 的出口）
     expect(tiers.critical?.primary.model).toBe('claude-opus-5-5')
     expect(tiers.critical?.primary.provider).toBe('anthropic')
