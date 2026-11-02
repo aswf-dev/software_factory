@@ -9,7 +9,9 @@
 
 factory-run 目前以固定映射挑模型：`model_provider` input 選 provider，每種 provider 對應單一 model（`deepseek→deepseek-v4-flash`、`qwen→qwen3.7-flash`、`anthropic→claude-sonnet-4-5`），寫入 DSH settings 的 `agent-default-model` 後跑 `dsh --profile headless`。**所有 Issue 一律同一顆模型，與難度無關**——簡單工作項也用不到最強模型，複雜工作項又缺乏更強模型選項。
 
-需求（用戶裁決，2026-09-11 更新）：依 Issue 需求複雜度選擇對應等級的 LLM——低/中 → `qwen3.8-flash`（2026-08-27 起為預設）、高 → `deepseek-flash`、**最高（critical）→ `claude-opus-5`**；sonnet 僅作 fallback。並在 `factory-issue-check`（零 LLM 成本的格式檢查流程）留言中回報複雜度分析與建議模型。
+需求（用戶裁決，2026-11-02 更新）：依 Issue 需求複雜度選擇對應等級的 LLM——低/中/高 → `deepseek-flash`（2026-11-02 起為預設）、**最高（critical）→ `claude-opus-5-5`**；sonnet 僅作 fallback。並在 `factory-issue-check`（零 LLM 成本的格式檢查流程）留言中回報複雜度分析與建議模型。
+
+> **2026-11-02 裁決（預設改回 deepseek-flash）**：low/medium/high 的 primary 一律改為 `deepseek-flash`；`qwen3.8-flash` 退居 fallback（low/medium：`qwen3.8-flash`；high：`claude-sonnet-5-5 → qwen3.8-flash`）。dual（N-version）組合不變。沿革：low/medium 自 2026-08-27 起為 `qwen3.8-flash`；high 2026-09-11 起為 `deepseek-flash`、2026-10-11 改為 `qwen3.8-flash`。
 
 > **2026-09-27 裁決**：critical primary 改為 `claude-opus-5-5`（$4/20，支援 low～max effort），`claude-opus-5` 退為第一順位 fallback（同樣 `reasoningEffort: max`）。DSH 0.1.7-rc.1 綁定的 pi-ai 0.85.1 目錄尚未收錄 opus-5-5：升級前它在約 2 秒內以 `UNKNOWN_MODEL` 失敗（未發出網路請求），命中 provider 層 fallback 後改用 opus-5，行為與改動前相同；DSH 升級到收錄 opus-5-5 的 pi-ai（0.87.1 起）後自動生效，不需再改設定。刻意不在 `settings.providers.yaml` 手動宣告——models 清單會整個取代 anthropic route 的內建目錄，連 opus-5／sonnet-5 的參數都要自行維護。
 
@@ -34,7 +36,7 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 ## 決策
 
 1. **複雜度訊號：啟發式分析，零 LLM 成本**。新模組 `src/issue-analysis/complexity.ts` 把 docs/06 §3.3 的客觀判準（低=單一檔案/模組；中=跨數模組；高=跨服務/新架構/共用抽象）機械化為決定性的關鍵字/計數規則，讀 Issue body 的任務類型＋需求四段文字，輸出 `{complexity, score, evidence}`。每條判據進 `evidence` 給人看。**fail-safe 方向為 high**（需求缺失/不可分析 → 最強適用模型；不可知 ⇒ 不降級）。
-2. **模型分級：`config/dsh/model-tiers.yaml`**。每個 tier 宣告 `primary`＋`fallback` chain（`{provider, model[, reasoningEffort]}`）。用戶優先序由對抗性測試釘住：low/medium=`qwen3.8-flash`、high=`deepseek-flash`（2026-09-11 起；原 `deepseek-v4-pro`）、**critical=`claude-opus-5` + `reasoningEffort: max`（fable-5 已移除）**；sonnet 僅作 fallback（**跨供應商可用性替補**，正常不走——第三方基準顯示它不是品質升級，見下節）。
+2. **模型分級：`config/dsh/model-tiers.yaml`**。每個 tier 宣告 `primary`＋`fallback` chain（`{provider, model[, reasoningEffort]}`）。用戶優先序由對抗性測試釘住：low/medium/high=`deepseek-flash`（2026-11-02 起）、**critical=`claude-opus-5` + `reasoningEffort: max`（fable-5 已移除）**；sonnet 僅作 fallback（**跨供應商可用性替補**，正常不走——第三方基準顯示它不是品質升級，見下節）。
 3. **單一解析核心：`src/model-tier/resolve.ts`**。解析順序：手動 `--tier` ＞ Issue 需求分析 ＞ catalog 標註（`factory.io/complexity`）＞ fail-safe high。**critical 額外條件**：分析為 high 且 `score.total ≥ 4`（review 上緣；5–6 為 in-loop，agent 不啟動故不耗模型）。`factory-model` CLI 與 `factory-issue-check` 共用此核心——**邏輯**一致，無第二套規則可漂移。
 
    > **修正（2026-09-11）**：本條原寫「留言建議與實際路由永不打架」，**這是錯的**。兩者共用核心但**輸入不同**：`factory-issue-check` 是零 LLM 成本的開單即時檢查，**不做計分**（計分是 factory-run 的 Initial score 步驟），故傳入的 `scoreTotal` 為 undefined，critical 升級分支在該路徑**結構上不可達**——留言的 tier 天花板永遠是 high。實測案例：[fubon-tradingbot#611](https://github.com/philipz/fubon-tradingbot/issues/611#issuecomment-5632704780) 留言建議 `deepseek/deepseek-flash`（high），實跑為 `anthropic/claude-opus-5`（critical）。
@@ -59,8 +61,7 @@ factory-run 目前以固定映射挑模型：`model_provider` input 選 provider
 
 | tier | primary | 成本 | 相較候選 |
 |---|---|---|---|
-| low/medium | qwen3.8-flash（2026-08-27 起） | $0.15/0.47 | 最便宜（deepseek 退居 fallback） |
-| high | deepseek-flash（2026-09-11 起） | $0.30/1.20 | ~17× 便宜於 claude-opus-5（$5/25） |
+| low/medium/high | deepseek-flash（2026-11-02 起） | $0.30/1.20 | ~17× 便宜於 claude-opus-5（$5/25）；qwen3.8-flash（$0.15/0.47）退居 fallback |
 | critical | claude-opus-5（`reasoningEffort: max`） | $5/25 | 最高 tier；**effort 必須明設 max**，見下方基準實測 |
 | fallback | claude-sonnet-5 / deepseek-flash / qwen3.8-flash | — | **可用性**替補（非品質升級），正常不走 |
 

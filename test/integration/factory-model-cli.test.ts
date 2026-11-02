@@ -69,7 +69,7 @@ afterAll(() => {
 })
 
 describe('factory-model 實機執行', () => {
-  it('簡單需求 → exit 0、tier=low、chain 為 qwen3.8-flash → deepseek-flash', () => {
+  it('簡單需求 → exit 0、tier=low、chain 為 deepseek-flash → qwen3.8-flash', () => {
     const issue = fixture('low.json', issueJson('為單一工具函式補測試'))
     const { status, stdout, stderr } = runCli(cliPath, [
       '--issue',
@@ -85,8 +85,8 @@ describe('factory-model 實機執行', () => {
     expect(out.tier).toBe('low')
     expect(out.complexitySource).toBe('issue-analysis')
     expect(out.chain.map((e: { model: string }) => e.model)).toEqual([
-      'qwen3.8-flash',
       'deepseek-flash',
+      'qwen3.8-flash',
     ])
   })
 
@@ -110,13 +110,13 @@ describe('factory-model 實機執行', () => {
     expect(out.reason).toContain('critical')
   })
 
-  it('無 --issue、無 catalog → fail-safe high（qwen3.8-flash，2026-10-11 起）', () => {
+  it('無 --issue、無 catalog → fail-safe high（deepseek-flash，2026-11-02 起）', () => {
     const { status, stdout, stderr } = runCli(cliPath, ['--tiers', tiersPath, '--providers', providersPath])
     expect(status, `子行程 exit 非 0；stderr:\n${stderr}`).toBe(0)
     const out = JSON.parse(stdout)
     expect(out.tier).toBe('high')
     expect(out.complexitySource).toBe('fail-safe')
-    expect(out.selected.model).toBe('qwen3.8-flash')
+    expect(out.selected.model).toBe('deepseek-flash')
   })
 
   it('model-tiers 設定損壞 → exit 1、stderr 單行（絕不靜默成功）', () => {
