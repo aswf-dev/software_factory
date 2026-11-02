@@ -1,0 +1,22 @@
+.github/factory/task-template-verify-grill.txt
+  h_1b119f25eaf333 29
+.github/factory/task-template-verify-lean.txt
+  h_1b119f25eaf333 36
+src/cli/factory-judge.test.ts
+  h_1b119f25eaf333 6,332-359
+src/cli/factory-judge.ts
+  h_1b119f25eaf333 85-106,141-145,147-149
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 582-592
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7172c2f4688631e66ef3487ad21c150575b680a3",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
