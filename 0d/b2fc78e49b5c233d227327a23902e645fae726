@@ -1,0 +1,16 @@
+.github/factory/task-template-verify-grill.txt
+  h_1b119f25eaf333 29-45
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 593-603
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0db2fc78e49b5c233d227327a23902e645fae726",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
