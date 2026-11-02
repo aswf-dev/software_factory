@@ -1,0 +1,18 @@
+docs/ADR/028-bpmn-runtime-stack.md
+  h_1b119f25eaf333 19-20,29,82,108-112,202,228,251
+docs/ADR/README.md
+  h_1b119f25eaf333 60
+docs/research/56-bpmn-orchestration.md
+  h_1b119f25eaf333 200,203-245,369,377
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cf19ebc606e615fd6c5c5e5e3c06da16af246c46",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
