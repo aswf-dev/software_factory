@@ -26,7 +26,23 @@
    （不變量）、`ACT`（行為規則）、`OUT`（明確不驗證）四節，每條附 `file:line` 證據，
    並標明 `confirmed`／`candidate`／`assumption`。**不要**把 `CODE-SUMMARY.md` 的全文
    或使用者私有內容貼進來——這份檔案 G1 之後會公開發布。
-7. **問題收斂（重要）**：`.factory/run/report.json` 的 `changedPaths` 必須列出 `specs/quint/CODE-SUMMARY.md` 與 `specs/quint/RULES.md`；`openQuestions` 只放**阻擋性問題**，格式只有兩種：有問題時是**字串陣列**，每個元素一題（附建議答案），例如 `{ "openQuestions": ["問題一……建議：……", "問題二……建議：……"] }`；沒有就寫 `{ "openQuestions": { "none": "<理由>" } }`。**不得**寫成以編號為鍵的物件（例如 `{ "Q1": "…", "Q2": "…" }`）——那會讓整份 report 格式錯誤、本輪作廢（2026-11-02 實測）。**不要為了問而問**，把非阻擋的疑點寫成 `assumption` 就在摘要裡。**最多兩輪**：第二輪只確認第一輪答案衍生的規則；除非語義會改變，不要開新問題。實測教訓：一直問新問題會讓使用者在 G1 無限循環（2026-10-30 連續 3 輪、24 題仍未收斂）。
+7. **問題收斂（重要）**：`.factory/run/report.json` 的 `changedPaths` 必須列出 `specs/quint/CODE-SUMMARY.md`、`specs/quint/RULES.md` 與（有阻擋性問題時）`specs/quint/GRILL-OPTIONS.json`；`openQuestions` 只放**阻擋性問題**，格式只有兩種：有問題時是**字串陣列**，每個元素一題（附建議答案），例如 `{ "openQuestions": ["問題一……建議：……", "問題二……建議：……"] }`；沒有就寫 `{ "openQuestions": { "none": "<理由>" } }`。**不得**寫成以編號為鍵的物件（例如 `{ "Q1": "…", "Q2": "…" }`）——那會讓整份 report 格式錯誤、本輪作廢（2026-11-02 實測）。**不要為了問而問**，把非阻擋的疑點寫成 `assumption` 就在摘要裡。**最多兩輪**：第二輪只確認第一輪答案衍生的規則；除非語義會改變，不要開新問題。實測教訓：一直問新問題會讓使用者在 G1 無限循環（2026-10-30 連續 3 輪、24 題仍未收斂）。
+7b. **選項化（重要，讓使用者在 G1 點一次就定稿）**：只要 `openQuestions` 有問題，**同時**寫出 `specs/quint/GRILL-OPTIONS.json`，讓每一題的候選答案直接對應「選了它，RULES.md 那一段要寫成什麼」。格式（每個 `questionIndex` 對應 `openQuestions` 的 1-based 序號）：
+```json
+{ "questions": [
+  { "questionIndex": 1,
+    "affects": ["ACT-9", "INV-6"],
+    "options": [
+      { "id": "a", "recommended": true, "label": "給人看的選項文字（一句話）",
+        "rules": "- **ACT-9（confirmed）** 選了 a 時，RULES.md 該段要寫成的完整 markdown" },
+      { "id": "b", "label": "另一個選項", "rules": "- **ACT-9（confirmed）** 選了 b 時的寫法" } ] } ] }
+```
+   - 每題**至少兩個**選項；`recommended: true` 標在你自己建議的那一個（使用者**不會**被預先選取）。
+   - `rules` 要是**可直接貼進 RULES.md 的完整段落**（含規則編號、confirmed／candidate 標記與 `file:line` 證據），不要只寫差異。
+   - 同時在 `specs/quint/RULES.md` 用標記框住那一題影響的段落，內容填**建議選項**的文字，格式：
+     `<!-- grill:Q1 -->` …該段落… `<!-- /grill:Q1 -->`（題號與 `questionIndex` 一致；不要把整節 RULES 包進標記，只包那一題會改到的條目）。
+   - 沒有阻擋性問題時**不寫**這個檔案。
+
 8. **完成條件**：`specs/quint/CODE-SUMMARY.md`、`specs/quint/RULES.md` 與 `report.json` 齊備、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。**阻擋性**疑義才留在 `openQuestions`，不要默默挑一個解讀——G1 的誤解會被下游放大；非阻擋疑點寫成 `assumption` 即可。
 9. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑分析、額外驗證、自我檢查或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
 
