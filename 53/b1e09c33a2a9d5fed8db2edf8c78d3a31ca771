@@ -1,0 +1,30 @@
+docs/ADR/001-github-as-source-of-truth.md
+  h_1b119f25eaf333 4
+docs/ADR/023-workflow-process-spec-and-topology-ui.md
+  h_1b119f25eaf333 4
+docs/ADR/024-process-execution-semantics.md
+  h_1b119f25eaf333 4
+docs/ADR/025-tenant-process-templates.md
+  h_1b119f25eaf333 4
+docs/ADR/026-project-owned-process-spec.md
+  h_1b119f25eaf333 4
+docs/ADR/027-bpmn-process-orchestration.md
+  h_1b119f25eaf333 1-209
+docs/ADR/028-bpmn-runtime-stack.md
+  h_1b119f25eaf333 1-245
+docs/ADR/README.md
+  h_1b119f25eaf333 33,55-60
+docs/research/56-bpmn-orchestration.md
+  h_1b119f25eaf333 1-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "53b1e09c33a2a9d5fed8db2edf8c78d3a31ca771",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
