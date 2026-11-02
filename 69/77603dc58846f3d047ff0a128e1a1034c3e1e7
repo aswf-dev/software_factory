@@ -1,0 +1,20 @@
+docs/ADR/013-trunk-unification-software-factory.md
+  h_1b119f25eaf333 4
+docs/ADR/018-intent-driven-write-spec.md
+  h_1b119f25eaf333 4
+docs/ADR/029-formal-verification-service.md
+  h_1b119f25eaf333 1-144
+docs/ADR/README.md
+  h_1b119f25eaf333 45,50,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6977603dc58846f3d047ff0a128e1a1034c3e1e7",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
