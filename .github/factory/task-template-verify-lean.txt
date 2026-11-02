@@ -33,7 +33,7 @@
      `specs/lean/REVIEW.md`。**不要**自己開審查子任務、**不要**建立 `REVIEW.md`；`MODEL-MAP.md` 的 adversarial-review 項目寫
      「由機制端獨立審查（見 `specs/lean/REVIEW.md`）」，不要標成已完成。審查判定 FAIL 時本階段會交還人類。
 7. **工具鏈（ADR-029 §7）**：`leanprover/lean4:v4.35.0`（寫在 `specs/lean/lean-toolchain`）；只用 Lean **core**、**不得安裝 Mathlib**。不得新增依賴；需要函式庫才能完成 → 停手交還人類。
-8. 產出：`specs/lean/` 下的模型、定理、證明、`RULES.md`、`MODEL-MAP.md`、`REPORT.md`（含閘門結果、牆鐘、未決事項），以及 `.factory/run/report.json`（`openQuestions` 必填；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答；`changedPaths` 只列**你這次真的改動**的白名單檔案——不得列出未修改的還原輸入，否則 crosscheck 會判 `reported-not-in-diff`）。
+8. 產出：`specs/lean/` 下的模型、定理、證明、`RULES.md`、`MODEL-MAP.md`、`REPORT.md`（含閘門結果、牆鐘、未決事項），以及 `.factory/run/report.json`（`openQuestions` 必填，**字串陣列**、每個元素一題，不得用以編號為鍵的物件；確實沒有時寫 `{ "none": "<理由>" }`，空陣列不算回答；`changedPaths` 只列**你這次真的改動**的白名單檔案——不得列出未修改的還原輸入，否則 crosscheck 會判 `reported-not-in-diff`）。
 9. **完成條件**：本次階段的產出齊備、閘門結果如實寫進 `REPORT.md`、Issue 上出現 `stage/done`（由機制端貼上；你只回報摘要，不貼標籤、不開 PR）。`statements` 階段完成不等於驗證完成——report 必須明寫「尚未證明、待 G3」。
 10. **完成後立即停止**：report.json 寫完即為工作項終點——不要重跑證明、額外驗證或輸出思考。DSH 只有在 agent 停止時才會結束；繼續動作會讓 CI 卡到逾時。
 
