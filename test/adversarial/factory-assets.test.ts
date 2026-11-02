@@ -590,6 +590,17 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
     expect(grill).toContain('"openQuestions": ["')
     expect(grill).toMatch(/不得[^\n]*以編號為鍵的物件/)
   })
+  // 2026-11-02：讓 G1 可以「點選項就定稿」，grill 只跑一次。agent 必須同時產出
+  // specs/quint/GRILL-OPTIONS.json、並在 RULES.md 用標記框住那一題影響的段落。
+  it('grill 模板要求產出 GRILL-OPTIONS.json，並在 RULES.md 放 grill:Q<N> 標記', () => {
+    const c = read('.github/factory/task-template-verify-grill.txt')
+    expect(c).toContain('specs/quint/GRILL-OPTIONS.json')
+    expect(c).toContain('"questionIndex"')
+    expect(c).toContain('<!-- grill:Q1 -->')
+    expect(c).toContain('<!-- /grill:Q1 -->')
+    // 「沒有阻擋性問題就不寫這個檔案」——避免多餘檔案讓 changedPaths 與 diff 對不上
+    expect(c).toMatch(/沒有阻擋性問題時\*\*不寫\*\*這個檔案/)
+  })
   it('lean 階段以 workflow input verify_phase（statements／proofs）分流', () => {
     const w = read('.github/workflows/factory-run.yml')
     expect(w).toContain('verify_phase:')
