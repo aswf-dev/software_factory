@@ -82,6 +82,28 @@ export const SkillGapSchema = z.object({
 
 export type SkillGap = z.infer<typeof SkillGapSchema>
 
+/** `Q1`、`q12`、`3` 這類編號鍵；其他鍵（含 `none`）一律不轉換。 */
+const NUMBERED_KEY = /^[Qq]?(\d+)$/
+
+/**
+ * `{ "Q1": "…", "Q2": "…" }` → `["…", "…"]`（依編號排序），其他輸入原樣回傳。
+ *
+ * 只在「至少一個鍵、每個鍵都是編號、每個值都是字串」時轉換——無損且不猜：
+ * `{ none }`、混雜其他鍵、值不是字串的物件都原樣交給 schema，照舊判格式錯誤。
+ */
+export function numberedQuestionsToArray(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+  const entries = Object.entries(value as Record<string, unknown>)
+  if (entries.length === 0) return value
+  const numbered: Array<[number, string]> = []
+  for (const [key, text] of entries) {
+    const match = NUMBERED_KEY.exec(key)
+    if (match === null || typeof text !== 'string') return value
+    numbered.push([Number(match[1]), text])
+  }
+  return numbered.sort((a, b) => a[0] - b[0]).map(([, text]) => text)
+}
+
 export const ReportSchema = z.object({
   issueNumber: z.number(),
   invocation: InvocationSchema,
@@ -116,8 +138,15 @@ export const ReportSchema = z.object({
    * 形狀在此放寬（空陣列、空白條目都收下），內容是否合規由 crosscheck 的
    * write-spec 模式判定——這樣 agent 交出空陣列時，得到的是「缺少理由」的明確
    * mismatch，而不是整份 report 格式錯誤、看不出原因的崩潰。其他類型不讀此欄位。
+   *
+   * 以編號為鍵的物件（`{ "Q1": "…", "Q2": "…" }`）在進 schema 前**無損**轉成依編號
+   * 排序的陣列（`numberedQuestionsToArray`）：2026-11-02 agent-verify-grill 實測交出這種
+   * 形狀，整份 report 被判格式錯誤、4 個阻擋性問題連同本輪一起作廢。轉換只認「每個鍵
+   * 都是編號、每個值都是字串」——`{ none }` 與其他物件照舊交給 union 判定。
    */
-  openQuestions: z.union([z.array(z.string()), z.object({ none: z.string() }).strict()]).optional(),
+  openQuestions: z
+    .preprocess(numberedQuestionsToArray, z.union([z.array(z.string()), z.object({ none: z.string() }).strict()]))
+    .optional(),
   /**
    * CI 實測的 token 用量與成本（factory-usage 寫回，docs/04 §5）。
    *

@@ -579,6 +579,17 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
     expect(read('.github/factory/task-template-verify-quint.txt')).toMatch(/不得[^\n]*`quint verify`/)
     expect(read('.github/factory/task-template-verify-lean.txt')).toMatch(/proofs[^]*?不得[^]*?sorry/)
   })
+  // 2026-11-02：grill 模板只示範了 `{ "none": … }`，agent 類推寫成 `{ "Q1": … }`，整份 report
+  // 被判格式錯誤、本輪作廢。每個會寫 openQuestions 的驗證模板都要明講「有問題時是字串陣列」。
+  it('會寫 openQuestions 的驗證模板都明講「字串陣列」，grill 另外明示不得用編號鍵物件', () => {
+    for (const stage of ['grill', 'quint', 'lean', 'tests']) {
+      const c = read(`.github/factory/task-template-verify-${stage}.txt`)
+      expect(c, `task-template-verify-${stage}`).toMatch(/openQuestions[^\n]*字串陣列/)
+    }
+    const grill = read('.github/factory/task-template-verify-grill.txt')
+    expect(grill).toContain('"openQuestions": ["')
+    expect(grill).toMatch(/不得[^\n]*以編號為鍵的物件/)
+  })
   it('lean 階段以 workflow input verify_phase（statements／proofs）分流', () => {
     const w = read('.github/workflows/factory-run.yml')
     expect(w).toContain('verify_phase:')

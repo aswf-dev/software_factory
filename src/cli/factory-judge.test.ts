@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { isMainModule } from './is-main-module.js'
-import { loadReport, main, parseArgs } from './factory-judge.js'
+import { loadReport, main, numberedQuestionsToArray, parseArgs } from './factory-judge.js'
 import { CliError } from './run-cli.js'
 
 let tmp: string
@@ -327,6 +327,34 @@ describe('loadReport', () => {
       none: '無歧義',
     })
     expect(() => loadReport(report('oq-bad.json', { ...base, openQuestions: { none: 'x', extra: 1 } }))).toThrow(CliError)
+  })
+
+  // 2026-11-02 agent-verify-grill 實測：agent 交出 `{ "Q1": …, "Q4": … }`，整份 report 被判
+  // 格式錯誤、4 個阻擋性問題連同本輪一起作廢。編號鍵物件要無損轉成陣列；其他物件照舊拒絕。
+  it('openQuestions：以編號為鍵的物件無損轉成依編號排序的陣列', () => {
+    const base = { issueNumber: 1, invocation: { exitCode: 0 } }
+    expect(
+      loadReport(report('oq-numbered.json', { ...base, openQuestions: { Q2: '第二題', Q1: '第一題', Q10: '第十題' } }))
+        .openQuestions,
+    ).toEqual(['第一題', '第二題', '第十題'])
+    expect(loadReport(report('oq-digits.json', { ...base, openQuestions: { '1': 'a', '2': 'b' } })).openQuestions).toEqual([
+      'a',
+      'b',
+    ])
+  })
+
+  it('openQuestions：編號鍵混雜其他鍵、值不是字串、或空物件 → 仍判格式錯誤（不猜）', () => {
+    const base = { issueNumber: 1, invocation: { exitCode: 0 } }
+    expect(() => loadReport(report('oq-mixed.json', { ...base, openQuestions: { Q1: 'a', note: 'b' } }))).toThrow(CliError)
+    expect(() => loadReport(report('oq-nonstr.json', { ...base, openQuestions: { Q1: 'a', Q2: 2 } }))).toThrow(CliError)
+    expect(() => loadReport(report('oq-emptyobj.json', { ...base, openQuestions: {} }))).toThrow(CliError)
+  })
+
+  it('numberedQuestionsToArray：非物件與 { none } 原樣回傳', () => {
+    expect(numberedQuestionsToArray(['a'])).toEqual(['a'])
+    expect(numberedQuestionsToArray({ none: '理由' })).toEqual({ none: '理由' })
+    expect(numberedQuestionsToArray(undefined)).toBeUndefined()
+    expect(numberedQuestionsToArray('x')).toBe('x')
   })
 
   it('skillGap 缺 needed → CliError', () => {
