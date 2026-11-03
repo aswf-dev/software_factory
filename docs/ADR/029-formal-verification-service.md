@@ -142,3 +142,52 @@
 2. 任一被判定為涉及資安的內容出現在公開位置（驗收 #4 失敗）。
 3. G2 判定為模型假象的比例持續偏高，代表 grill 或 Quint 階段的規則品質不足。
 4. M2 Durable Object 完成 → 實例狀態由 D1 搬到 DO。
+
+## 補記：階段重做（2026-11-03）
+
+### 問題
+
+`publish` 是 BPMN 的副作用步驟（`-/publish-<stage>`），失敗後成為 **parked effect**：BPMN 的
+callActivity 已經完成，圖上沒有「重跑這一階段」的邊。於是「產出不可發佈」（例如內容檢查
+`USER_CONTENT_LEAK`）只能：
+
+- 按「重試」→ 重送**同一份** artifact，必然再失敗（實例 `4bebcec2` 連續兩次）
+- 或取消整個驗證、從頭再來（約 1 小時與數次 agent run）
+
+兩者都不是可接受的恢復語意：**失敗成本是 30 分鐘的 run，恢復成本卻是整個驗證**。
+
+### 決策
+
+為每個 agent 階段加入**重做（redo）**路徑，重做是「新的階段實例」，不是重送舊 artifact。
+
+- 新增事實 `verify/stage/redo-requested`（payload：`{ stage, reason }`，`reason` 只允許
+  `publish-blocked`／`run-needs-human` 兩種機器值），由 owner 主動送出。
+- 每個階段的 work-item 子流程入口加一個事件式閘道：進入時若已有 `redo-requested` 事實，
+  走「重做」分支；否則走原有分支。**與 S 流程的 `gate-resigned` 同一套寫法**（ADR-030 §6）。
+- 重做時：
+  1. 該階段先前的 run 標記為 `superseded`（保留稽核，不再參與 `latestRun`）
+  2. 已完成的後續階段一律作廢（BPMN 回到該階段，之後的閘門與 PR 記錄保留為歷史）
+  3. **不刪除**任何已 ingest 的 artifact；新 artifact 以新的 `round`／`attempt` 記錄
+- 觸發條件限制：只有「該階段最新 run 為 failure」或「該階段 publish 已失敗」時才接受
+  `redo-requested`；其他狀態回 409（避免使用者用重做跳過人工閘門）。
+
+### 為什麼不是其他做法
+
+| 替代方案 | 不採用原因 |
+|---|---|
+| 重試時改寫/清空使用者輸入讓 artifact 過關 | 等於偷改 owner 的輸入，違反 R12「使用者內容只由 owner 決定」 |
+| 只提供「取消並重新發起」 | 恢復成本＝整個驗證；今天的實例要重跑 1 小時與 5 次 run |
+| 讓 `publish` 支援部分檔案重發 | 洩漏是整份產出的性質，不是個別檔案的性質；部分發佈會讓公開 repo 與 verify 內部的模型不一致 |
+| agent 自行決定要不要改寫 | 洩漏判定屬於政策層，不能由被檢查者決定 |
+
+### 後果
+
+- 正向：任何「產出不可用」都能以**一次點擊 + 一次 run** 恢復，而不是整個驗證重跑。
+- 負向：BPMN 多一組事件閘道與 `superseded` 語意，journal 的 `latestRun` 需要排除被取代的 run
+  （比對時要小心：`bestRun` 的「已完成階段」判定不能把 superseded 算成完成）。
+- 需要新增測試：重做後 `latestRun`、`waitingFor`、以及各閘門的「已完成」判定。
+
+### 重評觸發條件
+
+1. 重做被用來跳過人工閘門（出現 `redo-requested` 與 gate 尚未確認同時成立的案例）。
+2. 重做導致同一階段產生 3 個以上 artifact，代表上游模板有系統性缺口（應修模板而非靠重做）。
