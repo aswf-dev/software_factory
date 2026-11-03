@@ -1,0 +1,16 @@
+.github/factory/task-template-verify-lean.txt
+  h_1b119f25eaf333 36
+test/adversarial/factory-assets.test.ts
+  h_1b119f25eaf333 604-612
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eb29d8dd4efae6dc5b1630dcc735ec4052ea9c69",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
