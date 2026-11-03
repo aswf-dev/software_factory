@@ -44,6 +44,23 @@ jobs:
           # 回應只含實例 id 與停等點，不含使用者內容；印出來方便追。
           head -c 2000 /tmp/tick.json || true
           echo
+          # verify 的自驅動（2026-11-03）：run 跑完自動取回、stale claim 自動接手。
+          # 與 S 流程分開一支端點：verify 的 ingest 會做 age 解密＋解壓，不能和 S 流程的
+          # journal 重播共用同一個請求的 CPU 預算。
+          VCODE=$(curl -sS -o /tmp/vtick.json -w '%{http_code}' \
+            -X POST "$BASE/api/v1/verify/tick" \
+            -H "x-process-tick: $PROCESS_TICK_SECRET" \
+            -H 'content-type: application/json' \
+            -d '{}' \
+            --max-time 90) || VCODE=000
+          head -c 2000 /tmp/vtick.json || true
+          echo
+          case "$VCODE" in
+            200) echo "::notice::verify tick ok (HTTP ${VCODE})" ;;
+            403|500) echo "::error::verify tick 被拒絕（HTTP ${VCODE}）——檢查密鑰或 Access Bypass" ;;
+            *) echo "::warning::verify tick 回應 HTTP ${VCODE}（可重試）" ;;
+          esac
+
           case "$CODE" in
             200) echo "::notice::process tick ok (HTTP ${CODE})" ;;
             403|500) echo "::error::process tick 被拒絕（HTTP ${CODE}）——檢查密鑰與 Worker secret"; exit 1 ;;
