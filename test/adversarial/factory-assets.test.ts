@@ -601,6 +601,15 @@ describe('skill/模板使用 $BASE_BRANCH 而非寫死 main（Q-P2-1）', () => 
     // 「沒有阻擋性問題就不寫這個檔案」——避免多餘檔案讓 changedPaths 與 diff 對不上
     expect(c).toMatch(/沒有阻擋性問題時\*\*不寫\*\*這個檔案/)
   })
+  // 2026-11-03（實例 4bebcec2）：lean-proofs 的 agent 建立了 8 個 Lean 鷹架檔（toolchain、
+  // lakefile、Witnesses…）卻只回報 7 個，crosscheck 判 diff-not-reported、整輪作廢。
+  it('lean 模板要求 changedPaths 涵蓋 Lean 專案鷹架，並給自我核對的做法', () => {
+    const c = read('.github/factory/task-template-verify-lean.txt')
+    for (const needle of ['lakefile.toml', 'lean-toolchain', 'lake-manifest.json', 'headline-theorems.txt', 'git status --porcelain']) {
+      expect(c, needle).toContain(needle)
+    }
+    expect(c).toContain('diff-not-reported')
+  })
   it('lean 階段以 workflow input verify_phase（statements／proofs）分流', () => {
     const w = read('.github/workflows/factory-run.yml')
     expect(w).toContain('verify_phase:')
