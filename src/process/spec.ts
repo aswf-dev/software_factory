@@ -26,7 +26,12 @@ export type Phase = (typeof PHASES)[number]
 export const TEMPLATE_NAMES = ['S', 'M', 'L'] as const
 export type TemplateName = (typeof TEMPLATE_NAMES)[number]
 
-export const STEP_KINDS = ['human', 'work-item'] as const
+/**
+ * 步驟種類。`effect`（2026-11-05，B7）是**模板層的服務步驟**：不屬於任何工單的流程
+ * 副作用（目前只有 `factory.tracking.issue`：S0 之後建立導入追蹤 Issue），產生器會把它
+ * 變成獨立的 serviceTask；它不帶 task_type、不進 work-item 子流程。
+ */
+export const STEP_KINDS = ['human', 'work-item', 'effect'] as const
 export type StepKind = (typeof STEP_KINDS)[number]
 
 /** 份數單位：一張單代表什麼（docs/29 §9 表格的「× N」依據）。 */
@@ -85,8 +90,10 @@ export const GateSpecSchema = z.object({
 })
 export type GateSpec = z.infer<typeof GateSpecSchema>
 
+/** 替代方案只能是人工或工單：effect 不是「多選一」的一種。 */
+const ALTERNATIVE_KINDS = ['human', 'work-item'] as const
 const AlternativeSchema = z.object({
-  kind: z.enum(STEP_KINDS),
+  kind: z.enum(ALTERNATIVE_KINDS),
   action: z.string().min(1).optional(),
   task_type: z.string().min(1).optional(),
 })
@@ -96,6 +103,8 @@ export const StepSchema = z.object({
   phase: PhaseSchema,
   action: z.string().min(1),
   kind: z.enum(STEP_KINDS),
+  /** `kind: effect` 的 service task 型別（例如 `factory.tracking.issue`）。 */
+  effect: z.string().min(1).optional(),
   task_type: z.string().min(1).optional(),
   alternatives: z.array(AlternativeSchema).min(1).optional(),
   per: z.enum(STEP_UNITS).optional(),
@@ -214,8 +223,17 @@ export function validateSteps(steps: readonly Step[], prefix = ''): ValidationRe
 
     if (step.kind === 'human') {
       if (step.task_type !== undefined) errors.push(`${at}: human 步驟不得帶 task_type`)
+      if (step.effect !== undefined) errors.push(`${at}: human 步驟不得帶 effect`)
       continue
     }
+    if (step.kind === 'effect') {
+      if (step.effect === undefined) errors.push(`${at}: effect 步驟必須宣告 effect 型別`)
+      if (step.task_type !== undefined) errors.push(`${at}: effect 步驟不得帶 task_type`)
+      if (step.alternatives !== undefined) errors.push(`${at}: effect 步驟不得有 alternatives`)
+      if (step.per !== undefined) errors.push(`${at}: effect 步驟不得有 per（它不是工單）`)
+      continue
+    }
+    if (step.effect !== undefined) errors.push(`${at}: 只有 effect 步驟可以帶 effect 型別`)
     if (step.task_type === undefined && step.alternatives === undefined) {
       errors.push(`${at}: work-item 步驟必須有 task_type 或 alternatives`)
     }
