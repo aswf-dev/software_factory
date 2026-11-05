@@ -1,0 +1,14 @@
+docs/29-brownfield-adoption-playbook.md
+  h_1b119f25eaf333 366,420,657
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "58f425204af772c0fc632bc77667191c5d848298",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
