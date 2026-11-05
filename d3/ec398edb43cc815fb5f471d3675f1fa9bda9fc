@@ -1,0 +1,18 @@
+templates/index.json
+  h_1b119f25eaf333 35,38-44
+src/process/spec.ts
+  h_1b119f25eaf333 29-34,93-94,96,106-107,226-233,236
+src/process/templates.test.ts
+  h_1b119f25eaf333 95-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d3ec398edb43cc815fb5f471d3675f1fa9bda9fc",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
