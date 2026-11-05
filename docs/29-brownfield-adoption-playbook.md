@@ -675,6 +675,7 @@ write-spec 規定**不變量只能出自規格來源，不能出自程式碼**�
 | Quint | 不變量 PR 合併＋`spec/approved`（HG5）→ 模型 PR 合併；所有反例皆已由人類判定（確認者開 fix-bug，非缺陷者記錄理由） |
 | Hegel | pbt-audit PR（只含通過的 property）合併；所有候選發現皆已由人類判定 |
 | 豁免 | 豁免單（導入追蹤 Issue 的一則留言）寫明不適用理由，HG5 簽核 |
+| 引用既有 verify 實例 | 同一個 repo 的 `/verify` 實例已 `completed`（quint／tests 產出都已發佈）。S10 的選擇表單寫 `模組:cite:<實例ID>`；伺服器在寫入 journal 前驗證「存在、`completed`、repo 相符」（`assertVerifyCitations`）。**引用不取代 HG5**：簽核時仍要確認那份驗證涵蓋這個模組 |
 
 兩條驗證路徑的發現走**同一條後路**：「候選發現（未回放）」→ 人類確認 → `agent-fix-bug` 的 01-test 把反例寫成紅燈測試（`ADR-018` §7、`ADR-019` §5）。
 
