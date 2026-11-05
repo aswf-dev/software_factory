@@ -1,0 +1,14 @@
+src/process/spec.test.ts
+  h_1b119f25eaf333 67-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7b3144bb7830249b38c89245a6d46f904215030f",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
