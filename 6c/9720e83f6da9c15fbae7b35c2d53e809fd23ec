@@ -1,0 +1,20 @@
+node_modules
+  h_1b119f25eaf333 1
+src/process/spec.ts
+  h_1b119f25eaf333 29-34,93-94,96,106-107,226-233,236
+src/process/templates.test.ts
+  h_1b119f25eaf333 95-96
+templates/index.json
+  h_1b119f25eaf333 35,38-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6c9720e83f6da9c15fbae7b35c2d53e809fd23ec",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
