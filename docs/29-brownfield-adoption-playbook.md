@@ -363,7 +363,7 @@ flowchart LR
         direction TB
         S4(["S4 工單：agent-analyze A0 ×1<br/>規模與就緒度量測"]):::wi
         HG2{{"HG2 Tech Lead<br/>裁定規模、R 等級、核心模組"}}:::hg
-        S5(["S5 工單：agent-analyze<br/>A1 架構／A2 測試／A3 相依／A4 風險 各 ×1"]):::wi
+        S5(["S5 工單：agent-analyze ×1<br/>A1 架構／A2 測試／A3 相依／A4 風險（同一張）"]):::wi
         HG6a{{"HG6 出 P1"}}:::hg
         S4 --> HG2 --> S5 --> HG6a
     end
@@ -417,7 +417,7 @@ flowchart LR
 | S2 | P0 | 納管提案 | **`agent-onboard` × 1** | 提案 PR 開出 | — |
 | S3 | P0 | 裁定三軸、搬檔、雙向探測 | 不開工單（人類） | 雙向探測通過 | HG1 |
 | S4 | P1 | 規模與就緒度量測 | **`agent-analyze`（A0）× 1** | 報告 PR 合併 | HG2 |
-| S5 | P1 | 架構、測試、相依、風險盤點 | **`agent-analyze`（A1、A2、A3、A4）各 × 1** | 4 份報告 PR 合併 | HG6 |
+| S5 | P1 | 架構、測試、相依、風險盤點 | **`agent-analyze` × 1（一張工單涵蓋 A1–A4）** | 盤點報告 PR 合併 | HG6 |
 | S6 | P2 | README＋架構總覽 | **`agent-write-docs` × 1** | 文件 PR 合併 | HG3 |
 | S7 | P2 | 核心模組業務規則文件 | 不開工單（人類撰寫，每核心模組 1 份） | 文件存在於 trunk | HG4、HG6 |
 | S7B | P3 | 確認模組清單（預填 S5 盤點結果，可增刪） | 不開工單（人類確認） | 完成後 `modules` 進 P3 變數 | — |
@@ -654,7 +654,7 @@ flowchart LR
 | 兩者都不適用（例如定義域很小、可直接窮舉） | 人類簽核**豁免**，寫明理由 | — |
 
 - **不強迫兩種工具都做**：硬套會產生沒有依據的不變量或 property，違反 `hegel-review` 第 5 點（evidence-free properties）。
-- **Hegel 不支援的語言**（.NET、Scala 等）依 `ADR-019` §1 停手交還人類，以豁免單處理；**不因沒有 Hegel 就改用別套 PBT**。Python 用 Hypothesis、Kotlin 用 hegel-java（`ADR-019` §1）。
+- **Hegel 不支援的語言**（Python、Kotlin、.NET、Scala 等）依 `ADR-019` §1、**R1** 停手交還人類，以豁免單處理；**不因沒有 Hegel 就改用別套 PBT**。支援範圍以 Hegel 官方 6 種語言為準（TS/JS、Java、Go、Rust、C++、OCaml），Python 與 Kotlin 自 2026-10-05 的 R1 起不再例外。
 - 已核准的 `INV_*` 在 pbt-audit 時須一併翻譯成 property（`ADR-019` §3，Quint 與程式碼唯一的接點）。
 
 ### 10.2 棕地的規格來源
