@@ -15,8 +15,15 @@ gates: [HG1, HG2, HG3, HG4, HG5, HG6]
 steps:
   - id: S0
     phase: P0
-    action: 開導入追蹤 Issue
+    action: 確認開始導入
     kind: human
+  # 2026-11-05（B7）：導入追蹤 Issue 由服務建立（不是工單：不帶 task_type、不派工），
+  # 必須在 S1（安裝 App）與任何人類閘門之前就存在，所以是模板層 effect 步驟。
+  - id: S0-issue
+    phase: P0
+    action: 開導入追蹤 Issue（服務建立，非工單）
+    kind: effect
+    effect: factory.tracking.issue
   - id: S1
     phase: P0
     action: 安裝 App、建立 software-factory 分支

@@ -32,8 +32,15 @@
           {
             "id": "S0",
             "phase": "P0",
-            "action": "開導入追蹤 Issue",
+            "action": "確認開始導入",
             "kind": "human"
+          },
+          {
+            "id": "S0-issue",
+            "phase": "P0",
+            "action": "開導入追蹤 Issue（服務建立，非工單）",
+            "kind": "effect",
+            "effect": "factory.tracking.issue"
           },
           {
             "id": "S1",

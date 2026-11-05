@@ -64,6 +64,20 @@ describe('validateSteps', () => {
     expect(result.errors[0]).toContain('human 步驟不得帶 task_type')
   })
 
+  it('B7：接受 effect 步驟，並要求它只帶 effect', () => {
+    const effect = (extra: Record<string, unknown> = {}): Step =>
+      ({ id: 'S0-issue', phase: 'P0', action: '開追蹤 Issue', kind: 'effect', effect: 'factory.tracking.issue', ...extra }) as unknown as Step
+
+    expect(validateSteps([effect()])).toEqual({ ok: true, errors: [] })
+    expect(validateSteps([effect({ effect: undefined })]).errors[0]).toContain('必須宣告 effect')
+    expect(validateSteps([effect({ task_type: 'agent-analyze' })]).errors[0]).toContain('不得帶 task_type')
+    expect(validateSteps([effect({ alternatives: [{ kind: 'human' }] })]).errors[0]).toContain('不得有 alternatives')
+    expect(validateSteps([effect({ per: 'module' })]).errors[0]).toContain('不得有 per')
+    // effect 只能出現在 kind: effect；human／work-item 帶它一律拒絕。
+    expect(validateSteps([human('A', { effect: 'factory.tracking.issue' })]).errors[0]).toContain('不得帶 effect')
+    expect(validateSteps([workItem('B', { effect: 'factory.tracking.issue' })]).errors[0]).toContain('只有 effect 步驟')
+  })
+
   it('拒絕沒有任務類型的 work-item', () => {
     const result = validateSteps([{ id: 'A', phase: 'P0', action: 'x', kind: 'work-item' }])
     expect(result.errors[0]).toContain('必須有 task_type 或 alternatives')
