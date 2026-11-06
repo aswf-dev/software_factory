@@ -1,0 +1,14 @@
+config/factory/skills-lock.json
+  h_1b119f25eaf333 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8496ab2fe50be6e2d573d91f94c90cfcea068764",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
