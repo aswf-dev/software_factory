@@ -200,8 +200,8 @@ importers:
         specifier: 0.2.2-rc.1
         version: 0.2.2-rc.1(2f1fc9ea5224087f1e620ac2d15c470c)
       '@informalsystems/quint':
-        specifier: 0.33.0
-        version: 0.33.0
+        specifier: 0.33.1
+        version: 0.33.1
       '@types/node':
         specifier: 26.6.5
         version: 26.6.5
@@ -3221,8 +3221,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@informalsystems/quint@0.33.0':
-    resolution: {integrity: sha512-1hr+l+3wyKimjNXNl9lovpwmH5C9Ck898FL4yGbuEmFPiz7YRqvFvsB9hlHsaYukXqdUY5nuFKn/qiCon0O88g==}
+  '@informalsystems/quint@0.33.1':
+    resolution: {integrity: sha512-EYsgxr9SEsumYiix6pD8jbXPiPJoNbQaUxnrLE+dSVL+B9eQHPkVjSW7CBFEoBeMhau/1n70DAQOKvgxa1pVfw==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -9153,7 +9153,7 @@ snapshots:
   '@img/sharp-win32-x64@0.35.5':
     optional: true
 
-  '@informalsystems/quint@0.33.0':
+  '@informalsystems/quint@0.33.1':
     dependencies:
       '@grpc/grpc-js': 1.14.5
       '@grpc/proto-loader': 0.7.15
@@ -9174,6 +9174,7 @@ snapshots:
       line-column: 1.0.2
       lodash: 4.18.1
       lodash.clonedeep: 4.5.0
+      protobufjs: 7.6.6
       seedrandom: 3.0.5
       tar: 7.5.22
       yargs: 17.7.3
