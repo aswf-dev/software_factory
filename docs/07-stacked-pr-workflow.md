@@ -118,6 +118,23 @@ gh stack submit --auto
 
 > ✅ **實測確認**：`gh stack add` 在「省略 `-m` 但使用 `-A`/`-u`」時會開啟編輯器——**CI 中必須永遠提供 `-m`**，否則會卡住直到 job timeout。這是 agent skill 中必須明寫的細節。
 
+### 一次 publish = 一個 commit（2026-11-06）
+
+agent 可以為了工作方便在本地多次 `git commit`（crosscheck 比對的是**工作區相對 base 的內容**，
+不是 commit 數），但**推送前每個分支只保留一個 commit**：
+
+```bash
+# 例：把這個分支在這次任務中的所有本地 commit 合成一個
+git reset --soft "$(git merge-base "$BASE_BRANCH" HEAD)"
+git commit -m "<主題>"
+```
+
+- 每一層（每個 PR／每個分支）＝**一個 commit**；N-version 的兩個變體分支各自一個。
+- 理由：審查者要看的是一個可合併的變更，不是施工日誌；也避免「commit 風暴」（例：verify
+  的 publish 曾因逐檔 commit 在一個分支產生 142 個 commit，其中 97 個是空 commit）。
+- 這條規則與 publish 端的單一 commit 對齊：scoreboard 的 `openPullRequest` 現在用 Git Data
+  API 一次 tree／commit 寫完所有變更檔（`docs/28` §7.0）。
+
 ### 3.2 分支命名
 
 採用 `gh stack init --base <trunk> factory/<issue>-<nn>-<layer> ...`（直接列出分支名）：

@@ -223,6 +223,13 @@ jq -e '
   **絕不 push 到 main**（Q-P2-1）。
 - `git push` 的認證已由 CI 設定（remote URL 內嵌 App token，優先於任何 credential helper）——**直接 push 即可**，不要自行改 remote URL、不要寫入 token 到任何檔案。
 
+- **push 前 squash 成一個 commit**（2026-11-06，避免 commit 風暴）：工作過程中可以多次
+  `git commit` 到本地（crosscheck 比對的是工作區相對 base 的內容，不是 commit 數），但
+  **推送前**必須把每個要送出的分支整理成「相對於 base 的唯一一個 commit」——例如
+  `git reset --soft "$(git merge-base "$BASE_BRANCH" HEAD)"` 後重新 `git commit`。
+  一次 publish（一個分支／PR）＝**一個 commit**；gh-stack 的每一層同樣只留一個 commit。
+  不要把「逐步過程」的 commit 一起推上去（審查者要看的是一個可合併的變更，不是施工日誌）。
+
 
 - **分支命名**：格式 `factory/<issue編號>-<nn>-<layer>`（如 `factory/12-01-test`）為唯一允許；**N-version 模式（`.factory/run/variant` 存在）則必須為 `factory/<issue編號>-<variant>-<nn>-<layer>`**（如 `factory/12-a-01-test`），單層 PR 不走 gh-stack、直接 `git` ＋ `gh pr create` 時同樣適用——CI 以 crosscheck 驗證前綴（`variant-branch-prefix`）；gh-stack **v0.2.1** 用 `gh stack init --base "$BASE_BRANCH" factory/<issue>-01-test ...` 直接列分支名建立（**不接受** `--numbered`/`--prefix`）；不得自行命名（如 `08-18-docs_...`）或以 dash 取代 slash。
 - **PR 的 draft 狀態依 `.factory/run/nversion` 而定**（ADR-021）：
