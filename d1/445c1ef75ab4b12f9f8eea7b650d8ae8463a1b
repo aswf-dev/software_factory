@@ -1,0 +1,16 @@
+docs/ADR/031-prd-multi-round-clarify.md
+  h_1b119f25eaf333 1-114
+docs/ADR/README.md
+  h_1b119f25eaf333 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d1445c1ef75ab4b12f9f8eea7b650d8ae8463a1b",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
