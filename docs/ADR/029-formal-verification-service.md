@@ -4,6 +4,7 @@
 - **日期**：2026-10-27
 - **決定者**：使用者
 - **修訂**：`ADR-018` §1（允許 Lean 4 演繹驗證，限本服務）、`ADR-013`（驗證專用 repo 豁免 `software-factory` trunk）
+- **本身被修訂**：2026-11-07「改由 Cloudflare Access 管制、取消分級、不設上限並記錄用量、緊急開關」——取代 §1「對象」、§3、§4 第一點、§8 第一點，見文末補記
 - **對應**：`ADR-027`／`ADR-028`（BPMN 編排與執行核心）、`ADR-001`（GitHub 為事實來源）、`ADR-006`（GitHub App 身分）、`ADR-015`（Scoreboard 平台）、`ADR-018`（`agent-write-spec` 的 Quint 驗證機制）
 
 ## 脈絡
@@ -26,7 +27,7 @@
 ### 1. 範圍（Q2、Q3、Q6）
 
 - **找的是狀態、協定與業務邏輯的缺陷，包括有資安影響的**（時序、重送、冪等、session 與 token 生命週期、授權檢查順序、資金或數量守恆）。注入、XSS、相依套件 CVE 等規則式漏洞不在範圍內，交給 `security-scan.yml`、Dependabot 等既有工具。對外用詞為「狀態與邏輯缺陷（含資安影響）」，不稱「漏洞掃描」。
-- **對象**：任何 GitHub 使用者自助使用；不限程式語言。
+- **對象**：~~任何 GitHub 使用者自助使用~~ → **2026-11-07 起：只開放 Cloudflare Access 授權的使用者**（見文末補記）；不限程式語言。
 
 ### 2. 流程（Q4、Q15、Q16'）
 
@@ -52,6 +53,8 @@
 - **測試**（Q18）：一律產出且標為 `todo`／`skip`，CI 照常通過；agent 只實際執行不需要外部服務的測試，其餘在 PR 中附上手動執行步驟。
 
 ### 3. 兩級權限（Q14、Q15）
+
+> **2026-11-07 已取消**：入口改由 Access 管制後，所有被授權的人一律走完整流程（見文末補記）。下表保留為歷史。
 
 | | 一般使用者 | 白名單使用者 |
 |---|---|---|
@@ -90,7 +93,7 @@
 
 ### 8. 平台（Q23、Q24）
 
-- 入口為新頁面 **`/verify`**，不在 `/scoreboard` 底下、不經 Cloudflare Access。
+- 入口為新頁面 **`/verify`**，~~不在 `/scoreboard` 底下、不經 Cloudflare Access~~ → **2026-11-07 起併入 scoreboard 的 Access 應用**（網址不變，見文末補記）。
 - **BPMN 實例狀態 PoC 先存在 D1**：每個請求依 journal 重建 `ADR-028` 的 runtime，以「實例 id＋seq」為唯一鍵做樂觀並行控制；`ADR-028` 的 Durable Object 留待 M2。即時監控在 PoC 中以輪詢取代 WebSocket。
 - M1 runtime 的 effect type 由三種擴充為四種（新增 `factory.verify.publish`），linter 與啟動檢查同步更新。
 
@@ -191,3 +194,47 @@ callActivity 已經完成，圖上沒有「重跑這一階段」的邊。於是�
 
 1. 重做被用來跳過人工閘門（出現 `redo-requested` 與 gate 尚未確認同時成立的案例）。
 2. 重做導致同一階段產生 3 個以上 artifact，代表上游模板有系統性缺口（應修模板而非靠重做）。
+
+---
+
+## 補記：改由 Cloudflare Access 管制、取消分級、記錄用量與緊急開關（2026-11-07）
+
+- **狀態**：已接受（2026-11-07，使用者經 grilling 逐題裁決 Q18–Q29、Q31–Q35 並確認決策摘要）
+- **取代**：§1「對象」、§3（兩級權限）、§4 第一點中「Access 只提供 email」的入口設計、§8 第一點
+
+### 問題
+
+1. **任何 GitHub 帳號都能免費花我們的錢。** 送單只要求「已登入 GitHub、App 裝在目標 repo、對 repo 有 push 權限」——自己建一個 repo、裝上 App 就通過。一般使用者每次可跑 grill、追問輪與 quint，每一步都是一次 factory-run（實測 6–22 分鐘的 agent token）；沒有每人上限、每日上限或全站預算，只有每個 isolate 每分鐘 10 次的盡力限流。
+2. **不知道是誰在用**，所以也無法事後計費；兩級權限只是在擋陌生人的成本，不是產品需求。
+
+### 決策
+
+1. **入口**：`/verify/**` 併入 scoreboard 的 Cloudflare Access 應用（網址不變，舊 Issue 連結繼續有效），scoreboard 導覽列加「形式化驗證」分頁；首頁的公開入口按鈕移除。**不開放外部使用者免費使用。**
+2. **例外（保留 Bypass）**：`/verify/input/*`（runner 以一次性 token 下載加密階段輸入）、`/api/v1/verify/tick`、`/api/v1/process/tick`、`/api/v1/process/operator`、`/api/v1/github/webhook`。少一條，進行中的 run 或 tick 就會壞。
+3. **兩層保護**：Access 是外層；scoreboard 的 Astro middleware 在 production 對 `/verify/**`（`/verify/input/**` 除外）再驗一次 Access JWT，政策被誤改回 Bypass 時仍擋得住。
+4. **身分**：Access 只當入口；進入後仍要「連結 GitHub」（保留 OAuth 與 user token——需要它確認對目標 repo 的 push 權限）。實例 owner 仍是 GitHub 帳號＋不可變 user id。D1 `verify_identity_links` 記錄 Access email ↔ GitHub 帳號（兩邊皆唯一）；同一個瀏覽器換了 Access 帳號時，舊的 GitHub session 會被清掉，不能被沿用。
+5. **取消分級**：所有 Access 使用者一律走完整流程（含 Lean 與反例測試）；`verify_whitelist` 表保留不刪。2026-11-07 之前建立、`whitelisted=false` 的舊實例照 journal 重播，仍在 G2 後結束（done-public）。
+6. **不設用量上限**：知道是誰在用，日後依用量計費。後續工作：每次 run 取回時記錄 `total_tokens`／`cost_usd`／`model`（S 流程與同步 LLM 呼叫亦同），並提供只給 `ADMIN_EMAILS` 看的「使用者 × 月份」唯讀用量報表；第一版不做帳單。
+7. **緊急開關 `FACTORY_SPEND_ENABLED`**：設成 `false` 就擋住**所有新的花費**——factory-run 派工（verify 各階段、追問輪、重做／重試、S 流程工單、/submit）與同步 LLM 呼叫；已在跑的 run 照常跑完，ingest、tick、頁面瀏覽不受影響，被擋的派工停在失敗 effect，開關打開後以既有重試接續。咽喉只有兩處（`dispatchFactoryRun`、`draftEndpoint`），不靠每條路由各自記得檢查。
+
+### 為什麼不是其他做法
+
+| 做法 | 為何不採用 |
+|---|---|
+| 留在原位、改成「核准名單＋每人／全站額度」 | 仍是兩套身分與一套額度系統要維護；使用者已裁決不開放外部免費使用，Access 名單就是核准名單 |
+| 維持開放、只加上限 | 開多個 GitHub 帳號就能繞過；上限只是減速 |
+| 拿掉 GitHub OAuth、只用 Access email | 無法確認使用者對目標 repo 有 push 權限：任何 Access 使用者都能對任何裝了 App 的 repo 送單 |
+| 把網址搬到 `/scoreboard/verify/**` | 既有 Issue 與追蹤留言的連結會失效；要做 301 並改大量路由、測試與文件。放在同一個 Access 應用就已經「併入」 |
+| 每日預算／每人限流 | 使用者裁決不設上限；出事時的止血改由單一緊急開關負責 |
+
+### 後果
+
+- **正面**：陌生人無法再觸發 factory-run；知道每次花費是誰觸發的，具備計費基礎；出事時一個設定就能停下所有新的花費。
+- **負面**：外部試用必須先加入 Access 名單；使用者進 `/verify` 要登入兩次（Access、GitHub 連結），但 GitHub 連結 30 天內有效。
+- **中性**：§2 流程圖的「白名單？」分支只剩舊實例會走到；`verify_whitelist` 表暫時保留，確定不再需要時另行移除。
+
+### 重評觸發條件
+
+- 要再對外開放（免費或付費試用）時：重新決定身分來源與額度，而不是只把 Bypass 加回來。
+- 用量報表顯示單一使用者的花費異常時：再評估是否需要每人上限。
+
