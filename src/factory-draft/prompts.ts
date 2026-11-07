@@ -79,3 +79,96 @@ JSON schema：
 - dod 每一項都必須是「可驗證的」（有測試或明確驗證命令），不可驗證就列進 notes 讓使用者補。
 - notes 是品質標示：列出所有你推測的內容與未回答的關鍵問題（例如「目標 repo 未知，帶入預設」）。`
 }
+
+// ---------------------------------------------------------------------------
+// PRD 多輪釐清（ADR-031，2026-11-07）：S 流程 P0 的 S2-prd 人工步驟
+// ---------------------------------------------------------------------------
+//
+// 與上面的工作項草稿不同：這裡是**整個系統的需求**（S 流程導入一個 repo），由
+// aswf.dev 的 Worker 同步呼叫 LLM（不派 factory-run）。每一輪回傳結構化 JSON，
+// 頁面把每一題畫成一張卡（選項＋其他＋預選建議答案）。
+//
+// grilling 規則（ADR-031 §8，取代把 grilling skill 放進 runner）：
+//   1. 先在心中列出要決定的事情（決策樹），每輪只問「前提都已確定」的題目（frontier）；
+//   2. 題目附建議答案，使用者回「是」＝採用建議；
+//   3. 不問使用者已經回答過、或 repo 摘要裡已經寫明的事情；
+//   4. 該有答案的都有了就回 done:true，不要為了湊輪數而問。
+
+/** PRD 釐清最多幾輪（ADR-031 §7：流程設計，不是成本上限）。 */
+export const PRD_CLARIFY_MAX_ROUNDS = 3
+/** 每輪最多幾題。 */
+export const PRD_MAX_QUESTIONS = 4
+
+/** 已回答的一題：題目文字與使用者的回答（選項或自由文字）。 */
+export interface PrdQa {
+  question: string
+  answer: string
+}
+
+/** PRD 的六個必要段落（與 docs/29 §9.1 的 PRD 欄位一致）。 */
+export const PRD_SECTIONS = ['目標模組/檔案', '做什麼', '為什麼', '範圍', '已知問題', '驗收條件'] as const
+
+export const PRD_SYSTEM_PROMPT = `你是 software factory 的「導入需求釐清助手」。使用者要把一個既有的 repo 導入 factory（S 流程 P0），你負責把他的初始需求釐清成一份可驗證的 PRD。
+
+規則：
+1. 你只產生問題與 PRD 草稿，不決定「要做什麼」或「優先順序」——最終決定權永遠在使用者。
+2. PRD 必須包含六段：${PRD_SECTIONS.join('、')}；驗收條件必須可驗證（有測試或明確的驗證方式）。
+3. 誠實標示：凡是你從需求或 repo 摘要「推測」的內容，一律標明「（推測，待確認）」。
+4. 不得要求使用者提供密碼、token、私鑰或任何秘密。`
+
+function prdContext(input: { seed: string; repoDigest: string | null; history: PrdQa[] }): string {
+  const digest =
+    input.repoDigest === null || input.repoDigest.trim() === ''
+      ? '（無法取得 repo 摘要，只依需求文字判斷）'
+      : input.repoDigest
+  const history =
+    input.history.length === 0
+      ? '（尚無）'
+      : input.history.map((h, i) => `Q${i + 1}：${h.question}\nA${i + 1}：${h.answer}`).join('\n')
+  return `使用者的初始需求：
+${input.seed}
+
+repo 摘要（README 前段、最上層檔案、catalog-info.yaml；可能不完整）：
+${digest}
+
+已經問過並回答的問題：
+${history}`
+}
+
+export function buildPrdClarifyPrompt(input: {
+  seed: string
+  repoDigest: string | null
+  history: PrdQa[]
+  round: number
+}): string {
+  return `${PRD_SYSTEM_PROMPT}
+
+任務：進行第 ${input.round} 輪釐清（總上限 ${PRD_CLARIFY_MAX_ROUNDS} 輪）。
+
+${prdContext(input)}
+
+做法（grilling）：
+- 先在心中列出寫出 PRD 還需要決定的事情；這一輪只問「前提都已確定」的題目，最多 ${PRD_MAX_QUESTIONS} 題。
+- 每題給 2–4 個具體選項與一個建議答案（recommended 必須是 options 之一）；使用者採用建議即可。
+- 不要問已經回答過、或 repo 摘要已寫明的事情。
+- 如果六段（${PRD_SECTIONS.join('、')}）都已能寫出可驗證的內容，回 done:true 且 questions 為空陣列——不要為了湊輪數而問。
+
+只輸出嚴格 JSON（不要 markdown fence、不要額外文字）：
+{"done": false, "questions": [{"id": "q1", "text": "<問題>", "options": ["<選項A>", "<選項B>"], "recommended": "<選項A>"}]}`
+}
+
+export function buildPrdDraftPrompt(input: { seed: string; repoDigest: string | null; history: PrdQa[] }): string {
+  return `${PRD_SYSTEM_PROMPT}
+
+任務：依下列資訊寫出完整的 PRD（Markdown）。這份 PRD 會在使用者確認後**公開**在 GitHub Issue，所以不要放入任何秘密，也不要逐字照抄使用者的私人說明以外的內容。
+
+${prdContext(input)}
+
+輸出格式：只輸出 PRD 本文（Markdown，不要 code fence）。依序使用以下六個粗體段落標題（不要用 # 標題，Issue 表單不接受）：
+${PRD_SECTIONS.map((section) => `**${section}**`).join('\n')}
+
+規則：
+- 「驗收條件」用條列，每一條都必須可驗證（測試、命令或可觀察的結果）。
+- 「已知問題」若沒有就寫「無」。
+- 推測的內容標明「（推測，待確認）」。`
+}
