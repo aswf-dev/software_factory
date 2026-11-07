@@ -1,0 +1,16 @@
+docs/ADR/029-formal-verification-service.md
+  h_1b119f25eaf333 7,30,57-58,96,197-240
+docs/ADR/README.md
+  h_1b119f25eaf333 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "80499fc077ffb73e0da893f2f0bd808061d76625",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
