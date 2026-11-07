@@ -1,0 +1,20 @@
+src/factory-draft/parse.test.ts
+  h_1b119f25eaf333 5,49-106
+src/factory-draft/parse.ts
+  h_1b119f25eaf333 41-113
+src/factory-draft/prompts.test.ts
+  h_1b119f25eaf333 8-19,96-136
+src/factory-draft/prompts.ts
+  h_1b119f25eaf333 82-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4852cc22615e11d1dce8f8e26de6d12ef164722",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
