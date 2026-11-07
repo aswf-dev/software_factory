@@ -49,6 +49,12 @@
             "kind": "human"
           },
           {
+            "id": "S2-prd",
+            "phase": "P0",
+            "action": "釐清需求、確認 PRD",
+            "kind": "human"
+          },
+          {
             "id": "S2",
             "phase": "P0",
             "action": "納管提案",

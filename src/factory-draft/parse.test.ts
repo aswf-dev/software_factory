@@ -2,7 +2,7 @@
  * parse 測試：LLM 草稿 JSON 的健壯解析契約。
  */
 import { describe, expect, it } from 'vitest'
-import { parseDraftJson } from './parse.js'
+import { missingPrdSections, parseDraftJson, parsePrdClarifyJson } from './parse.js'
 
 const VALID = {
   title: '為計分邏輯補測試',
@@ -44,5 +44,63 @@ describe('parseDraftJson', () => {
   })
   it('requirement 前後空白被 trim', () => {
     expect(parseDraftJson('{"requirement": "  需求  "}')?.requirement).toBe('需求')
+  })
+})
+
+describe('parsePrdClarifyJson（ADR-031：一題一張卡）', () => {
+  it('正常：題目、選項、建議答案；容忍 fence 與前後雜訊', () => {
+    const text = '好的：\n```json\n' + JSON.stringify({
+      done: false,
+      questions: [{ id: 'scope', text: '範圍？', options: ['只有 src/', '整個 repo'], recommended: '只有 src/' }],
+    }) + '\n```'
+    expect(parsePrdClarifyJson(text)).toEqual({
+      done: false,
+      questions: [{ id: 'scope', text: '範圍？', options: ['只有 src/', '整個 repo'], recommended: '只有 src/' }],
+    })
+  })
+
+  it('recommended 不在選項中就丟掉；選項只留非空字串、最多 6 個', () => {
+    const r = parsePrdClarifyJson(JSON.stringify({
+      done: false,
+      questions: [{ id: 'a', text: 'Q', options: ['x', '', 1, 'b', 'c', 'd', 'e', 'f', 'g'], recommended: 'nope' }],
+    }))
+    expect(r?.questions[0]).toEqual({ id: 'a', text: 'Q', options: ['x', 'b', 'c', 'd', 'e', 'f'], recommended: null })
+  })
+
+  it('最多 4 題；缺 id 或重複 id 自動補成 q<n>；空題目略過', () => {
+    const r = parsePrdClarifyJson(JSON.stringify({
+      done: false,
+      questions: [
+        { text: 'A', options: [] },
+        { id: 'dup', text: 'B', options: [] },
+        { id: 'dup', text: 'C', options: [] },
+        { id: 'x', text: '  ', options: [] },
+        { id: 'e', text: 'E', options: [] },
+        { id: 'f', text: 'F', options: [] },
+      ],
+    }))
+    expect(r?.questions.map((q) => [q.id, q.text])).toEqual([
+      ['q1', 'A'],
+      ['dup', 'B'],
+      ['q3', 'C'],
+      ['e', 'E'],
+    ])
+  })
+
+  it('done:true 代表資訊足夠：一律回空題目', () => {
+    expect(parsePrdClarifyJson('{"done": true, "questions": [{"id":"a","text":"Q"}]}')).toEqual({ done: true, questions: [] })
+  })
+
+  it('done:false 卻沒有任何有效題目、或不是 JSON → null（呼叫端重試或退回純文字）', () => {
+    expect(parsePrdClarifyJson('{"done": false, "questions": []}')).toBeNull()
+    expect(parsePrdClarifyJson('Q1：範圍？（建議：src/）')).toBeNull()
+    expect(parsePrdClarifyJson('{bad json}')).toBeNull()
+  })
+})
+
+describe('missingPrdSections', () => {
+  it('列出 PRD 缺的段落（提示用，不擋確認）', () => {
+    expect(missingPrdSections('**做什麼**\n...\n**範圍**', ['做什麼', '為什麼', '範圍'])).toEqual(['為什麼'])
+    expect(missingPrdSections('**做什麼** **為什麼** **範圍**', ['做什麼', '為什麼', '範圍'])).toEqual([])
   })
 })

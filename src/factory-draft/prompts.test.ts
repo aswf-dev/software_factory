@@ -5,7 +5,18 @@
  * 所以用測試釘住關鍵指令，防止未來改寫時把治理要求悄悄拿掉。
  */
 import { describe, expect, it } from 'vitest'
-import { buildClarifyPrompt, buildGeneratePrompt, CLARIFY_MAX_ROUNDS, SYSTEM_PROMPT } from './prompts.js'
+import {
+  buildClarifyPrompt,
+  buildGeneratePrompt,
+  buildPrdClarifyPrompt,
+  buildPrdDraftPrompt,
+  CLARIFY_MAX_ROUNDS,
+  PRD_CLARIFY_MAX_ROUNDS,
+  PRD_MAX_QUESTIONS,
+  PRD_SECTIONS,
+  PRD_SYSTEM_PROMPT,
+  SYSTEM_PROMPT,
+} from './prompts.js'
 
 describe('SYSTEM_PROMPT 治理邊界', () => {
   it('明示 LLM 只產草稿、最終決定權在使用者（docs/01 職責邊界）', () => {
@@ -80,5 +91,46 @@ describe('buildGeneratePrompt（一次生成全部欄位）', () => {
     })
     expect(p2).toContain('範圍？')
     expect(p2).toContain('src/scoring')
+  })
+})
+
+describe('PRD 多輪釐清（ADR-031）', () => {
+  const base = { seed: '把 pottery 導入 factory，先補測試', repoDigest: 'README: pottery is a CLI', history: [] }
+
+  it('釐清 prompt：grilling 規則、輪數與題數上限、嚴格 JSON 與 done 訊號', () => {
+    const p = buildPrdClarifyPrompt({ ...base, round: 2 })
+    expect(p).toContain(PRD_SYSTEM_PROMPT)
+    expect(p).toContain('第 2 輪')
+    expect(p).toContain(`總上限 ${PRD_CLARIFY_MAX_ROUNDS} 輪`)
+    expect(p).toContain(`最多 ${PRD_MAX_QUESTIONS} 題`)
+    expect(p).toContain('前提都已確定')
+    expect(p).toContain('recommended 必須是 options 之一')
+    expect(p).toContain('done:true')
+    expect(p).toContain('不要為了湊輪數而問')
+    expect(p).toContain('"questions"')
+  })
+
+  it('帶入初始需求、repo 摘要與歷史問答；沒有摘要時明講只依需求文字', () => {
+    const withHistory = buildPrdClarifyPrompt({ ...base, round: 2, history: [{ question: '範圍？', answer: 'src/' }] })
+    expect(withHistory).toContain('把 pottery 導入 factory')
+    expect(withHistory).toContain('README: pottery is a CLI')
+    expect(withHistory).toContain('Q1：範圍？\nA1：src/')
+    const noDigest = buildPrdClarifyPrompt({ ...base, repoDigest: null, round: 1 })
+    expect(noDigest).toContain('無法取得 repo 摘要')
+  })
+
+  it('PRD 草稿 prompt：六段粗體標題（不用 # 標題）、可驗證的驗收條件、提醒會公開', () => {
+    const p = buildPrdDraftPrompt(base)
+    for (const section of PRD_SECTIONS) expect(p).toContain(`**${section}**`)
+    expect(p).toContain('不要用 # 標題')
+    expect(p).toContain('可驗證')
+    expect(p).toContain('公開')
+  })
+
+  it('系統 prompt 守住治理邊界：不決定、標示推測、不要求秘密', () => {
+    expect(PRD_SYSTEM_PROMPT).toContain('不決定')
+    expect(PRD_SYSTEM_PROMPT).toContain('推測')
+    expect(PRD_SYSTEM_PROMPT).toContain('秘密')
+    expect(PRD_SECTIONS).toEqual(['目標模組/檔案', '做什麼', '為什麼', '範圍', '已知問題', '驗收條件'])
   })
 })

@@ -353,10 +353,11 @@ flowchart LR
         direction TB
         S0["S0 人類：開導入追蹤 Issue"]:::human
         S1["S1 人類：安裝 App<br/>建立 software-factory 分支"]:::human
+        S2P["S2-prd 人類：釐清需求<br/>確認 PRD"]:::human
         S2(["S2 工單：agent-onboard ×1"]):::wi
         S3["S3 人類：裁定三軸、搬檔<br/>雙向探測"]:::human
         HG1{{"HG1 服務擁有者"}}:::hg
-        S0 --> S1 --> S2 --> S3 --> HG1
+        S0 --> S1 --> S2P --> S2 --> S3 --> HG1
     end
 
     subgraph P1["P1 現況分析（系統）"]
@@ -414,6 +415,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | S0 | P0 | 確認開始導入；服務建立導入追蹤 Issue | 不開工單（普通 Issue） | Issue 存在 | — |
 | S1 | P0 | 安裝 App、建立 `software-factory` 分支 | 不開工單（人類） | 分支存在 | — |
+| S2-prd | P0 | 釐清需求、確認 PRD（aswf.dev 多輪同步釐清；問答私有，確認後的 PRD 成為 S2 工單的需求描述，ADR-031） | 不開工單（人類） | PRD 已確認 | — |
 | S2 | P0 | 納管提案 | **`agent-onboard` × 1** | 提案 PR 開出 | — |
 | S3 | P0 | 裁定三軸、搬檔、雙向探測 | 不開工單（人類） | 雙向探測通過 | HG1 |
 | S4 | P1 | 規模與就緒度量測 | **`agent-analyze`（A0）× 1** | 報告 PR 合併 | HG2 |

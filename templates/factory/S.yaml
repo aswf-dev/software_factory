@@ -28,6 +28,13 @@ steps:
     phase: P0
     action: 安裝 App、建立 software-factory 分支
     kind: human
+  # 2026-11-07（ADR-031）：PRD 多輪釐清。人工步驟——多輪問答在 aswf.dev 進行（Worker 同步
+  # 呼叫 LLM、問答只存 D1、不進 journal），按「確認 PRD」才完成；接著服務以 PRD 自動完成
+  # S2 的「填寫工單」，直接開 agent-onboard Issue。
+  - id: S2-prd
+    phase: P0
+    action: 釐清需求、確認 PRD
+    kind: human
   - id: S2
     phase: P0
     action: 納管提案
