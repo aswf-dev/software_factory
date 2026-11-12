@@ -6,7 +6,7 @@
 - **修訂**：`ADR-030` §6「圖形伺服器端產生 SVG（不引入前端繪圖套件）」→ 改由 `@bpmnkit/canvas` 在瀏覽器端渲染。§6 的其他內容不變，包括版面（P0–P4 總覽＋階段圖）與「手機可橫向捲動」。
 - **補記**：`ADR-028` PoC 驗收項目 #9（檢視器 `@bpmnkit/canvas` 支援 overlay／marker）——通過，見下方 PoC。
 - **對應**：`ADR-027`（BPMN 編排）、`ADR-028`（技術選型：檢視器為 `@bpmnkit/canvas`）、`ADR-030`（S 流程執行與狀態頁）、`ADR-015`（Worker bundle 門檻）
-- **實作**：factory-scoreboard `docs/decisions/2026-11-12-bpmn-canvas-renderer.md`（PoC 截圖與補救細節）；第一步 PR：factory-scoreboard `feat/system-page-bpmn`
+- **實作**：factory-scoreboard `docs/decisions/2026-11-12-bpmn-canvas-renderer.md`（PoC 截圖與補救細節）；第一步 PR：https://github.com/philipz/factory-scoreboard/pull/239
 
 ## 脈絡
 
