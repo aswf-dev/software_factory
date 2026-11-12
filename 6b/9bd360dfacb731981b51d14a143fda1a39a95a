@@ -1,0 +1,14 @@
+docs/ADR/032-bpmn-diagram-canvas-renderer.md
+  h_1b119f25eaf333 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6b9bd360dfacb731981b51d14a143fda1a39a95a",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
