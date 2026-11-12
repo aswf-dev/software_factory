@@ -1,0 +1,18 @@
+docs/ADR/030-s-flow-bpmn-execution.md
+  h_1b119f25eaf333 75
+docs/ADR/032-bpmn-diagram-canvas-renderer.md
+  h_1b119f25eaf333 1-71
+docs/ADR/README.md
+  h_1b119f25eaf333 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1d123da1262950ae60d3d8ae837a434193e1ec68",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
