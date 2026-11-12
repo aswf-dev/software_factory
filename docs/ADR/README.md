@@ -60,6 +60,7 @@
 | [ADR-028](028-bpmn-runtime-stack.md) | BPMN 執行技術選型——bpmnkit 全環境使用（編輯器／檢視器／linter／模擬／執行）、DO 以事件日誌為準、記憶體快取＋冷喚醒重播、Workers Paid、FEEL-only、與 Scoreboard 同 Worker、WebSocket Hibernation、PITR 備援、引擎升級重播閘門；附 PoC 驗收標準 | 已接受（PoC 驗收中） | `ADR-027`、`research/56-bpmn-orchestration`、`ADR-015` |
 | [ADR-030](030-s-flow-bpmn-execution.md) | S 專案流程改由 BPMN 引擎執行——狀態以 D1 事件日誌為唯一事實、webhook＋排程推進、人工步驟與 HG 在 aswf.dev 簽核、顯示為伺服器端 SVG 的 BPMN 圖；`S.yaml` 為唯一來源（`S.json` 廢除）；worker bundle 自訂門檻 1→2 MiB | 已接受（依 §9 驗收） | `ADR-027`、`ADR-028`、`ADR-029`、`ADR-015`、`ADR-001`、`ADR-024` |
 | [ADR-031](031-prd-multi-round-clarify.md) | S 流程 P0 的需求取得改為**同步 LLM 的多輪 PRD 釐清**——一題一張卡、每輪寫 D1、BPMN 只有一個人工步驟；撤回 `agent-write-prd` 任務型別；PRD 定稿後公開、問答私有 | 已接受（2026-11-07） | `ADR-030`（修訂 P0 步驟表）、`ADR-009`、`ADR-029`、`ADR-025`、`ADR-027`、`ADR-015`、`ADR-023` |
+| [ADR-032](032-bpmn-diagram-canvas-renderer.md) | 流程頁的 BPMN 圖改由 `@bpmnkit/canvas` 在瀏覽器端渲染（修訂 `ADR-030` §6 的伺服器端 SVG）；補救中文斷字／無 i18n／滾輪攔截／長標籤；無 JS 由摘要表替代；CI e2e 把關；依序導入 S 樣本頁 → S 狀態頁 → M → L | 已接受（2026-11-12） | `ADR-030`（修訂 §6）、`ADR-028`（PoC #9 通過）、`ADR-027`、`ADR-015` |
 | [ADR-029](029-formal-verification-service.md) | aswf.dev 形式化驗證服務——BPMN 串起 grill（G1）→ Quint（G2）→ Lean（G3）→ 反例測試（G4）；~~一般使用者到 G2、白名單到 G4~~；GitHub OAuth＋repo write 權限；公開 runner 以 age 加密 artifact、延後發佈且資安發現不公開；驗證專用接入 | 已接受（PoC 驗收中）；2026-11-07 補記：改由 Cloudflare Access 管制、取消分級、不設上限並記錄用量、緊急開關 `FACTORY_SPEND_ENABLED` | `ADR-027`、`ADR-028`、`ADR-018`、`ADR-013`、`ADR-001` |
 
 ## 何時該寫新的 ADR
