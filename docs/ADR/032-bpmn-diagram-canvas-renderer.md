@@ -23,9 +23,11 @@
 1. **流程頁的 BPMN 圖由 `@bpmnkit/canvas` 在瀏覽器端渲染**，版本釘死（目前 `1.0.2`）。伺服器只算「元素 id → 狀態」、雙語標籤與 tooltip，連同模板 XML 一起交給頁面。
 2. **導入順序**：每一步都經使用者確認並合併後，才開始下一步。
    1. 樣本拓撲頁的 S 流程（`/scoreboard/process/[system]`）。
-   2. S 狀態頁（`/scoreboard/process/s/{id}`）與 S 流程預覽（`/scoreboard/process/flows/S`），完成後移除伺服器端 SVG 元件。
-   3. M。
-   4. L。
+   2. M，連同 S／M 的流程預覽（`/scoreboard/process/flows/S`、`/flows/M`）。
+   3. L。
+   4. S 狀態頁（`/scoreboard/process/s/{id}`），完成後移除伺服器端 SVG 元件。
+
+   > **2026-11-13 修訂順序**：使用者決定先做 M（原本第 2 步是 S 狀態頁與 flows/S）。flows 頁由同一份程式畫 S 與 M，所以 flows/S 隨 M 一起換；S 狀態頁延到 L 之後。M 的 `ProcessDef` 同時改由 BPMN 推導（`M.json` 退役）；M 的 BPMN 仍是暫定語意（P5 的條件式人工步驟一律執行），**只用於顯示**，不啟動實例，頁面附說明。
 
    `/verify` 的圖不在範圍內。
 3. **補救 canvas 1.0.2 的四個問題**（PoC 實測），集中在一個可測的模組：
