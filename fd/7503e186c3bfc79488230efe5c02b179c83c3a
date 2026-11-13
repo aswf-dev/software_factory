@@ -1,0 +1,20 @@
+docs/06-human-oversight-policy.md
+  h_1b119f25eaf333 205,208-209
+src/scoring/rescore-mutation.test.ts
+  h_1b119f25eaf333 2,23,28-30,291-357
+src/scoring/score.test.ts
+  h_1b119f25eaf333 2,259-285
+src/scoring/score.ts
+  h_1b119f25eaf333 165-175,180,187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fd7503e186c3bfc79488230efe5c02b179c83c3a",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
