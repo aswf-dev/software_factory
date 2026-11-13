@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { evaluateStopRules } from '../stop-rules/stop-rules.js'
 import { AUTOMERGE_MAX_LINES, rescore, score } from './score.js'
 import type { HardRuleId, ScoreInput, ScoreResult } from './types.js'
 
@@ -19,10 +20,14 @@ import type { HardRuleId, ScoreInput, ScoreResult } from './types.js'
  *  | M2 | `initial.automergeAllowed && updated.automergeAllowed` → `initial.automergeAllowed` | RED | RED |
  *  | M3 | blocker union → `...initial.automergeBlockers` only          | GREEN  | RED    |
  *  | M4 | guard removed (`if (false)`) → always return `updated`       | RED    | RED    |
+ *  | M5 | tie branch drops `triggeredHardRules` (returns `...initial`)  | GREEN  | RED    |
  *
  * "Before" = pre-existing suite alone. "After" = with this file added.
  * M1/M3 flipping GREEN→RED is the value this file adds; M2/M4 are anchored
  * here so the coverage cannot silently regress if the older tests move.
+ * M5 was found in production on agent-playground/keycloak: the catalog already
+ * declared `risk-profile: high`, so a hard-rule hit never moved the total and
+ * SR2 never fired. It is anchored here so the blind spot cannot come back.
  */
 
 /** Mirrors the shape of .github/factory/risk-paths.yml (docs/06 §5.2). */
@@ -283,5 +288,72 @@ describe('M4 變異：單向不降級的守衛被移除', () => {
     expect(twice.tier).toBe(once.tier)
     expect(twice.automergeAllowed).toBe(once.automergeAllowed)
     expect(new Set(twice.automergeBlockers)).toEqual(new Set(once.automergeBlockers))
+    expect(twice.triggeredHardRules).toEqual(once.triggeredHardRules)
+  })
+})
+
+describe('M5 變異：持平分支丟棄 updated 的 triggeredHardRules（SR2 失明）', () => {
+  /**
+   * The tie branch returned `...initial`, and `initial` is computed BEFORE the
+   * agent runs, so it can never carry a hard-rule hit. Any repo whose catalog
+   * already scores risk 2 — the normal case for anything worth guarding — has
+   * an unchanged total when a hard rule fires, so SR2 silently never fired and
+   * the mechanical backstop was dead exactly there (docs/06 §5.3).
+   *
+   * Mutation: drop `triggeredHardRules` from the tie branch's return (revert to
+   * `...initial`) → these tests go RED.
+   */
+  const highRiskCatalog = {
+    businessCriticality: 'tactical' as const,
+    riskProfile: 'high' as const,
+    complexity: 'high' as const,
+  }
+
+  it('總分持平且 updated 觸發硬性規則 → triggeredHardRules 必須保留', () => {
+    const initial = score(input({ annotations: highRiskCatalog }))
+    const updated = score(
+      input({ annotations: highRiskCatalog, changedPaths: ['src/auth/session.ts'] }),
+    )
+
+    expect(initial.triggeredHardRules).toEqual([])
+    expect(updated.total).toBe(initial.total)
+
+    const final = rescore(initial, updated)
+
+    expect(final.total).toBe(initial.total)
+    expect(final.triggeredHardRules).toContain('H1')
+  })
+
+  it('總分持平且 updated 觸發硬性規則 → 停手判定必須停止（SR2）', () => {
+    const initial = score(input({ annotations: highRiskCatalog }))
+    const updated = score(
+      input({ annotations: highRiskCatalog, changedPaths: ['src/crypto/keys.ts'] }),
+    )
+
+    const final = rescore(initial, updated)
+    const decision = evaluateStopRules({ triggeredHardRules: final.triggeredHardRules })
+
+    expect(decision.mustStop).toBe(true)
+    expect(decision.violations.map((v) => v.rule)).toContain('SR2-high-risk-domain')
+  })
+
+  it('initial 已帶觸發規則時，升級分支不得遺失它', () => {
+    const initial = score(input({ changedPaths: ['src/auth/session.ts'] }))
+    const updated = score(
+      input({
+        annotations: {
+          businessCriticality: 'strategic',
+          riskProfile: 'low',
+          complexity: 'low',
+        },
+        changedPaths: ['src/payment/invoice.ts'],
+      }),
+    )
+    expect(updated.total).toBeGreaterThan(initial.total)
+
+    const final = rescore(initial, updated)
+
+    expect(final.total).toBe(updated.total)
+    expect([...final.triggeredHardRules].sort()).toEqual(['H1', 'H2'])
   })
 })

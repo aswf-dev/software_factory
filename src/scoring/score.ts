@@ -162,15 +162,27 @@ export function score(input: ScoreInput): ScoreResult {
  * high-risk changes.
  */
 export function rescore(initial: ScoreResult, updated: ScoreResult): ScoreResult {
+  // Hard-rule hits are the ONE field that is recomputed from the real diff, so it
+  // must survive even when the total does not move. `initial` is produced before
+  // the agent runs and therefore can never carry a hit; forwarding only
+  // `initial.triggeredHardRules` on a tie made SR2 blind whenever the catalog
+  // already scored risk 2 (e.g. `factory.io/risk-profile: high`, where a hard
+  // rule raises risk from 2 to 2 and the total is unchanged) — exactly the repos
+  // where the mechanical backstop matters most (docs/06 §5.3).
+  const triggeredHardRules = [
+    ...new Set([...initial.triggeredHardRules, ...updated.triggeredHardRules]),
+  ]
+
   if (updated.total <= initial.total) {
     // Never downgrade, but a later hard-rule hit must still block automerge.
     return {
       ...initial,
+      triggeredHardRules,
       automergeAllowed: initial.automergeAllowed && updated.automergeAllowed,
       automergeBlockers: [
         ...new Set([...initial.automergeBlockers, ...updated.automergeBlockers]),
       ],
     }
   }
-  return updated
+  return { ...updated, triggeredHardRules }
 }
