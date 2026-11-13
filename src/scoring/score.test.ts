@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { evaluateStopRules } from '../stop-rules/stop-rules.js'
 import { AUTOMERGE_MAX_LINES, matchHardRules, rescore, score, tierForTotal } from './score.js'
 import type { HardRuleId, ScoreInput } from './types.js'
 
@@ -254,6 +255,33 @@ describe('二次判定：只升不降（docs/06 §5.3）', () => {
     const final = rescore(initial, updated)
     expect(final.total).toBe(initial.total)
     expect(final.automergeAllowed).toBe(false)
+  })
+
+  /**
+   * 風險軸已是 2 分時，硬性規則把 risk 從 2 拉到 2 不改變總分——這正是
+   * 目標 repo 把 `factory.io/risk-profile` 填成 `high` 的常見情形（例如
+   * agent-playground/keycloak）。若二次判定在總分持平時只轉發 initial 的
+   * `triggeredHardRules`（永遠為空），SR2 就永遠不會觸發，機械層對高風險
+   * 變更完全失明（docs/06 §5.3）。
+   */
+  it('分數持平但 diff 觸及硬性規則 → 觸發規則仍須傳遞給停手判定（SR2）', () => {
+    const annotations = {
+      businessCriticality: 'tactical' as const,
+      riskProfile: 'high' as const,
+      complexity: 'high' as const,
+    }
+    const initial = score(input({ annotations }))
+    const updated = score(input({ annotations, changedPaths: ['src/auth/session.ts'] }))
+
+    expect(initial.triggeredHardRules).toEqual([])
+    expect(updated.triggeredHardRules).toContain('H1')
+
+    const final = rescore(initial, updated)
+
+    expect(final.total).toBe(initial.total)
+    expect(final.tier).toBe(initial.tier)
+    expect(final.triggeredHardRules).toContain('H1')
+    expect(evaluateStopRules({ triggeredHardRules: final.triggeredHardRules }).mustStop).toBe(true)
   })
 })
 
