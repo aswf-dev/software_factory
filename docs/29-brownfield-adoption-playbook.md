@@ -575,7 +575,7 @@ flowchart LR
 
     subgraph P3["P3 安全網（依 A4 風險熱點排序）"]
         direction TB
-        L12(["L12 工單：agent-add-tests → agent-fix-bug →<br/>agent-write-spec 或 agent-pbt-audit"]):::wi
+        L12(["L12 工單：agent-add-tests → agent-fix-bug →<br/>agent-write-spec／agent-pbt-audit／豁免（HG5）"]):::wi
         HG5{{"HG5 兩人簽核"}}:::hg
         HG6c{{"HG6 兩人簽核（模組達 R2）"}}:::hg
         L12 --> HG5 --> HG6c
@@ -632,7 +632,7 @@ flowchart LR
 | L9 | P1 | 分流會議：決定開哪些後續工單 | 不開工單（人類決策，產出後續開單清單） | 會議紀錄連結於追蹤 Issue | HG0、**HG6 兩人簽核** |
 | L10 | P2 | arc42 文件集＋context map 文件 | **`agent-write-docs` × 每 BC 1–2 ＋ 系統 1** | 文件 PR 合併 | HG3（跨 BC 加架構負責人） |
 | L11 | P2 | 核心模組業務規則 | 不開工單（人類） | 存在於 trunk | **HG4 領域專家＋業務擁有者** |
-| L12 | P3 | 依 A4 排序，逐模組補測試→修缺陷→驗證閘門 | **`agent-add-tests` × A2 項數 → `agent-fix-bug` × 缺陷數 → `agent-write-spec` 或 `agent-pbt-audit` × 每核心模組 1** | 模組達 R2＋§10.3 | HG3、**HG5 兩人簽核**、**HG6 兩人簽核** |
+| L12 | P3 | 依 A4 排序，逐模組補測試→修缺陷→驗證閘門 | **`agent-add-tests` × A2 項數 → `agent-fix-bug` × 缺陷數 → `agent-write-spec` 或 `agent-pbt-audit` × 每核心模組 1** | 模組達 R2＋§10.3 | HG3、**HG5 兩人簽核**、**HG6 兩人簽核**（工廠步驟：L12a 補測試、L12b 修缺陷、L12c 驗證閘門含豁免） |
 | L13 | P4 | 維護 | **`agent-update-deps`／`agent-fix-bug`／`agent-propose-skill`** | — | HG0、HG3；每觀察期 HG 回顧 |
 | L14 | P5 | 拆分前準備 | **`agent-analyze`（接縫、資料所有權）× 每個候選切片**、**`agent-add-tests`（characterization）× 每個切片** | 報告與測試 PR 合併 | HG7-1、HG7-2 |
 | L17 | P5 | 拆分中的驗證支援（拆分本身由人類執行） | **`agent-add-tests`／`agent-write-spec`**，驗證新舊行為一致 | parallel run 結果一致 | HG7-3、HG7-4、HG7-5 |
