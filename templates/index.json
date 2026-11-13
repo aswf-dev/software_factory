@@ -571,21 +571,33 @@
             ]
           },
           {
-            "id": "L12",
+            "id": "L12a",
             "phase": "P3",
-            "action": "依 A4 排序，逐模組補測試→修缺陷→驗證閘門",
+            "action": "依 A4 排序，逐模組補測試",
+            "kind": "work-item",
+            "task_type": "agent-add-tests",
+            "per": "module",
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "L12b",
+            "phase": "P3",
+            "action": "修復揭露的缺陷",
+            "kind": "work-item",
+            "task_type": "agent-fix-bug",
+            "per": "defect",
+            "gates": [
+              "HG3"
+            ]
+          },
+          {
+            "id": "L12c",
+            "phase": "P3",
+            "action": "驗證閘門（每核心模組擇一）",
             "kind": "work-item",
             "alternatives": [
-              {
-                "kind": "work-item",
-                "action": "補測試",
-                "task_type": "agent-add-tests"
-              },
-              {
-                "kind": "work-item",
-                "action": "修復缺陷",
-                "task_type": "agent-fix-bug"
-              },
               {
                 "kind": "work-item",
                 "action": "Quint 可執行規格",
@@ -595,11 +607,14 @@
                 "kind": "work-item",
                 "action": "Hegel 性質測試稽核",
                 "task_type": "agent-pbt-audit"
+              },
+              {
+                "kind": "human",
+                "action": "豁免單（HG5 簽核）"
               }
             ],
             "per": "module",
             "gates": [
-              "HG3",
               "HG5",
               "HG6"
             ]
