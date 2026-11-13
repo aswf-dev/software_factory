@@ -85,25 +85,39 @@ steps:
     action: 撰寫核心模組業務規則
     kind: human
     gates: [HG4]
-  - id: L12
+  # docs/29 §9.3 的 L12 是**一列鏈**：「agent-add-tests × A2 項數 → agent-fix-bug × 缺陷數
+  # → agent-write-spec 或 agent-pbt-audit × 每核心模組 1」。這裡拆成三個 factory 步驟
+  # （L12a／L12b／L12c），與 S8–S10、M10–M12 同一形狀；`per: defect` 的集合為空時零次迭代
+  # 直接通過。驗證閘門依 §10.3 每核心模組擇一：Quint、Hegel，或**人類簽核的豁免單**（HG5）。
+  - id: L12a
     phase: P3
-    action: 依 A4 排序，逐模組補測試→修缺陷→驗證閘門
+    action: 依 A4 排序，逐模組補測試
+    kind: work-item
+    task_type: agent-add-tests
+    per: module
+    gates: [HG3]
+  - id: L12b
+    phase: P3
+    action: 修復揭露的缺陷
+    kind: work-item
+    task_type: agent-fix-bug
+    per: defect
+    gates: [HG3]
+  - id: L12c
+    phase: P3
+    action: 驗證閘門（每核心模組擇一）
     kind: work-item
     per: module
     alternatives:
-      - kind: work-item
-        action: 補測試
-        task_type: agent-add-tests
-      - kind: work-item
-        action: 修復缺陷
-        task_type: agent-fix-bug
       - kind: work-item
         action: Quint 可執行規格
         task_type: agent-write-spec
       - kind: work-item
         action: Hegel 性質測試稽核
         task_type: agent-pbt-audit
-    gates: [HG3, HG5, HG6]
+      - kind: human
+        action: 豁免單（HG5 簽核）
+    gates: [HG5, HG6]
   - id: L13
     phase: P4
     action: 維護（依需要；每觀察期做一次 HG 回顧）

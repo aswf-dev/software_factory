@@ -90,12 +90,14 @@ describe('模板內容', () => {
     }
   })
 
-  it('必要步驟數量（總步驟數扣掉標記為非必要的維護步驟）：S 14、M 15、L 18', () => {
+  it('必要步驟數量（總步驟數扣掉標記為非必要的維護步驟）：S 14、M 15、L 20', () => {
     // S 在 2026-11-01 由 ADR-030 §3 新增 S7B「確認模組清單」（P3 開頭的人工確認）。
     // 2026-11-05（B7）：S0 之後新增模板層 effect 步驟 S0-issue（導入追蹤 Issue）。
     // 2026-11-07（ADR-031）：S1 之後新增人工步驟 S2-prd（PRD 多輪釐清、確認 PRD）。
     expect(requiredSteps(templateOf('S'))).toHaveLength(14)
     expect(requiredSteps(templateOf('M'))).toHaveLength(15)
-    expect(requiredSteps(templateOf('L'))).toHaveLength(18)
+    // 2026-11-13：L12 由「四選一」拆成補測試、修缺陷、驗證閘門三步（L12a／L12b／L12c，
+    // 對應 docs/29 §9.3 的 L12 一列鏈與 §10.3 的豁免路徑），必要步驟 18 → 20。
+    expect(requiredSteps(templateOf('L'))).toHaveLength(20)
   })
 })
