@@ -1,0 +1,22 @@
+# Cloudflare Worker：在 Access 驗證通過後替 DSH 注入長效 session cookie（見 worker.js）。
+#
+# 部署（在本目錄）：
+#   npx wrangler login
+#   npx wrangler deploy                                              # 先建立 Worker（沒有 DSH_COOKIE 時不注入，安全）
+#   ../../start.sh --mint-cookie | npx wrangler secret put DSH_COOKIE  # 再放 secret（會自動生效）
+#
+# 在 Access 上線、且 ACCESS_TEAM_DOMAIN 與 ACCESS_AUD 都填好之前，Worker 不會注入任何東西，
+# 也就是會照常走 DSH 自己的 token 驗證。
+name = "dsh-edge-auth"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# 不要開 *.workers.dev：那個網址無法套 Access。
+workers_dev = false
+routes = [{ pattern = "dsh.aswf.dev/*", zone_name = "aswf.dev" }]
+
+[vars]
+ACCESS_TEAM_DOMAIN = "philipz.cloudflareaccess.com"  # Zero Trust → Settings
+ACCESS_AUD = "a5458e8290475a6cc505759e0b973b0f17345c061b115353bb5afc82b9af5cd6"  # Access controls → Applications → dsh.aswf.dev → Edit → Additional settings
+ALLOWED_EMAILS = "philipzheng@gmail.com"  # 只允許這些 email（逗號分隔）；空白 = 任何通過 Access policy 的人
+# DSH_COOKIE 是 secret，請用 `wrangler secret put DSH_COOKIE` 設定，不要寫在這裡。
