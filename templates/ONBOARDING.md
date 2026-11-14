@@ -100,20 +100,24 @@ extra_steps: []              # 可加，不能改模板
 - 版本不可變：流程調整開新 `version`，系統再以 PR 改 `template_version`。
 - 不要把租戶模板放進別的租戶目錄，也不要共用自己的 gate id 前綴。
 
-## 7. 可看的完整範例
+## 7. 範例：只剩 `factory/S|M|L`
 
-機制 repo 內有一個明確標示為範例的租戶模板與對應的合成系統：
+租戶自訂模板已於 2026-11-14 移除（`templates/example/review-first.yaml`、
+`templates/agent-playground/review-first.yaml`、`templates/tradingbot-tw/saga-pattern.yaml`
+與對應的 `processes/**` 一起刪除）。要看實際的流程定義與圖：
 
-| 檔案 | 內容 |
+| 位置 | 內容 |
 |---|---|
-| `templates/example/review-first.yaml` | 範例模板（自訂閘門 `EXAMPLE-SECURITY`） |
-| `processes/samples/example-portal.yaml`（＋modules／issues／comments） | 採用它的合成系統；`factory-snapshot` 會發佈 `example/portal` |
-| `/scoreboard/process/templates/example/review-first` | Scoreboard 的定義預覽（由 registry 轉換） |
-| `/scoreboard/process/live/example/portal` | live 拓撲（快照發佈後；示範租戶模板路徑） |
+| `templates/factory/{S,M,L}.yaml` | 三個工廠模板（名稱上就是唯一的選擇） |
+| `templates/factory/*.bpmn`（Scoreboard repo） | 前述模板的 BPMN 正本；圖與執行定義同源 |
+| `/docs/process/flows/{S,M,L}` | 流程預覽（不需要登入） |
+| `/docs/process/flows/{quint-verification,hegel-audit,exemption}` | 驗證閘門的三個分支子流程 |
+
+合成系統範例仍在 `processes/samples/payment-platform.*`（採 `factory/M`）。
 
 ## 8. UI（Scoreboard）
 
-- 模板目錄：`/scoreboard/process` 的「模板目錄」區塊（registry）。
-- 定義預覽：`/scoreboard/process/templates/<tenant>/<name>`。
-- 編輯器：`/scoreboard/process/edit/<system>` 可選租戶模板，匯出 `processes/<system>.yaml`（不寫入、不開 PR）。
+- 流程定義與圖：`/docs/process`（公開；S／M／L 與三個驗證分支子流程）。
+- 編輯器：`/scoreboard/process/edit/<system>` 選 `factory/S|M|L`，匯出 `processes/<system>.yaml`（不寫入、不開 PR）。
+- 模板目錄與定義預覽已移除（租戶模板下架，`/docs/process/templates/*` 301 到 `/docs#process`）。
 - production 的 live／模板頁會套用 `TENANT_ACCESS`；沒有被列出的租戶會得到 403。

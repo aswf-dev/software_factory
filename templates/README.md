@@ -15,13 +15,14 @@ node dist/cli/factory-template.js resolve --root . --id factory/M
 
 `factory-template` 會檢查目錄與 `templates/**` 一致（檔案存在、版本相符、沒有未列出的模板）；不一致就是 CliError，不是 warning。`src/process/registry.test.ts` 也在 CI 釘住這份一致性。
 
+2026-11-14：租戶自訂模板（`templates/<tenant>/*.yaml`）已移除。新舊系統都只用 `factory/S|M|L`；
+理由見 Issue #179（BPMN 是正本，租戶模板沒有 BPMN）與 Scoreboard PR #257（下游已無法顯示租戶模板）。
+
 | 路徑 | id | 說明 |
 |---|---|---|
 | `templates/factory/S.yaml` | `factory/S` | 小型 preset（`docs/29` §9.1） |
 | `templates/factory/M.yaml` | `factory/M` | 中型 preset（§9.2） |
 | `templates/factory/L.yaml` | `factory/L` | 大型 preset（§9.3） |
-| `templates/example/review-first.yaml` | `example/review-first` | **範例**（非真實租戶）：演示租戶模板、自訂閘門 `EXAMPLE-SECURITY` 與 Scoreboard 的目錄／定義預覽 |
-| `templates/agent-playground/review-first.yaml` | `agent-playground/review-first` | 第一個真實租戶（restate-cloudflare-workers-poc 試點）；自訂閘門 `AGENT-PLAYGROUND-SECURITY` |
 
 規則：
 
