@@ -21,7 +21,7 @@
     "coverage": "npm run build && vitest run --coverage"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.2.2-rc.1",
+    "@deepseek-ai/dsh": "0.2.2-rc.3",
     "@informalsystems/quint": "0.33.1",
     "@types/node": "26.6.6",
     "@vitest/coverage-v8": "4.1.11",
