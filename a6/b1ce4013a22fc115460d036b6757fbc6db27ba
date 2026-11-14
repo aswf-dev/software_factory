@@ -1,0 +1,22 @@
+.github/workflows/factory-snapshot.yml
+  h_1b119f25eaf333 239
+processes/samples/README.md
+  h_1b119f25eaf333 3-4
+src/process/systems.test.ts
+  h_1b119f25eaf333 16-20
+templates/ONBOARDING.md
+  h_1b119f25eaf333 103,105-107,109,111-116,120-122
+templates/README.md
+  h_1b119f25eaf333 18-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6b1ce4013a22fc115460d036b6757fbc6db27ba",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
