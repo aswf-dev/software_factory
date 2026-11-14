@@ -13,8 +13,11 @@ const realReader: DirReader = {
 const { systems: REAL_SYSTEMS, skipped } = discoverSystems(realReader)
 
 describe('真實租戶系統（processes/<owner>/<repo>.yaml）', () => {
-  it('至少有一個真實系統，且沒有因名稱不合法被略過的 spec', () => {
-    expect(REAL_SYSTEMS.length).toBeGreaterThan(0)
+  // 2026-11-14：原本要求「至少有一個真實系統」。三個用租戶自訂模板的試點系統下架後
+  // （templates/<tenant>/*.yaml 已刪除、機制只留 factory/S|M|L），processes/ 只剩
+  // samples/（discovery 會跳過），真實系統數為 0。機制不強制要有系統，但只要列進來的
+  // 系統，下面每一條都必須通過。
+  it('沒有因名稱不合法被略過的 spec（真實系統數可以是 0）', () => {
     expect(skipped).toEqual([])
   })
 

@@ -201,18 +201,6 @@ jobs:
             --comments-file processes/samples/payment-platform.comments.json \
             --generated-at "$generated_at" > out/payment-platform.json
 
-          # 租戶模板範例（example/review-first@1）：示範 registry → live 的完整鏈路。
-          node dist/cli/factory-snapshot.js \
-            --repo example/portal \
-            --system example/portal \
-            --process processes/samples/example-portal.yaml \
-            --template templates/example/review-first.yaml \
-            --modules processes/samples/example-portal.modules.yaml \
-            --issues-file processes/samples/example-portal.issues.json \
-            --tracking-issue 900 \
-            --comments-file processes/samples/example-portal.comments.json \
-            --generated-at "$generated_at" > out/example-portal.json
-
       - name: Collect real-system snapshots
         uses: actions/download-artifact@v8
         # 沒有任何真實系統、或全部失敗時沒有 artifact——仍要發佈樣本。
@@ -248,7 +236,7 @@ jobs:
           node -e '
           const fs = require("node:fs");
           // 樣本系統（合成資料）用固定清單標記；其餘視為真實租戶系統。
-          const SAMPLE_FILES = new Set(["payment-platform.json", "example-portal.json"]);
+          const SAMPLE_FILES = new Set(["payment-platform.json"]);
           const files = fs.readdirSync("out").filter((f) => f.endsWith(".json") && f !== "index.json").sort();
           const snapshots = files.map((f) => JSON.parse(fs.readFileSync(`out/${f}`, "utf8")));
           const index = {
