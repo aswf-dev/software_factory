@@ -1,0 +1,22 @@
+# gitleaks 設定：放行 Cloudflare Access 的 AUD（公開識別碼），預設規則照常生效。
+#
+# `ACCESS_AUD` 是 Cloudflare Access 應用程式的 **Application Audience (AUD) tag**：
+# 每個 Access JWT 的 `aud` claim 都帶著它，Access 後台（Applications → … → Additional
+# settings）也直接看得到。它只回答「這張 JWT 是發給哪個應用程式」，沒有它仍然無法偽造
+# JWT（簽章由 Access 的私鑰簽），所以放進版控沒有問題。
+#
+# gitleaks 的 `generic-api-key` 規則只因為變數名稱含 `ACCESS`、值又是 64 位 hex（高熵）
+# 就當成金鑰。這裡只放行**這一個值**：
+#   * 同一個檔案裡真正的 secret（`DSH_COOKIE`）照樣會被擋——它不該進版控，要用
+#     `npx wrangler secret put DSH_COOKIE` 設定（見 wrangler.toml 的註解）；
+#   * 換了 Access 應用程式就會換 AUD，那時 CI 會再擋一次。請確認新的 tag 同樣是公開
+#     識別碼，再把下面的值換掉。
+#
+# 注意：自訂 .gitleaks.toml 會**取代**預設規則集，除非保留下面的 `[extend] useDefault`。
+# 少了它，所有規則都不會被載入（掃描會假性全綠）。
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Cloudflare Access 的 Application Audience (AUD) tag 是公開識別碼，不是 secret"
+regexes = ['''^a5458e8290475a6cc505759e0b973b0f17345c061b115353bb5afc82b9af5cd6$''']
