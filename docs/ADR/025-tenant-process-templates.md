@@ -1,10 +1,11 @@
 # ADR-025：多租戶公司流程模板——工廠固定 meta-contract，租戶擁有自己的流程
 
-- **狀態**：已接受
-- **部分已被取代**：`ADR-027` §9（已接受，2026-10-26）——模板格式改為 BPMN（`templates/<tenant>/<name>.v<N>.bpmn`）；meta-contract 不變，改由 linter 對 BPMN 執行（`ADR-028` §3）。
-- **日期**：2026-10-18
+- **狀態**：**已被取代（2026-11-14）**——租戶自訂模板機制整個移除，只剩 `factory/S|M|L`（PR #181、Issue #179）。
+- **取代原因**：BPMN 是正本（`ADR-027` §9），租戶模板只有 YAML、沒有 BPMN；下游（Scoreboard）只能把它近似轉換成另一種圖，同一套流程的圖與實際執行可能不一致。自訂需求改由系統 `process.yaml` 的 `extra_steps`／`gates`／`gate_defs` 表達，`meta-contract` 的規則不變（見 `templates/ONBOARDING.md`）。
+- **歷史上的部分取代**：`ADR-027` §9（已接受，2026-10-26）——模板格式改為 BPMN（`templates/<tenant>/<name>.v<N>.bpmn`）；meta-contract 不變，改由 linter 對 BPMN 執行（`ADR-028` §3）。
+- **日期**：2026-10-18（原決定）／2026-11-14（取代）
 - **決定者**：平台架構（使用者裁決：同一平台多租戶、HG 固定但可自行新增、`scale` 與模板脫鉤）
-- **對應**：`ADR-023`（`process.yaml` 與拓撲 UI）、`ADR-024`（執行語意）、`ADR-022`（前置工作項）、`docs/29` §6／§8／§9、`docs/10`（`Q-ORCH-4/5`）
+- **對應**：`ADR-023`（`process.yaml` 與拓撲 UI）、`ADR-024`（執行語意）、`ADR-022`（前置工作項）、`ADR-027`（BPMN 編排）、`docs/29` §6／§8／§9、`docs/10`（`Q-ORCH-4/5`）
 
 ## 脈絡
 
