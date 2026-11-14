@@ -5,6 +5,7 @@
 - **決定者**：使用者（經 grilling 逐題裁決，Q1–Q43）
 - **取代**：`ADR-023` 全文、`ADR-024` 全文、`ADR-025` §2（模板檔案格式）與 §3 的實作載體、`ADR-026` §1（系統 spec 與模組清單的格式與檔名）
 - **修訂**：`ADR-001`（GitHub 仍是事實的唯一來源；新增「流程位置」由 Durable Object 權威的分層）
+- **2026-11-14 更新**：本文提到的租戶模板（`templates/<tenant>/<name>.v<N>.bpmn`）已隨租戶模板機制移除（PR #181、Issue #179）。BPMN 仍是正本；現在只有 `templates/factory/{S,M,L}.bpmn`，客製改由系統 `process.yaml` 表達。
 - **對應**：`ADR-028`（技術選型與 PoC 驗收）、`research/56-bpmn-orchestration`（實測證據）、`ADR-022`（前置工作項、`stage/done`）、`ADR-021`（N-version）、`docs/29` §6／§8／§9、`docs/31` §1
 
 ## 脈絡
