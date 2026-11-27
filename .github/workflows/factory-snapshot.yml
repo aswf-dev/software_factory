@@ -99,7 +99,7 @@ jobs:
       # GITHUB_TOKEN 只涵蓋機制 repo，因此用 factory App token 讀目標 repo。
       - name: Create factory App token (target repo read)
         id: app-token
-        uses: actions/create-github-app-token@v3.3.0
+        uses: actions/create-github-app-token@v3.4.0
         with:
           client-id: ${{ secrets.FACTORY_APP_CLIENT_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
